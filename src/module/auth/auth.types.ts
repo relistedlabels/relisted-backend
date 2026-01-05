@@ -14,11 +14,6 @@ export class registerDto {
     @IsEmail()
     email:string
 
-    @IsString()
-    phoneNumber:string
-
-    @IsString()
-    gender:string
 
     @IsString()
     password:string
