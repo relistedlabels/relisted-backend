@@ -13,9 +13,10 @@ import {
   forgotPasswordDto,
   loginDto,
   registerDto,
+  ResendVerificationEmail,
   resetPasswordDto,
   userEntity,
-  verifyEmailDto,
+  verifyEmailDto
 } from './auth.types';
 
 @Injectable()
@@ -151,20 +152,19 @@ export class AuthService {
   }
 
   // resend code
-  async resendOtpCode(dto: forgotPasswordDto) {
-    const { email } = dto;
-    const emailExist = await this.prisma.user.findUnique({
-      where: {
-        email,
-      },
+  async resendOtpCode(dto:ResendVerificationEmail) {
+  const user = await this.prisma.user.findUnique({
+      where: { email: dto.email },
     });
-    if (!emailExist) bad('invalid credentials');
-    if (emailExist.isVerified) bad('account already verified');
+    if (!user) return;
+    
+
+    if (user.isVerified) bad('account already verified');
 
     //  Check for recent OTP requests
     const recentOtp = await this.prisma.authOtpToken.findFirst({
       where: {
-        userId: emailExist.id,
+        userId: user.id,
         subject: Auth_Otp_Token_Subject.Verify_Email,
         createdAt: {
           gte: subMinutes(new Date(), 1),
@@ -179,30 +179,30 @@ export class AuthService {
     }
     await this.prisma.authOtpToken.deleteMany({
       where: {
-        userId: emailExist.id,
+        userId: user.id,
         subject: Auth_Otp_Token_Subject.Verify_Email,
 
         expiry: { lt: new Date() },
       },
     });
     const otpCode = await this.authOtpTokenService.createOtp({
-      userId: emailExist.id,
+      userId: user.id,
       type: AuthOtpTokenType.OTP,
       subject: Auth_Otp_Token_Subject.Verify_Email,
-      email: email,
+      email:dto.email,
       expiry: addMinutes(new Date(), 10),
     });
     // listen to an event emitter
     const year = new Date().getFullYear();
     await this.eventEmitter.emit(
       'verification_mail',
-      new Verification_Mail(email, otpCode.code, emailExist.name, year),
+      new Verification_Mail(dto.email, otpCode.code,user.name, year),
     );
   }
 
   // reset password
   async resetPassword(dto: resetPasswordDto) {
-    const { code, password, email } = dto;
+    const { code, password} = dto;
 
     // find and verify the token
     const token = await this.authOtpTokenService.findCode(code);

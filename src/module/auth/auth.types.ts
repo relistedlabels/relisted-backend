@@ -60,5 +60,12 @@ export class userEntity{
     sub:string
     // role:Role
     email:string
-    hotelId?:string
+    isVerified:boolean
+    name:string
+}
+
+
+export class ResendVerificationEmail {
+  @IsEmail()
+  email: string;
 }
