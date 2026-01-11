@@ -10,7 +10,7 @@ import { Observable } from 'rxjs';
 import { PrismaService } from 'src/services/prisma/prisma.service';
 
 @Injectable()
-export class AuthGuard implements CanActivate {
+export class JwtAuthGuard implements CanActivate {
   constructor(
     private jwtService: JwtService,
     private prismaService: PrismaService,

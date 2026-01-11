@@ -16,8 +16,9 @@ import {
   ResendVerificationEmail,
   resetPasswordDto,
   userEntity,
-  verifyEmailDto
+  verifyEmailDto,
 } from './auth.types';
+import { Role } from '@prisma/client';
 
 @Injectable()
 export class AuthService {
@@ -93,6 +94,43 @@ export class AuthService {
     };
   }
 
+  async handleGoogleLogin(googleUser: {
+    email: string;
+    name: string;
+    provider: string;
+  }) {
+    let user = await this.prisma.user.findUnique({
+      where: { email: googleUser.email },
+    });
+
+    //  create new user
+    if (!user) {
+      user = await this.prisma.user.create({
+        data: {
+          email: googleUser.email,
+          name: googleUser.name,
+          provider: googleUser.provider,
+          role: Role.USER,
+          password: '',
+          isVerified: true,
+        },
+      });
+    }
+
+    const payload = {
+      sub: user.id,
+      role: user.role,
+      email: user.email,
+    };
+
+    const accessToken = await this.jwtService.signAsync(payload);
+
+    return {
+      accessToken,
+      user,
+    };
+  }
+
   // verify the email
   async verifyEmail(dto: verifyEmailDto) {
     // check if the email exist
@@ -124,7 +162,7 @@ export class AuthService {
     };
   }
 
-  // forget password 
+  // forget password
   async forgotPassword(dto: forgotPasswordDto) {
     const { email } = dto;
     // find if the email exist
@@ -152,12 +190,11 @@ export class AuthService {
   }
 
   // resend code
-  async resendOtpCode(dto:ResendVerificationEmail) {
-  const user = await this.prisma.user.findUnique({
+  async resendOtpCode(dto: ResendVerificationEmail) {
+    const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
     if (!user) return;
-    
 
     if (user.isVerified) bad('account already verified');
 
@@ -189,20 +226,20 @@ export class AuthService {
       userId: user.id,
       type: AuthOtpTokenType.OTP,
       subject: Auth_Otp_Token_Subject.Verify_Email,
-      email:dto.email,
+      email: dto.email,
       expiry: addMinutes(new Date(), 10),
     });
     // listen to an event emitter
     const year = new Date().getFullYear();
     await this.eventEmitter.emit(
       'verification_mail',
-      new Verification_Mail(dto.email, otpCode.code,user.name, year),
+      new Verification_Mail(dto.email, otpCode.code, user.name, year),
     );
   }
 
   // reset password
   async resetPassword(dto: resetPasswordDto) {
-    const { code, password} = dto;
+    const { code, password } = dto;
 
     // find and verify the token
     const token = await this.authOtpTokenService.findCode(code);
@@ -223,11 +260,9 @@ export class AuthService {
         email: token.email,
       },
       data: {
-        password:await argon2.hash(password)
-      
-        },
+        password: await argon2.hash(password),
       },
-    );
+    });
     // delete the token
     await this.authOtpTokenService.deleteOtp(token.id);
     return {

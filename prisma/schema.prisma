@@ -1,14 +1,13 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
+  // output ="/dbml"
+}
+generator dbml {
+  provider = "prisma-dbml-generator"
+  output="./dbml"
+  outputName="schema.dbml"
+  // projectName=""
 
-  // output     = "../generated/prisma"
-  // engineType = "library"
 }
 
 datasource db {
@@ -16,29 +15,133 @@ datasource db {
   // url      = env("DATABASE_URL")
 }
 
-model User {
-  id         String         @id @default(uuid())
-  email      String         @unique
-  password   String
-  name       String
-  isVerified Boolean        @default(false)
-  createdAt  DateTime       @default(now())
-  updatedAt  DateTime       @default(now())
-  // auth      Auth?
-  token      AuthOtpToken[]
-
+enum Role {
+  ADMIN
+  CURATOR
+  USER
 }
-
-// model Auth {
-//   id       String @id @default(uuid())
-//   password String
-//   user     User   @relation(fields: [userId], references: [id])
-//   userId   String @unique
-// }
 
 enum AuthOtpTokenType {
   TOKEN
   OTP
+}
+
+enum ProductStatus {
+  AVAILABLE
+  RENTED
+  MAINTENANCE
+}
+
+enum WalletTransactionStatus {
+  DEBIT
+  CREDIT
+  LOCKED
+}
+
+enum OrderStatus {
+  PROCESSING
+  CONFIRMED
+  IN_TRANSIT
+  DELIVERED
+  ACTIVE
+  RETURN_DUE
+  RETURNED
+  COMPLETED
+  CANCELLED
+}
+
+model User {
+  id         String  @id @default(uuid())
+  email      String  @unique
+  password   String
+  name       String
+  provider   String?
+  isVerified Boolean @default(false)
+  role       Role    @default(USER)
+
+  tokens     AuthOtpToken[]
+  products   Product[]      @relation("CuratedProducts")
+  cart       Cart?
+  favourites Favourite[]
+  orders     Order[]
+  address    Address[]
+  wallet     Wallet?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  profile   Profile?
+}
+
+model Profile {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+
+  phoneNumber String
+
+  bvn        String
+  isApproved String
+
+  emergencyContacts EmergencyContact[]
+  businessInfo      BusinessInfo[]
+  bankAccounts      BankInfo[]
+  ninUpload         File[]
+  address           Address[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model EmergencyContact {
+  id        String  @id @default(uuid())
+  profileId String
+  profile   Profile @relation(fields: [profileId], references: [id])
+
+  name         String
+  relationship String
+  phoneNumber  String
+  city         String
+  state        String
+}
+
+model BusinessInfo {
+  id        String  @id @default(uuid())
+  profileId String  @unique
+  profile   Profile @relation(fields: [profileId], references: [id])
+
+  businessName               String
+  businessEmail              String
+  businessRegistrationNumber String
+  businessAddress            String
+  businessCity               String
+  businessState              String
+}
+
+model BankInfo {
+  id        String  @id @default(uuid())
+  profileId String
+  profile   Profile @relation(fields: [profileId], references: [id])
+
+  bankName      String
+  accountNumber String
+  nameOfAccount String
+}
+
+model Address {
+  id        String  @id @default(uuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id])
+  profile   Profile @relation(fields: [profileId], references: [id])
+  profileId String
+  street    String
+  city      String
+  state     String
+  country   String
+  zipCode   String
+  isDefault Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model AuthOtpToken {
@@ -46,16 +149,172 @@ model AuthOtpToken {
   subject String
   type    AuthOtpTokenType @default(OTP)
   code    String           @unique
+  expiry  DateTime
+  email   String
 
-  expiry DateTime
-  email  String
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Product {
+  id          String @id @default(uuid())
+  name        String
+  subText     String
+  description String
+  condition   String
+
+  dailyPrice Int
+  isActive   Boolean       @default(true)
+  status     ProductStatus @default(AVAILABLE)
+
+  brandId String
+  brand   Brand  @relation(fields: [brandId], references: [id])
+
+  categoryId String
+  category   ProductCategory @relation(fields: [categoryId], references: [id])
+
+  curatorId String
+  curator   User   @relation("CuratedProducts", fields: [curatorId], references: [id])
+
+  files      File[]
+  rentals    Rental[]
+  cartItems  CartItem[]
+  favourites Favourite[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Brand {
+  id        String    @id @default(uuid())
+  name      String
+  products  Product[]
+  createdAt DateTime  @default(now())
+}
+
+model ProductCategory {
+  id        String    @id @default(uuid())
+  name      String
+  products  Product[]
+  createdAt DateTime  @default(now())
+}
+
+model File {
+  id        String   @id @default(uuid())
+  url       String
+  type      String
+  createdAt DateTime @default(now())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  profile   Profile  @relation(fields: [profileId], references: [id])
+  profileId String
+}
+
+model Cart {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+
+  items CartItem[]
+}
+
+model CartItem {
+  id        String @id @default(uuid())
+  cartId    String
+  productId String
+  days      Int
+
+  cart      Cart     @relation(fields: [cartId], references: [id])
+  product   Product  @relation(fields: [productId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+model Favourite {
+  id        String @id @default(uuid())
+  userId    String
+  productId String
+
+  user      User     @relation(fields: [userId], references: [id])
+  product   Product  @relation(fields: [productId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
+}
+
+model Order {
+  id      String      @id @default(uuid())
+  orderId String      @unique
+  status  OrderStatus @default(PROCESSING)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  rental   Rental?
+  payments Transaction[]
   
 
-  user   User   @relation(fields: [userId], references: [id])
-  userId String
-  createdAt  DateTime       @default(now())
-  updatedAt  DateTime       @default(now())
+  createdAt DateTime @default(now())
+}
 
-  @@index([code])
-  @@index([email])
+model Rental {
+  id String @id @default(uuid())
+
+  orderId String @unique
+  order   Order  @relation(fields: [orderId], references: [id])
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+
+  days Int
+
+  totalAmount Int
+
+  startDate  DateTime
+  endDate    DateTime
+  returnedAt DateTime?
+
+  isReturned Boolean @default(false)
+  isOverdue  Boolean @default(false)
+
+  createdAt DateTime @default(now())
+}
+
+model Transaction {
+  id            String @id @default(uuid())
+  transactionId String @unique
+  amount        Int
+  method        String
+  status        String
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id])
+
+  createdAt DateTime @default(now())
+}
+
+model Wallet {
+  id      String @id @default(uuid())
+  balance Int    @default(0)
+
+  userId       String              @unique
+  user         User                @relation(fields: [userId], references: [id])
+  transactions WalletTransaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model WalletTransaction {
+  id       String @id @default(uuid())
+  walletId String
+  wallet   Wallet @relation(fields: [walletId], references: [id])
+
+  amount Int
+  status WalletTransactionStatus @default(LOCKED)
+  note   String?
+
+  createdAt DateTime @default(now())
 }
