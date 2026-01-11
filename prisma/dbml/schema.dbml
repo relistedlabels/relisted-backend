@@ -1,0 +1,317 @@
+//// ------------------------------------------------------
+//// THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
+//// ------------------------------------------------------
+
+Table User {
+  id String [pk]
+  email String [unique, not null]
+  password String [not null]
+  name String [not null]
+  provider String
+  isVerified Boolean [not null, default: false]
+  role Role [not null, default: 'USER']
+  tokens AuthOtpToken [not null]
+  products Product [not null]
+  cart Cart
+  favourites Favourite [not null]
+  orders Order [not null]
+  address Address [not null]
+  wallet Wallet
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+  profile Profile
+}
+
+Table Profile {
+  id String [pk]
+  userId String [unique, not null]
+  user User [not null]
+  phoneNumber String [not null]
+  bvn String [not null]
+  isApproved String [not null]
+  emergencyContacts EmergencyContact [not null]
+  businessInfo BusinessInfo [not null]
+  bankAccounts BankInfo [not null]
+  ninUpload File [not null]
+  address Address [not null]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+}
+
+Table EmergencyContact {
+  id String [pk]
+  profileId String [not null]
+  profile Profile [not null]
+  name String [not null]
+  relationship String [not null]
+  phoneNumber String [not null]
+  city String [not null]
+  state String [not null]
+}
+
+Table BusinessInfo {
+  id String [pk]
+  profileId String [unique, not null]
+  profile Profile [not null]
+  businessName String [not null]
+  businessEmail String [not null]
+  businessRegistrationNumber String [not null]
+  businessAddress String [not null]
+  businessCity String [not null]
+  businessState String [not null]
+}
+
+Table BankInfo {
+  id String [pk]
+  profileId String [not null]
+  profile Profile [not null]
+  bankName String [not null]
+  accountNumber String [not null]
+  nameOfAccount String [not null]
+}
+
+Table Address {
+  id String [pk]
+  userId String [not null]
+  user User [not null]
+  profile Profile [not null]
+  profileId String [not null]
+  street String [not null]
+  city String [not null]
+  state String [not null]
+  country String [not null]
+  zipCode String [not null]
+  isDefault Boolean [not null, default: false]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+}
+
+Table AuthOtpToken {
+  id String [pk]
+  subject String [not null]
+  type AuthOtpTokenType [not null, default: 'OTP']
+  code String [unique, not null]
+  expiry DateTime [not null]
+  email String [not null]
+  userId String [not null]
+  user User [not null]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+}
+
+Table Product {
+  id String [pk]
+  name String [not null]
+  subText String [not null]
+  description String [not null]
+  condition String [not null]
+  dailyPrice Int [not null]
+  isActive Boolean [not null, default: true]
+  status ProductStatus [not null, default: 'AVAILABLE']
+  brandId String [not null]
+  brand Brand [not null]
+  categoryId String [not null]
+  category ProductCategory [not null]
+  curatorId String [not null]
+  curator User [not null]
+  files File [not null]
+  rentals Rental [not null]
+  cartItems CartItem [not null]
+  favourites Favourite [not null]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+}
+
+Table Brand {
+  id String [pk]
+  name String [not null]
+  products Product [not null]
+  createdAt DateTime [default: `now()`, not null]
+}
+
+Table ProductCategory {
+  id String [pk]
+  name String [not null]
+  products Product [not null]
+  createdAt DateTime [default: `now()`, not null]
+}
+
+Table File {
+  id String [pk]
+  url String [not null]
+  type String [not null]
+  createdAt DateTime [default: `now()`, not null]
+  productId String [not null]
+  product Product [not null]
+  profile Profile [not null]
+  profileId String [not null]
+}
+
+Table Cart {
+  id String [pk]
+  userId String [unique, not null]
+  user User [not null]
+  items CartItem [not null]
+}
+
+Table CartItem {
+  id String [pk]
+  cartId String [not null]
+  productId String [not null]
+  days Int [not null]
+  cart Cart [not null]
+  product Product [not null]
+  createdAt DateTime [default: `now()`, not null]
+}
+
+Table Favourite {
+  id String [pk]
+  userId String [not null]
+  productId String [not null]
+  user User [not null]
+  product Product [not null]
+  createdAt DateTime [default: `now()`, not null]
+
+  indexes {
+    (userId, productId) [unique]
+  }
+}
+
+Table Order {
+  id String [pk]
+  orderId String [unique, not null]
+  status OrderStatus [not null, default: 'PROCESSING']
+  userId String [not null]
+  user User [not null]
+  rental Rental
+  payments Transaction [not null]
+  createdAt DateTime [default: `now()`, not null]
+}
+
+Table Rental {
+  id String [pk]
+  orderId String [unique, not null]
+  order Order [not null]
+  productId String [not null]
+  product Product [not null]
+  days Int [not null]
+  totalAmount Int [not null]
+  startDate DateTime [not null]
+  endDate DateTime [not null]
+  returnedAt DateTime
+  isReturned Boolean [not null, default: false]
+  isOverdue Boolean [not null, default: false]
+  createdAt DateTime [default: `now()`, not null]
+}
+
+Table Transaction {
+  id String [pk]
+  transactionId String [unique, not null]
+  amount Int [not null]
+  method String [not null]
+  status String [not null]
+  orderId String [not null]
+  order Order [not null]
+  createdAt DateTime [default: `now()`, not null]
+}
+
+Table Wallet {
+  id String [pk]
+  balance Int [not null, default: 0]
+  userId String [unique, not null]
+  user User [not null]
+  transactions WalletTransaction [not null]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+}
+
+Table WalletTransaction {
+  id String [pk]
+  walletId String [not null]
+  wallet Wallet [not null]
+  amount Int [not null]
+  status WalletTransactionStatus [not null, default: 'LOCKED']
+  note String
+  createdAt DateTime [default: `now()`, not null]
+}
+
+Enum Role {
+  ADMIN
+  CURATOR
+  USER
+}
+
+Enum AuthOtpTokenType {
+  TOKEN
+  OTP
+}
+
+Enum ProductStatus {
+  AVAILABLE
+  RENTED
+  MAINTENANCE
+}
+
+Enum WalletTransactionStatus {
+  DEBIT
+  CREDIT
+  LOCKED
+}
+
+Enum OrderStatus {
+  PROCESSING
+  CONFIRMED
+  IN_TRANSIT
+  DELIVERED
+  ACTIVE
+  RETURN_DUE
+  RETURNED
+  COMPLETED
+  CANCELLED
+}
+
+Ref: Profile.userId - User.id
+
+Ref: EmergencyContact.profileId > Profile.id
+
+Ref: BusinessInfo.profileId > Profile.id
+
+Ref: BankInfo.profileId > Profile.id
+
+Ref: Address.userId > User.id
+
+Ref: Address.profileId > Profile.id
+
+Ref: AuthOtpToken.userId > User.id
+
+Ref: Product.brandId > Brand.id
+
+Ref: Product.categoryId > ProductCategory.id
+
+Ref: Product.curatorId > User.id
+
+Ref: File.productId > Product.id
+
+Ref: File.profileId > Profile.id
+
+Ref: Cart.userId - User.id
+
+Ref: CartItem.cartId > Cart.id
+
+Ref: CartItem.productId > Product.id
+
+Ref: Favourite.userId > User.id
+
+Ref: Favourite.productId > Product.id
+
+Ref: Order.userId > User.id
+
+Ref: Rental.orderId - Order.id
+
+Ref: Rental.productId > Product.id
+
+Ref: Transaction.orderId > Order.id
+
+Ref: Wallet.userId - User.id
+
+Ref: WalletTransaction.walletId > Wallet.id
