@@ -13,6 +13,8 @@ import {
   ApiBadRequestResponse,
   ApiCreatedResponse,
   ApiOkResponse,
+  ApiOperation,
+  ApiResponse,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -76,12 +78,25 @@ export class AuthController {
   
   @Get('google')
   @UseGuards(AuthGuard('google'))
+   @ApiOperation({ summary: 'Redirect to Google OAuth login' })
+  @ApiResponse({
+    status: 302,
+    description: 'Redirects the user to Google login page.',
+  })
   async googleLogin() {
     // Redirects to Google
   }
 
   @Get('google/callback')
   @UseGuards(AuthGuard('google'))
+
+ @ApiOperation({ summary: 'Handle Google OAuth callback' })
+  @ApiResponse({
+    status: 302,
+    description:
+      'Redirects to frontend with access token in query param after successful login.',
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized if login fails.' })
   async googleCallback(@Req() req, @Res() res) {
     const result = await this.authService.handleGoogleLogin(req.user);
     res.redirect(
