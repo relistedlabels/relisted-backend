@@ -5,10 +5,11 @@ import { PrismaService } from 'src/services/prisma/prisma.service';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { PassportModule } from '@nestjs/passport';
+import { GoogleStrategy } from './strategies/google.strategy';
 
 @Module({
   imports: [
-    PassportModule,
+    PassportModule.register({ defaultStrategy: 'google' }),
     AuthOtpTokenModule,
     JwtModule.register({
       global: true,
@@ -19,7 +20,7 @@ import { PassportModule } from '@nestjs/passport';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, PrismaService],
+  providers: [AuthService, PrismaService,GoogleStrategy],
   exports: [PassportModule],
 })
 export class AuthModule {}
