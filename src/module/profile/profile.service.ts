@@ -1,11 +1,48 @@
 import { Injectable } from '@nestjs/common';
 import { CreateProfileDto } from './dto/create-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { userEntity } from '../auth/auth.types';
+import { PrismaService } from 'src/services/prisma/prisma.service';
 
 @Injectable()
 export class ProfileService {
-  create(createProfileDto: CreateProfileDto) {
-    return 'This action adds a new profile';
+  constructor(private readonly prisma:PrismaService){}
+  async create(dto: CreateProfileDto,user:userEntity) {
+    const profile = await this.prisma.profile.create({
+    data:{
+      ...dto,
+      emergencyContacts:{
+       create:dto.emergencyContacts
+      },
+      businessInfo:{
+        create:dto.businessInfo
+      },
+      address:{
+        create:dto.address
+      },
+      bankAccounts:{
+      create:dto.bankAccounts
+      },
+      user:{
+        connect:{
+          id:user.sub
+        }
+      },
+    attachments:{
+      create:{
+        uploads:{
+            connect:dto.attachments?.map((id)=>({id}))
+        }
+    }
+    }
+      
+    }
+    })
+    
+    return {
+      message:"user profile created",
+      profile:profile
+    }
   }
 
   findAll() {

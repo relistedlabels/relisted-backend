@@ -9,17 +9,17 @@ Table User {
   name String [not null]
   provider String
   isVerified Boolean [not null, default: false]
-  role Role [not null, default: 'USER']
+  role Role [not null, default: 'DRESSER']
   tokens AuthOtpToken [not null]
   products Product [not null]
   cart Cart
   favourites Favourite [not null]
   orders Order [not null]
-  address Address [not null]
   wallet Wallet
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
   profile Profile
+  uploads Upload [not null]
 }
 
 Table Profile {
@@ -28,11 +28,11 @@ Table Profile {
   user User [not null]
   phoneNumber String [not null]
   bvn String [not null]
-  isApproved String [not null]
+  isApproved Boolean [not null, default: false]
   emergencyContacts EmergencyContact [not null]
   businessInfo BusinessInfo [not null]
   bankAccounts BankInfo [not null]
-  ninUpload File [not null]
+  attachments Attachments
   address Address [not null]
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
@@ -72,15 +72,13 @@ Table BankInfo {
 
 Table Address {
   id String [pk]
-  userId String [not null]
-  user User [not null]
   profile Profile [not null]
   profileId String [not null]
   street String [not null]
   city String [not null]
   state String [not null]
   country String [not null]
-  zipCode String [not null]
+  zipCode String
   isDefault Boolean [not null, default: false]
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
@@ -108,16 +106,24 @@ Table Product {
   dailyPrice Int [not null]
   isActive Boolean [not null, default: true]
   status ProductStatus [not null, default: 'AVAILABLE']
+  composition String [not null]
+  measurement String [not null]
+  originalValue String [not null]
+  warning String [not null]
+  color String[] [not null]
   brandId String [not null]
   brand Brand [not null]
   categoryId String [not null]
   category ProductCategory [not null]
   curatorId String [not null]
   curator User [not null]
-  files File [not null]
+  attachments Attachments
   rentals Rental [not null]
   cartItems CartItem [not null]
   favourites Favourite [not null]
+  careInstruction String [not null]
+  careSteps String[] [not null]
+  stylingTip String [not null]
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
 }
@@ -136,15 +142,29 @@ Table ProductCategory {
   createdAt DateTime [default: `now()`, not null]
 }
 
-Table File {
+Table Upload {
   id String [pk]
-  url String [not null]
+  name String [not null]
   type String [not null]
+  size Int [not null]
+  purpose String [not null]
+  url String [not null]
+  publicId String [not null]
   createdAt DateTime [default: `now()`, not null]
-  productId String [not null]
-  product Product [not null]
-  profile Profile [not null]
-  profileId String [not null]
+  updatedAt DateTime [default: `now()`, not null]
+  attachmentId String
+  attachment Attachments
+  user User [not null]
+  userId String [not null]
+}
+
+Table Attachments {
+  id String [pk]
+  uploads Upload [not null]
+  profile Profile
+  profileId String [unique]
+  product Product
+  productId String [unique]
 }
 
 Table Cart {
@@ -238,7 +258,7 @@ Table WalletTransaction {
 Enum Role {
   ADMIN
   CURATOR
-  USER
+  DRESSER
 }
 
 Enum AuthOtpTokenType {
@@ -278,8 +298,6 @@ Ref: BusinessInfo.profileId > Profile.id
 
 Ref: BankInfo.profileId > Profile.id
 
-Ref: Address.userId > User.id
-
 Ref: Address.profileId > Profile.id
 
 Ref: AuthOtpToken.userId > User.id
@@ -290,9 +308,13 @@ Ref: Product.categoryId > ProductCategory.id
 
 Ref: Product.curatorId > User.id
 
-Ref: File.productId > Product.id
+Ref: Upload.attachmentId > Attachments.id
 
-Ref: File.profileId > Profile.id
+Ref: Upload.userId > User.id
+
+Ref: Attachments.profileId - Profile.id
+
+Ref: Attachments.productId - Product.id
 
 Ref: Cart.userId - User.id
 

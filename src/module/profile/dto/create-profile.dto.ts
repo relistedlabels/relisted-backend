@@ -1,8 +1,5 @@
-export class CreateProfileDto {
-  phoneNumber: string;
-  bvn: string;
-}
-
+import { Type } from "class-transformer";
+import { IsArray, ValidateNested } from "class-validator";
 export class CreateEmergencyDto {
   name: string;
   relationship: string;
@@ -11,7 +8,7 @@ export class CreateEmergencyDto {
   state: string;
 }
 
-export class CreateBusinessInfo {
+export class CreateBusinessInfoDto {
   businessName: string;
   businessEmail: string;
   businessRegistrationNumber: string;
@@ -20,8 +17,42 @@ export class CreateBusinessInfo {
   businessState: string;
 }
 
-export class CreateBankInfo {
+export class CreateBankInfoDto {
   bankName: string;
   accountNumber: string;
   nameOfAccount: string;
 }
+
+export class CreateAddressInfoDto {
+  street: string;
+  city: string;
+  state: string;
+  country: string;
+}
+
+export class CreateProfileDto {
+  phoneNumber: string;
+  bvn: string;
+  
+  @ValidateNested({ each: true })
+  @Type(() => CreateEmergencyDto)
+  @IsArray()
+  emergencyContacts: CreateEmergencyDto[];
+
+  @ValidateNested()
+  @Type(() => CreateBusinessInfoDto)
+  businessInfo: CreateBusinessInfoDto;
+
+  @ValidateNested({ each: true })
+  @Type(() => CreateBankInfoDto)
+  @IsArray()
+  bankAccounts: CreateBankInfoDto[];
+
+@ValidateNested({ each: true })
+  @Type(() => CreateAddressInfoDto)
+  @IsArray()
+  address: CreateAddressInfoDto[];
+    @IsArray()
+  attachments:string[]
+}
+

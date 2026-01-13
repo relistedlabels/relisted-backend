@@ -30,7 +30,7 @@ export class AuthService {
   ) {}
   // check if user already exist before registering them
   async register(dto: registerDto) {
-    const { name, email, password } = dto;
+    const { name, email, password ,role} = dto;
     // check if user already exist in the database
     const emailExist = await this.prisma.user.findUnique({
       where: { email },
@@ -43,6 +43,7 @@ export class AuthService {
         name,
         email,
         password: await argon2.hash(password),
+        role  
       },
     });
     // creating otp to verify email
@@ -110,7 +111,7 @@ export class AuthService {
           email: googleUser.email,
           name: googleUser.name,
           provider: googleUser.provider,
-          role: Role.USER,
+          role: Role.DRESSER,
           password: '',
           isVerified: true,
         },
