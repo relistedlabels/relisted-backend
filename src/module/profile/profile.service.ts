@@ -10,7 +10,8 @@ export class ProfileService {
   async create(dto: CreateProfileDto,user:userEntity) {
     const profile = await this.prisma.profile.create({
     data:{
-      ...dto,
+      phoneNumber: dto.phoneNumber,
+      bvn: dto.bvn,
       emergencyContacts:{
        create:dto.emergencyContacts
       },
