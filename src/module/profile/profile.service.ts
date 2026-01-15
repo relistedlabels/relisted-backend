@@ -28,13 +28,17 @@ export class ProfileService {
           id:user.sub
         }
       },
-    attachments:{
-      create:{
-        uploads:{
-            connect:dto.attachments?.map((id)=>({id}))
-        }
+   avatarUpload:{
+    connect:{
+      id:dto.avatarUploadId
     }
+   },
+   ninUpload:{
+    connect:{
+      id:dto.ninUploadId
     }
+   }
+    
       
     }
     })

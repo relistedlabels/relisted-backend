@@ -14,7 +14,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { userEntity } from '../auth/auth.types';
 import { Auth, AuthUser } from '../auth/decorator/auth.decorator';
 import { bad } from 'src/utils/error';
-
+import { ApiBearerAuth, ApiResponse,ApiConsumes, ApiBody } from '@nestjs/swagger';
+@ApiBearerAuth()
 @Controller('upload')
 export class UploadController {
   constructor(private readonly uploadService: UploadService) {}
@@ -22,6 +23,20 @@ export class UploadController {
   @Auth()
   @Post()
   @UseInterceptors(FileInterceptor('file'))
+   @ApiConsumes('multipart/form-data') // Needed for file uploads
+  @ApiBody({
+    description: 'File to upload',
+    required: true,
+    schema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', format: 'binary' }, // Swagger shows a file picker
+      },
+    },
+  })
+  @ApiResponse({ status: 201, description: 'File uploaded successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid file' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   async upload(
     // @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
