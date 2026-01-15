@@ -86,9 +86,15 @@ model Profile {
   emergencyContacts EmergencyContact[]
   businessInfo      BusinessInfo[]
   bankAccounts      BankInfo[]
-  attachments  Attachments? 
-  
-  address           Address[]
+  // attachments  Attachments? 
+
+  address Address[]
+
+  avatarUpload   Upload? @relation("AvatarUpload", fields: [avatarUploadId], references: [id])
+  avatarUploadId String? @unique
+
+  ninUpload   Upload? @relation("NinUpload", fields: [ninUploadId], references: [id])
+  ninUploadId String? @unique
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -185,8 +191,8 @@ model Product {
   curatorId String
   curator   User   @relation("CuratedProducts", fields: [curatorId], references: [id])
 
-  attachments  Attachments? 
- 
+  attachments Attachments?
+
   rentals         Rental[]
   cartItems       CartItem[]
   favourites      Favourite[]
@@ -213,33 +219,30 @@ model ProductCategory {
 }
 
 model Upload {
-  id          String        @id @default(uuid())
-  name        String
-  type        String
-  size        Int
-  url         String
-  purpose     String
-  publicId    String
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @default(now())
-  attachmentId String?
-  attachment   Attachments? @relation(fields: [attachmentId], references: [id])
-  user        User          @relation(fields: [userId], references: [id])
-  userId      String
+  id              String       @id @default(uuid())
+  name            String
+  type            String
+  size            Int
+  url             String
+  fieldName       String
+  publicId        String
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @default(now())
+  attachmentId    String?
+  profileAsAvatar Profile?     @relation("AvatarUpload")
+  profileAsNin    Profile?     @relation("NinUpload")
+  attachment      Attachments? @relation(fields: [attachmentId], references: [id])
+  user            User         @relation(fields: [userId], references: [id])
+  userId          String
 }
 
-
 model Attachments {
-  id       String   @id @default(uuid())
-  uploads  Upload[]
+  id      String   @id @default(uuid())
+  uploads Upload[]
 
-  profile  Profile? @relation(fields: [profileId], references: [id])
-  profileId String? @unique
-
-  product  Product? @relation(fields: [productId], references: [id])
+  product   Product? @relation(fields: [productId], references: [id])
   productId String?  @unique
-} 
-
+}
 
 model Cart {
   id     String @id @default(uuid())

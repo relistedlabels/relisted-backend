@@ -1,5 +1,5 @@
 import { Type } from "class-transformer";
-import { IsArray, ValidateNested } from "class-validator";
+import { IsArray, IsString, ValidateNested } from "class-validator";
 export class CreateEmergencyDto {
   name: string;
   relationship: string;
@@ -52,7 +52,10 @@ export class CreateProfileDto {
   @Type(() => CreateAddressInfoDto)
   @IsArray()
   address: CreateAddressInfoDto[];
-    @IsArray()
-  attachments:string[]
+  @IsString()
+  avatarUploadId:string
+
+    @IsString()
+  ninUploadId:string
 }
 

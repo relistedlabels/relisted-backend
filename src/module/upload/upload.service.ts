@@ -18,7 +18,7 @@ async uploadFile(file:Express.Multer.File,user:userEntity ){
            url:uploadResult.secure_url,
            publicId:uploadResult.public_id,
            type:file.mimetype,
-           purpose:"NIN",
+           fieldName:file.fieldname,
            size:file.size,
            user:{
             connect:{
