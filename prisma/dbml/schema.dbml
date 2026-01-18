@@ -10,6 +10,8 @@ Table User {
   provider String
   isVerified Boolean [not null, default: false]
   role Role [not null, default: 'DRESSER']
+  curatorReviews Review [not null]
+  reviewsWritten Review [not null]
   tokens AuthOtpToken [not null]
   products Product [not null]
   cart Cart
@@ -20,6 +22,10 @@ Table User {
   updatedAt DateTime [not null]
   profile Profile
   uploads Upload [not null]
+  disputes Dispute [not null]
+  rentalsRented Rental [not null]
+  rentalsCurated Rental [not null]
+  subOrders SubOrder [not null]
 }
 
 Table Profile {
@@ -121,11 +127,16 @@ Table Product {
   curatorId String [not null]
   curator User [not null]
   attachments Attachments
+  receiveSmsNotifications Boolean [default: false]
+  receiveEmailNotifications Boolean [default: true]
+  receiveProductRecommendations Boolean [default: false]
   rentals Rental [not null]
   cartItems CartItem [not null]
   favourites Favourite [not null]
+  reviews Review [not null]
   careInstruction String [not null]
   careSteps String[] [not null]
+  items OrderItem [not null]
   stylingTip String [not null]
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
@@ -145,6 +156,21 @@ Table ProductCategory {
   createdAt DateTime [default: `now()`, not null]
 }
 
+Table Dispute {
+  id String [pk]
+  orderId String [not null]
+  order Order [not null]
+  userId String [not null]
+  user User [not null]
+  issueCategory String [not null]
+  description String [not null]
+  status DisputeStatus [not null, default: 'PENDING']
+  attachment Attachments
+  uploads Upload [not null]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+}
+
 Table Upload {
   id String [pk]
   name String [not null]
@@ -161,6 +187,8 @@ Table Upload {
   attachment Attachments
   user User [not null]
   userId String [not null]
+  dispute Dispute
+  disputeId String
 }
 
 Table Attachments {
@@ -168,6 +196,8 @@ Table Attachments {
   uploads Upload [not null]
   product Product
   productId String [unique]
+  dispute Dispute
+  disputeId String [unique]
 }
 
 Table Cart {
@@ -208,6 +238,33 @@ Table Order {
   user User [not null]
   rental Rental
   payments Transaction [not null]
+  disputes Dispute [not null]
+  walletTransactions WalletTransaction [not null]
+  orderItems OrderItem [not null]
+  subOrders SubOrder [not null]
+  createdAt DateTime [default: `now()`, not null]
+}
+
+Table OrderItem {
+  id String [pk]
+  orderId String [not null]
+  subOrderId String [not null]
+  productId String [not null]
+  days Int [not null]
+  pricePerDay Int [not null]
+  order Order [not null]
+  subOrder SubOrder [not null]
+  product Product [not null]
+}
+
+Table SubOrder {
+  id String [pk]
+  orderId String [not null]
+  curatorId String [not null]
+  status SubOrderStatus [not null, default: 'PENDING']
+  order Order [not null]
+  curator User [not null]
+  items OrderItem [not null]
   createdAt DateTime [default: `now()`, not null]
 }
 
@@ -217,14 +274,39 @@ Table Rental {
   order Order [not null]
   productId String [not null]
   product Product [not null]
+  curatorId String [not null]
+  curator User [not null]
+  userId String [not null]
+  user User [not null]
   days Int [not null]
   totalAmount Int [not null]
   startDate DateTime [not null]
   endDate DateTime [not null]
   returnedAt DateTime
+  review Review
   isReturned Boolean [not null, default: false]
   isOverdue Boolean [not null, default: false]
   createdAt DateTime [default: `now()`, not null]
+}
+
+Table Review {
+  id String [pk]
+  userId String [not null]
+  user User [not null]
+  productId String [not null]
+  product Product [not null]
+  curatorId String [not null]
+  curator User [not null]
+  rating Int [not null]
+  comment String
+  rentalId String [unique, not null]
+  rental Rental [not null]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+
+  indexes {
+    (userId, productId) [unique]
+  }
 }
 
 Table Transaction {
@@ -244,8 +326,16 @@ Table Wallet {
   userId String [unique, not null]
   user User [not null]
   transactions WalletTransaction [not null]
+  mainBalance Int [not null, default: 0]
+  availableBalance Int [not null, default: 0]
+  collateralBalance Int [not null, default: 0]
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
+}
+
+Table WaitList {
+  id String [pk]
+  email String [unique, not null]
 }
 
 Table WalletTransaction {
@@ -253,9 +343,13 @@ Table WalletTransaction {
   walletId String [not null]
   wallet Wallet [not null]
   amount Int [not null]
+  type WalletTransactionType [not null, default: 'MAIN']
   status WalletTransactionStatus [not null, default: 'LOCKED']
   note String
+  orderId String
+  order Order
   createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
 }
 
 Enum Role {
@@ -293,6 +387,25 @@ Enum OrderStatus {
   CANCELLED
 }
 
+Enum SubOrderStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+Enum DisputeStatus {
+  IN_REVIEW
+  PENDING
+  RESELOVE
+  REJECTED
+}
+
+Enum WalletTransactionType {
+  MAIN
+  AVAILABLE
+  COLLATERAL
+}
+
 Ref: Profile.userId - User.id
 
 Ref: Profile.avatarUploadId - Upload.id
@@ -315,11 +428,19 @@ Ref: Product.categoryId > ProductCategory.id
 
 Ref: Product.curatorId > User.id
 
+Ref: Dispute.orderId > Order.id
+
+Ref: Dispute.userId > User.id
+
 Ref: Upload.attachmentId > Attachments.id
 
 Ref: Upload.userId > User.id
 
+Ref: Upload.disputeId > Dispute.id
+
 Ref: Attachments.productId - Product.id
+
+Ref: Attachments.disputeId - Dispute.id
 
 Ref: Cart.userId - User.id
 
@@ -333,12 +454,36 @@ Ref: Favourite.productId > Product.id
 
 Ref: Order.userId > User.id
 
+Ref: OrderItem.orderId > Order.id
+
+Ref: OrderItem.subOrderId > SubOrder.id
+
+Ref: OrderItem.productId > Product.id
+
+Ref: SubOrder.orderId > Order.id
+
+Ref: SubOrder.curatorId > User.id
+
 Ref: Rental.orderId - Order.id
 
 Ref: Rental.productId > Product.id
+
+Ref: Rental.curatorId > User.id
+
+Ref: Rental.userId > User.id
+
+Ref: Review.userId > User.id
+
+Ref: Review.productId > Product.id
+
+Ref: Review.curatorId > User.id
+
+Ref: Review.rentalId - Rental.id
 
 Ref: Transaction.orderId > Order.id
 
 Ref: Wallet.userId - User.id
 
 Ref: WalletTransaction.walletId > Wallet.id
+
+Ref: WalletTransaction.orderId > Order.id
