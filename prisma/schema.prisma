@@ -50,14 +50,22 @@ enum OrderStatus {
   CANCELLED
 }
 
+enum SubOrderStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
 model User {
-  id         String  @id @default(uuid())
-  email      String  @unique
-  password   String
-  name       String
-  provider   String?
-  isVerified Boolean @default(false)
-  role       Role    @default(DRESSER)
+  id             String   @id @default(uuid())
+  email          String   @unique
+  password       String
+  name           String
+  provider       String?
+  isVerified     Boolean  @default(false)
+  role           Role     @default(DRESSER)
+  curatorReviews Review[] @relation("CuratorReviews")
+  reviewsWritten Review[]
 
   tokens     AuthOtpToken[]
   products   Product[]      @relation("CuratedProducts")
@@ -67,10 +75,15 @@ model User {
 
   wallet Wallet?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   profile   Profile?
   uploads   Upload[]
+  disputes  Dispute[]
+ rentalsRented  Rental[] @relation("Rentee")   
+  rentalsCurated Rental[] @relation("Curator")
+    subOrders        SubOrder[] @relation("CuratorSubOrders")
+  
 }
 
 model Profile {
@@ -193,11 +206,19 @@ model Product {
 
   attachments Attachments?
 
+  // notification preferences 
+  receiveSmsNotifications       Boolean? @default(false)
+  receiveEmailNotifications     Boolean? @default(true)
+  receiveProductRecommendations Boolean? @default(false)
+
   rentals         Rental[]
   cartItems       CartItem[]
   favourites      Favourite[]
+  reviews         Review[]
+
   careInstruction String
   careSteps       String[]
+  items           OrderItem[]
   stylingTip      String
 
   createdAt DateTime @default(now())
@@ -218,6 +239,34 @@ model ProductCategory {
   createdAt DateTime  @default(now())
 }
 
+enum DisputeStatus {
+  IN_REVIEW
+  PENDING
+  RESELOVE
+  REJECTED
+}
+
+model Dispute {
+  id String @id @default(uuid())
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id])
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  issueCategory String
+  description   String
+  status        DisputeStatus @default(PENDING)
+  attachment    Attachments?
+
+  // Optional evidence uploads
+  uploads Upload[] @relation("DisputeUploads")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model Upload {
   id              String       @id @default(uuid())
   name            String
@@ -234,6 +283,8 @@ model Upload {
   attachment      Attachments? @relation(fields: [attachmentId], references: [id])
   user            User         @relation(fields: [userId], references: [id])
   userId          String
+  dispute         Dispute?     @relation("DisputeUploads", fields: [disputeId], references: [id])
+  disputeId       String?
 }
 
 model Attachments {
@@ -242,6 +293,8 @@ model Attachments {
 
   product   Product? @relation(fields: [productId], references: [id])
   productId String?  @unique
+  dispute  Dispute? @relation(fields: [disputeId], references: [id])
+  disputeId String?  @unique
 }
 
 model Cart {
@@ -283,8 +336,40 @@ model Order {
   userId String
   user   User   @relation(fields: [userId], references: [id])
 
-  rental   Rental?
-  payments Transaction[]
+  rental             Rental?
+  payments           Transaction[]
+  disputes           Dispute[]
+  walletTransactions WalletTransaction[]
+  orderItems         OrderItem[]
+  subOrders           SubOrder[]
+
+  createdAt DateTime @default(now())
+}
+
+
+model OrderItem {
+  id          String @id @default(uuid())
+  orderId     String
+  subOrderId  String
+  productId   String
+  days        Int
+  pricePerDay Int
+
+  order       Order    @relation(fields: [orderId], references: [id])
+  subOrder    SubOrder @relation(fields: [subOrderId], references: [id])
+  product     Product  @relation(fields: [productId], references: [id])
+ 
+}
+
+model SubOrder {
+  id        String         @id @default(uuid())
+  orderId   String
+  curatorId String
+  status    SubOrderStatus @default(PENDING)
+
+  order     Order @relation(fields: [orderId], references: [id])
+  curator   User  @relation("CuratorSubOrders", fields: [curatorId], references: [id])
+  items     OrderItem[]
 
   createdAt DateTime @default(now())
 }
@@ -297,6 +382,10 @@ model Rental {
 
   productId String
   product   Product @relation(fields: [productId], references: [id])
+  curatorId String
+  curator   User    @relation("Curator",fields: [curatorId], references: [id])
+  userId    String
+  user      User    @relation("Rentee", fields: [userId], references: [id])
 
   days Int
 
@@ -305,11 +394,36 @@ model Rental {
   startDate  DateTime
   endDate    DateTime
   returnedAt DateTime?
+  review     Review?
 
   isReturned Boolean @default(false)
   isOverdue  Boolean @default(false)
+  
 
   createdAt DateTime @default(now())
+}
+
+model Review {
+  id String @id @default(uuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+
+  curatorId String
+  curator   User   @relation("CuratorReviews", fields: [curatorId], references: [id])
+
+  rating   Int
+  comment  String?
+  rentalId String  @unique
+  rental   Rental  @relation(fields: [rentalId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, productId])
 }
 
 model Transaction {
@@ -329,12 +443,28 @@ model Wallet {
   id      String @id @default(uuid())
   balance Int    @default(0)
 
-  userId       String              @unique
-  user         User                @relation(fields: [userId], references: [id])
-  transactions WalletTransaction[]
+  userId            String              @unique
+  user              User                @relation(fields: [userId], references: [id])
+  transactions      WalletTransaction[]
+  // Three balances
+  mainBalance       Int                 @default(0)
+  availableBalance  Int                 @default(0)
+  collateralBalance Int                 @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model WaitList {
+    id       String @id @default(uuid())
+    email    String @unique
+  
+}
+
+enum WalletTransactionType {
+  MAIN
+  AVAILABLE
+  COLLATERAL
 }
 
 model WalletTransaction {
@@ -343,8 +473,14 @@ model WalletTransaction {
   wallet   Wallet @relation(fields: [walletId], references: [id])
 
   amount Int
+  type   WalletTransactionType   @default(MAIN)
   status WalletTransactionStatus @default(LOCKED)
   note   String?
 
+  orderId String?
+  order   Order?  @relation(fields: [orderId], references: [id])
+
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
+
