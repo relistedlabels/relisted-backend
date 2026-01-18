@@ -455,6 +455,12 @@ model Wallet {
   updatedAt DateTime @updatedAt
 }
 
+model WaitList {
+    id       String @id @default(uuid())
+    email    String @unique
+  
+}
+
 enum WalletTransactionType {
   MAIN
   AVAILABLE
@@ -477,3 +483,4 @@ model WalletTransaction {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+

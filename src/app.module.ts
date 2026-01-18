@@ -16,9 +16,11 @@ import { AuthOtpTokenModule } from './services/auth-otp-token/auth-otp-token.mod
 import { EventModule } from './services/event/event.module';
 import { MailModule } from './services/mail/mail.module';
 import { PrismaModule } from './services/prisma/prisma.module';
+import { WaitlistModule } from './module/waitlist/waitlist.module';
+
 
 @Module({
-  imports: [PrismaModule, AuthModule, MailModule, EventModule, AuthOtpTokenModule, UserModule, ProfileModule, UploadModule, ProductModule, ReviewModule, DisputeModule, OrderModule, ChatModule, CartItemsModule, RentalModule],
+  imports: [PrismaModule, AuthModule, MailModule, EventModule, AuthOtpTokenModule, UserModule, ProfileModule, UploadModule, ProductModule, ReviewModule, DisputeModule, OrderModule, ChatModule, CartItemsModule, RentalModule, WaitlistModule],
   controllers: [AppController],
   providers: [AppService],
 })

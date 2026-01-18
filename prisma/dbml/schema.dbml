@@ -333,6 +333,11 @@ Table Wallet {
   updatedAt DateTime [not null]
 }
 
+Table WaitList {
+  id String [pk]
+  email String [unique, not null]
+}
+
 Table WalletTransaction {
   id String [pk]
   walletId String [not null]
