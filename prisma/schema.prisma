@@ -191,7 +191,7 @@ model Product {
   status        ProductStatus @default(AVAILABLE)
   composition   String
   measurement   String
-  originalValue String
+  originalValue Int
   warning       String
   color         String[]
 
