@@ -9,7 +9,10 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.useGlobalPipes(new ValidationPipe())
     app.enableCors({
-     origin: ['http://localhost:3000',"www.relistedlabels.com"], 
+    origin: [
+    'http://localhost:3000',
+    'https://www.relistedlabels.com',
+  ],
     credentials: true,
   })
   const config = new DocumentBuilder()
