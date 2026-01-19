@@ -2,10 +2,11 @@ import { Injectable } from "@nestjs/common";
 import { PrismaService } from "src/services/prisma/prisma.service";
 import { bad } from "src/utils/error";
 import { userEntity } from "../auth/auth.types";
+import { EventEmitter2 } from "@nestjs/event-emitter";
 
 @Injectable()
 export class OrderService {
-  constructor(private readonly prisma: PrismaService, ) {}
+  constructor(private readonly prisma: PrismaService, private eventEmitter: EventEmitter2, ) {}
 
 async checkout(user: userEntity) {
     const cart = await this.prisma.cart.findUnique({
@@ -87,6 +88,11 @@ async checkout(user: userEntity) {
       }
     });
     // order confimation email for curator to accept the order 
+        // LISTEN  TO THE EVENT
+        // this.eventEmitter.emit(
+        //   'Order_Verification',
+        //   new Order_Verification(email,order.id,newOrder., name, year),
+        // );
     
 
     return {

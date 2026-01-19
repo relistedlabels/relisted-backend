@@ -8,6 +8,10 @@ async function bootstrap() {
   console.log('DB URL:', process.env.DATABASE_URL);
   const app = await NestFactory.create(AppModule);
   app.useGlobalPipes(new ValidationPipe())
+    app.enableCors({
+     origin: ['http://localhost:3000',"www."], 
+    credentials: true,
+  })
   const config = new DocumentBuilder()
     .setTitle('Relisted Ecommerce Api')
     .setDescription('Api documentation for ecommerce application')

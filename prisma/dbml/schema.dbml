@@ -117,7 +117,7 @@ Table Product {
   status ProductStatus [not null, default: 'AVAILABLE']
   composition String [not null]
   measurement String [not null]
-  originalValue String [not null]
+  originalValue Int [not null]
   warning String [not null]
   color String[] [not null]
   brandId String [not null]

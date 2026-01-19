@@ -18,7 +18,8 @@ canActivate(context: ExecutionContext): boolean {
 
     // check for user  
     const {user} = context.switchToHttp().getRequest()
-    return requiredRole.some((role)=>user.role.includes(role))
+    // return requiredRole.some((role)=>user.role.includes(role))
+    return requiredRole.includes(user.role)
     
 
     

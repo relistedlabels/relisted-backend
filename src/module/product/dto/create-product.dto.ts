@@ -1,4 +1,4 @@
-import { IsArray, IsString } from 'class-validator';
+import { IsArray, IsNumber, IsString } from 'class-validator';
 import { PaginationQuery } from 'src/utils/paginate-query';
 
 export class CreateProductDto {
@@ -10,14 +10,14 @@ export class CreateProductDto {
   description: string;
   @IsString()
   condition: string;
-  @IsString()
+  @IsNumber()
   dailyPrice: number;
   @IsString()
   composition: string;
   @IsString()
   measurement: string;
-  @IsString()
-  originalValue: string;
+  @IsNumber()
+  originalValue: number;
   @IsArray()
   color: string[];
   @IsString()

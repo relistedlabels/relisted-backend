@@ -1,38 +1,123 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+} from '@nestjs/common';
 import { ProfileService } from './profile.service';
 import { CreateProfileDto } from './dto/create-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { Auth, AuthUser } from '../auth/decorator/auth.decorator';
 import { Role } from '@prisma/client';
 import { userEntity } from '../auth/auth.types';
-
+import { ApiResponse, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
+@ApiBearerAuth()
 @Controller('profile')
 export class ProfileController {
   constructor(private readonly profileService: ProfileService) {}
 
   @Auth()
   @Post()
-  create(@Body() createProfileDto: CreateProfileDto,@AuthUser() user:userEntity) {
-    return this.profileService.create(createProfileDto,user);
+  @ApiBody({
+    type: CreateProfileDto,
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Profile created successfully',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized',
+  })
+  create(
+    @Body() createProfileDto: CreateProfileDto,
+    @AuthUser() user: userEntity,
+  ) {
+    return this.profileService.create(createProfileDto, user);
   }
 
   @Get()
+  @ApiResponse({
+    status: 200,
+    description: 'All users Profile fetched  successfully',
+  })
+  @ApiResponse({
+    status: 501,
+    description: 'internal server error',
+  })
   findAll() {
     return this.profileService.findAll();
   }
 
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.profileService.findOne(+id);
+  @Auth()
+  @Get(":id")
+  @ApiResponse({
+    status: 200,
+    description: ' User profile fetched successfully',
+  })
+  @ApiResponse({
+    status: 501,
+    description: 'internal server error',
+  })
+  findOne(   @Param('id') id: string) {
+    return this.profileService.findOne(id);
   }
 
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateProfileDto: UpdateProfileDto) {
-    return this.profileService.update(+id, updateProfileDto);
+  @Auth()
+  @Patch(":id")
+  @ApiResponse({
+    status: 201,
+    description: 'User profile updated successfully',
+  })
+  @ApiResponse({
+    status: 501,
+    description: 'internal server error',
+  })
+  update(
+       @Param('id') id: string,
+    
+    @Body() updateProfileDto: UpdateProfileDto,
+    @AuthUser() user: userEntity,
+  ) {
+    return this.profileService.update(id,updateProfileDto, user);
+  }
+  
+
+  
+  @Auth([Role.DRESSER])
+  @Patch('verify/:id')
+  @ApiResponse({
+    status: 201,
+    description: 'User profile verified successfully',
+  })
+  @ApiResponse({
+    status: 501,
+    description: 'internal server error',
+  })
+  verifyProfile(
+    @Param('id') id: string,
+
+    @AuthUser() user: userEntity,
+  ) {
+    return this.profileService.verifyProfile(id, user);
   }
 
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.profileService.remove(+id);
+
+
+  @Auth([Role.CURATOR])
+  @Delete()
+  @ApiResponse({
+    status: 200,
+    description: ' User profile deleted successfully',
+  })
+  @ApiResponse({
+    status: 501,
+    description: 'internal server error',
+  })
+  remove(@AuthUser() user: userEntity) {
+    return this.profileService.remove(user);
   }
 }

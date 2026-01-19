@@ -13,6 +13,7 @@ import { UpdateProductDto } from './dto/update-product.dto';
 export class ProductService {
   constructor(private readonly prisma: PrismaService) {}
   async create(dto: CreateProductDto, user: userEntity) {
+    const dailyPrice=Number(process.env.DAILY_PRODUCT_PERCENT)  
     const newProduct = await this.prisma.product.create({
       data: {
         name: dto.name,
@@ -25,7 +26,7 @@ export class ProductService {
         stylingTip: dto.stylingTip,
         warning: dto.warning,
         originalValue: dto.originalValue,
-        dailyPrice: dto.dailyPrice,
+        dailyPrice: dto.originalValue * dailyPrice,
         condition: dto.condition,
         careSteps: dto.careSteps,
         curator: connectId(user.sub),
