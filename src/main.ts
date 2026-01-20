@@ -11,6 +11,14 @@ async function bootstrap() {
   app.use(cookieParser());
   app.useGlobalPipes(new ValidationPipe());
 
+  app.useGlobalPipes(new ValidationPipe())
+    app.enableCors({
+    origin: [
+    'http://localhost:3000',
+    'https://www.relistedlabels.com',
+  ],
+    credentials: true,
+  })
   const config = new DocumentBuilder()
     .setTitle('Relisted Ecommerce Api')
     .setDescription('Api documentation for ecommerce application')
