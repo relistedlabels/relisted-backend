@@ -10,7 +10,7 @@ export class CreateProductDto {
   description: string;
   @IsString()
   condition: string;
-  @IsString()
+  @IsNumber()
   dailyPrice: number;
   @IsString()
   composition: string;

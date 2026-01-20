@@ -10,6 +10,7 @@ import {
   UpdateProductStatusDto,
 } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { ProductStatus } from '@prisma/client';
 export class ProductService {
   constructor(private readonly prisma: PrismaService) {}
   async create(dto: CreateProductDto, user: userEntity) {
@@ -188,6 +189,29 @@ export class ProductService {
       include: { product: { include: { brand: true, category: true } } },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+
+   //  UPDATE PRODUCT STATUS
+  async updateProductStatus(productId: string,user: userEntity) {
+   
+
+  
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+    });
+
+    if (!product) bad("Product with ID ${productId} not found")
+
+    
+    const updated = await this.prisma.product.update({
+      where: { id: productId },
+      data: {
+        status: ProductStatus.AVAILABLE,
+      },
+    });
+
+    return updated;
   }
 
   // DELETE
