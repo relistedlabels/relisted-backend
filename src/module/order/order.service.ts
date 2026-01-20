@@ -1,14 +1,18 @@
-import { Injectable } from "@nestjs/common";
-import { PrismaService } from "src/services/prisma/prisma.service";
-import { bad } from "src/utils/error";
-import { userEntity } from "../auth/auth.types";
-import { EventEmitter2 } from "@nestjs/event-emitter";
+import { Injectable } from '@nestjs/common';
+import { PrismaService } from 'src/services/prisma/prisma.service';
+import { bad } from 'src/utils/error';
+import { userEntity } from '../auth/auth.types';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ProductStatus } from '@prisma/client';
 
 @Injectable()
 export class OrderService {
-  constructor(private readonly prisma: PrismaService, private eventEmitter: EventEmitter2, ) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private eventEmitter: EventEmitter2,
+  ) {}
 
-async checkout(user: userEntity) {
+  async checkout(user: userEntity) {
     const cart = await this.prisma.cart.findUnique({
       where: { userId: user.sub },
       include: {
@@ -41,62 +45,50 @@ async checkout(user: userEntity) {
 
     const totalAmount = rentalTotal + collateralTotal + cleaningTotal;
 
-    const groupedByCurator: Record<string, typeof cart.items> = {};
-
-    for (const item of cart.items) {
-      const curatorId = item.product.curatorId;
-
-      if (!groupedByCurator[curatorId]) {
-        groupedByCurator[curatorId] = [];
-      }
-      groupedByCurator[curatorId].push(item);
-    }
-
     const newOrder = await this.prisma.$transaction(async (tx) => {
       // create order
       const order = await tx.order.create({
-      
-      data: {
-        orderId: await  this.generateOrderId(),
-        userId:user.sub,
-       
-      },
-      })
-
-
-      for (const [curatorId, items] of Object.entries(groupedByCurator)) {
-        const subOrder = await tx.subOrder.create({
+        data: {
+          orderId: await this.generateOrderId(),
+          userId: user.sub,
+        },
+      });
+      for (let item of cart.items) {
+        await tx.orderItem.create({
           data: {
             orderId: order.id,
-            curatorId,
-           
+            productId: item.productId,
+            days: item.days,
+            pricePerDay: item.product.dailyPrice,
           },
         });
-
-        for (const item of items) {
-          await tx.orderItem.create({
-            data: {
-              orderId: order.id,
-              subOrderId: subOrder.id,
-              productId: item.productId,
-              days: item.days,
-              pricePerDay: item.product.dailyPrice, 
-            },
-          });
-        }
-          
+        // change the product status to rented
+        await tx.product.update({
+          where: {
+            id: item.productId,
+          },
+          data: {
+            status: ProductStatus.RENTED,
+          },
+        });
       }
+      // Clear cart
+      await tx.cartItem.deleteMany({
+        where: { cartId: cart.id },
+      });
+
+      return order;
     });
-    // order confimation email for curator to accept the order 
-        // LISTEN  TO THE EVENT
-        // this.eventEmitter.emit(
-        //   'Order_Verification',
-        //   new Order_Verification(email,order.id,newOrder., name, year),
-        // );
-    
+
+    // order confimation email for curator to accept the order
+    // LISTEN  TO THE EVENT
+    // this.eventEmitter.emit(
+    //   'Order_Verification',
+    //   new Order_Verification(email,order.id,newOrder., name, year),
+    // );
 
     return {
-      // orderId: newOrder.order.id,
+      // orderId: order.id,
       // status: newOrder.order.status,
       summary: {
         rentalTotal,
@@ -107,11 +99,9 @@ async checkout(user: userEntity) {
     };
   }
 
+  
+
   async generateOrderId() {
     return `ORD-${Date.now()}`;
   }
-
-
-
-
 }

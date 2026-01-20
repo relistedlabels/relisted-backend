@@ -1,29 +1,34 @@
 import {
-  Controller,
-  Get,
-  Post,
   Body,
-  Patch,
-  Param,
+  Controller,
   Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
 } from '@nestjs/common';
-import { ProfileService } from './profile.service';
-import { CreateProfileDto } from './dto/create-profile.dto';
-import { UpdateProfileDto } from './dto/update-profile.dto';
-import { Auth, AuthUser } from '../auth/decorator/auth.decorator';
+import {
+  ApiBody,
+  ApiCookieAuth,
+  ApiResponse
+} from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { userEntity } from '../auth/auth.types';
-import { ApiResponse, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
-@ApiBearerAuth()
+import { Auth, AuthUser } from '../auth/decorator/auth.decorator';
+import { CreateProfileDto } from './dto/create-profile.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ProfileService } from './profile.service';
+
 @Controller('profile')
 export class ProfileController {
   constructor(private readonly profileService: ProfileService) {}
-
+  @ApiCookieAuth('access_token')
   @Auth()
   @Post()
   @ApiBody({
     type: CreateProfileDto,
   })
+  
   @ApiResponse({
     status: 201,
     description: 'Profile created successfully',
@@ -39,6 +44,8 @@ export class ProfileController {
     return this.profileService.create(createProfileDto, user);
   }
 
+  @ApiCookieAuth('access_token')
+  @Auth()
   @Get()
   @ApiResponse({
     status: 200,
@@ -52,8 +59,9 @@ export class ProfileController {
     return this.profileService.findAll();
   }
 
+  @ApiCookieAuth('access_token')
   @Auth()
-  @Get(":id")
+  @Get(':id')
   @ApiResponse({
     status: 200,
     description: ' User profile fetched successfully',
@@ -62,12 +70,14 @@ export class ProfileController {
     status: 501,
     description: 'internal server error',
   })
-  findOne(   @Param('id') id: string) {
+  findOne(@Param('id') id: string) {
     return this.profileService.findOne(id);
   }
 
+  @ApiCookieAuth('access_token')
   @Auth()
-  @Patch(":id")
+  @Auth()
+  @Patch(':id')
   @ApiResponse({
     status: 201,
     description: 'User profile updated successfully',
@@ -77,16 +87,15 @@ export class ProfileController {
     description: 'internal server error',
   })
   update(
-       @Param('id') id: string,
-    
+    @Param('id') id: string,
+
     @Body() updateProfileDto: UpdateProfileDto,
     @AuthUser() user: userEntity,
   ) {
-    return this.profileService.update(id,updateProfileDto, user);
+    return this.profileService.update(id, updateProfileDto, user);
   }
-  
 
-  
+  @ApiCookieAuth('access_token')
   @Auth([Role.DRESSER])
   @Patch('verify/:id')
   @ApiResponse({
@@ -105,8 +114,8 @@ export class ProfileController {
     return this.profileService.verifyProfile(id, user);
   }
 
-
-
+  @ApiCookieAuth('access_token')
+  @Auth()
   @Auth([Role.CURATOR])
   @Delete()
   @ApiResponse({

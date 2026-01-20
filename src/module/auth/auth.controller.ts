@@ -70,8 +70,8 @@ export class AuthController {
       },
     },
   })
-  loginUser(@Body() dto: loginDto) {
-    return this.authService.login(dto);
+  loginUser(@Body() dto: loginDto,@Res({passthrough:true}) res:Response) {
+    return this.authService.login(dto,res);
   }
 
 
@@ -97,6 +97,7 @@ export class AuthController {
       'Redirects to frontend with access token in query param after successful login.',
   })
   @ApiResponse({ status: 401, description: 'Unauthorized if login fails.' })
+
   async googleCallback(@Req() req, @Res() res) {
     const result = await this.authService.handleGoogleLogin(req.user);
     res.redirect(

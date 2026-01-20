@@ -14,16 +14,16 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { userEntity } from '../auth/auth.types';
 import { Auth, AuthUser } from '../auth/decorator/auth.decorator';
 import { bad } from 'src/utils/error';
-import { ApiBearerAuth, ApiResponse,ApiConsumes, ApiBody } from '@nestjs/swagger';
-@ApiBearerAuth()
+import { ApiBearerAuth, ApiResponse,ApiConsumes, ApiBody, ApiCookieAuth } from '@nestjs/swagger';
+
 @Controller('upload')
 export class UploadController {
   constructor(private readonly uploadService: UploadService) {}
-
+  @ApiCookieAuth("access_token")
   @Auth()
   @Post()
   @UseInterceptors(FileInterceptor('file'))
-   @ApiConsumes('multipart/form-data') // Needed for file uploads
+  @ApiConsumes('multipart/form-data') 
   @ApiBody({
     description: 'File to upload',
     required: true,

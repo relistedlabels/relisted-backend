@@ -25,7 +25,6 @@ Table User {
   disputes Dispute [not null]
   rentalsRented Rental [not null]
   rentalsCurated Rental [not null]
-  subOrders SubOrder [not null]
 }
 
 Table Profile {
@@ -241,31 +240,17 @@ Table Order {
   disputes Dispute [not null]
   walletTransactions WalletTransaction [not null]
   orderItems OrderItem [not null]
-  subOrders SubOrder [not null]
   createdAt DateTime [default: `now()`, not null]
 }
 
 Table OrderItem {
   id String [pk]
   orderId String [not null]
-  subOrderId String [not null]
   productId String [not null]
   days Int [not null]
   pricePerDay Int [not null]
   order Order [not null]
-  subOrder SubOrder [not null]
   product Product [not null]
-}
-
-Table SubOrder {
-  id String [pk]
-  orderId String [not null]
-  curatorId String [not null]
-  status SubOrderStatus [not null, default: 'PENDING']
-  order Order [not null]
-  curator User [not null]
-  items OrderItem [not null]
-  createdAt DateTime [default: `now()`, not null]
 }
 
 Table Rental {
@@ -456,13 +441,7 @@ Ref: Order.userId > User.id
 
 Ref: OrderItem.orderId > Order.id
 
-Ref: OrderItem.subOrderId > SubOrder.id
-
 Ref: OrderItem.productId > Product.id
-
-Ref: SubOrder.orderId > Order.id
-
-Ref: SubOrder.curatorId > User.id
 
 Ref: Rental.orderId - Order.id
 
