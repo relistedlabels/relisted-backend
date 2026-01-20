@@ -10,9 +10,11 @@ import {
   UpdateProductStatusDto,
 } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { ProductStatus } from '@prisma/client';
 export class ProductService {
   constructor(private readonly prisma: PrismaService) {}
   async create(dto: CreateProductDto, user: userEntity) {
+    const dailyPrice=Number(process.env.DAILY_PRODUCT_PERCENT)  
     const newProduct = await this.prisma.product.create({
       data: {
         name: dto.name,
@@ -25,7 +27,7 @@ export class ProductService {
         stylingTip: dto.stylingTip,
         warning: dto.warning,
         originalValue: dto.originalValue,
-        dailyPrice: dto.dailyPrice,
+        dailyPrice: dto.originalValue * dailyPrice,
         condition: dto.condition,
         careSteps: dto.careSteps,
         curator: connectId(user.sub),
@@ -187,6 +189,29 @@ export class ProductService {
       include: { product: { include: { brand: true, category: true } } },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+
+   //  UPDATE PRODUCT STATUS
+  async updateProductStatus(productId: string,user: userEntity) {
+   
+
+  
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+    });
+
+    if (!product) bad("Product with ID ${productId} not found")
+
+    
+    const updated = await this.prisma.product.update({
+      where: { id: productId },
+      data: {
+        status: ProductStatus.AVAILABLE,
+      },
+    });
+
+    return updated;
   }
 
   // DELETE

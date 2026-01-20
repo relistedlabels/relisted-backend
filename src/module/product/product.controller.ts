@@ -9,18 +9,29 @@ import {
   Query,
 } from '@nestjs/common';
 import { ProductService } from './product.service';
-import { CreateFavouriteDto, CreateProductDto, ListProductQuery, UpdateProductStatusDto } from './dto/create-product.dto';
+import {
+  CreateFavouriteDto,
+  CreateProductDto,
+  ListProductQuery,
+  UpdateProductStatusDto,
+} from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { Auth, AuthUser } from '../auth/decorator/auth.decorator';
 import { Role } from '@prisma/client';
 import { userEntity } from '../auth/auth.types';
+import { ApiBody, ApiCookieAuth, ApiResponse, ApiQuery } from '@nestjs/swagger';
 
+@ApiCookieAuth('access_token')
 @Controller('product')
 export class ProductController {
   constructor(private readonly productService: ProductService) {}
 
   @Auth([Role.CURATOR])
   @Post()
+  @ApiResponse({ status: 201, description: 'Product created successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden: Not a curator' })
+  @ApiBody({ type: CreateProductDto })
   create(
     @Body() createProductDto: CreateProductDto,
     @AuthUser() user: userEntity,
@@ -28,14 +39,17 @@ export class ProductController {
     return this.productService.create(createProductDto, user);
   }
 
-
-
-   @Get()
-   async list(@Query() query: ListProductQuery) {
+  @Get()
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  async list(@Query() query: ListProductQuery) {
     return await this.productService.list(query);
   }
 
+  @Auth()
   @Get(':id')
+  @ApiResponse({ status: 200, description: 'Product retrieved successfully' })
+  @ApiResponse({ status: 404, description: 'Product not found' })
   findOne(@Param('id') id: string) {
     return this.productService.findOne(id);
   }
@@ -52,18 +66,49 @@ export class ProductController {
 
   @Auth([Role.CURATOR])
   @Patch(':id/status')
-  updateStatus(@Param('id') id: string, dto:UpdateProductStatusDto ,@AuthUser() user: userEntity) {
-    return this.productService.updateStatus(id,dto, user);
+  @ApiResponse({ status: 200, description: 'Product updated successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden: Not a curator' })
+  @ApiBody({ type: UpdateProductDto })
+  updateStatus(
+    @Param('id') id: string,
+    dto: UpdateProductStatusDto,
+    @AuthUser() user: userEntity,
+  ) {
+    return this.productService.updateStatus(id, dto, user);
   }
+
+  //  UPDATE PRODUCT STATUS
+  @Auth([Role.CURATOR])
+  @Patch(':id/status')
+  @ApiResponse({
+    status: 200,
+    description: 'Product status updated successfully',
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiBody({ type: UpdateProductStatusDto })
+  updateProductStatus(
+    @Param('id') id: string,
   
-  @Auth() 
+    @AuthUser() user: userEntity,
+  ) {
+    return this.productService.updateProductStatus(id, user);
+  }
+
+  @Auth()
   @Post()
+  @ApiResponse({ status: 201, description: 'Product added to favourites' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiBody({ type: CreateFavouriteDto })
   addFavourite(@Body() dto: CreateFavouriteDto, @AuthUser() user: userEntity) {
     return this.productService.createProductFavourite(dto, user);
   }
 
   @Auth([Role.CURATOR])
   @Delete(':id')
+  @ApiResponse({ status: 200, description: 'Product deleted successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden: Not a curator' })
   remove(@Param('id') id: string, @AuthUser() user: userEntity) {
     return this.productService.remove(id, user);
   }

@@ -82,7 +82,7 @@ model User {
   disputes  Dispute[]
  rentalsRented  Rental[] @relation("Rentee")   
   rentalsCurated Rental[] @relation("Curator")
-    subOrders        SubOrder[] @relation("CuratorSubOrders")
+  
   
 }
 
@@ -191,7 +191,7 @@ model Product {
   status        ProductStatus @default(AVAILABLE)
   composition   String
   measurement   String
-  originalValue String
+  originalValue Int
   warning       String
   color         String[]
 
@@ -341,7 +341,7 @@ model Order {
   disputes           Dispute[]
   walletTransactions WalletTransaction[]
   orderItems         OrderItem[]
-  subOrders           SubOrder[]
+  
 
   createdAt DateTime @default(now())
 }
@@ -350,29 +350,18 @@ model Order {
 model OrderItem {
   id          String @id @default(uuid())
   orderId     String
-  subOrderId  String
+ 
   productId   String
   days        Int
   pricePerDay Int
 
   order       Order    @relation(fields: [orderId], references: [id])
-  subOrder    SubOrder @relation(fields: [subOrderId], references: [id])
+ 
   product     Product  @relation(fields: [productId], references: [id])
  
 }
 
-model SubOrder {
-  id        String         @id @default(uuid())
-  orderId   String
-  curatorId String
-  status    SubOrderStatus @default(PENDING)
 
-  order     Order @relation(fields: [orderId], references: [id])
-  curator   User  @relation("CuratorSubOrders", fields: [curatorId], references: [id])
-  items     OrderItem[]
-
-  createdAt DateTime @default(now())
-}
 
 model Rental {
   id String @id @default(uuid())
