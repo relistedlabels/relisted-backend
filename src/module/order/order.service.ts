@@ -106,7 +106,7 @@ export class OrderService {
     if(!orderItem) bad("order not found")
     if(orderItem.product.curatorId !==user.sub) bad("you can't approve this order ")
 
-       if (orderItem.order.status !== OrderStatus.) {
+       if (orderItem.order.status !== OrderStatus.PROCESSING) {
       throw new BadRequestException(
         'Order has already been confirmed or processed'
       );
