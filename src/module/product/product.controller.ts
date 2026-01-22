@@ -96,7 +96,7 @@ export class ProductController {
   }
 
   @Auth()
-  @Post()
+  @Post("/favourite")
   @ApiResponse({ status: 201, description: 'Product added to favourites' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiBody({ type: CreateFavouriteDto })

@@ -1,11 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/services/prisma/prisma.service';
 import { bad } from 'src/utils/error';
 import { userEntity } from '../auth/auth.types';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { ProductStatus } from '@prisma/client';
+import { OrderStatus, ProductStatus } from '@prisma/client';
 import { Order_Verification } from 'src/services/event/event.types';
 import { addMinutes } from 'date-fns';
+import { Order } from './entities/order.entity';
 
 @Injectable()
 export class OrderService {
@@ -19,7 +20,11 @@ export class OrderService {
       where: { userId: user.sub },
       include: {
         items: {
-          include: { product: true },
+          include: {
+            product: {
+              include: { curator: true },
+            },
+          },
         },
       },
     });
@@ -28,84 +33,95 @@ export class OrderService {
       bad('Cart is empty');
     }
 
-    let rentalTotal = 0;
-    let collateralTotal = 0;
-    let cleaningTotal = 0;
+    const createdOrders: any[] = [];
 
-    for (const item of cart.items) {
-      const product = item.product;
+    await this.prisma.$transaction(async (tx) => {
+      for (const item of cart.items) {
+        const product = item.product;
 
-      if (!product.isActive) bad(`${product.name} is not active`);
-      if (product.status !== 'AVAILABLE')
-        bad(`${product.name} is not available`);
-      if (item.days <= 0) bad(`Invalid rental duration`);
+        if (!product.isActive) bad(`${product.name} is not active`);
+        if (item.days <= 0) bad('Invalid rental duration');
 
-      rentalTotal += product.dailyPrice * item.days;
-      collateralTotal += Number(product.originalValue) || 0;
-      cleaningTotal += 2000;
-    }
+        const rentalAmount = product.dailyPrice * item.days;
+        const collateralAmount = Number(product.originalValue) || 0;
+        const cleaningFee = 2000;
+        const totalAmount = rentalAmount + collateralAmount + cleaningFee;
+        
 
-    const totalAmount = rentalTotal + collateralTotal + cleaningTotal;
+        const order = await tx.order.create({
+          data: {
+            orderId: await this.generateOrderId(),
+            userId: user.sub,
+          },
+        });
 
-    const newOrder = await this.prisma.$transaction(async (tx) => {
-      // create order
-      const order = await tx.order.create({
-        data: {
-          orderId: await this.generateOrderId(),
-          userId: user.sub,
-          reservedUntil:addMinutes(new Date(),30)
-        },
-      });
-      for (let item of cart.items) {
         await tx.orderItem.create({
           data: {
             orderId: order.id,
-            productId: item.productId,
+            productId: product.id,
             days: item.days,
-            pricePerDay: item.product.dailyPrice,
+            pricePerDay: product.dailyPrice,
           },
         });
-        // change the product status to rented
-        await tx.product.update({
-          where: {
-            id: item.productId,
-          },
-          data: {
-            status: ProductStatus.RESERVED,
-          },
-        });
+
+        createdOrders.push(order);
+
+        this.eventEmitter.emit(
+          'Order_Verification',
+          new Order_Verification(
+            product.curator.email,
+            user.name,
+            order.id,
+            product.curator.name,
+            totalAmount,
+
+            'new_order',
+            '3',
+
+            
+            'relisted',
+            product.name,
+            rentalAmount
+          ),
+        );
       }
-      // Clear cart
+
       await tx.cartItem.deleteMany({
         where: { cartId: cart.id },
       });
-      // redirect user to wema bank integration 
-      
- // order confimation email for curator to accept the order
-    // LISTEN  TO THE EVENT
-    this.eventEmitter.emit(
-      'Order_Verification',
-      new Order_Verification(user.email,order.id,user.name, totalAmount,"relisted"),
-    );
-      return order;
     });
 
-   
-
     return {
-      // orderId: order.id,
-      // status: newOrder.order.status,
-      summary: {
-        rentalTotal,
-        collateralTotal,
-        cleaningTotal,
-        totalAmount,
-      },
+      message: 'Orders created. Awaiting lister confirmation.',
+      ordersCreated: createdOrders.length,
     };
   }
 
-  
 
+  async listerOrderApproval(orderId:string,user:userEntity){
+      const orderItem = await this.prisma.orderItem.findFirst({
+      where: {  orderId:orderId },
+      include: { product: true, order: true },
+    });
+    if(!orderItem) bad("order not found")
+    if(orderItem.product.curatorId !==user.sub) bad("you can't approve this order ")
+
+       if (orderItem.order.status !== OrderStatus.PROCESSING) {
+      throw new BadRequestException(
+        'Order has already been confirmed or processed'
+      );
+    }
+      // accept order 
+  // return await this.prisma.orderItem.update({
+  //  where:{
+  //   id:orderItem.id
+  //  },
+  //  data:{
+  //   status:
+  //  }
+  // })
+
+  }
   async generateOrderId() {
     return `ORD-${Date.now()}`;
   }

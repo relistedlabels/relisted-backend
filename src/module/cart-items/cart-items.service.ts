@@ -25,8 +25,7 @@ export class CartService {
     const product = await this.prisma.product.findUnique({
       where: { id: dto.productId },
     });
-    if (!product || !product.isActive || product.status !== 'AVAILABLE')
-      bad('Product not available for rent');
+
 
     // Prevent duplicate
     const existing = await this.prisma.cartItem.findFirst({

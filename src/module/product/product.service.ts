@@ -207,7 +207,7 @@ export class ProductService {
     const updated = await this.prisma.product.update({
       where: { id: productId },
       data: {
-        status: ProductStatus.AVAILABLE,
+        name:"eeeeeee" ,
       },
     });
 
