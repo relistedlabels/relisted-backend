@@ -1,76 +1,67 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Order Approval</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      color: #333;
-      line-height: 1.6;
-    }
-    .container {
-      max-width: 600px;
-      margin: auto;
-      padding: 20px;
-      border: 1px solid #e2e2e2;
-      border-radius: 8px;
-    }
-    h2 {
-      color: #1a73e8;
-    }
-    .btn {
-      display: inline-block;
-      padding: 12px 20px;
-      margin-top: 20px;
-      background-color: #1a73e8;
-      color: #fff;
-      text-decoration: none;
-      border-radius: 5px;
-      font-weight: bold;
-    }
-    .footer {
-      margin-top: 30px;
-      font-size: 12px;
-      color: #888;
-    }
-    .summary {
-      margin-top: 10px;
-      padding: 10px;
-      background-color: #f5f5f5;
-      border-radius: 5px;
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h2>New Rental Order Awaiting Your Approval</h2>
-    <p>Hello <strong>{{curatorName}}</strong>,</p>
-    <p>You have received a new rental order for one or more of your products.</p>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Order Confirmation</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background-color: #f7f7f7;
+        padding: 20px;
+      }
+      .container {
+        background-color: #ffffff;
+        padding: 20px;
+        border-radius: 6px;
+      }
+      .header {
+        font-size: 20px;
+        font-weight: bold;
+        margin-bottom: 10px;
+      }
+      .summary {
+        margin-top: 15px;
+      }
+      .summary p {
+        margin: 4px 0;
+      }
+      .footer {
+        margin-top: 20px;
+        font-size: 12px;
+        color: #777;
+      }
+    </style>
+  </head>
 
-    <div class="summary">
-      <p><strong>Order ID:</strong> {{orderId}}</p>
-      <p><strong>Number of Items:</strong> {{itemCount}}</p>
-      <p><strong>Rental Period:</strong> {{rentalPeriod}}</p>
+  <body>
+    <div class="container">
+      <div class="header">Your Order Has Been Confirmed 🎉</div>
+
+      <p>Hello {{name}},</p>
+
+      <p>
+        Thank you for your order! Your rental request has been successfully
+        placed.
+      </p>
+
+      <div class="summary">
+        <p><strong>Order ID:</strong> {{orderId}}</p>
+        <p><strong>Total Amount:</strong> ₦{{totalAmount}}</p>
+        <p><strong>Status:</strong> Processing</p>
+      </div>
+
+      <p>
+        You will be notified once your items are delivered. Please confirm
+        receipt in the app to begin your rental period.
+      </p>
+
+      <p>
+        If you have any questions, feel free to contact our support team.
+      </p>
+
+      <div class="footer">
+        <p>— The {{platformName}} Team</p>
+      </div>
     </div>
-
-    <p>Please review the order details in your dashboard and confirm availability within <strong>30 minutes</strong> to proceed with the rental.</p>
-    <p>Once approved:</p>
-    <ul>
-      <li>Products will be reserved for the renter.</li>
-      <li>Funds will be securely held in escrow.</li>
-      <li>You will be notified when the rental is completed and funds become withdrawable.</li>
-    </ul>
-
-    <p>If you are unable to fulfill this order, you may reject it within the approval window.</p>
-
-    <a href="{{approvalLink}}" class="btn">Review & Approve Order</a>
-
-    <p class="footer">
-      Thank you for being a valued curator on our platform.<br>
-      The {{platformName}} Team
-    </p>
-  </div>
-</body>
+  </body>
 </html>

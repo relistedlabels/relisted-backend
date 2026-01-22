@@ -155,21 +155,6 @@ Table ProductCategory {
   createdAt DateTime [default: `now()`, not null]
 }
 
-Table Dispute {
-  id String [pk]
-  orderId String [not null]
-  order Order [not null]
-  userId String [not null]
-  user User [not null]
-  issueCategory String [not null]
-  description String [not null]
-  status DisputeStatus [not null, default: 'PENDING']
-  attachment Attachments
-  uploads Upload [not null]
-  createdAt DateTime [default: `now()`, not null]
-  updatedAt DateTime [not null]
-}
-
 Table Upload {
   id String [pk]
   name String [not null]
@@ -186,8 +171,6 @@ Table Upload {
   attachment Attachments
   user User [not null]
   userId String [not null]
-  dispute Dispute
-  disputeId String
 }
 
 Table Attachments {
@@ -235,6 +218,7 @@ Table Order {
   status OrderStatus [not null, default: 'PROCESSING']
   userId String [not null]
   user User [not null]
+  reservedUntil DateTime [not null]
   rental Rental
   payments Transaction [not null]
   disputes Dispute [not null]
@@ -292,6 +276,42 @@ Table Review {
   indexes {
     (userId, productId) [unique]
   }
+}
+
+Table Dispute {
+  id String [pk]
+  disputeId String [unique, not null]
+  orderId String [not null]
+  order Order [not null]
+  userId String [not null]
+  user User [not null]
+  issueCategory String [not null]
+  description String [not null]
+  status DisputeStatus [not null, default: 'PENDING']
+  attachment Attachments
+  chatRooms ChatRoom
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+}
+
+Table ChatRoom {
+  id String [pk]
+  dispute Dispute
+  disputeId String [unique]
+  message Message [not null]
+}
+
+Table Message {
+  id String [pk]
+  senderId String [not null]
+  senderRole String [not null]
+  content String [not null]
+  type String [not null, default: 'TEXT']
+  isRead Boolean [not null, default: false]
+  readAt DateTime
+  createdAt DateTime [default: `now()`, not null]
+  chatRoom ChatRoom [not null]
+  chatRoomId String [not null]
 }
 
 Table Transaction {
@@ -352,6 +372,7 @@ Enum ProductStatus {
   AVAILABLE
   RENTED
   MAINTENANCE
+  RESERVED
 }
 
 Enum WalletTransactionStatus {
@@ -381,6 +402,7 @@ Enum SubOrderStatus {
 Enum DisputeStatus {
   IN_REVIEW
   PENDING
+  WITHDRAW
   RESELOVE
   REJECTED
 }
@@ -413,15 +435,9 @@ Ref: Product.categoryId > ProductCategory.id
 
 Ref: Product.curatorId > User.id
 
-Ref: Dispute.orderId > Order.id
-
-Ref: Dispute.userId > User.id
-
 Ref: Upload.attachmentId > Attachments.id
 
 Ref: Upload.userId > User.id
-
-Ref: Upload.disputeId > Dispute.id
 
 Ref: Attachments.productId - Product.id
 
@@ -458,6 +474,14 @@ Ref: Review.productId > Product.id
 Ref: Review.curatorId > User.id
 
 Ref: Review.rentalId - Rental.id
+
+Ref: Dispute.orderId > Order.id
+
+Ref: Dispute.userId > User.id
+
+Ref: ChatRoom.disputeId - Dispute.id
+
+Ref: Message.chatRoomId > ChatRoom.id
 
 Ref: Transaction.orderId > Order.id
 

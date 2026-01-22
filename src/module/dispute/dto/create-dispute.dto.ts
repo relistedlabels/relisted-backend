@@ -1,12 +1,17 @@
-import { IsArray, IsString } from "class-validator"
+import { ApiProperty } from '@nestjs/swagger';
+import { IsArray, IsString } from 'class-validator';
 
 export class CreateDisputeDto {
-    @IsString()
-    orderId:string
-    @IsString()
-    issueCategory:string
-    @IsString()
-    description:string
-    @IsArray()
-    attachments:string[]
+  @ApiProperty()
+  @IsString()
+  orderId: string;
+  @ApiProperty()
+  @IsString()
+  issueCategory: string;
+  @ApiProperty()
+  @IsString()
+  description: string;
+  @ApiProperty()
+  @IsArray()
+  attachments: string[];
 }

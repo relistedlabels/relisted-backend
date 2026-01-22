@@ -5,6 +5,7 @@ import { PrismaService } from 'src/services/prisma/prisma.service';
 import { bad } from 'src/utils/error';
 import { connectId, createAttachments } from 'prisma/prisma.utils';
 import { userEntity } from '../auth/auth.types';
+import { DisputeStatus } from '@prisma/client';
 
 @Injectable()
 export class DisputeService {
@@ -46,10 +47,14 @@ async  create(dto: CreateDisputeDto,user:userEntity) {
       // create dispute 
       const newDispute =await this.prisma.dispute.create({
         data:{
+          disputeId:await this.generateDisputeId(),
           issueCategory:dto.issueCategory,
           description:dto.description,
           order:connectId(orderExist.id),
           user:connectId(user.sub),
+          chatRooms:{
+            create:{}
+          },
           attachment:dto.attachments ?createAttachments(dto.attachments):undefined
         }
       })
@@ -61,19 +66,41 @@ async  create(dto: CreateDisputeDto,user:userEntity) {
     }
   }
 
-  findAll() {
-    return `This action returns all dispute`;
+
+  async findAll(user:userEntity) {
+     return await this.prisma.dispute.findMany({
+    where:{
+    userId:user.sub
   }
 
-  findOne(id: number) {
-    return `This action returns a #${id} dispute`;
+ })
   }
 
-  update(id: number, updateDisputeDto: UpdateDisputeDto) {
-    return `This action updates a #${id} dispute`;
+async  findOne(id: string,user:userEntity) {
+ return await this.prisma.dispute.findFirst({
+  where:{
+    id,
+    userId:user.sub
   }
 
-  remove(id: number) {
-    return `This action removes a #${id} dispute`;
+ })
+  
+  }
+
+  async withdrawDispute(id:string) {
+    return await this.prisma.dispute.update({
+      where:{
+        id
+      },
+      data:{
+        status:DisputeStatus.WITHDRAW
+      }
+    })
+  }
+
+
+
+   async generateDisputeId() {
+    return `DQ-${Date.now()}`;
   }
 }

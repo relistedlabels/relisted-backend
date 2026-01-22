@@ -4,6 +4,8 @@ import { bad } from 'src/utils/error';
 import { userEntity } from '../auth/auth.types';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ProductStatus } from '@prisma/client';
+import { Order_Verification } from 'src/services/event/event.types';
+import { addMinutes } from 'date-fns';
 
 @Injectable()
 export class OrderService {
@@ -51,6 +53,7 @@ export class OrderService {
         data: {
           orderId: await this.generateOrderId(),
           userId: user.sub,
+          reservedUntil:addMinutes(new Date(),30)
         },
       });
       for (let item of cart.items) {
@@ -68,7 +71,7 @@ export class OrderService {
             id: item.productId,
           },
           data: {
-            status: ProductStatus.RENTED,
+            status: ProductStatus.RESERVED,
           },
         });
       }
@@ -76,16 +79,18 @@ export class OrderService {
       await tx.cartItem.deleteMany({
         where: { cartId: cart.id },
       });
-
+      // redirect user to wema bank integration 
+      
+ // order confimation email for curator to accept the order
+    // LISTEN  TO THE EVENT
+    this.eventEmitter.emit(
+      'Order_Verification',
+      new Order_Verification(user.email,order.id,user.name, totalAmount,"relisted"),
+    );
       return order;
     });
 
-    // order confimation email for curator to accept the order
-    // LISTEN  TO THE EVENT
-    // this.eventEmitter.emit(
-    //   'Order_Verification',
-    //   new Order_Verification(email,order.id,newOrder., name, year),
-    // );
+   
 
     return {
       // orderId: order.id,
