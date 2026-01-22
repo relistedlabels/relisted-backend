@@ -30,6 +30,7 @@ enum ProductStatus {
   AVAILABLE
   RENTED
   MAINTENANCE
+  RESERVED
 }
 
 enum WalletTransactionStatus {
@@ -75,15 +76,13 @@ model User {
 
   wallet Wallet?
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  profile   Profile?
-  uploads   Upload[]
-  disputes  Dispute[]
- rentalsRented  Rental[] @relation("Rentee")   
-  rentalsCurated Rental[] @relation("Curator")
-  
-  
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  profile        Profile?
+  uploads        Upload[]
+  disputes       Dispute[]
+  rentalsRented  Rental[]  @relation("Rentee")
+  rentalsCurated Rental[]  @relation("Curator")
 }
 
 model Profile {
@@ -211,10 +210,10 @@ model Product {
   receiveEmailNotifications     Boolean? @default(true)
   receiveProductRecommendations Boolean? @default(false)
 
-  rentals         Rental[]
-  cartItems       CartItem[]
-  favourites      Favourite[]
-  reviews         Review[]
+  rentals    Rental[]
+  cartItems  CartItem[]
+  favourites Favourite[]
+  reviews    Review[]
 
   careInstruction String
   careSteps       String[]
@@ -242,29 +241,9 @@ model ProductCategory {
 enum DisputeStatus {
   IN_REVIEW
   PENDING
+  WITHDRAW
   RESELOVE
   REJECTED
-}
-
-model Dispute {
-  id String @id @default(uuid())
-
-  orderId String
-  order   Order  @relation(fields: [orderId], references: [id])
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  issueCategory String
-  description   String
-  status        DisputeStatus @default(PENDING)
-  attachment    Attachments?
-
-  // Optional evidence uploads
-  uploads Upload[] @relation("DisputeUploads")
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 }
 
 model Upload {
@@ -283,8 +262,8 @@ model Upload {
   attachment      Attachments? @relation(fields: [attachmentId], references: [id])
   user            User         @relation(fields: [userId], references: [id])
   userId          String
-  dispute         Dispute?     @relation("DisputeUploads", fields: [disputeId], references: [id])
-  disputeId       String?
+  // dispute         Dispute?     @relation("DisputeUploads", fields: [disputeId], references: [id])
+  // disputeId       String?
 }
 
 model Attachments {
@@ -293,7 +272,7 @@ model Attachments {
 
   product   Product? @relation(fields: [productId], references: [id])
   productId String?  @unique
-  dispute  Dispute? @relation(fields: [disputeId], references: [id])
+  dispute   Dispute? @relation(fields: [disputeId], references: [id])
   disputeId String?  @unique
 }
 
@@ -333,35 +312,30 @@ model Order {
   orderId String      @unique
   status  OrderStatus @default(PROCESSING)
 
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
+  userId             String
+  user               User                @relation(fields: [userId], references: [id])
+  reservedUntil      DateTime
   rental             Rental?
   payments           Transaction[]
   disputes           Dispute[]
   walletTransactions WalletTransaction[]
   orderItems         OrderItem[]
-  
 
   createdAt DateTime @default(now())
 }
 
-
 model OrderItem {
-  id          String @id @default(uuid())
-  orderId     String
- 
+  id      String @id @default(uuid())
+  orderId String
+
   productId   String
   days        Int
   pricePerDay Int
 
-  order       Order    @relation(fields: [orderId], references: [id])
- 
-  product     Product  @relation(fields: [productId], references: [id])
- 
+  order Order @relation(fields: [orderId], references: [id])
+
+  product Product @relation(fields: [productId], references: [id])
 }
-
-
 
 model Rental {
   id String @id @default(uuid())
@@ -372,7 +346,7 @@ model Rental {
   productId String
   product   Product @relation(fields: [productId], references: [id])
   curatorId String
-  curator   User    @relation("Curator",fields: [curatorId], references: [id])
+  curator   User    @relation("Curator", fields: [curatorId], references: [id])
   userId    String
   user      User    @relation("Rentee", fields: [userId], references: [id])
 
@@ -387,7 +361,6 @@ model Rental {
 
   isReturned Boolean @default(false)
   isOverdue  Boolean @default(false)
-  
 
   createdAt DateTime @default(now())
 }
@@ -415,6 +388,45 @@ model Review {
   @@unique([userId, productId])
 }
 
+model Dispute {
+  id String @id @default(uuid())
+  disputeId   String @unique
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id])
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  issueCategory String
+  description   String
+  status        DisputeStatus @default(PENDING)
+  attachment    Attachments?
+
+  chatRooms ChatRoom?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ChatRoom {
+  id        String   @id @default(uuid())
+  dispute   Dispute? @relation(fields: [disputeId], references: [id])
+  disputeId String?  @unique
+  message    Message[]
+}
+model Message {
+  id         String   @id @default(cuid())
+  senderId   String
+  senderRole String 
+  content    String
+  type       String   @default("TEXT") 
+  isRead     Boolean  @default(false)
+  readAt     DateTime?
+  createdAt  DateTime @default(now())
+  chatRoom   ChatRoom @relation(fields: [chatRoomId],references: [id])
+  chatRoomId  String
+}
 model Transaction {
   id            String @id @default(uuid())
   transactionId String @unique
@@ -445,9 +457,8 @@ model Wallet {
 }
 
 model WaitList {
-    id       String @id @default(uuid())
-    email    String @unique
-  
+  id    String @id @default(uuid())
+  email String @unique
 }
 
 enum WalletTransactionType {
@@ -472,4 +483,3 @@ model WalletTransaction {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
-

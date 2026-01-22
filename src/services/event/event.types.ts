@@ -9,12 +9,12 @@ export class Verification_Mail {
 
 export class Order_Verification {
   constructor( public readonly email: string,
-    public readonly curatorName : string,
+    public readonly name : string,
     public readonly orderId: string,
-    public readonly rentalPeriod: string,
-    public readonly itemCount: string,
+    // public readonly rentalPeriod: string,
+    public readonly totalAmount: number,
     public readonly platformName: string,
-    public readonly approvalLink: string,
+    // public readonly approvalLink: string,
     
 
 
