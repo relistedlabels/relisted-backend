@@ -15,18 +15,21 @@ export class VerificationDto {
 }
 
 export class VerifyOrderDto {
+  // @IsString()
+  // curatorName: string;
   @IsString()
-  curatorName: string;
+  name:string
   @IsString()
   orderId: string;
-  @IsString()
-  itemCount: string;
-  @IsString()
-  rentalPeriod: string;
-  @IsString()
-  approvalLink: string;
+  @IsNumber()
+  totalAmount: number;
+  // @IsString()
+  // rentalPeriod: string;
+  // @IsString()
+  // approvalLink: string;
   @IsString()
   platformName: string;
+  
   @IsEmail()
   email:string
 }
