@@ -3,6 +3,8 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { Order_Verification, Verification_Mail } from './event.types';
 import { MailService } from '../mail/mail.service';
 
+type NewType = Order_Verification;
+
 @Injectable()
 export class EventService {
   constructor(private readonly mailService: MailService) {}
@@ -13,7 +15,7 @@ export class EventService {
 
 
     @OnEvent('Order_Verification', { async: true })
-  async SendOrderVerificationMail(payload: Order_Verification) {
+  async SendOrderVerificationMail(payload: NewType) {
     await this.mailService.SendVerificationOrderMail(payload);
   }
 

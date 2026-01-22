@@ -113,7 +113,6 @@ Table Product {
   condition String [not null]
   dailyPrice Int [not null]
   isActive Boolean [not null, default: true]
-  status ProductStatus [not null, default: 'AVAILABLE']
   composition String [not null]
   measurement String [not null]
   originalValue Int [not null]
@@ -218,7 +217,6 @@ Table Order {
   status OrderStatus [not null, default: 'PROCESSING']
   userId String [not null]
   user User [not null]
-  reservedUntil DateTime [not null]
   rental Rental
   payments Transaction [not null]
   disputes Dispute [not null]
