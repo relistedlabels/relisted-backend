@@ -49,6 +49,8 @@ enum OrderStatus {
   RETURNED
   COMPLETED
   CANCELLED
+  //  PENDING
+  REJECTED
 }
 
 enum SubOrderStatus {
@@ -187,7 +189,7 @@ model Product {
 
   dailyPrice    Int
   isActive      Boolean       @default(true)
-  status        ProductStatus @default(AVAILABLE)
+  // status        ProductStatus @default(AVAILABLE)
   composition   String
   measurement   String
   originalValue Int
@@ -314,7 +316,7 @@ model Order {
 
   userId             String
   user               User                @relation(fields: [userId], references: [id])
-  reservedUntil      DateTime
+  
   rental             Rental?
   payments           Transaction[]
   disputes           Dispute[]

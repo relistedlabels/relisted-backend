@@ -1,67 +1,64 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="UTF-8" />
-    <title>Order Confirmation</title>
-    <style>
-      body {
-        font-family: Arial, sans-serif;
-        background-color: #f7f7f7;
-        padding: 20px;
-      }
-      .container {
-        background-color: #ffffff;
-        padding: 20px;
-        border-radius: 6px;
-      }
-      .header {
-        font-size: 20px;
-        font-weight: bold;
-        margin-bottom: 10px;
-      }
-      .summary {
-        margin-top: 15px;
-      }
-      .summary p {
-        margin: 4px 0;
-      }
-      .footer {
-        margin-top: 20px;
-        font-size: 12px;
-        color: #777;
-      }
-    </style>
-  </head>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>New Order Awaiting Approval</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      color: #333;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+    }
+    .button {
+      display: inline-block;
+      padding: 10px 20px;
+      margin: 15px 0;
+      background-color: #1d72b8;
+      color: white;
+      text-decoration: none;
+      border-radius: 5px;
+    }
+    .order-summary {
+      border-top: 1px solid #ddd;
+      margin-top: 10px;
+      padding-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Hello {{curatorName}},</h2>
+    <p>You have a new order awaiting your approval.</p>
 
-  <body>
-    <div class="container">
-      <div class="header">Your Order Has Been Confirmed 🎉</div>
+    <p><strong>Order ID:</strong> {{orderId}}</p>
+    <p><strong>Renter Name:</strong> {{renterName}}</p>
+    <p><strong>Total Amount:</strong> ₦{{totalAmount}}</p>
 
-      <p>Hello {{name}},</p>
-
-      <p>
-        Thank you for your order! Your rental request has been successfully
-        placed.
-      </p>
-
-      <div class="summary">
-        <p><strong>Order ID:</strong> {{orderId}}</p>
-        <p><strong>Total Amount:</strong> ₦{{totalAmount}}</p>
-        <p><strong>Status:</strong> Processing</p>
-      </div>
-
-      <p>
-        You will be notified once your items are delivered. Please confirm
-        receipt in the app to begin your rental period.
-      </p>
-
-      <p>
-        If you have any questions, feel free to contact our support team.
-      </p>
-
-      <div class="footer">
-        <p>— The {{platformName}} Team</p>
-      </div>
+    <div class="order-summary">
+      <h3>Order Item:</h3>
+      <ul>
+        {{#each items}}
+          <li>
+            {{this.productName}} - {{this.days}} day(s) @ ₦{{this.pricePerDay}}/day
+          </li>
+        {{/each}}
+      </ul>
     </div>
-  </body>
+
+    <p>Please review the product and click the button below to approve the order:</p>
+    <a href="{{approvalLink}}" class="button">Accept Order</a>
+
+    <p>If you do not approve this order within 30 minutes, it will expire automatically.</p>
+
+    <p>Thanks,<br>The Rental Platform Team</p>
+  </div>
+</body>
 </html>
