@@ -49,6 +49,7 @@ enum OrderStatus {
   RETURNED
   COMPLETED
   CANCELLED
+  ACCEPTED
   //  PENDING
   REJECTED
 }

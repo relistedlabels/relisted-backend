@@ -389,6 +389,8 @@ Enum OrderStatus {
   RETURNED
   COMPLETED
   CANCELLED
+  ACCEPTED
+  REJECTED
 }
 
 Enum SubOrderStatus {

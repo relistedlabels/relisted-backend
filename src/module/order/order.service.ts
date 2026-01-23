@@ -112,14 +112,14 @@ export class OrderService {
       );
     }
       // accept order 
-  // return await this.prisma.orderItem.update({
-  //  where:{
-  //   id:orderItem.id
-  //  },
-  //  data:{
-  //   status:
-  //  }
-  // })
+  return await this.prisma.order.update({
+   where:{
+    id:orderItem.id
+   },
+   data:{
+    status:OrderStatus.ACCEPTED
+   }
+  })
 
   }
   async generateOrderId() {
