@@ -136,6 +136,13 @@ export class OrderService {
       },
     });
     // check if user balance is greater than or equal to the totla amount 
+    // Check wallet balance
+  // const wallet = order.user.wallet;
+  // if (!wallet || wallet.availableBalance < 100000) {
+  //   bad('Insufficient balance. Please fund your wallet ');
+  // }
+
+
 
 
   }
