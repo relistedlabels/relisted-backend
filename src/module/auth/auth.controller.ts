@@ -200,6 +200,24 @@ export class AuthController {
   }
 
   @Auth()
+   @ApiOkResponse({
+    
+    schema: {
+      example: {
+        success: true,
+        message: 'user authenticated',
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    
+    schema: {
+      example: {
+        success: false,
+        message: 'unAuthourized',
+      },
+    },
+  })
   @Get("/user")
   async getUser(@AuthUser() user:userEntity){
     return await this.authService.authUser(user)
