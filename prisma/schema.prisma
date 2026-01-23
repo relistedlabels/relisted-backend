@@ -32,11 +32,10 @@ enum ProductStatus {
   MAINTENANCE
   RESERVED
 }
-
 enum WalletTransactionStatus {
-  DEBIT
-  CREDIT
-  LOCKED
+  PENDING
+  SUCCESS
+  FAILED
 }
 
 enum OrderStatus {
@@ -49,14 +48,16 @@ enum OrderStatus {
   RETURNED
   COMPLETED
   CANCELLED
+  ACCEPTED
   //  PENDING
   REJECTED
 }
 
-enum SubOrderStatus {
+enum TransactionStatus {
   PENDING
-  ACCEPTED
-  REJECTED
+  SUCCESS
+  FAILED
+  REVERSED
 }
 
 model User {
@@ -85,6 +86,7 @@ model User {
   disputes       Dispute[]
   rentalsRented  Rental[]  @relation("Rentee")
   rentalsCurated Rental[]  @relation("Curator")
+  virtualAccounts VirtualAccount []
 }
 
 model Profile {
@@ -188,7 +190,7 @@ model Product {
   condition   String
 
   dailyPrice    Int
-  isActive      Boolean       @default(true)
+  isActive      Boolean  @default(true)
   // status        ProductStatus @default(AVAILABLE)
   composition   String
   measurement   String
@@ -244,7 +246,7 @@ enum DisputeStatus {
   IN_REVIEW
   PENDING
   WITHDRAW
-  RESELOVE
+  RESELOVED
   REJECTED
 }
 
@@ -314,14 +316,16 @@ model Order {
   orderId String      @unique
   status  OrderStatus @default(PROCESSING)
 
-  userId             String
-  user               User                @relation(fields: [userId], references: [id])
-  
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
   rental             Rental?
   payments           Transaction[]
   disputes           Dispute[]
   walletTransactions WalletTransaction[]
   orderItems         OrderItem[]
+  escrows            Escrow?
+  virtualAccount     VirtualAccount?
 
   createdAt DateTime @default(now())
 }
@@ -391,8 +395,8 @@ model Review {
 }
 
 model Dispute {
-  id String @id @default(uuid())
-  disputeId   String @unique
+  id        String @id @default(uuid())
+  disputeId String @unique
 
   orderId String
   order   Order  @relation(fields: [orderId], references: [id])
@@ -412,33 +416,35 @@ model Dispute {
 }
 
 model ChatRoom {
-  id        String   @id @default(uuid())
-  dispute   Dispute? @relation(fields: [disputeId], references: [id])
-  disputeId String?  @unique
-  message    Message[]
+  id        String    @id @default(uuid())
+  dispute   Dispute?  @relation(fields: [disputeId], references: [id])
+  disputeId String?   @unique
+  message   Message[]
 }
+
 model Message {
-  id         String   @id @default(cuid())
+  id         String    @id @default(cuid())
   senderId   String
-  senderRole String 
+  senderRole String
   content    String
-  type       String   @default("TEXT") 
-  isRead     Boolean  @default(false)
+  type       String    @default("TEXT")
+  isRead     Boolean   @default(false)
   readAt     DateTime?
-  createdAt  DateTime @default(now())
-  chatRoom   ChatRoom @relation(fields: [chatRoomId],references: [id])
-  chatRoomId  String
+  createdAt  DateTime  @default(now())
+  chatRoom   ChatRoom  @relation(fields: [chatRoomId], references: [id])
+  chatRoomId String
 }
+
 model Transaction {
-  id            String @id @default(uuid())
-  transactionId String @unique
+  id            String            @id @default(uuid())
+  transactionId String            @unique
   amount        Int
   method        String
-  status        String
-
-  orderId String
-  order   Order  @relation(fields: [orderId], references: [id])
-
+  status        TransactionStatus @default(PENDING)
+  orderId       String
+  order         Order             @relation(fields: [orderId], references: [id])
+virtualAccountId String?
+  virtualAccount   VirtualAccount? @relation(fields: [virtualAccountId], references: [id])
   createdAt DateTime @default(now())
 }
 
@@ -476,7 +482,7 @@ model WalletTransaction {
 
   amount Int
   type   WalletTransactionType   @default(MAIN)
-  status WalletTransactionStatus @default(LOCKED)
+  status WalletTransactionStatus @default(PENDING)
   note   String?
 
   orderId String?
@@ -485,3 +491,53 @@ model WalletTransaction {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+model Escrow {
+  id String @id @default(uuid())
+
+  orderId String @unique
+  order   Order  @relation(fields: [orderId], references: [id])
+
+  renterId  String
+  curatorId String
+
+  rentalAmount     Int
+  collateralAmount Int
+  cleaningFee      Int
+
+  status EscrowStatus @default(LOCKED)
+
+  releasedAt DateTime?
+  createdAt  DateTime  @default(now())
+}
+
+enum EscrowStatus {
+  LOCKED
+  RELEASED
+  PARTIALLY_RELEASED
+  REFUNDED
+}
+
+enum VirtualAccountStatus {
+  PENDING
+  PAID
+  EXPIRED
+}
+
+
+model VirtualAccount {
+  id          String    @id @default(uuid())
+  prefix       String
+  vaNumber    String    @unique
+  orderId     String     @unique
+  order       Order     @relation(fields: [orderId], references: [id])
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  amount      Int
+  status      VirtualAccountStatus    @default(PENDING) 
+  expiresAt   DateTime
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  transactions Transaction[]
+}
+
