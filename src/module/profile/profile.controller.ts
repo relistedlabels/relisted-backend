@@ -117,7 +117,7 @@ export class ProfileController {
   @ApiCookieAuth('access_token')
   @Auth()
   @Auth([Role.CURATOR])
-  @Delete()
+  @Delete(":id")
   @ApiResponse({
     status: 200,
     description: ' User profile deleted successfully',
@@ -126,7 +126,8 @@ export class ProfileController {
     status: 501,
     description: 'internal server error',
   })
-  remove(@AuthUser() user: userEntity) {
-    return this.profileService.remove(user);
+
+  remove(@Param("id") id:string) {
+    return this.profileService.remove(id);
   }
 }

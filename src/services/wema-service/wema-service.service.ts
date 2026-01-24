@@ -9,7 +9,12 @@ import { addMinutes } from 'date-fns';
 export class WemaServiceService {
   constructor(private readonly prisma:PrismaService){}
 async fundWallet(user:userEntity, amount: number) {
-
+const userExist =await this.prisma.user.findUnique({
+  where:{id:user.sub},
+  include:{
+    profile:true
+  }
+})
   const vaNumber = `759${Math.floor(100000000 + Math.random() * 900000000)}`;
  
   const virtualAccount = await this.prisma.virtualAccount.create({
@@ -21,6 +26,7 @@ async fundWallet(user:userEntity, amount: number) {
       status: 'PENDING',
       expiresAt: addMinutes(new Date(), 30),
       orderId:"123"
+      
     },
   });
 
