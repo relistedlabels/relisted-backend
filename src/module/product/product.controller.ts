@@ -112,4 +112,7 @@ export class ProductController {
   remove(@Param('id') id: string, @AuthUser() user: userEntity) {
     return this.productService.remove(id, user);
   }
+
+
+
 }
