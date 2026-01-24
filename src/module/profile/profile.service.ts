@@ -160,9 +160,9 @@ export class ProfileService {
   }
 
  
-  async remove( user: userEntity) {
+  async remove(id:string) {
     const profile = await this.prisma.profile.findUnique({
-      where: { userId: user.sub },
+      where: {id },
     });
 
     if (!profile) {
@@ -172,7 +172,7 @@ export class ProfileService {
     
 
     await this.prisma.profile.delete({
-      where: { userId:user.sub },
+      where: { id },
     });
 
     return {

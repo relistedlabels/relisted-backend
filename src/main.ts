@@ -10,6 +10,13 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.use(cookieParser());
   app.useGlobalPipes(new ValidationPipe());
+  //     app.enableCors({
+  //   origin: [
+  //   'http://localhost:3000',
+  //   'https://www.relistedlabels.com',
+  // ],
+  //   credentials: true,
+  // })
 
   const config = new DocumentBuilder()
     .setTitle('Relisted Ecommerce Api')
@@ -20,6 +27,6 @@ async function bootstrap() {
   const document = () => SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, document);
   
-  await app.listen(process.env.PORT ?? 3000);
+  await app.listen(process.env.PORT ?? 4000);
 }
 bootstrap();

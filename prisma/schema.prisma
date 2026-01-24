@@ -529,8 +529,10 @@ model VirtualAccount {
   id          String    @id @default(uuid())
   prefix       String
   vaNumber    String    @unique
-  orderId     String     @unique
-  order       Order     @relation(fields: [orderId], references: [id])
+  orderId     String?     @unique
+  nin         String?
+  bvn          String?
+  order       Order?     @relation(fields: [orderId], references: [id])
   userId      String
   user        User      @relation(fields: [userId], references: [id])
   amount      Int

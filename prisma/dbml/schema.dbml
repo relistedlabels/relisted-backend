@@ -378,8 +378,10 @@ Table VirtualAccount {
   id String [pk]
   prefix String [not null]
   vaNumber String [unique, not null]
-  orderId String [unique, not null]
-  order Order [not null]
+  orderId String [unique]
+  nin String
+  bvn String
+  order Order
   userId String [not null]
   user User [not null]
   amount Int [not null]
