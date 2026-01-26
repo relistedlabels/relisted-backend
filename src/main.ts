@@ -12,27 +12,31 @@ async function bootstrap() {
 
   app.useGlobalPipes(new ValidationPipe());
   
-  
-  
-const allowedOrigins = [
-  'http://localhost:3000',
-  'http://localhost:3001',
-  'https://www.relistedlabels.com',
-];
-
 app.enableCors({
   origin: (origin, callback) => {
-    // allow requests with no origin (like Postman)
+    // Allow Postman, server-to-server, Swagger (same-origin)
     if (!origin) return callback(null, true);
 
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+  
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'https://www.relistedlabels.com',
+    ];
+
+    if (
+      allowedOrigins.includes(origin) ||
+      origin.startsWith('http://localhost') ||
+      origin.endsWith('.vercel.app')
+    ) {
+      return callback(null, true);
     }
+
+    return callback(new Error(`Not allowed by CORS: ${origin}`));
   },
   credentials: true,
 });
+
 
   
   const config = new DocumentBuilder()

@@ -18,10 +18,11 @@ export class JwtAuthGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const token =request.cookies?.access_token
-    console.log("token",token)
+   
     if (!token) {
       throw new UnauthorizedException();
     }
+     console.log("token",token)
     try {
       //  verify the voken
       const payload = await this.jwtService.verifyAsync(token, {
