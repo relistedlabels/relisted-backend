@@ -77,12 +77,8 @@ export class ProductService {
   }
 
 
-   async getUserProducts(user:userEntity,query: ListProductQuery) {
-    const take = Number(query.count) || 10;
-    const page = Number(query.page) || 1;
-    const skip = take * (page - 1);
-    const orderBy = { createdAt: 'desc' } as const;
-   
+   async getUserProducts(user:userEntity) {
+ 
 
 
     const [list, totalCount] = await Promise.all([
@@ -90,9 +86,7 @@ export class ProductService {
        where: {
         curatorId:user.sub
       },
-        skip,
-        take,
-        orderBy,
+      
         include: {
           brand: true,
           category: true,
@@ -102,15 +96,9 @@ export class ProductService {
       this.prisma.product.count(),
     ]);
 
-    const totalPages = take ? Math.ceil(totalCount / take) : 1;
-
-    const pagination = {
-      page,
-      totalCount,
-      totalPages,
-    };
-
-    return { list, pagination };
+   return {
+    list,totalCount
+   }
   }
 
   async findOne(id: string) {

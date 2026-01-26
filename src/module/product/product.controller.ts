@@ -51,9 +51,9 @@ export class ProductController {
   @ApiResponse({ status: 200, description: 'userproducts retrieved successfully' })
   async getMyProducts(
     @AuthUser() user: userEntity,
-    @Query() query: ListProductQuery,
+   
   ) {
-    return await this.productService.getUserProducts(user, query);
+    return await this.productService.getUserProducts(user);
   }
 
   @Auth()
