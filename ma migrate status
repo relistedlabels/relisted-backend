@@ -1,0 +1,230 @@
+warning: in the working copy of 'prisma/schema.prisma', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/prisma/schema.prisma b/prisma/schema.prisma[m
+[1mindex a9fe752..3bb9d42 100644[m
+[1m--- a/prisma/schema.prisma[m
+[1m+++ b/prisma/schema.prisma[m
+[36m@@ -1,256 +1,168 @@[m
+ generator client {[m
+   provider = "prisma-client-js"[m
+[31m-  // output ="/dbml"[m
+ }[m
+ [m
+ generator dbml {[m
+   provider   = "prisma-dbml-generator"[m
+   output     = "./dbml"[m
+   outputName = "schema.dbml"[m
+[31m-  // projectName=""[m
+ }[m
+ [m
+ datasource db {[m
+   provider = "postgresql"[m
+[31m-  // url      = env("DATABASE_URL")[m
+[31m-}[m
+[31m-[m
+[31m-enum Role {[m
+[31m-  ADMIN[m
+[31m-  CURATOR[m
+[31m-  DRESSER[m
+[31m-}[m
+[31m-[m
+[31m-enum AuthOtpTokenType {[m
+[31m-  TOKEN[m
+[31m-  OTP[m
+[31m-}[m
+[31m-[m
+[31m-enum ProductStatus {[m
+[31m-  AVAILABLE[m
+[31m-  RENTED[m
+[31m-  MAINTENANCE[m
+[31m-  RESERVED[m
+[31m-}[m
+[31m-[m
+[31m-enum WalletTransactionStatus {[m
+[31m-  PENDING[m
+[31m-  SUCCESS[m
+[31m-  FAILED[m
+[31m-}[m
+[31m-[m
+[31m-enum OrderStatus {[m
+[31m-  PROCESSING[m
+[31m-  CONFIRMED[m
+[31m-  IN_TRANSIT[m
+[31m-  DELIVERED[m
+[31m-  ACTIVE[m
+[31m-  RETURN_DUE[m
+[31m-  RETURNED[m
+[31m-  COMPLETED[m
+[31m-  CANCELLED[m
+[31m-  ACCEPTED[m
+[31m-  //  PENDING[m
+[31m-  REJECTED[m
+[31m-}[m
+[31m- [m
+[31m-enum TransactionStatus {[m
+[31m-  PENDING[m
+[31m-  SUCCESS[m
+[31m-  FAILED[m
+[31m-  REVERSED[m
+ }[m
+ [m
+ model User {[m
+[31m-  id             String   @id @default(uuid())[m
+[31m-  email          String   @unique[m
+[31m-  password       String[m
+[31m-  name           String[m
+[31m-  provider       String?[m
+[31m-  isVerified     Boolean  @default(false)[m
+[31m-  role           Role     @default(DRESSER)[m
+[31m-  curatorReviews Review[] @relation("CuratorReviews")[m
+[31m-  reviewsWritten Review[][m
+[31m-[m
+[31m-  tokens     AuthOtpToken[][m
+[31m-  products   Product[]      @relation("CuratedProducts")[m
+[31m-  cart       Cart?[m
+[31m-  favourites Favourite[][m
+[31m-  orders     Order[][m
+[31m-[m
+[31m-  wallet Wallet?[m
+[31m-[m
+[32m+[m[32m  id              String           @id @default(uuid())[m
+[32m+[m[32m  email           String           @unique[m
+[32m+[m[32m  password        String[m
+[32m+[m[32m  name            String[m
+[32m+[m[32m  provider        String?[m
+[32m+[m[32m  isVerified      Boolean          @default(false)[m
+[32m+[m[32m  role            Role             @default(DRESSER)[m
+   createdAt       DateTime         @default(now())[m
+   updatedAt       DateTime         @updatedAt[m
+[31m-  profile         Profile?[m
+[31m-  uploads         Upload[][m
+[32m+[m[32m  tokens          AuthOtpToken[][m
+[32m+[m[32m  cart            Cart?[m
+   disputes        Dispute[][m
+[31m-  rentalsRented   Rental[]         @relation("Rentee")[m
+[32m+[m[32m  favourites      Favourite[][m
+[32m+[m[32m  orders          Order[][m
+[32m+[m[32m  products        Product[]        @relation("CuratedProducts")[m
+[32m+[m[32m  profile         Profile?[m
+   rentalsCurated  Rental[]         @relation("Curator")[m
+[32m+[m[32m  rentalsRented   Rental[]         @relation("Rentee")[m
+[32m+[m[32m  curatorReviews  Review[]         @relation("CuratorReviews")[m
+[32m+[m[32m  reviewsWritten  Review[][m
+[32m+[m[32m  uploads         Upload[][m
+   virtualAccounts VirtualAccount[][m
+[31m-  transactions    Transaction[][m
+[32m+[m[32m  wallet          Wallet?[m
+ }[m
+ [m
+ model Profile {[m
+[31m-  id     String @id @default(uuid())[m
+[31m-  userId String @unique[m
+[31m-  user   User   @relation(fields: [userId], references: [id])[m
+[31m-[m
+[31m-  phoneNumber String[m
+[31m-[m
+[31m-  bvn        String[m
+[31m-  isApproved Boolean @default(false)[m
+[31m-[m
+[31m-  emergencyContacts EmergencyContact[][m
+[31m-  businessInfo      BusinessInfo[][m
+[32m+[m[32m  id                String             @id @default(uuid())[m
+[32m+[m[32m  userId            String             @unique[m
+[32m+[m[32m  phoneNumber       String[m
+[32m+[m[32m  bvn               String[m
+[32m+[m[32m  isApproved        Boolean            @default(false)[m
+[32m+[m[32m  createdAt         DateTime           @default(now())[m
+[32m+[m[32m  updatedAt         DateTime           @updatedAt[m
+[32m+[m[32m  avatarUploadId    String?            @unique[m
+[32m+[m[32m  ninUploadId       String?            @unique[m
+[32m+[m[32m  address           Address[][m
+   bankAccounts      BankInfo[][m
+[31m-  // attachments  Attachments? [m
+[31m-[m
+[31m-  address Address[][m
+[31m-[m
+[31m-  avatarUpload   Upload? @relation("AvatarUpload", fields: [avatarUploadId], references: [id])[m
+[31m-  avatarUploadId String? @unique[m
+[31m-[m
+[31m-  ninUpload   Upload? @relation("NinUpload", fields: [ninUploadId], references: [id])[m
+[31m-  ninUploadId String? @unique[m
+[31m-[m
+[31m-  createdAt DateTime @default(now())[m
+[31m-  updatedAt DateTime @updatedAt[m
+[32m+[m[32m  businessInfo      BusinessInfo?[m
+[32m+[m[32m  emergencyContacts EmergencyContact[][m
+[32m+[m[32m  avatarUpload      Upload?            @relation("AvatarUpload", fields: [avatarUploadId], references: [id])[m
+[32m+[m[32m  ninUpload         Upload?            @relation("NinUpload", fields: [ninUploadId], references: [id])[m
+[32m+[m[32m  user              User               @relation(fields: [userId], references: [id])[m
+ }[m
+ [m
+ model EmergencyContact {[m
+[31m-  id        String  @id @default(uuid())[m
+[31m-  profileId String[m
+[31m-  profile   Profile @relation(fields: [profileId], references: [id])[m
+[31m-[m
+[32m+[m[32m  id           String  @id @default(uuid())[m
+[32m+[m[32m  profileId    String[m
+   name         String[m
+   relationship String[m
+   phoneNumber  String[m
+   city         String[m
+   state        String[m
+[32m+[m[32m  profile      Profile @relation(fields: [profileId], references: [id])[m
+ }[m
+ [m
+ model BusinessInfo {[m
+[31m-  id        String  @id @default(uuid())[m
+[31m-  profileId String  @unique[m
+[31m-  profile   Profile @relation(fields: [profileId], references: [id])[m
+[31m-[m
+[32m+[m[32m  id                         String  @id @default(uuid())[m
+[32m+[m[32m  profileId                  String  @unique[m
+   businessName               String[m
+   businessEmail              String[m
+   businessRegistrationNumber String[m
+   businessAddress            String[m
+   businessCity               String[m
+   businessState              String[m
+[32m+[m[32m  profile                    Profile @relation(fields: [profileId], references: [id])[m
+ }[m
+ [m
+ model BankInfo {[m
+[31m-  id        String  @id @default(uuid())[m
+[31m-  profileId String[m
+[31m-  profile   Profile @relation(fields: [profileId], references: [id])[m
+[31m-[m
+[32m+[m[32m  id            String  @id @default(uuid())[m
+[32m+[m[32m  profileId     String[m
+   bankName      String[m
+   accountNumber String[m
+   nameOfAccount String[m
+[32m+[m[32m  profile       Profile @relation(fields: [profileId], references: [id])[m
+ }[m
+ [m
+ model Address {[m
+[31m-  id String @id @default(uuid())[m
+[31m-[m
+[31m-  profile   Profile @relation(fields: [profileId], references: [id])[m
+[32m+[m[32m  id        String   @id @default(uuid())[m
+   profileId String[m
+   street    String[m
+   city      String[m
+   state     String[m
+   country   String[m
+   zipCode   String?[m
+[31m-  isDefault Boolean @default(false)[m
+[31m-[m
+[32m+[m[32m  isDefault Boolean  @default(false)[m
+   createdAt DateTime @default(now())[m
+   updatedAt DateTime @updatedAt[m
+[32m+[m[32m  profile   Profile  @relation(fields: [profileId], references: [id])[m
+ }[m
+ [m
+ model AuthOtpToken {[m
+[31m-  id      String           @id @default(uuid())[m
+[31m-  subject String[m
+[31m-  type    AuthOtpTokenType @default(OTP)[m
+[31m-  code    String           @unique[m
+[31m-  expiry  DateTime[m
+[31m-  email   String[m
+
