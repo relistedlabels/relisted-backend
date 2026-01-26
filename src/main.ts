@@ -9,6 +9,7 @@ async function bootstrap() {
   console.log('DB URL:', process.env.DATABASE_URL);
   const app = await NestFactory.create(AppModule);
   app.use(cookieParser());
+
   app.useGlobalPipes(new ValidationPipe());
       app.enableCors({
     origin: [
@@ -25,10 +26,12 @@ async function bootstrap() {
     .setDescription('Api documentation for ecommerce application')
     .setVersion('1.0')
     .addCookieAuth('access_token')
+    
     .build();
   const document = () => SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, document);
   
+
   await app.listen(process.env.PORT ?? 4000);
 }
 bootstrap();
