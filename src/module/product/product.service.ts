@@ -50,6 +50,46 @@ export class ProductService {
 
     const [list, totalCount] = await Promise.all([
       this.prisma.product.findMany({
+       where:{
+        productVerified:true
+       },
+        skip,
+        take,
+        orderBy,
+        include: {
+          brand: true,
+          category: true,
+          attachments: { include: { uploads: true } },
+        },
+      }),
+      this.prisma.product.count(),
+    ]);
+
+    const totalPages = take ? Math.ceil(totalCount / take) : 1;
+
+    const pagination = {
+      page,
+      totalCount,
+      totalPages,
+    };
+
+    return { list, pagination };
+  }
+
+
+   async getUserProducts(user:userEntity,query: ListProductQuery) {
+    const take = Number(query.count) || 10;
+    const page = Number(query.page) || 1;
+    const skip = take * (page - 1);
+    const orderBy = { createdAt: 'desc' } as const;
+   
+
+
+    const [list, totalCount] = await Promise.all([
+      this.prisma.product.findMany({
+       where: {
+        curatorId:user.sub
+      },
         skip,
         take,
         orderBy,
@@ -147,6 +187,31 @@ export class ProductService {
     };
   }
 
+
+
+   // ADMIN VERIFICATION METHOD
+  async verifyProduct(id: string,  user: userEntity) {
+    const product = await this.prisma.product.findUnique({
+      where: { id },
+    });
+
+    if (!product) bad("product not found")
+
+    
+
+    return this.prisma.product.update({
+      where: { id },
+      data: {
+        productVerified :true,
+        
+      
+      },
+      include: {
+        curator:true
+       
+      },
+    });
+  }
   // add product to favourite
 
   async createProductFavourite(

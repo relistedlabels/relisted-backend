@@ -47,6 +47,16 @@ export class ProductController {
   }
 
   @Auth()
+  @Get('user-products')
+  @ApiResponse({ status: 200, description: 'userproducts retrieved successfully' })
+  async getMyProducts(
+    @AuthUser() user: userEntity,
+    @Query() query: ListProductQuery,
+  ) {
+    return await this.productService.getUserProducts(user, query);
+  }
+
+  @Auth()
   @Get(':id')
   @ApiResponse({ status: 200, description: 'Product retrieved successfully' })
   @ApiResponse({ status: 404, description: 'Product not found' })
@@ -63,6 +73,26 @@ export class ProductController {
   ) {
     return this.productService.update(id, dto, user);
   }
+
+
+
+  
+  // ADMIN VERIFICATION ENDPOINT
+  @Auth([Role.ADMIN])
+  @Patch(':id/verify')
+  @ApiResponse({
+    status: 200,
+    description: 'Product verified successfully',
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden: Not an admin' })
+  verifyProduct(
+    @Param('id') id: string,
+    @AuthUser() user: userEntity,
+  ) {
+    return this.productService.verifyProduct(id, user);
+  }
+
 
   @Auth([Role.CURATOR])
   @Patch(':id/status')

@@ -26,6 +26,7 @@ Table User {
   rentalsRented Rental [not null]
   rentalsCurated Rental [not null]
   virtualAccounts VirtualAccount [not null]
+  transactions Transaction [not null]
 }
 
 Table Profile {
@@ -112,13 +113,14 @@ Table Product {
   subText String [not null]
   description String [not null]
   condition String [not null]
+  productVerified Boolean [not null, default: false]
   dailyPrice Int [not null]
   isActive Boolean [not null, default: true]
   composition String [not null]
   measurement String [not null]
   originalValue Int [not null]
   warning String [not null]
-  color String[] [not null]
+  color String [not null]
   brandId String [not null]
   brand Brand [not null]
   categoryId String [not null]
@@ -134,7 +136,7 @@ Table Product {
   favourites Favourite [not null]
   reviews Review [not null]
   careInstruction String [not null]
-  careSteps String[] [not null]
+  careSteps String [not null]
   items OrderItem [not null]
   stylingTip String [not null]
   createdAt DateTime [default: `now()`, not null]
@@ -317,12 +319,14 @@ Table Message {
 
 Table Transaction {
   id String [pk]
-  transactionId String [unique, not null]
+  referenceId String [unique, not null]
   amount Int [not null]
-  method String [not null]
+  method String
   status TransactionStatus [not null, default: 'PENDING']
-  orderId String [not null]
-  order Order [not null]
+  orderId String
+  order Order
+  user User [not null]
+  userId String [not null]
   virtualAccountId String
   virtualAccount VirtualAccount
   createdAt DateTime [default: `now()`, not null]
@@ -330,7 +334,6 @@ Table Transaction {
 
 Table Wallet {
   id String [pk]
-  balance Int [not null, default: 0]
   userId String [unique, not null]
   user User [not null]
   transactions WalletTransaction [not null]
@@ -384,7 +387,7 @@ Table VirtualAccount {
   order Order
   userId String [not null]
   user User [not null]
-  amount Int [not null]
+  amount Int
   status VirtualAccountStatus [not null, default: 'PENDING']
   expiresAt DateTime [not null]
   createdAt DateTime [default: `now()`, not null]
@@ -535,6 +538,8 @@ Ref: ChatRoom.disputeId - Dispute.id
 Ref: Message.chatRoomId > ChatRoom.id
 
 Ref: Transaction.orderId > Order.id
+
+Ref: Transaction.userId > User.id
 
 Ref: Transaction.virtualAccountId > VirtualAccount.id
 

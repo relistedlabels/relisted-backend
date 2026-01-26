@@ -32,6 +32,7 @@ enum ProductStatus {
   MAINTENANCE
   RESERVED
 }
+
 enum WalletTransactionStatus {
   PENDING
   SUCCESS
@@ -52,7 +53,7 @@ enum OrderStatus {
   //  PENDING
   REJECTED
 }
-
+ 
 enum TransactionStatus {
   PENDING
   SUCCESS
@@ -79,14 +80,15 @@ model User {
 
   wallet Wallet?
 
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  profile        Profile?
-  uploads        Upload[]
-  disputes       Dispute[]
-  rentalsRented  Rental[]  @relation("Rentee")
-  rentalsCurated Rental[]  @relation("Curator")
-  virtualAccounts VirtualAccount []
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  profile         Profile?
+  uploads         Upload[]
+  disputes        Dispute[]
+  rentalsRented   Rental[]         @relation("Rentee")
+  rentalsCurated  Rental[]         @relation("Curator")
+  virtualAccounts VirtualAccount[]
+  transactions    Transaction[]
 }
 
 model Profile {
@@ -188,7 +190,7 @@ model Product {
   subText     String
   description String
   condition   String
-
+   productVerified  Boolean @default(false)
   dailyPrice    Int
   isActive      Boolean  @default(true)
   // status        ProductStatus @default(AVAILABLE)
@@ -196,7 +198,8 @@ model Product {
   measurement   String
   originalValue Int
   warning       String
-  color         String[]
+  color         String
+
 
   brandId String
   brand   Brand  @relation(fields: [brandId], references: [id])
@@ -220,7 +223,7 @@ model Product {
   reviews    Review[]
 
   careInstruction String
-  careSteps       String[]
+  careSteps       String
   items           OrderItem[]
   stylingTip      String
 
@@ -436,21 +439,23 @@ model Message {
 }
 
 model Transaction {
-  id            String            @id @default(uuid())
-  transactionId String            @unique
-  amount        Int
-  method        String
-  status        TransactionStatus @default(PENDING)
-  orderId       String
-  order         Order             @relation(fields: [orderId], references: [id])
-virtualAccountId String?
+  id          String            @id @default(uuid())
+  referenceId String            @unique
+  amount      Int
+  method      String?
+  status      TransactionStatus @default(PENDING)
+  orderId     String?
+  order       Order?            @relation(fields: [orderId], references: [id])
+
+  user             User            @relation(fields: [userId], references: [id])
+  userId           String
+  virtualAccountId String?
   virtualAccount   VirtualAccount? @relation(fields: [virtualAccountId], references: [id])
-  createdAt DateTime @default(now())
+  createdAt        DateTime        @default(now())
 }
 
 model Wallet {
-  id      String @id @default(uuid())
-  balance Int    @default(0)
+  id String @id @default(uuid())
 
   userId            String              @unique
   user              User                @relation(fields: [userId], references: [id])
@@ -524,22 +529,20 @@ enum VirtualAccountStatus {
   EXPIRED
 }
 
-
 model VirtualAccount {
-  id          String    @id @default(uuid())
+  id           String               @id @default(uuid())
   prefix       String
-  vaNumber    String    @unique
-  orderId     String?     @unique
-  nin         String?
+  vaNumber     String               @unique
+  orderId      String?              @unique
+  nin          String?
   bvn          String?
-  order       Order?     @relation(fields: [orderId], references: [id])
-  userId      String
-  user        User      @relation(fields: [userId], references: [id])
-  amount      Int
-  status      VirtualAccountStatus    @default(PENDING) 
-  expiresAt   DateTime
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  order        Order?               @relation(fields: [orderId], references: [id])
+  userId       String
+  user         User                 @relation(fields: [userId], references: [id])
+  amount       Int?
+  status       VirtualAccountStatus @default(PENDING)
+  expiresAt    DateTime
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
   transactions Transaction[]
 }
-
