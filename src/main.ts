@@ -10,13 +10,15 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.use(cookieParser());
   app.useGlobalPipes(new ValidationPipe());
-  //     app.enableCors({
-  //   origin: [
-  //   'http://localhost:3000',
-  //   'https://www.relistedlabels.com',
-  // ],
-  //   credentials: true,
-  // })
+      app.enableCors({
+    origin: [
+    'http://localhost:3000',"http://localhost:3001",
+    'https://www.relistedlabels.com',
+  ],
+    credentials: true,
+  })
+  
+  
 
   app.useGlobalPipes(new ValidationPipe())
     app.enableCors({

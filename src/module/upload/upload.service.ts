@@ -9,11 +9,12 @@ export class UploadService {
     constructor(private readonly prisma :PrismaService){}
 
     
-async uploadFile(file:Express.Multer.File,user:userEntity ){
+async uploadFile(id:string,file:Express.Multer.File,user:userEntity ){
     const uploadResult:any = await handleUpload(file.buffer)
 
     const data= await this.prisma.upload.create({
         data:{
+            id,
            name:file.originalname,
            url:uploadResult.secure_url,
            publicId:uploadResult.public_id,
