@@ -20,7 +20,7 @@ export class ProductService {
         name: dto.name,
         subText: dto.subText,
         description: dto.description,
-        color: dto.color,
+        color: dto.color ,
         composition: dto.composition,
         measurement: dto.measurement,
         careInstruction: dto.careInstruction,
@@ -50,6 +50,9 @@ export class ProductService {
 
     const [list, totalCount] = await Promise.all([
       this.prisma.product.findMany({
+       where:{
+        productVerified:true
+       },
         skip,
         take,
         orderBy,
@@ -71,6 +74,31 @@ export class ProductService {
     };
 
     return { list, pagination };
+  }
+
+
+   async getUserProducts(user:userEntity) {
+ 
+
+
+    const [list, totalCount] = await Promise.all([
+      this.prisma.product.findMany({
+       where: {
+        curatorId:user.sub
+      },
+      
+        include: {
+          brand: true,
+          category: true,
+          attachments: { include: { uploads: true } },
+        },
+      }),
+      this.prisma.product.count(),
+    ]);
+
+   return {
+    list,totalCount
+   }
   }
 
   async findOne(id: string) {
@@ -147,6 +175,31 @@ export class ProductService {
     };
   }
 
+
+
+   // ADMIN VERIFICATION METHOD
+  async verifyProduct(id: string,  user: userEntity) {
+    const product = await this.prisma.product.findUnique({
+      where: { id },
+    });
+
+    if (!product) bad("product not found")
+
+    
+
+    return this.prisma.product.update({
+      where: { id },
+      data: {
+        productVerified :true,
+        
+      
+      },
+      include: {
+        curator:true
+       
+      },
+    });
+  }
   // add product to favourite
 
   async createProductFavourite(

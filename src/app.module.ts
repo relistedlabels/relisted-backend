@@ -17,10 +17,14 @@ import { EventModule } from './services/event/event.module';
 import { MailModule } from './services/mail/mail.module';
 import { PrismaModule } from './services/prisma/prisma.module';
 import { ChatRoomModule } from './module/chat-room/chat-room.module';
+import { WemaServiceModule } from './services/wema-service/wema-service.module';
+import { BrandsModule } from './module/brands/brands.module';
+import { CategoriesModule } from './module/categories/categories.module';
+import { WebhookModule } from './services/webhook/webhook.module';
 
 
 @Module({
-  imports: [PrismaModule, AuthModule, MailModule, EventModule, AuthOtpTokenModule, UserModule, ProfileModule, UploadModule, ProductModule, ReviewModule, DisputeModule, OrderModule, CartItemsModule, RentalModule, WaitlistModule, ChatRoomModule],
+  imports: [PrismaModule, AuthModule, MailModule, EventModule, AuthOtpTokenModule, UserModule, ProfileModule, UploadModule, ProductModule, ReviewModule, DisputeModule, OrderModule, CartItemsModule, RentalModule, WaitlistModule, ChatRoomModule, WemaServiceModule, BrandsModule, CategoriesModule, WebhookModule],
   controllers: [AppController],
   providers: [AppService],
 })

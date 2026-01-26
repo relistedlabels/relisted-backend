@@ -1,12 +1,11 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { OrderStatus } from '@prisma/client';
+import { Order_Verification } from 'src/services/event/event.types';
 import { PrismaService } from 'src/services/prisma/prisma.service';
 import { bad } from 'src/utils/error';
 import { userEntity } from '../auth/auth.types';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { OrderStatus, ProductStatus } from '@prisma/client';
-import { Order_Verification } from 'src/services/event/event.types';
-import { addMinutes } from 'date-fns';
-import { Order } from './entities/order.entity';
+import { addMinutes, isAfter } from 'date-fns';
 
 @Injectable()
 export class OrderService {
@@ -46,7 +45,6 @@ export class OrderService {
         const collateralAmount = Number(product.originalValue) || 0;
         const cleaningFee = 2000;
         const totalAmount = rentalAmount + collateralAmount + cleaningFee;
-        
 
         const order = await tx.order.create({
           data: {
@@ -78,10 +76,9 @@ export class OrderService {
             'new_order',
             '3',
 
-            
             'relisted',
             product.name,
-            rentalAmount
+            rentalAmount,
           ),
         );
       }
@@ -97,31 +94,59 @@ export class OrderService {
     };
   }
 
-
-  async listerOrderApproval(orderId:string,user:userEntity){
-      const orderItem = await this.prisma.orderItem.findFirst({
-      where: {  orderId:orderId },
+  async listerOrderApproval(orderId: string, user: userEntity) {
+    const orderItem = await this.prisma.orderItem.findFirst({
+      where: { orderId: orderId },
       include: { product: true, order: true },
     });
-    if(!orderItem) bad("order not found")
-    if(orderItem.product.curatorId !==user.sub) bad("you can't approve this order ")
+    if (!orderItem) bad('order not found');
+    if (orderItem.product.curatorId !== user.sub)
+      bad("you can't approve this order ");
 
-       if (orderItem.order.status !== OrderStatus.PROCESSING) {
+    if (orderItem.order.status !== OrderStatus.PROCESSING) {
       throw new BadRequestException(
-        'Order has already been confirmed or processed'
+        'Order has already been confirmed or processed',
       );
     }
-      // accept order 
-  // return await this.prisma.orderItem.update({
-  //  where:{
-  //   id:orderItem.id
-  //  },
-  //  data:{
-  //   status:
-  //  }
-  // })
+     const order = orderItem.order
+    const expiresAt =addMinutes(order.createdAt,30)
+     if (isAfter(new Date(), expiresAt)) {
+    await this.prisma.$transaction([
+      this.prisma.order.update({
+        where: { id: order.id },
+        data: { status: OrderStatus.CANCELLED },
+      }),
+      
+      this.prisma.virtualAccount?.updateMany({
+        where: { orderId: order.id },
+        data: { status: 'EXPIRED' },
+      }),
+    ]);
+
+    bad('Approval window expired (30 minutes)');
+  }
+    // accept order
+    await this.prisma.order.update({
+      where: {
+        id: orderItem.orderId,
+      },
+      data: {
+        status: OrderStatus.ACCEPTED,
+        
+      },
+    });
+    // check if user balance is greater than or equal to the totla amount 
+    // Check wallet balance
+  // const wallet = order.user.wallet;
+  // if (!wallet || wallet.availableBalance < 100000) {
+  //   bad('Insufficient balance. Please fund your wallet ');
+  // }
+
+
+
 
   }
+  
   async generateOrderId() {
     return `ORD-${Date.now()}`;
   }

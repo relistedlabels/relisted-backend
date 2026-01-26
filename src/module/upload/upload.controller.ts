@@ -21,7 +21,7 @@ export class UploadController {
   constructor(private readonly uploadService: UploadService) {}
   @ApiCookieAuth("access_token")
   @Auth()
-  @Post()
+  @Post(":id")
   @UseInterceptors(FileInterceptor('file'))
   @ApiConsumes('multipart/form-data') 
   @ApiBody({
@@ -38,13 +38,13 @@ export class UploadController {
   @ApiResponse({ status: 400, description: 'Invalid file' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async upload(
-    // @Param('id') id: string,
+    @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
     @AuthUser() user: userEntity,
   
   ) {
     
-    return await this.uploadService.uploadFile(file, user);
+    return await this.uploadService.uploadFile(id,file, user);
   }
 
   @Post('bulk')

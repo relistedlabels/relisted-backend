@@ -24,9 +24,10 @@ export class CreateProductDto {
   @ApiProperty()
   @IsNumber()
   originalValue: number;
+  
   @ApiProperty()
-  @IsArray()
-  color: string[];
+  @IsString()
+  color: string;
   @ApiProperty()
   @IsString()
   warning: string;
@@ -34,8 +35,8 @@ export class CreateProductDto {
   @IsString()
   careInstruction: string;
   @ApiProperty()
-  @IsArray()
-  careSteps: string[];
+  @IsString()
+  careSteps: string;
   @ApiProperty()
   @IsString()
   stylingTip: string;

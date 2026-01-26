@@ -25,6 +25,8 @@ Table User {
   disputes Dispute [not null]
   rentalsRented Rental [not null]
   rentalsCurated Rental [not null]
+  virtualAccounts VirtualAccount [not null]
+  transactions Transaction [not null]
 }
 
 Table Profile {
@@ -111,13 +113,14 @@ Table Product {
   subText String [not null]
   description String [not null]
   condition String [not null]
+  productVerified Boolean [not null, default: false]
   dailyPrice Int [not null]
   isActive Boolean [not null, default: true]
   composition String [not null]
   measurement String [not null]
   originalValue Int [not null]
   warning String [not null]
-  color String[] [not null]
+  color String [not null]
   brandId String [not null]
   brand Brand [not null]
   categoryId String [not null]
@@ -133,7 +136,7 @@ Table Product {
   favourites Favourite [not null]
   reviews Review [not null]
   careInstruction String [not null]
-  careSteps String[] [not null]
+  careSteps String [not null]
   items OrderItem [not null]
   stylingTip String [not null]
   createdAt DateTime [default: `now()`, not null]
@@ -222,6 +225,8 @@ Table Order {
   disputes Dispute [not null]
   walletTransactions WalletTransaction [not null]
   orderItems OrderItem [not null]
+  escrows Escrow
+  virtualAccount VirtualAccount
   createdAt DateTime [default: `now()`, not null]
 }
 
@@ -314,18 +319,21 @@ Table Message {
 
 Table Transaction {
   id String [pk]
-  transactionId String [unique, not null]
+  referenceId String [unique, not null]
   amount Int [not null]
-  method String [not null]
-  status String [not null]
-  orderId String [not null]
-  order Order [not null]
+  method String
+  status TransactionStatus [not null, default: 'PENDING']
+  orderId String
+  order Order
+  user User [not null]
+  userId String [not null]
+  virtualAccountId String
+  virtualAccount VirtualAccount
   createdAt DateTime [default: `now()`, not null]
 }
 
 Table Wallet {
   id String [pk]
-  balance Int [not null, default: 0]
   userId String [unique, not null]
   user User [not null]
   transactions WalletTransaction [not null]
@@ -347,12 +355,44 @@ Table WalletTransaction {
   wallet Wallet [not null]
   amount Int [not null]
   type WalletTransactionType [not null, default: 'MAIN']
-  status WalletTransactionStatus [not null, default: 'LOCKED']
+  status WalletTransactionStatus [not null, default: 'PENDING']
   note String
   orderId String
   order Order
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
+}
+
+Table Escrow {
+  id String [pk]
+  orderId String [unique, not null]
+  order Order [not null]
+  renterId String [not null]
+  curatorId String [not null]
+  rentalAmount Int [not null]
+  collateralAmount Int [not null]
+  cleaningFee Int [not null]
+  status EscrowStatus [not null, default: 'LOCKED']
+  releasedAt DateTime
+  createdAt DateTime [default: `now()`, not null]
+}
+
+Table VirtualAccount {
+  id String [pk]
+  prefix String [not null]
+  vaNumber String [unique, not null]
+  orderId String [unique]
+  nin String
+  bvn String
+  order Order
+  userId String [not null]
+  user User [not null]
+  amount Int
+  status VirtualAccountStatus [not null, default: 'PENDING']
+  expiresAt DateTime [not null]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+  transactions Transaction [not null]
 }
 
 Enum Role {
@@ -374,9 +414,9 @@ Enum ProductStatus {
 }
 
 Enum WalletTransactionStatus {
-  DEBIT
-  CREDIT
-  LOCKED
+  PENDING
+  SUCCESS
+  FAILED
 }
 
 Enum OrderStatus {
@@ -389,19 +429,22 @@ Enum OrderStatus {
   RETURNED
   COMPLETED
   CANCELLED
-}
-
-Enum SubOrderStatus {
-  PENDING
   ACCEPTED
   REJECTED
+}
+
+Enum TransactionStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REVERSED
 }
 
 Enum DisputeStatus {
   IN_REVIEW
   PENDING
   WITHDRAW
-  RESELOVE
+  RESELOVED
   REJECTED
 }
 
@@ -409,6 +452,19 @@ Enum WalletTransactionType {
   MAIN
   AVAILABLE
   COLLATERAL
+}
+
+Enum EscrowStatus {
+  LOCKED
+  RELEASED
+  PARTIALLY_RELEASED
+  REFUNDED
+}
+
+Enum VirtualAccountStatus {
+  PENDING
+  PAID
+  EXPIRED
 }
 
 Ref: Profile.userId - User.id
@@ -483,8 +539,18 @@ Ref: Message.chatRoomId > ChatRoom.id
 
 Ref: Transaction.orderId > Order.id
 
+Ref: Transaction.userId > User.id
+
+Ref: Transaction.virtualAccountId > VirtualAccount.id
+
 Ref: Wallet.userId - User.id
 
 Ref: WalletTransaction.walletId > Wallet.id
 
 Ref: WalletTransaction.orderId > Order.id
+
+Ref: Escrow.orderId - Order.id
+
+Ref: VirtualAccount.orderId - Order.id
+
+Ref: VirtualAccount.userId > User.id
