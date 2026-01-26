@@ -1,18 +1,401 @@
 generator client {
   provider = "prisma-client-js"
-  // output ="/dbml"
 }
 
 generator dbml {
   provider   = "prisma-dbml-generator"
   output     = "./dbml"
   outputName = "schema.dbml"
-  // projectName=""
 }
 
 datasource db {
   provider = "postgresql"
-  // url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String           @id @default(uuid())
+  email           String           @unique
+  password        String
+  name            String
+  provider        String?
+  isVerified      Boolean          @default(false)
+  role            Role             @default(DRESSER)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  tokens          AuthOtpToken[]
+  cart            Cart?
+  disputes        Dispute[]
+  favourites      Favourite[]
+  orders          Order[]
+  products        Product[]        @relation("CuratedProducts")
+  profile         Profile?
+  rentalsCurated  Rental[]         @relation("Curator")
+  rentalsRented   Rental[]         @relation("Rentee")
+  curatorReviews  Review[]         @relation("CuratorReviews")
+  reviewsWritten  Review[]
+  uploads         Upload[]
+  virtualAccounts VirtualAccount[]
+  wallet          Wallet?
+}
+
+model Profile {
+  id                String             @id @default(uuid())
+  userId            String             @unique
+  phoneNumber       String
+  bvn               String
+  isApproved        Boolean            @default(false)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  avatarUploadId    String?            @unique
+  ninUploadId       String?            @unique
+  address           Address[]
+  bankAccounts      BankInfo[]
+  businessInfo      BusinessInfo?
+  emergencyContacts EmergencyContact[]
+  avatarUpload      Upload?            @relation("AvatarUpload", fields: [avatarUploadId], references: [id])
+  ninUpload         Upload?            @relation("NinUpload", fields: [ninUploadId], references: [id])
+  user              User               @relation(fields: [userId], references: [id])
+}
+
+model EmergencyContact {
+  id           String  @id @default(uuid())
+  profileId    String
+  name         String
+  relationship String
+  phoneNumber  String
+  city         String
+  state        String
+  profile      Profile @relation(fields: [profileId], references: [id])
+}
+
+model BusinessInfo {
+  id                         String  @id @default(uuid())
+  profileId                  String  @unique
+  businessName               String
+  businessEmail              String
+  businessRegistrationNumber String
+  businessAddress            String
+  businessCity               String
+  businessState              String
+  profile                    Profile @relation(fields: [profileId], references: [id])
+}
+
+model BankInfo {
+  id            String  @id @default(uuid())
+  profileId     String
+  bankName      String
+  accountNumber String
+  nameOfAccount String
+  profile       Profile @relation(fields: [profileId], references: [id])
+}
+
+model Address {
+  id        String   @id @default(uuid())
+  profileId String
+  street    String
+  city      String
+  state     String
+  country   String
+  zipCode   String?
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  profile   Profile  @relation(fields: [profileId], references: [id])
+}
+
+model AuthOtpToken {
+  id        String           @id @default(uuid())
+  subject   String
+  type      AuthOtpTokenType @default(OTP)
+  code      String           @unique
+  expiry    DateTime
+  email     String
+  userId    String
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  user      User             @relation(fields: [userId], references: [id])
+}
+
+model Product {
+  id                            String          @id @default(uuid())
+  name                          String
+  subText                       String
+  description                   String
+  condition                     String
+  dailyPrice                    Int
+  isActive                      Boolean         @default(true)
+  composition                   String
+  measurement                   String
+  warning                       String
+  color                         String[]
+  brandId                       String
+  categoryId                    String
+  curatorId                     String
+  careInstruction               String
+  careSteps                     String[]
+  stylingTip                    String
+  createdAt                     DateTime        @default(now())
+  updatedAt                     DateTime        @updatedAt
+  receiveEmailNotifications     Boolean?        @default(true)
+  receiveProductRecommendations Boolean?        @default(false)
+  receiveSmsNotifications       Boolean?        @default(false)
+  originalValue                 Int
+  attachments                   Attachments?
+  cartItems                     CartItem[]
+  favourites                    Favourite[]
+  items                         OrderItem[]
+  brand                         Brand           @relation(fields: [brandId], references: [id])
+  category                      ProductCategory @relation(fields: [categoryId], references: [id])
+  curator                       User            @relation("CuratedProducts", fields: [curatorId], references: [id])
+  rentals                       Rental[]
+  reviews                       Review[]
+}
+
+model Brand {
+  id        String    @id @default(uuid())
+  name      String
+  createdAt DateTime  @default(now())
+  products  Product[]
+}
+
+model ProductCategory {
+  id        String    @id @default(uuid())
+  name      String
+  createdAt DateTime  @default(now())
+  products  Product[]
+}
+
+model Upload {
+  id              String       @id @default(uuid())
+  name            String
+  type            String
+  size            Int
+  url             String
+  publicId        String
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @default(now())
+  attachmentId    String?
+  userId          String
+  fieldName       String
+  profileAsAvatar Profile?     @relation("AvatarUpload")
+  profileAsNin    Profile?     @relation("NinUpload")
+  attachment      Attachments? @relation(fields: [attachmentId], references: [id])
+  user            User         @relation(fields: [userId], references: [id])
+}
+
+model Attachments {
+  id        String   @id @default(uuid())
+  productId String?  @unique
+  disputeId String?  @unique
+  dispute   Dispute? @relation(fields: [disputeId], references: [id])
+  product   Product? @relation(fields: [productId], references: [id])
+  uploads   Upload[]
+}
+
+model Cart {
+  id     String     @id @default(uuid())
+  userId String     @unique
+  user   User       @relation(fields: [userId], references: [id])
+  items  CartItem[]
+}
+
+model CartItem {
+  id        String   @id @default(uuid())
+  cartId    String
+  productId String
+  days      Int
+  createdAt DateTime @default(now())
+  cart      Cart     @relation(fields: [cartId], references: [id])
+  product   Product  @relation(fields: [productId], references: [id])
+}
+
+model Favourite {
+  id        String   @id @default(uuid())
+  userId    String
+  productId String
+  createdAt DateTime @default(now())
+  product   Product  @relation(fields: [productId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, productId])
+}
+
+model Order {
+  id                 String              @id @default(uuid())
+  orderId            String              @unique
+  status             OrderStatus         @default(PROCESSING)
+  userId             String
+  createdAt          DateTime            @default(now())
+  disputes           Dispute[]
+  escrows            Escrow?
+  user               User                @relation(fields: [userId], references: [id])
+  orderItems         OrderItem[]
+  rental             Rental?
+  payments           Transaction[]
+  virtualAccount     VirtualAccount?
+  walletTransactions WalletTransaction[]
+}
+
+model OrderItem {
+  id          String  @id @default(uuid())
+  orderId     String
+  productId   String
+  days        Int
+  pricePerDay Int
+  order       Order   @relation(fields: [orderId], references: [id])
+  product     Product @relation(fields: [productId], references: [id])
+}
+
+model Rental {
+  id          String    @id @default(uuid())
+  orderId     String    @unique
+  productId   String
+  days        Int
+  totalAmount Int
+  startDate   DateTime
+  endDate     DateTime
+  returnedAt  DateTime?
+  isReturned  Boolean   @default(false)
+  isOverdue   Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  curatorId   String
+  userId      String
+  curator     User      @relation("Curator", fields: [curatorId], references: [id])
+  order       Order     @relation(fields: [orderId], references: [id])
+  product     Product   @relation(fields: [productId], references: [id])
+  user        User      @relation("Rentee", fields: [userId], references: [id])
+  review      Review?
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  userId    String
+  productId String
+  curatorId String
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  rentalId  String   @unique
+  curator   User     @relation("CuratorReviews", fields: [curatorId], references: [id])
+  product   Product  @relation(fields: [productId], references: [id])
+  rental    Rental   @relation(fields: [rentalId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, productId])
+}
+
+model Dispute {
+  id            String        @id @default(uuid())
+  orderId       String
+  userId        String
+  issueCategory String
+  description   String
+  status        DisputeStatus @default(PENDING)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  disputeId     String        @unique
+  attachment    Attachments?
+  chatRooms     ChatRoom?
+  order         Order         @relation(fields: [orderId], references: [id])
+  user          User          @relation(fields: [userId], references: [id])
+}
+
+model ChatRoom {
+  id        String    @id @default(uuid())
+  disputeId String?   @unique
+  dispute   Dispute?  @relation(fields: [disputeId], references: [id])
+  message   Message[]
+}
+
+model Message {
+  id         String    @id @default(cuid())
+  senderId   String
+  senderRole String
+  content    String
+  type       String    @default("TEXT")
+  isRead     Boolean   @default(false)
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+  chatRoomId String
+  chatRoom   ChatRoom  @relation(fields: [chatRoomId], references: [id])
+}
+
+model Transaction {
+  id               String            @id @default(uuid())
+  transactionId    String            @unique
+  amount           Int
+  method           String
+  orderId          String
+  createdAt        DateTime          @default(now())
+  status           TransactionStatus @default(PENDING)
+  virtualAccountId String?
+  order            Order             @relation(fields: [orderId], references: [id])
+  virtualAccount   VirtualAccount?   @relation(fields: [virtualAccountId], references: [id])
+}
+
+model Wallet {
+  id                String              @id @default(uuid())
+  balance           Int                 @default(0)
+  userId            String              @unique
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  availableBalance  Int                 @default(0)
+  collateralBalance Int                 @default(0)
+  mainBalance       Int                 @default(0)
+  user              User                @relation(fields: [userId], references: [id])
+  transactions      WalletTransaction[]
+}
+
+model WaitList {
+  id    String @id @default(uuid())
+  email String @unique
+}
+
+model WalletTransaction {
+  id        String                  @id @default(uuid())
+  walletId  String
+  amount    Int
+  status    WalletTransactionStatus @default(PENDING)
+  note      String?
+  createdAt DateTime                @default(now())
+  orderId   String?
+  type      WalletTransactionType   @default(MAIN)
+  updatedAt DateTime                @updatedAt
+  order     Order?                  @relation(fields: [orderId], references: [id])
+  wallet    Wallet                  @relation(fields: [walletId], references: [id])
+}
+
+model Escrow {
+  id               String       @id @default(uuid())
+  orderId          String       @unique
+  renterId         String
+  curatorId        String
+  rentalAmount     Int
+  collateralAmount Int
+  cleaningFee      Int
+  status           EscrowStatus @default(LOCKED)
+  releasedAt       DateTime?
+  createdAt        DateTime     @default(now())
+  order            Order        @relation(fields: [orderId], references: [id])
+}
+
+model VirtualAccount {
+  id           String               @id @default(uuid())
+  vaNumber     String               @unique
+  orderId      String?              @unique
+  userId       String
+  amount       Int
+  expiresAt    DateTime
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  prefix       String
+  status       VirtualAccountStatus @default(PENDING)
+  bvn          String?
+  nin          String?
+  transactions Transaction[]
+  order        Order?               @relation(fields: [orderId], references: [id])
+  user         User                 @relation(fields: [userId], references: [id])
 }
 
 enum Role {
@@ -50,199 +433,14 @@ enum OrderStatus {
   COMPLETED
   CANCELLED
   ACCEPTED
-  //  PENDING
   REJECTED
 }
- 
+
 enum TransactionStatus {
   PENDING
   SUCCESS
   FAILED
   REVERSED
-}
-
-model User {
-  id             String   @id @default(uuid())
-  email          String   @unique
-  password       String
-  name           String
-  provider       String?
-  isVerified     Boolean  @default(false)
-  role           Role     @default(DRESSER)
-  curatorReviews Review[] @relation("CuratorReviews")
-  reviewsWritten Review[]
-
-  tokens     AuthOtpToken[]
-  products   Product[]      @relation("CuratedProducts")
-  cart       Cart?
-  favourites Favourite[]
-  orders     Order[]
-
-  wallet Wallet?
-
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  profile         Profile?
-  uploads         Upload[]
-  disputes        Dispute[]
-  rentalsRented   Rental[]         @relation("Rentee")
-  rentalsCurated  Rental[]         @relation("Curator")
-  virtualAccounts VirtualAccount[]
-  transactions    Transaction[]
-}
-
-model Profile {
-  id     String @id @default(uuid())
-  userId String @unique
-  user   User   @relation(fields: [userId], references: [id])
-
-  phoneNumber String
-
-  bvn        String
-  isApproved Boolean @default(false)
-
-  emergencyContacts EmergencyContact[]
-  businessInfo      BusinessInfo[]
-  bankAccounts      BankInfo[]
-  // attachments  Attachments? 
-
-  address Address[]
-
-  avatarUpload   Upload? @relation("AvatarUpload", fields: [avatarUploadId], references: [id])
-  avatarUploadId String? @unique
-
-  ninUpload   Upload? @relation("NinUpload", fields: [ninUploadId], references: [id])
-  ninUploadId String? @unique
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model EmergencyContact {
-  id        String  @id @default(uuid())
-  profileId String
-  profile   Profile @relation(fields: [profileId], references: [id])
-
-  name         String
-  relationship String
-  phoneNumber  String
-  city         String
-  state        String
-}
-
-model BusinessInfo {
-  id        String  @id @default(uuid())
-  profileId String  @unique
-  profile   Profile @relation(fields: [profileId], references: [id])
-
-  businessName               String
-  businessEmail              String
-  businessRegistrationNumber String
-  businessAddress            String
-  businessCity               String
-  businessState              String
-}
-
-model BankInfo {
-  id        String  @id @default(uuid())
-  profileId String
-  profile   Profile @relation(fields: [profileId], references: [id])
-
-  bankName      String
-  accountNumber String
-  nameOfAccount String
-}
-
-model Address {
-  id String @id @default(uuid())
-
-  profile   Profile @relation(fields: [profileId], references: [id])
-  profileId String
-  street    String
-  city      String
-  state     String
-  country   String
-  zipCode   String?
-  isDefault Boolean @default(false)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model AuthOtpToken {
-  id      String           @id @default(uuid())
-  subject String
-  type    AuthOtpTokenType @default(OTP)
-  code    String           @unique
-  expiry  DateTime
-  email   String
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model Product {
-  id          String @id @default(uuid())
-  name        String
-  subText     String
-  description String
-  condition   String
-   productVerified  Boolean @default(false)
-  dailyPrice    Int
-  isActive      Boolean  @default(true)
-  // status        ProductStatus @default(AVAILABLE)
-  composition   String
-  measurement   String
-  originalValue Int
-  warning       String
-  color         String
-
-
-  brandId String
-  brand   Brand  @relation(fields: [brandId], references: [id])
-
-  categoryId String
-  category   ProductCategory @relation(fields: [categoryId], references: [id])
-
-  curatorId String
-  curator   User   @relation("CuratedProducts", fields: [curatorId], references: [id])
-
-  attachments Attachments?
-
-  // notification preferences 
-  receiveSmsNotifications       Boolean? @default(false)
-  receiveEmailNotifications     Boolean? @default(true)
-  receiveProductRecommendations Boolean? @default(false)
-
-  rentals    Rental[]
-  cartItems  CartItem[]
-  favourites Favourite[]
-  reviews    Review[]
-
-  careInstruction String
-  careSteps       String
-  items           OrderItem[]
-  stylingTip      String
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model Brand {
-  id        String    @id @default(uuid())
-  name      String
-  products  Product[]
-  createdAt DateTime  @default(now())
-}
-
-model ProductCategory {
-  id        String    @id @default(uuid())
-  name      String
-  products  Product[]
-  createdAt DateTime  @default(now())
 }
 
 enum DisputeStatus {
@@ -253,267 +451,10 @@ enum DisputeStatus {
   REJECTED
 }
 
-model Upload {
-  id              String       @id @default(uuid())
-  name            String
-  type            String
-  size            Int
-  url             String
-  fieldName       String
-  publicId        String
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @default(now())
-  attachmentId    String?
-  profileAsAvatar Profile?     @relation("AvatarUpload")
-  profileAsNin    Profile?     @relation("NinUpload")
-  attachment      Attachments? @relation(fields: [attachmentId], references: [id])
-  user            User         @relation(fields: [userId], references: [id])
-  userId          String
-  // dispute         Dispute?     @relation("DisputeUploads", fields: [disputeId], references: [id])
-  // disputeId       String?
-}
-
-model Attachments {
-  id      String   @id @default(uuid())
-  uploads Upload[]
-
-  product   Product? @relation(fields: [productId], references: [id])
-  productId String?  @unique
-  dispute   Dispute? @relation(fields: [disputeId], references: [id])
-  disputeId String?  @unique
-}
-
-model Cart {
-  id     String @id @default(uuid())
-  userId String @unique
-  user   User   @relation(fields: [userId], references: [id])
-
-  items CartItem[]
-}
-
-model CartItem {
-  id        String @id @default(uuid())
-  cartId    String
-  productId String
-  days      Int
-
-  cart      Cart     @relation(fields: [cartId], references: [id])
-  product   Product  @relation(fields: [productId], references: [id])
-  createdAt DateTime @default(now())
-}
-
-model Favourite {
-  id        String @id @default(uuid())
-  userId    String
-  productId String
-
-  user      User     @relation(fields: [userId], references: [id])
-  product   Product  @relation(fields: [productId], references: [id])
-  createdAt DateTime @default(now())
-
-  @@unique([userId, productId])
-}
-
-model Order {
-  id      String      @id @default(uuid())
-  orderId String      @unique
-  status  OrderStatus @default(PROCESSING)
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  rental             Rental?
-  payments           Transaction[]
-  disputes           Dispute[]
-  walletTransactions WalletTransaction[]
-  orderItems         OrderItem[]
-  escrows            Escrow?
-  virtualAccount     VirtualAccount?
-
-  createdAt DateTime @default(now())
-}
-
-model OrderItem {
-  id      String @id @default(uuid())
-  orderId String
-
-  productId   String
-  days        Int
-  pricePerDay Int
-
-  order Order @relation(fields: [orderId], references: [id])
-
-  product Product @relation(fields: [productId], references: [id])
-}
-
-model Rental {
-  id String @id @default(uuid())
-
-  orderId String @unique
-  order   Order  @relation(fields: [orderId], references: [id])
-
-  productId String
-  product   Product @relation(fields: [productId], references: [id])
-  curatorId String
-  curator   User    @relation("Curator", fields: [curatorId], references: [id])
-  userId    String
-  user      User    @relation("Rentee", fields: [userId], references: [id])
-
-  days Int
-
-  totalAmount Int
-
-  startDate  DateTime
-  endDate    DateTime
-  returnedAt DateTime?
-  review     Review?
-
-  isReturned Boolean @default(false)
-  isOverdue  Boolean @default(false)
-
-  createdAt DateTime @default(now())
-}
-
-model Review {
-  id String @id @default(uuid())
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  productId String
-  product   Product @relation(fields: [productId], references: [id])
-
-  curatorId String
-  curator   User   @relation("CuratorReviews", fields: [curatorId], references: [id])
-
-  rating   Int
-  comment  String?
-  rentalId String  @unique
-  rental   Rental  @relation(fields: [rentalId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([userId, productId])
-}
-
-model Dispute {
-  id        String @id @default(uuid())
-  disputeId String @unique
-
-  orderId String
-  order   Order  @relation(fields: [orderId], references: [id])
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  issueCategory String
-  description   String
-  status        DisputeStatus @default(PENDING)
-  attachment    Attachments?
-
-  chatRooms ChatRoom?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model ChatRoom {
-  id        String    @id @default(uuid())
-  dispute   Dispute?  @relation(fields: [disputeId], references: [id])
-  disputeId String?   @unique
-  message   Message[]
-}
-
-model Message {
-  id         String    @id @default(cuid())
-  senderId   String
-  senderRole String
-  content    String
-  type       String    @default("TEXT")
-  isRead     Boolean   @default(false)
-  readAt     DateTime?
-  createdAt  DateTime  @default(now())
-  chatRoom   ChatRoom  @relation(fields: [chatRoomId], references: [id])
-  chatRoomId String
-}
-
-model Transaction {
-  id          String            @id @default(uuid())
-  referenceId String            @unique
-  amount      Int
-  method      String?
-  status      TransactionStatus @default(PENDING)
-  orderId     String?
-  order       Order?            @relation(fields: [orderId], references: [id])
-
-  user             User            @relation(fields: [userId], references: [id])
-  userId           String
-  virtualAccountId String?
-  virtualAccount   VirtualAccount? @relation(fields: [virtualAccountId], references: [id])
-  createdAt        DateTime        @default(now())
-}
-
-model Wallet {
-  id String @id @default(uuid())
-
-  userId            String              @unique
-  user              User                @relation(fields: [userId], references: [id])
-  transactions      WalletTransaction[]
-  // Three balances
-  mainBalance       Int                 @default(0)
-  availableBalance  Int                 @default(0)
-  collateralBalance Int                 @default(0)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model WaitList {
-  id    String @id @default(uuid())
-  email String @unique
-}
-
 enum WalletTransactionType {
   MAIN
   AVAILABLE
   COLLATERAL
-}
-
-model WalletTransaction {
-  id       String @id @default(uuid())
-  walletId String
-  wallet   Wallet @relation(fields: [walletId], references: [id])
-
-  amount Int
-  type   WalletTransactionType   @default(MAIN)
-  status WalletTransactionStatus @default(PENDING)
-  note   String?
-
-  orderId String?
-  order   Order?  @relation(fields: [orderId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model Escrow {
-  id String @id @default(uuid())
-
-  orderId String @unique
-  order   Order  @relation(fields: [orderId], references: [id])
-
-  renterId  String
-  curatorId String
-
-  rentalAmount     Int
-  collateralAmount Int
-  cleaningFee      Int
-
-  status EscrowStatus @default(LOCKED)
-
-  releasedAt DateTime?
-  createdAt  DateTime  @default(now())
 }
 
 enum EscrowStatus {
@@ -527,22 +468,4 @@ enum VirtualAccountStatus {
   PENDING
   PAID
   EXPIRED
-}
-
-model VirtualAccount {
-  id           String               @id @default(uuid())
-  prefix       String
-  vaNumber     String               @unique
-  orderId      String?              @unique
-  nin          String?
-  bvn          String?
-  order        Order?               @relation(fields: [orderId], references: [id])
-  userId       String
-  user         User                 @relation(fields: [userId], references: [id])
-  amount       Int?
-  status       VirtualAccountStatus @default(PENDING)
-  expiresAt    DateTime
-  createdAt    DateTime             @default(now())
-  updatedAt    DateTime             @updatedAt
-  transactions Transaction[]
 }
