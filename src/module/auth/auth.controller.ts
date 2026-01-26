@@ -8,14 +8,18 @@ import {
   resetPasswordDto,
   verifyEmailDto,
   ResendVerificationEmail,
+  userEntity,
 } from './auth.types';
 import {
   ApiBadRequestResponse,
   ApiCreatedResponse,
   ApiOkResponse,
+  ApiOperation,
+  ApiResponse,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { Auth, AuthUser } from './decorator/auth.decorator';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -68,20 +72,34 @@ export class AuthController {
       },
     },
   })
-  loginUser(@Body() dto: loginDto) {
-    return this.authService.login(dto);
+  loginUser(@Body() dto: loginDto,@Res({passthrough:true}) res:Response) {
+    return this.authService.login(dto,res);
   }
 
 
   
   @Get('google')
   @UseGuards(AuthGuard('google'))
+   @ApiOperation({ summary: 'Redirect to Google OAuth login' })
+  @ApiResponse({
+    status: 302,
+    description: 'Redirects the user to Google login page.',
+  })
   async googleLogin() {
     // Redirects to Google
   }
 
   @Get('google/callback')
   @UseGuards(AuthGuard('google'))
+
+ @ApiOperation({ summary: 'Handle Google OAuth callback' })
+  @ApiResponse({
+    status: 302,
+    description:
+      'Redirects to frontend with access token in query param after successful login.',
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized if login fails.' })
+
   async googleCallback(@Req() req, @Res() res) {
     const result = await this.authService.handleGoogleLogin(req.user);
     res.redirect(
@@ -179,5 +197,29 @@ export class AuthController {
   })
   async resendOtp(@Body() dto: ResendVerificationEmail) {
     return await this.authService.resendOtpCode(dto);
+  }
+
+  @Auth()
+   @ApiOkResponse({
+    
+    schema: {
+      example: {
+        success: true,
+        message: 'user authenticated',
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    
+    schema: {
+      example: {
+        success: false,
+        message: 'unAuthourized',
+      },
+    },
+  })
+  @Get("/user")
+  async getUser(@AuthUser() user:userEntity){
+    return await this.authService.authUser(user)
   }
 }

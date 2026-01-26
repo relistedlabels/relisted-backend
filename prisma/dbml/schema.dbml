@@ -9,17 +9,24 @@ Table User {
   name String [not null]
   provider String
   isVerified Boolean [not null, default: false]
-  role Role [not null, default: 'USER']
+  role Role [not null, default: 'DRESSER']
+  curatorReviews Review [not null]
+  reviewsWritten Review [not null]
   tokens AuthOtpToken [not null]
   products Product [not null]
   cart Cart
   favourites Favourite [not null]
   orders Order [not null]
-  address Address [not null]
   wallet Wallet
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
   profile Profile
+  uploads Upload [not null]
+  disputes Dispute [not null]
+  rentalsRented Rental [not null]
+  rentalsCurated Rental [not null]
+  virtualAccounts VirtualAccount [not null]
+  transactions Transaction [not null]
 }
 
 Table Profile {
@@ -28,12 +35,15 @@ Table Profile {
   user User [not null]
   phoneNumber String [not null]
   bvn String [not null]
-  isApproved String [not null]
+  isApproved Boolean [not null, default: false]
   emergencyContacts EmergencyContact [not null]
   businessInfo BusinessInfo [not null]
   bankAccounts BankInfo [not null]
-  ninUpload File [not null]
   address Address [not null]
+  avatarUpload Upload
+  avatarUploadId String [unique]
+  ninUpload Upload
+  ninUploadId String [unique]
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
 }
@@ -72,15 +82,13 @@ Table BankInfo {
 
 Table Address {
   id String [pk]
-  userId String [not null]
-  user User [not null]
   profile Profile [not null]
   profileId String [not null]
   street String [not null]
   city String [not null]
   state String [not null]
   country String [not null]
-  zipCode String [not null]
+  zipCode String
   isDefault Boolean [not null, default: false]
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
@@ -105,19 +113,32 @@ Table Product {
   subText String [not null]
   description String [not null]
   condition String [not null]
+  productVerified Boolean [not null, default: false]
   dailyPrice Int [not null]
   isActive Boolean [not null, default: true]
-  status ProductStatus [not null, default: 'AVAILABLE']
+  composition String [not null]
+  measurement String [not null]
+  originalValue Int [not null]
+  warning String [not null]
+  color String [not null]
   brandId String [not null]
   brand Brand [not null]
   categoryId String [not null]
   category ProductCategory [not null]
   curatorId String [not null]
   curator User [not null]
-  files File [not null]
+  attachments Attachments
+  receiveSmsNotifications Boolean [default: false]
+  receiveEmailNotifications Boolean [default: true]
+  receiveProductRecommendations Boolean [default: false]
   rentals Rental [not null]
   cartItems CartItem [not null]
   favourites Favourite [not null]
+  reviews Review [not null]
+  careInstruction String [not null]
+  careSteps String [not null]
+  items OrderItem [not null]
+  stylingTip String [not null]
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
 }
@@ -136,15 +157,31 @@ Table ProductCategory {
   createdAt DateTime [default: `now()`, not null]
 }
 
-Table File {
+Table Upload {
   id String [pk]
-  url String [not null]
+  name String [not null]
   type String [not null]
+  size Int [not null]
+  url String [not null]
+  fieldName String [not null]
+  publicId String [not null]
   createdAt DateTime [default: `now()`, not null]
-  productId String [not null]
-  product Product [not null]
-  profile Profile [not null]
-  profileId String [not null]
+  updatedAt DateTime [default: `now()`, not null]
+  attachmentId String
+  profileAsAvatar Profile
+  profileAsNin Profile
+  attachment Attachments
+  user User [not null]
+  userId String [not null]
+}
+
+Table Attachments {
+  id String [pk]
+  uploads Upload [not null]
+  product Product
+  productId String [unique]
+  dispute Dispute
+  disputeId String [unique]
 }
 
 Table Cart {
@@ -185,7 +222,22 @@ Table Order {
   user User [not null]
   rental Rental
   payments Transaction [not null]
+  disputes Dispute [not null]
+  walletTransactions WalletTransaction [not null]
+  orderItems OrderItem [not null]
+  escrows Escrow
+  virtualAccount VirtualAccount
   createdAt DateTime [default: `now()`, not null]
+}
+
+Table OrderItem {
+  id String [pk]
+  orderId String [not null]
+  productId String [not null]
+  days Int [not null]
+  pricePerDay Int [not null]
+  order Order [not null]
+  product Product [not null]
 }
 
 Table Rental {
@@ -194,35 +246,107 @@ Table Rental {
   order Order [not null]
   productId String [not null]
   product Product [not null]
+  curatorId String [not null]
+  curator User [not null]
+  userId String [not null]
+  user User [not null]
   days Int [not null]
   totalAmount Int [not null]
   startDate DateTime [not null]
   endDate DateTime [not null]
   returnedAt DateTime
+  review Review
   isReturned Boolean [not null, default: false]
   isOverdue Boolean [not null, default: false]
   createdAt DateTime [default: `now()`, not null]
 }
 
-Table Transaction {
+Table Review {
   id String [pk]
-  transactionId String [unique, not null]
-  amount Int [not null]
-  method String [not null]
-  status String [not null]
+  userId String [not null]
+  user User [not null]
+  productId String [not null]
+  product Product [not null]
+  curatorId String [not null]
+  curator User [not null]
+  rating Int [not null]
+  comment String
+  rentalId String [unique, not null]
+  rental Rental [not null]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+
+  indexes {
+    (userId, productId) [unique]
+  }
+}
+
+Table Dispute {
+  id String [pk]
+  disputeId String [unique, not null]
   orderId String [not null]
   order Order [not null]
+  userId String [not null]
+  user User [not null]
+  issueCategory String [not null]
+  description String [not null]
+  status DisputeStatus [not null, default: 'PENDING']
+  attachment Attachments
+  chatRooms ChatRoom
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+}
+
+Table ChatRoom {
+  id String [pk]
+  dispute Dispute
+  disputeId String [unique]
+  message Message [not null]
+}
+
+Table Message {
+  id String [pk]
+  senderId String [not null]
+  senderRole String [not null]
+  content String [not null]
+  type String [not null, default: 'TEXT']
+  isRead Boolean [not null, default: false]
+  readAt DateTime
+  createdAt DateTime [default: `now()`, not null]
+  chatRoom ChatRoom [not null]
+  chatRoomId String [not null]
+}
+
+Table Transaction {
+  id String [pk]
+  referenceId String [unique, not null]
+  amount Int [not null]
+  method String
+  status TransactionStatus [not null, default: 'PENDING']
+  orderId String
+  order Order
+  user User [not null]
+  userId String [not null]
+  virtualAccountId String
+  virtualAccount VirtualAccount
   createdAt DateTime [default: `now()`, not null]
 }
 
 Table Wallet {
   id String [pk]
-  balance Int [not null, default: 0]
   userId String [unique, not null]
   user User [not null]
   transactions WalletTransaction [not null]
+  mainBalance Int [not null, default: 0]
+  availableBalance Int [not null, default: 0]
+  collateralBalance Int [not null, default: 0]
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
+}
+
+Table WaitList {
+  id String [pk]
+  email String [unique, not null]
 }
 
 Table WalletTransaction {
@@ -230,15 +354,51 @@ Table WalletTransaction {
   walletId String [not null]
   wallet Wallet [not null]
   amount Int [not null]
-  status WalletTransactionStatus [not null, default: 'LOCKED']
+  type WalletTransactionType [not null, default: 'MAIN']
+  status WalletTransactionStatus [not null, default: 'PENDING']
   note String
+  orderId String
+  order Order
   createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+}
+
+Table Escrow {
+  id String [pk]
+  orderId String [unique, not null]
+  order Order [not null]
+  renterId String [not null]
+  curatorId String [not null]
+  rentalAmount Int [not null]
+  collateralAmount Int [not null]
+  cleaningFee Int [not null]
+  status EscrowStatus [not null, default: 'LOCKED']
+  releasedAt DateTime
+  createdAt DateTime [default: `now()`, not null]
+}
+
+Table VirtualAccount {
+  id String [pk]
+  prefix String [not null]
+  vaNumber String [unique, not null]
+  orderId String [unique]
+  nin String
+  bvn String
+  order Order
+  userId String [not null]
+  user User [not null]
+  amount Int
+  status VirtualAccountStatus [not null, default: 'PENDING']
+  expiresAt DateTime [not null]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+  transactions Transaction [not null]
 }
 
 Enum Role {
   ADMIN
   CURATOR
-  USER
+  DRESSER
 }
 
 Enum AuthOtpTokenType {
@@ -250,12 +410,13 @@ Enum ProductStatus {
   AVAILABLE
   RENTED
   MAINTENANCE
+  RESERVED
 }
 
 Enum WalletTransactionStatus {
-  DEBIT
-  CREDIT
-  LOCKED
+  PENDING
+  SUCCESS
+  FAILED
 }
 
 Enum OrderStatus {
@@ -268,17 +429,55 @@ Enum OrderStatus {
   RETURNED
   COMPLETED
   CANCELLED
+  ACCEPTED
+  REJECTED
+}
+
+Enum TransactionStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REVERSED
+}
+
+Enum DisputeStatus {
+  IN_REVIEW
+  PENDING
+  WITHDRAW
+  RESELOVED
+  REJECTED
+}
+
+Enum WalletTransactionType {
+  MAIN
+  AVAILABLE
+  COLLATERAL
+}
+
+Enum EscrowStatus {
+  LOCKED
+  RELEASED
+  PARTIALLY_RELEASED
+  REFUNDED
+}
+
+Enum VirtualAccountStatus {
+  PENDING
+  PAID
+  EXPIRED
 }
 
 Ref: Profile.userId - User.id
+
+Ref: Profile.avatarUploadId - Upload.id
+
+Ref: Profile.ninUploadId - Upload.id
 
 Ref: EmergencyContact.profileId > Profile.id
 
 Ref: BusinessInfo.profileId > Profile.id
 
 Ref: BankInfo.profileId > Profile.id
-
-Ref: Address.userId > User.id
 
 Ref: Address.profileId > Profile.id
 
@@ -290,9 +489,13 @@ Ref: Product.categoryId > ProductCategory.id
 
 Ref: Product.curatorId > User.id
 
-Ref: File.productId > Product.id
+Ref: Upload.attachmentId > Attachments.id
 
-Ref: File.profileId > Profile.id
+Ref: Upload.userId > User.id
+
+Ref: Attachments.productId - Product.id
+
+Ref: Attachments.disputeId - Dispute.id
 
 Ref: Cart.userId - User.id
 
@@ -306,12 +509,48 @@ Ref: Favourite.productId > Product.id
 
 Ref: Order.userId > User.id
 
+Ref: OrderItem.orderId > Order.id
+
+Ref: OrderItem.productId > Product.id
+
 Ref: Rental.orderId - Order.id
 
 Ref: Rental.productId > Product.id
 
+Ref: Rental.curatorId > User.id
+
+Ref: Rental.userId > User.id
+
+Ref: Review.userId > User.id
+
+Ref: Review.productId > Product.id
+
+Ref: Review.curatorId > User.id
+
+Ref: Review.rentalId - Rental.id
+
+Ref: Dispute.orderId > Order.id
+
+Ref: Dispute.userId > User.id
+
+Ref: ChatRoom.disputeId - Dispute.id
+
+Ref: Message.chatRoomId > ChatRoom.id
+
 Ref: Transaction.orderId > Order.id
+
+Ref: Transaction.userId > User.id
+
+Ref: Transaction.virtualAccountId > VirtualAccount.id
 
 Ref: Wallet.userId - User.id
 
 Ref: WalletTransaction.walletId > Wallet.id
+
+Ref: WalletTransaction.orderId > Order.id
+
+Ref: Escrow.orderId - Order.id
+
+Ref: VirtualAccount.orderId - Order.id
+
+Ref: VirtualAccount.userId > User.id

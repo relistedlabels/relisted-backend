@@ -1,26 +1,182 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { CreateProfileDto } from './dto/create-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { userEntity } from '../auth/auth.types';
+import { PrismaService } from 'src/services/prisma/prisma.service';
+import { bad } from 'src/utils/error';
 
 @Injectable()
 export class ProfileService {
-  create(createProfileDto: CreateProfileDto) {
-    return 'This action adds a new profile';
+  constructor(private readonly prisma: PrismaService) {}
+
+  async create(dto: CreateProfileDto, user: userEntity) {
+    const profile = await this.prisma.profile.create({
+      data: {
+        phoneNumber: dto.phoneNumber,
+        bvn: dto.bvn,
+        emergencyContacts: {
+          create: dto.emergencyContacts,
+        },
+        businessInfo: {
+          create: dto.businessInfo,
+        },
+        address: {
+          create: dto.address,
+        },
+        bankAccounts: {
+          create: dto.bankAccounts,
+        },
+        user: {
+          connect: {
+            id: user.sub,
+          },
+        },
+        avatarUpload: {
+          connect: {
+            id: dto.avatarUploadId,
+          },
+        },
+        ninUpload: {
+          connect: {
+            id: dto.ninUploadId,
+          },
+        },
+      },
+      include: {
+        emergencyContacts: true,
+        businessInfo: true,
+        address: true,
+        bankAccounts: true,
+        avatarUpload: true,
+        ninUpload: true,
+      },
+    });
+
+    return {
+      message: 'User profile created',
+      profile,
+    };
   }
 
-  findAll() {
-    return `This action returns all profile`;
+
+  async findAll() {
+    const profiles = await this.prisma.profile.findMany({
+      include: {
+        user: true,
+        emergencyContacts: true,
+        businessInfo: true,
+        address: true,
+        bankAccounts: true,
+      },
+    });
+
+    return {
+      message: 'Profiles retrieved successfully',
+      data: profiles,
+    };
   }
 
-  findOne(id: number) {
-    return `This action returns a #${id} profile`;
+  
+  async findOne(id:string) {
+    const profile = await this.prisma.profile.findUnique({
+      where: { id },
+      include: {
+        
+        emergencyContacts: true,
+        businessInfo: true,
+        address: true,
+        bankAccounts: true,
+      },
+    });
+
+    if (!profile) {
+      throw new NotFoundException('Profile not found');
+    }
+
+    return {
+      message: 'Profile retrieved successfully',
+      data: profile,
+    };
   }
 
-  update(id: number, updateProfileDto: UpdateProfileDto) {
-    return `This action updates a #${id} profile`;
+  //
+  async update(
+     id:string,
+    dto: UpdateProfileDto,
+    user: userEntity,
+  ) {
+    const profile = await this.prisma.profile.findUnique({
+      where: {id },
+    });
+
+    if (!profile) {
+      throw new NotFoundException('Profile not found');
+    }
+
+   
+
+    const updatedProfile = await this.prisma.profile.update({
+      where: { userId: user.sub },
+      data: {
+        phoneNumber: dto.phoneNumber,
+        bvn: dto.bvn,
+      },
+    });
+
+    return {
+      message: 'Profile updated successfully',
+      data: updatedProfile,
+    };
   }
 
-  remove(id: number) {
-    return `This action removes a #${id} profile`;
+  // verify profile
+  async verifyProfile(
+ 
+   profileId:string,
+    user: userEntity,
+  ) {
+    const profile = await this.prisma.profile.findUnique({
+      where: { id:profileId  },
+    });
+
+    if (!profile) {
+      throw new NotFoundException('Profile not found');
+    }
+
+      if (profile.isApproved) bad("Profile already verified")
+   
+
+    const verifiedProfile = await this.prisma.profile.update({
+      where: { id: profile.id },
+      data: {
+       isApproved:true
+      },
+    });
+
+    return {
+      message: 'User Profile verified successfully',
+      data: verifiedProfile,
+    };
+  }
+
+ 
+  async remove(id:string) {
+    const profile = await this.prisma.profile.findUnique({
+      where: {id },
+    });
+
+    if (!profile) {
+      throw new NotFoundException('Profile not found');
+    }
+
+    
+
+    await this.prisma.profile.delete({
+      where: { id },
+    });
+
+    return {
+      message: 'Profile deleted successfully',
+    };
   }
 }

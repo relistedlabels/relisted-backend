@@ -30,7 +30,7 @@ export class AuthService {
   ) {}
   // check if user already exist before registering them
   async register(dto: registerDto) {
-    const { name, email, password } = dto;
+    const { name, email, password, role } = dto;
     // check if user already exist in the database
     const emailExist = await this.prisma.user.findUnique({
       where: { email },
@@ -43,6 +43,7 @@ export class AuthService {
         name,
         email,
         password: await argon2.hash(password),
+        role,
       },
     });
     // creating otp to verify email
@@ -66,7 +67,7 @@ export class AuthService {
   }
 
   // login in user
-  async login(dto: loginDto) {
+  async login(dto: loginDto, res) {
     const { email, password } = dto;
     // check if user exist in the database
     const user = await this.prisma.user.findUnique({
@@ -87,6 +88,15 @@ export class AuthService {
       sub: user.id,
       email: email,
     };
+
+    res.cookie('access_token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV ==="production",
+      sameSite: 'strict',
+      maxAge: 24 * 60 * 60 * 1000,
+    });
+
+    console.log("token",token)
 
     return {
       token: token,
@@ -110,7 +120,7 @@ export class AuthService {
           email: googleUser.email,
           name: googleUser.name,
           provider: googleUser.provider,
-          role: Role.USER,
+          role: Role.DRESSER,
           password: '',
           isVerified: true,
         },
