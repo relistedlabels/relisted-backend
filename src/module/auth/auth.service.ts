@@ -46,6 +46,7 @@ export class AuthService {
         role,
       },
     });
+    console.log("newuser",newUser)
     // creating otp to verify email
     const otpGenerated = await this.authOtpTokenService.createOtp({
       email: email,
