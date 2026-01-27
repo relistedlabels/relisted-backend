@@ -30,7 +30,7 @@ export class ProductService {
         dailyPrice: daily_Price,
         condition: dto.condition,
         careSteps: dto.careSteps,
-        curator: connectId(user.sub),
+        curator: connectId(user.id),
         brand: connectId(dto.brandId),
         category: connectId(dto.categoryId),
 
@@ -84,7 +84,7 @@ export class ProductService {
     const [list, totalCount] = await Promise.all([
       this.prisma.product.findMany({
        where: {
-        curatorId:user.sub
+        curatorId:user.id
       },
       
         include: {
@@ -215,7 +215,7 @@ export class ProductService {
     const existing = await this.prisma.favourite.findFirst({
       where: {
       
-          userId: user.sub,
+          userId: user.id,
           productId: dto.productId,
    
       },
@@ -225,7 +225,7 @@ export class ProductService {
     const CreateFavouriteProduct = await this.prisma.favourite.create({
       data: {
         product: connectId(product.id),
-        user: connectId(user.sub),
+        user: connectId(user.id),
       },
     });
     return {
@@ -237,7 +237,7 @@ export class ProductService {
   async findAllFavourite(user: userEntity) {
     return await this.prisma.favourite.findMany({
       where: {
-        userId: user.sub,
+        userId: user.id,
       },
       include: { product: { include: { brand: true, category: true } } },
       orderBy: { createdAt: 'desc' },

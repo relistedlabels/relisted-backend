@@ -16,7 +16,7 @@ export class OrderService {
 
   async checkout(user: userEntity) {
     const cart = await this.prisma.cart.findUnique({
-      where: { userId: user.sub },
+      where: { userId: user.id },
       include: {
         items: {
           include: {
@@ -49,7 +49,7 @@ export class OrderService {
         const order = await tx.order.create({
           data: {
             orderId: await this.generateOrderId(),
-            userId: user.sub,
+            userId: user.id,
           },
         });
 
@@ -100,7 +100,7 @@ export class OrderService {
       include: { product: true, order: true },
     });
     if (!orderItem) bad('order not found');
-    if (orderItem.product.curatorId !== user.sub)
+    if (orderItem.product.curatorId !== user.id)
       bad("you can't approve this order ");
 
     if (orderItem.order.status !== OrderStatus.PROCESSING) {

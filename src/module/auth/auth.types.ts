@@ -59,7 +59,7 @@ export class forgotPasswordDto {
 }
 
 export class userEntity {
-  sub: string;
+  id: string;
   // role:Role
   email: string;
   isVerified: boolean;

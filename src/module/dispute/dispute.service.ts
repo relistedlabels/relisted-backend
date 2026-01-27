@@ -29,14 +29,14 @@ async  create(dto: CreateDisputeDto,user:userEntity) {
 
     if(!orderExist) bad ("order not found")
 
-       if (orderExist.userId !== user.sub) {
+       if (orderExist.userId !== user.id) {
       bad('You are not allowed to dispute this order');
     }
 
       const existingDispute = await this.prisma.dispute.findFirst({
       where: {
         orderId: orderExist.id,
-        userId: user.sub,
+        userId: user.id,
       },
     });
 
@@ -51,7 +51,7 @@ async  create(dto: CreateDisputeDto,user:userEntity) {
           issueCategory:dto.issueCategory,
           description:dto.description,
           order:connectId(orderExist.id),
-          user:connectId(user.sub),
+          user:connectId(user.id),
           chatRooms:{
             create:{}
           },
@@ -70,7 +70,7 @@ async  create(dto: CreateDisputeDto,user:userEntity) {
   async findAll(user:userEntity) {
      return await this.prisma.dispute.findMany({
     where:{
-    userId:user.sub
+    userId:user.id
   }
 
  })
@@ -80,7 +80,7 @@ async  findOne(id: string,user:userEntity) {
  return await this.prisma.dispute.findFirst({
   where:{
     id,
-    userId:user.sub
+    userId:user.id
   }
 
  })

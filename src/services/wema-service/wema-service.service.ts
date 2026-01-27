@@ -12,7 +12,7 @@ export class WemaServiceService {
   constructor(private readonly prisma:PrismaService){}
 async createAccount(user:userEntity,amount:number) {
 const userExist =await this.prisma.user.findUnique({
-  where:{id:user.sub},
+  where:{id:user.id},
   include:{
     profile:true
   }
@@ -24,7 +24,7 @@ const userExist =await this.prisma.user.findUnique({
 //  create virtual account
   const virtualAccount = await this.prisma.virtualAccount.create({
     data: {
-      userId: user.sub,
+      userId: user.id,
       prefix:"759",
       vaNumber,
       status: 'PENDING',
@@ -40,7 +40,7 @@ const transaction =await this.prisma.transaction.create({
   data:{
     amount,
     referenceId:await generateTransactionRef(),
-    user:connectId(user.sub)
+    user:connectId(user.id)
   }
 })
 

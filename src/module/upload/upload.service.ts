@@ -23,7 +23,7 @@ async uploadFile(id:string,file:Express.Multer.File,user:userEntity ){
            size:file.size,
            user:{
             connect:{
-                id:user.sub
+                id:user.id
             }
            }
         }

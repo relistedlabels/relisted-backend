@@ -28,7 +28,7 @@ export class ProfileService {
         },
         user: {
           connect: {
-            id: user.sub,
+            id: user.id,
           },
         },
         avatarUpload: {
@@ -116,7 +116,7 @@ export class ProfileService {
    
 
     const updatedProfile = await this.prisma.profile.update({
-      where: { userId: user.sub },
+      where: { userId: user.id},
       data: {
         phoneNumber: dto.phoneNumber,
         bvn: dto.bvn,

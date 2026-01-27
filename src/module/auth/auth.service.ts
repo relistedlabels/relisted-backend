@@ -286,10 +286,6 @@ export class AuthService {
   async authUser(user: userEntity) {
     console.log('user', user);
 
-    return await this.prisma.user.findUnique({
-      where: {
-        id: user.sub,
-      },
-    });
+    return  user
   }
 }

@@ -20,7 +20,7 @@ export class CartService {
 
   // Add item to cart
   async addCartItem(dto: CreateCartItemDto, user: userEntity) {
-    const cart = await this.CreateCart(user.sub);
+    const cart = await this.CreateCart(user.id);
 
     const product = await this.prisma.product.findUnique({
       where: { id: dto.productId },
@@ -48,7 +48,7 @@ export class CartService {
       where: { id: cartItemId },
       include: { cart: true },
     });
-    if (!item || item.cart.userId !== user.sub) bad('Cart item not found');
+    if (!item || item.cart.userId !== user.id) bad('Cart item not found');
 
     return this.prisma.cartItem.update({
       where: { id: cartItemId },
@@ -58,7 +58,7 @@ export class CartService {
   // Fetch cart with totals
   async getCart(user: userEntity) {
     const cart = await this.prisma.cart.findUnique({
-      where: { userId: user.sub },
+      where: { userId: user.id },
       include: { items: { include: { product: true } } },
     });
 
@@ -78,7 +78,7 @@ export class CartService {
       where: { id: cartItemId },
       include: { cart: true },
     });
-    if (!item || item.cart.userId !== user.sub) bad('Cart item not found');
+    if (!item || item.cart.userId !== user.id) bad('Cart item not found');
 
     await this.prisma.cartItem.delete({ where: { id: cartItemId } });
     return { message: 'Item removed from cart' };

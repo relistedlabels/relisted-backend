@@ -16,7 +16,7 @@ export class ReviewService {
     });
     if (!rental) bad('Rental not found');
 
-    if (rental.order.userId !== user.sub) {
+    if (rental.order.userId !== user.id) {
       bad('You can only review your own rentals');
     }
 
@@ -37,14 +37,14 @@ export class ReviewService {
         rental: { connect: { id: dto.rentalId } },
         product: { connect: { id: rental.productId } },
         curator: { connect: { id: rental.curatorId } },
-        user: { connect: { id: user.sub } },
+        user: { connect: { id: user.id } },
       },
     });
   }
 
   async findAll(user:userEntity) {
      const reviews = await this.prisma.review.findMany({
-      where: {curatorId:user.sub},
+      where: {curatorId:user.id},
       include: { product: true, user: true, rental: true },
     });
     if (!reviews) bad('Review not found');
@@ -65,7 +65,7 @@ export class ReviewService {
   async update(id: string, dto: UpdateReviewDto, user: userEntity) {
     const review = await this.prisma.review.findUnique({ where: { id } });
     if (!review) bad('Review not found');
-    if (review.userId !== user.sub) bad('You can only update your own review');
+    if (review.userId !== user.id) bad('You can only update your own review');
 
     const updatedReview = await this.prisma.review.update({
       where: { id },
@@ -79,7 +79,7 @@ export class ReviewService {
   async remove(id: string, user: userEntity) {
     const review = await this.prisma.review.findUnique({ where: { id } });
     if (!review) bad('Review not found');
-    if (review.userId !== user.sub) bad('You can only delete your own review');
+    if (review.userId !== user.id) bad('You can only delete your own review');
 
     await this.prisma.review.delete({ where: { id } });
 
