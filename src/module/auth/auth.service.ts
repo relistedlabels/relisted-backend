@@ -277,7 +277,7 @@ export class AuthService {
 
   // find user
   async authUser(user: userEntity) {
-    console.log('user', user);
+  
 
     return  user
   }
