@@ -34,7 +34,7 @@ Table Profile {
   userId String [unique, not null]
   user User [not null]
   phoneNumber String [not null]
-  bvn String [not null]
+  bvn String
   isApproved Boolean [not null, default: false]
   emergencyContacts EmergencyContact [not null]
   businessInfo BusinessInfo [not null]
