@@ -95,7 +95,7 @@ export class ProfileController {
     return this.profileService.update(id, updateProfileDto, user);
   }
 
-  @Auth([Role.DRESSER])
+  @Auth([Role.ADMIN])
   @Patch('verify/:id')
   @ApiResponse({
     status: 201,
@@ -114,7 +114,7 @@ export class ProfileController {
   }
 
   @Auth()
-  @Auth([Role.CURATOR])
+  @Auth([Role.ADMIN])
   @Delete(":id")
   @ApiResponse({
     status: 200,

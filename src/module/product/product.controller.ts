@@ -26,7 +26,7 @@ import { ApiBody, ApiCookieAuth, ApiResponse, ApiQuery } from '@nestjs/swagger';
 export class ProductController {
   constructor(private readonly productService: ProductService) {}
 
-  @Auth([Role.CURATOR])
+  @Auth([Role.LISTER])
   @Post()
   @ApiResponse({ status: 201, description: 'Product created successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
@@ -64,7 +64,7 @@ export class ProductController {
     return this.productService.findOne(id);
   }
 
-  @Auth([Role.CURATOR])
+  @Auth([Role.LISTER])
   @Patch(':id')
   update(
     @Param('id') id: string,
@@ -94,7 +94,7 @@ export class ProductController {
   }
 
 
-  @Auth([Role.CURATOR])
+  @Auth([Role.LISTER])
   @Patch(':id/status')
   @ApiResponse({ status: 200, description: 'Product updated successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
@@ -109,7 +109,7 @@ export class ProductController {
   }
 
   //  UPDATE PRODUCT STATUS
-  @Auth([Role.CURATOR])
+  @Auth([Role.LISTER])
   @Patch(':id/status')
   @ApiResponse({
     status: 200,
@@ -134,7 +134,7 @@ export class ProductController {
     return this.productService.createProductFavourite(dto, user);
   }
 
-  @Auth([Role.CURATOR])
+  @Auth([Role.LISTER])
   @Delete(':id')
   @ApiResponse({ status: 200, description: 'Product deleted successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })

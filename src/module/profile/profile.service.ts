@@ -79,7 +79,7 @@ export class ProfileService {
   
   async findOne(id:string) {
     const profile = await this.prisma.profile.findUnique({
-      where: {id},
+      where: {userId:id},
       include: {
         
         emergencyContacts: true,

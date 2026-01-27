@@ -17,8 +17,8 @@ datasource db {
 
 enum Role {
   ADMIN
-  CURATOR
-  DRESSER
+  LISTER
+  RENTER
 }
 
 enum AuthOtpTokenType {
@@ -68,7 +68,7 @@ model User {
   name           String
   provider       String?
   isVerified     Boolean  @default(false)
-  role           Role     @default(DRESSER)
+  role           Role     @default(RENTER)
   curatorReviews Review[] @relation("CuratorReviews")
   reviewsWritten Review[]
 

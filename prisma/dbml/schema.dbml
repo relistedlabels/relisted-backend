@@ -9,7 +9,7 @@ Table User {
   name String [not null]
   provider String
   isVerified Boolean [not null, default: false]
-  role Role [not null, default: 'DRESSER']
+  role Role [not null, default: 'RENTER']
   curatorReviews Review [not null]
   reviewsWritten Review [not null]
   tokens AuthOtpToken [not null]
@@ -397,8 +397,8 @@ Table VirtualAccount {
 
 Enum Role {
   ADMIN
-  CURATOR
-  DRESSER
+  LISTER
+  RENTER
 }
 
 Enum AuthOtpTokenType {

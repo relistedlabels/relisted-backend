@@ -89,17 +89,8 @@ export class AuthService {
       sub: user.id,
       email: email,
     };
-// const isProduction = process.env.NODE_ENV === 'production';
-//     res.cookie('access_token', token, {
-//       httpOnly: true,
-//       secure: isProduction,
-//       sameSite:isProduction ?'none':"lax",
-//       // domain: isProduction ? 'https://www.relistedlabels.com' : undefined,
-//         path: '/',
-//       maxAge: 24 * 60 * 60 * 1000,
-//     });
-console.log("user in db",user)
-    console.log("token",token)
+
+
 
     return {
       token: token,
@@ -123,7 +114,7 @@ console.log("user in db",user)
           email: googleUser.email,
           name: googleUser.name,
           provider: googleUser.provider,
-          role: Role.DRESSER,
+          role: Role.LISTER,
           password: '',
           isVerified: true,
         },
