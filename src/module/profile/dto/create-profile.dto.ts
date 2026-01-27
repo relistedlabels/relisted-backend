@@ -16,26 +16,34 @@ export class CreateEmergencyDto {
 
 export class CreateBusinessInfoDto {
   @ApiProperty()
-  businessName: string;
+    @IsOptional()
+  businessName?:string;
   @ApiProperty()
-  businessEmail: string;
+    @IsOptional()
+  businessEmail?:string;
   @ApiProperty()
-  businessRegistrationNumber: string;
+    @IsOptional()
+  businessRegistrationNumber?:string;
   @ApiProperty()
-  businessAddress: string;
+    @IsOptional()
+  businessAddress?:string;
   @ApiProperty()
-  businessCity: string;
+    @IsOptional()
+  businessCity?:string;
   @ApiProperty()
-  businessState: string;
+    @IsOptional()
+  businessState?:string;
 }
 
 export class CreateBankInfoDto {
   @ApiProperty()
-  bankName: string;
+    @IsOptional()
+  bankName?:string;
   @ApiProperty()
-  accountNumber: string;
+    @IsOptional()
+  accountNumber?:string;
   @ApiProperty()
-  nameOfAccount: string;
+  nameOfAccount?:string;
 }
 
 export class CreateAddressInfoDto {
@@ -53,27 +61,32 @@ export class CreateProfileDto {
   @ApiProperty()
   phoneNumber: string;
   @ApiProperty()
-  bvn: string;
+    @IsOptional()
+  bvn?:string;
 
    @ApiProperty()
   @ValidateNested()
   @Type(() => CreateEmergencyDto)
+    @IsOptional()
 emergencyContacts: CreateEmergencyDto;
 
  @ApiProperty()
   @ValidateNested()
   @Type(() => CreateBusinessInfoDto)
+    @IsOptional()
   businessInfo: CreateBusinessInfoDto;
 
    @ApiProperty()
   @ValidateNested()
   @Type(() => CreateBankInfoDto)
+  @IsOptional()
   bankAccounts: CreateBankInfoDto;
 
    @ApiProperty()
   @ValidateNested({ each: true })
   @Type(() => CreateAddressInfoDto)
-    address: CreateAddressInfoDto;
+  @IsOptional()
+  address?:CreateAddressInfoDto;
 
   @ApiProperty()
   @IsString()
@@ -82,5 +95,6 @@ emergencyContacts: CreateEmergencyDto;
 
   @ApiProperty()
   @IsString()
-  ninUploadId: string;
+  @IsOptional()
+  ninUploadId?:string;
 }

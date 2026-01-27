@@ -98,7 +98,7 @@ model Profile {
 
   phoneNumber String
 
-  bvn        String
+  bvn        String?
   isApproved Boolean @default(false)
 
   emergencyContacts EmergencyContact[]
