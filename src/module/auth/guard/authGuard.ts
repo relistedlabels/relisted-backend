@@ -40,7 +40,7 @@ export class JwtAuthGuard implements CanActivate {
         throw new UnauthorizedException('user not found');
       }
 
-      request.user = payload;
+      request.user = user;
     } catch (error) {
       throw new UnauthorizedException();
     }
