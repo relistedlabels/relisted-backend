@@ -34,6 +34,7 @@ export class JwtAuthGuard implements CanActivate {
         where: {
           id: payload.sub,
         },
+        
         select: {
           id: true,
           name: true,
@@ -42,7 +43,9 @@ export class JwtAuthGuard implements CanActivate {
           isVerified: true,
           provider: true,
           createdAt: true,
+           profile: true,
         },
+        
       });
 
       if (!user) {
