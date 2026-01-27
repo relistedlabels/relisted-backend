@@ -5,6 +5,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 
 import cookieParser from 'cookie-parser';
+import { AllExceptionsFilter } from './utils/all-exceptions.filter';
 async function bootstrap() {
   console.log('DB URL:', process.env.DATABASE_URL);
   const app = await NestFactory.create(AppModule);
@@ -61,6 +62,8 @@ app.enableCors({
 
 const document = SwaggerModule.createDocument(app, config);
 SwaggerModule.setup('api', app, document);
+
+ app.useGlobalFilters(new AllExceptionsFilter());
 
   await app.listen(process.env.PORT ?? 4000);
 }
