@@ -7,14 +7,14 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiBody, ApiResponse } from '@nestjs/swagger';
 import { userEntity } from '../auth/auth.types';
 import { Auth, AuthUser } from '../auth/decorator/auth.decorator';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
 import { ReviewService } from './review.service';
-import { ApiBody, ApiCookieAuth, ApiResponse } from '@nestjs/swagger';
 
-@ApiCookieAuth('access_token')
+@ApiBearerAuth('token')
 @Controller('review')
 export class ReviewController {
   constructor(private readonly reviewService: ReviewService) {}

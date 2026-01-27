@@ -43,7 +43,16 @@ app.enableCors({
     .setTitle('Relisted Ecommerce Api')
     .setDescription('Api documentation for ecommerce application')
     .setVersion('1.0')
-    .addCookieAuth('access_token')
+   
+   .addBearerAuth(
+  {
+    type: 'apiKey',
+    in: 'header',
+    name: 'Authorization',
+  },
+  'token',
+)
+
     
     .build();
   const document = () => SwaggerModule.createDocument(app, config);

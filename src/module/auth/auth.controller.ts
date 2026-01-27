@@ -12,6 +12,7 @@ import {
 } from './auth.types';
 import {
   ApiBadRequestResponse,
+  ApiBearerAuth,
   ApiCreatedResponse,
   ApiOkResponse,
   ApiOperation,
@@ -22,6 +23,7 @@ import {
 import { Auth, AuthUser } from './decorator/auth.decorator';
 
 @ApiTags('Authentication')
+@ApiBearerAuth('token')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}

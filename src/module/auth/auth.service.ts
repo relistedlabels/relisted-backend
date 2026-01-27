@@ -74,6 +74,7 @@ export class AuthService {
       where: {
         email,
       },
+      
     });
     mustHave(user, 'invalid credentials', 401);
 

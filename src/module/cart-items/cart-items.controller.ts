@@ -13,9 +13,11 @@ import { CreateCartItemDto } from './dto/create-cart-item.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
 import { Auth, AuthUser } from '../auth/decorator/auth.decorator';
 import { userEntity } from '../auth/auth.types';
-import { ApiBody, ApiCookieAuth, ApiResponse } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiCookieAuth, ApiResponse } from '@nestjs/swagger';
 
-@ApiCookieAuth("access_token")
+
+@ApiBearerAuth('token')
+
 @Controller('cart-items')
 export class CartItemsController {
   constructor(private readonly cartItemsService: CartService) {}

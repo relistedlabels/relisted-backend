@@ -8,8 +8,8 @@ import {
   Post,
 } from '@nestjs/common';
 import {
+  ApiBearerAuth,
   ApiBody,
-  ApiCookieAuth,
   ApiResponse
 } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
@@ -18,11 +18,11 @@ import { Auth, AuthUser } from '../auth/decorator/auth.decorator';
 import { CreateProfileDto } from './dto/create-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ProfileService } from './profile.service';
-
+@ApiBearerAuth('token')
 @Controller('profile')
 export class ProfileController {
   constructor(private readonly profileService: ProfileService) {}
-  @ApiCookieAuth('access_token')
+  
   @Auth()
   @Post()
   @ApiBody({
@@ -44,7 +44,7 @@ export class ProfileController {
     return this.profileService.create(createProfileDto, user);
   }
 
-  @ApiCookieAuth('access_token')
+  
   @Auth()
   @Get()
   @ApiResponse({
@@ -59,7 +59,7 @@ export class ProfileController {
     return this.profileService.findAll();
   }
 
-  @ApiCookieAuth('access_token')
+
   @Auth()
   @Get(':id')
   @ApiResponse({
@@ -74,7 +74,7 @@ export class ProfileController {
     return this.profileService.findOne(id);
   }
 
-  @ApiCookieAuth('access_token')
+ 
   @Auth()
   @Auth()
   @Patch(':id')
@@ -95,7 +95,6 @@ export class ProfileController {
     return this.profileService.update(id, updateProfileDto, user);
   }
 
-  @ApiCookieAuth('access_token')
   @Auth([Role.DRESSER])
   @Patch('verify/:id')
   @ApiResponse({
@@ -114,7 +113,6 @@ export class ProfileController {
     return this.profileService.verifyProfile(id, user);
   }
 
-  @ApiCookieAuth('access_token')
   @Auth()
   @Auth([Role.CURATOR])
   @Delete(":id")

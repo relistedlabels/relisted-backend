@@ -5,21 +5,19 @@ import {
   Get,
   Param,
   Post,
-  Query,
   UploadedFile,
-  UseInterceptors,
+  UseInterceptors
 } from '@nestjs/common';
-import { UploadService } from './upload.service';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiResponse } from '@nestjs/swagger';
+import { bad } from 'src/utils/error';
 import { userEntity } from '../auth/auth.types';
 import { Auth, AuthUser } from '../auth/decorator/auth.decorator';
-import { bad } from 'src/utils/error';
-import { ApiBearerAuth, ApiResponse,ApiConsumes, ApiBody, ApiCookieAuth } from '@nestjs/swagger';
-
+import { UploadService } from './upload.service';
+@ApiBearerAuth('token')
 @Controller('upload')
 export class UploadController {
   constructor(private readonly uploadService: UploadService) {}
-  @ApiCookieAuth("access_token")
   @Auth()
   @Post(":id")
   @UseInterceptors(FileInterceptor('file'))

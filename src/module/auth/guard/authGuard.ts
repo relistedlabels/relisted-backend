@@ -17,12 +17,12 @@ export class JwtAuthGuard implements CanActivate {
   ) {}
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
-    const token =this.extractHeaderToken(request)
-   
+    const token = this.extractHeaderToken(request);
+
     if (!token) {
       throw new UnauthorizedException();
     }
-     console.log("token",token)
+    console.log('token', token);
     try {
       //  verify the voken
       const payload = await this.jwtService.verifyAsync(token, {
@@ -34,6 +34,15 @@ export class JwtAuthGuard implements CanActivate {
         where: {
           id: payload.sub,
         },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          isVerified: true,
+          provider: true,
+          createdAt: true,
+        },
       });
 
       if (!user) {
@@ -41,7 +50,7 @@ export class JwtAuthGuard implements CanActivate {
       }
 
       request.user = user;
-      console.log("uuuuuu",user)
+      console.log('uuuuuu', user);
     } catch (error) {
       throw new UnauthorizedException();
     }
