@@ -31,11 +31,11 @@ export class ProfileService {
             id: user.id,
           },
         },
-        avatarUpload: {
-          connect: {
-            id: dto.avatarUploadId,
-          },
-        },
+      ...(dto.avatarUploadId && {
+    avatarUpload: {
+      connect: { id: dto.avatarUploadId },
+    },
+  }),
         ninUpload: {
           connect: {
             id: dto.ninUploadId,

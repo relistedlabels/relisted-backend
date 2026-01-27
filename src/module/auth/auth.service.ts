@@ -97,12 +97,12 @@ export class AuthService {
 //         path: '/',
 //       maxAge: 24 * 60 * 60 * 1000,
 //     });
-
+console.log("user in db",user)
     console.log("token",token)
 
     return {
       token: token,
-      // user: user,
+      user: user,
     };
   }
 
