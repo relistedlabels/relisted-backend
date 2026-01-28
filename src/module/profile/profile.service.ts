@@ -65,7 +65,7 @@ async create(dto: CreateProfileDto, user: userEntity) {
       bankAccounts: true,
       address: true,
       avatarUpload: true,
-      ninUpload: true,
+      // ninUpload: true,
     },
   });
 
