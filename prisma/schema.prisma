@@ -88,7 +88,7 @@ model User {
   transactions    Transaction[]
   brands          Brand[]
   productCategory ProductCategory[]
-  fullText        String            @default("")
+  // fullText        String            @default("")
   tags            Tag[]
 }
 
