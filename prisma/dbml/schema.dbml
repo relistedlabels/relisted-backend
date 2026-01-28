@@ -117,6 +117,8 @@ Table Product {
   productVerified Boolean [not null, default: false]
   dailyPrice Int [not null]
   isActive Boolean [not null, default: true]
+  quantity Int [not null]
+  status ProductStatus [not null, default: 'AVAILABLE']
   composition String [not null]
   measurement String [not null]
   originalValue Int [not null]

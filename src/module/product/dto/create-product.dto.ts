@@ -24,7 +24,6 @@ export class CreateProductDto {
   @ApiProperty()
   @IsNumber()
   originalValue: number;
-
   @ApiProperty()
   @IsNumber()
   dailyPrice:number
