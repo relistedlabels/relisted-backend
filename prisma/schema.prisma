@@ -113,7 +113,7 @@ model Profile {
   ninUploadId String? @unique
 
   createdAt DateTime @default(now())
-  fullText  String   @default("")
+  // fullText  String   @default("")
   updatedAt DateTime @updatedAt
 }
 
@@ -230,7 +230,7 @@ model Product {
   stylingTip      String
 
   createdAt DateTime @default(now())
-  fullText  String   @default("")
+  // fullText  String   @default("")
   updatedAt DateTime @updatedAt
 }
 
@@ -240,7 +240,7 @@ model Brand {
   products  Product[]
   user      User?     @relation(fields: [userId], references: [id])
   userId    String?
-  fullText  String    @default("")
+  // fullText  String    @default("")
   createdAt DateTime  @default(now())
 }
 
@@ -250,7 +250,7 @@ model Tag {
   products  Product[]
   user      User?     @relation(fields: [userId], references: [id])
   userId    String?
-  fullText  String    @default("")
+  // fullText  String    @default("")
   createdAt DateTime  @default(now())
 }
 
@@ -260,7 +260,7 @@ model ProductCategory {
   products  Product[]
   user      User?     @relation(fields: [userId], references: [id])
   userId    String?
-  fullText  String    @default("")
+  // fullText  String    @default("")
   createdAt DateTime  @default(now())
 }
 
