@@ -52,25 +52,21 @@ export class CreateAddressInfoDto {
 export class CreateProfileDto {
   @ApiProperty()
   phoneNumber: string;
-  @ApiProperty()
-  @IsOptional()
-  bvn?:string;
+  // @ApiProperty()
+  // @IsOptional()
+  // bvn?:string;
 
-   @ApiProperty()
-  @ValidateNested()
-  @Type(() => CreateEmergencyDto)
-emergencyContacts: CreateEmergencyDto;
+//    @ApiProperty()
+//   @ValidateNested()
+//   @Type(() => CreateEmergencyDto)
+// emergencyContacts: CreateEmergencyDto;
 
- @ApiProperty()
-  @ValidateNested()
-  @Type(() => CreateBusinessInfoDto)
-  businessInfo: CreateBusinessInfoDto;
 
-   @ApiProperty()
-  @ValidateNested()
-  @Type(() => CreateBankInfoDto)
-  @IsOptional()
-  bankAccounts: CreateBankInfoDto;
+  //  @ApiProperty()
+  // @ValidateNested()
+  // @Type(() => CreateBankInfoDto)
+  // @IsOptional()
+  // bankAccounts: CreateBankInfoDto;
 
    @ApiProperty()
   @ValidateNested({ each: true })
@@ -87,4 +83,14 @@ emergencyContacts: CreateEmergencyDto;
   // @IsString()
   // @IsOptional()
   // ninUploadId?:string;
+}
+
+
+export class upgradeProfile{
+
+ @ApiProperty()
+  @ValidateNested()
+  @Type(() => CreateBusinessInfoDto)
+  businessInfo: CreateBusinessInfoDto;
+
 }

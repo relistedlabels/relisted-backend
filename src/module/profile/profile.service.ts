@@ -2,8 +2,9 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
-import { CreateProfileDto } from './dto/create-profile.dto';
+import { CreateProfileDto, upgradeProfile } from './dto/create-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { userEntity } from '../auth/auth.types';
 import { PrismaService } from 'src/services/prisma/prisma.service';
@@ -18,23 +19,15 @@ async create(dto: CreateProfileDto, user: userEntity) {
     data: {
       phoneNumber: dto.phoneNumber,
 
-      ...(dto.bvn && { bvn: dto.bvn }),
+      // ...(dto.bvn && { bvn: dto.bvn }),
 
-      emergencyContacts: {
-        create: dto.emergencyContacts,
-      },
+      // emergencyContacts: {
+      //   create: dto.emergencyContacts,
+      // },
 
-      ...(dto.businessInfo && {
-        businessInfo: {
-          create: [dto.businessInfo],
-        },
-      }),
+    
 
-      ...(dto.bankAccounts && {
-        bankAccounts: {
-          create: dto.bankAccounts,
-        },
-      }),
+   
 
       ...(dto.address && {
         address: {
@@ -46,11 +39,11 @@ async create(dto: CreateProfileDto, user: userEntity) {
         connect: { id: user.id },
       },
 
-      ...(dto.avatarUploadId && {
-        avatarUpload: {
-          connect: { id: dto.avatarUploadId },
-        },
-      }),
+      // ...(dto.avatarUploadId && {
+      //   avatarUpload: {
+      //     connect: { id: dto.avatarUploadId },
+      //   },
+      // }),
 
       // ...(dto.ninUploadId && {
       //   ninUpload: {
@@ -60,11 +53,11 @@ async create(dto: CreateProfileDto, user: userEntity) {
     },
 
     include: {
-      emergencyContacts: true,
+      // emergencyContacts: true,
       businessInfo: true,
-      bankAccounts: true,
+      // bankAccounts: true,
       address: true,
-      avatarUpload: true,
+      // avatarUpload: true,
       // ninUpload: true,
     },
   });
@@ -114,7 +107,8 @@ async create(dto: CreateProfileDto, user: userEntity) {
     };
   }
 
-  //
+  
+  
   async update(id: string, dto: UpdateProfileDto, user: userEntity) {
     const profile = await this.prisma.profile.findUnique({
       where: { id },
@@ -128,7 +122,12 @@ async create(dto: CreateProfileDto, user: userEntity) {
       where: { userId: user.id },
       data: {
         phoneNumber: dto.phoneNumber,
-        bvn: dto.bvn,
+           ...(dto.avatarUploadId && {
+        avatarUpload: {
+          connect: { id: dto.avatarUploadId },
+        },
+      }),
+        // bvn: dto.bvn,
       },
     });
 
@@ -138,30 +137,59 @@ async create(dto: CreateProfileDto, user: userEntity) {
     };
   }
 
-  // verify profile
-  async verifyProfile(profileId: string, user: userEntity) {
-    const profile = await this.prisma.profile.findUnique({
-      where: { id: profileId },
-    });
 
-    if (!profile) {
-      throw new NotFoundException('Profile not found');
-    }
+async upgradeProfileToLister(profileId: string, user: userEntity,dto:upgradeProfile) {
+  const profile = await this.prisma.profile.findUnique({
+    where: { id: profileId },
+    include: { user: true, businessInfo: true }, 
+  });
 
-    if (profile.isApproved) bad('Profile already verified');
-
-    const verifiedProfile = await this.prisma.profile.update({
-      where: { id: profile.id },
-      data: {
-        isApproved: true,
-      },
-    });
-
-    return {
-      message: 'User Profile verified successfully',
-      data: verifiedProfile,
-    };
+  if (!profile) {
+    throw new NotFoundException('Profile not found');
   }
+
+  if (profile.isApproved) {
+    throw new BadRequestException('Profile already verified');
+  }
+
+  // Check required fields for LISTER upgrade
+  if (!profile.businessInfo?.length) {
+    throw new BadRequestException(
+      'Profile is incomplete. business information is required to become a LISTER',
+    );
+  }
+
+  // Approve profile and upgrade role
+  const verifiedProfile = await this.prisma.profile.update({
+    where: { id: profile.id },
+    data: {
+      isApproved: true,
+      ...(dto.businessInfo && {
+  businessInfo: {
+    upsert: {
+      where: { profileId: profileId },
+      create: dto.businessInfo,
+      update: dto.businessInfo,
+    },
+  },
+}),
+
+      user: {
+        update: { role: 'LISTER' }, 
+      },
+    },
+    include: { user: true },
+  });
+
+  return {
+    message: 'User profile verified and role upgraded to LISTER successfully',
+    data: verifiedProfile,
+  };
+}
+
+
+
+
 
   async remove(id: string) {
     const profile = await this.prisma.profile.findUnique({

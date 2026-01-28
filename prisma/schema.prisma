@@ -53,7 +53,7 @@ enum OrderStatus {
   //  PENDING
   REJECTED
 }
- 
+
 enum TransactionStatus {
   PENDING
   SUCCESS
@@ -62,24 +62,21 @@ enum TransactionStatus {
 }
 
 model User {
-  id             String   @id @default(uuid())
-  email          String   @unique
-  password       String
-  name           String
-  provider       String?
-  isVerified     Boolean  @default(false)
-  role           Role     @default(RENTER)
-  curatorReviews Review[] @relation("CuratorReviews")
-  reviewsWritten Review[]
-
-  tokens     AuthOtpToken[]
-  products   Product[]      @relation("CuratedProducts")
-  cart       Cart?
-  favourites Favourite[]
-  orders     Order[]
-
-  wallet Wallet?
-
+  id              String           @id @default(uuid())
+  email           String           @unique
+  password        String
+  name            String
+  provider        String?
+  isVerified      Boolean          @default(false)
+  role            Role             @default(RENTER)
+  curatorReviews  Review[]         @relation("CuratorReviews")
+  reviewsWritten  Review[]
+  tokens          AuthOtpToken[]
+  products        Product[]        @relation("CuratedProducts")
+  cart            Cart?
+  favourites      Favourite[]
+  orders          Order[]
+  wallet          Wallet?
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   profile         Profile?
@@ -88,8 +85,9 @@ model User {
   rentalsRented   Rental[]         @relation("Rentee")
   rentalsCurated  Rental[]         @relation("Curator")
   virtualAccounts VirtualAccount[]
-  transactions    Transaction[]
+  transactions    Transaction[]  
 }
+
 
 model Profile {
   id     String @id @default(uuid())
@@ -103,18 +101,13 @@ model Profile {
 
   emergencyContacts EmergencyContact[]
   businessInfo      BusinessInfo[]
-  bankAccounts      BankInfo[]
-  // attachments  Attachments? 
-
   address Address[]
-
-  //  profileAsNin    Profile?     @relation("NinUpload")
 
   avatarUpload   Upload? @relation("AvatarUpload", fields: [avatarUploadId], references: [id])
   avatarUploadId String? @unique
 
-  // ninUpload   Upload? @relation("NinUpload", fields: [ninUploadId], references: [id])
-  // ninUploadId String? @unique
+  ninUpload   Upload? @relation("NinUpload", fields: [ninUploadId], references: [id])
+  ninUploadId String? @unique
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -148,7 +141,7 @@ model BusinessInfo {
 model BankInfo {
   id        String  @id @default(uuid())
   profileId String
-  profile   Profile @relation(fields: [profileId], references: [id])
+  
 
   bankName      String
   accountNumber String
@@ -187,21 +180,20 @@ model AuthOtpToken {
 }
 
 model Product {
-  id          String @id @default(uuid())
-  name        String
-  subText     String
-  description String
-  condition   String
-   productVerified  Boolean @default(false)
-  dailyPrice    Int
-  isActive      Boolean  @default(true)
+  id              String  @id @default(uuid())
+  name            String
+  subText         String
+  description     String
+  condition       String
+  productVerified Boolean @default(false)
+  dailyPrice      Int
+  isActive        Boolean @default(true)
   // status        ProductStatus @default(AVAILABLE)
-  composition   String
-  measurement   String
-  originalValue Int
-  warning       String
-  color         String
-
+  composition     String
+  measurement     String
+  originalValue   Int
+  warning         String
+  color           String
 
   brandId String
   brand   Brand  @relation(fields: [brandId], references: [id])
@@ -212,9 +204,8 @@ model Product {
   curatorId String
   curator   User   @relation("CuratedProducts", fields: [curatorId], references: [id])
 
-  attachments Attachments? 
+  attachments Attachments?
   // profileAsAvatar Profile?     @relation("AvatarUpload")
-
 
   // notification preferences 
   receiveSmsNotifications       Boolean? @default(false)
@@ -269,7 +260,7 @@ model Upload {
   updatedAt       DateTime     @default(now())
   attachmentId    String?
   profileAsAvatar Profile?     @relation("AvatarUpload")
-  // profileAsNin    Profile?     @relation("NinUpload")
+  profileAsNin    Profile?     @relation("NinUpload")
   attachment      Attachments? @relation(fields: [attachmentId], references: [id])
   user            User         @relation(fields: [userId], references: [id])
   userId          String

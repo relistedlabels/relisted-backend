@@ -23,6 +23,7 @@ app.enableCors({
       'http://localhost:3000',
       'http://localhost:3001',
       'https://www.relistedlabels.com',
+       'https://relisted-backend.onrender.com'
     ];
 
     if (
@@ -73,7 +74,7 @@ app.enableCors({
 // const document = SwaggerModule.createDocument(app, config);
 // SwaggerModule.setup('api', app, document);
 
-//  app.useGlobalFilters(new AllExceptionsFilter());
+ app.useGlobalFilters(new AllExceptionsFilter());
 
   await app.listen(process.env.PORT ?? 4000);
 }

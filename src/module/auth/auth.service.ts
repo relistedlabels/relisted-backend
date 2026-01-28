@@ -85,6 +85,7 @@ export class AuthService {
     // jwt token
     const payload = { sub: user.id, email: user.email };
     const token = await this.jwtService.signAsync(payload);
+    
     // find the user hotel
     const userEntity = {
       sub: user.id,
