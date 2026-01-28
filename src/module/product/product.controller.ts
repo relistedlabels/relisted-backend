@@ -19,9 +19,9 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { Auth, AuthUser } from '../auth/decorator/auth.decorator';
 import { Role } from '@prisma/client';
 import { userEntity } from '../auth/auth.types';
-import { ApiBody, ApiCookieAuth, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import { ApiBody, ApiCookieAuth, ApiResponse, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 
-@ApiCookieAuth('access_token')
+@ApiBearerAuth('bearer')
 @Controller('product')
 export class ProductController {
   constructor(private readonly productService: ProductService) {}

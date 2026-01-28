@@ -45,25 +45,35 @@ app.enableCors({
     .setDescription('Api documentation for ecommerce application')
     .setVersion('1.0')
    
-   .addBearerAuth(
+//    .addBearerAuth(
+//   {
+//     type: 'apiKey',
+//     in: 'header',
+//     name: 'Authorization',
+//   },
+//   'token',
+// )
+
+.addBearerAuth(
   {
-    type: 'apiKey',
-    in: 'header',
-    name: 'Authorization',
+    type: 'http',
+    scheme: 'bearer',
+    bearerFormat: 'JWT',
   },
-  'token',
+  'bearer',
 )
+
 
     
     .build();
-  // const document = () => SwaggerModule.createDocument(app, config);
-  // SwaggerModule.setup('api', app, document);
+  const document = () => SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup('api', app, document);
   
 
-const document = SwaggerModule.createDocument(app, config);
-SwaggerModule.setup('api', app, document);
+// const document = SwaggerModule.createDocument(app, config);
+// SwaggerModule.setup('api', app, document);
 
- app.useGlobalFilters(new AllExceptionsFilter());
+//  app.useGlobalFilters(new AllExceptionsFilter());
 
   await app.listen(process.env.PORT ?? 4000);
 }

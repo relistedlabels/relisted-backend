@@ -14,7 +14,7 @@ import { bad } from 'src/utils/error';
 import { userEntity } from '../auth/auth.types';
 import { Auth, AuthUser } from '../auth/decorator/auth.decorator';
 import { UploadService } from './upload.service';
-@ApiBearerAuth('token')
+@ApiBearerAuth('bearer')
 @Controller('upload')
 export class UploadController {
   constructor(private readonly uploadService: UploadService) {}

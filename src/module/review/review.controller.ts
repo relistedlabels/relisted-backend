@@ -14,7 +14,7 @@ import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
 import { ReviewService } from './review.service';
 
-@ApiBearerAuth('token')
+@ApiBearerAuth('bearer')
 @Controller('review')
 export class ReviewController {
   constructor(private readonly reviewService: ReviewService) {}

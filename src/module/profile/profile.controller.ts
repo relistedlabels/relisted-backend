@@ -18,7 +18,7 @@ import { Auth, AuthUser } from '../auth/decorator/auth.decorator';
 import { CreateProfileDto } from './dto/create-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ProfileService } from './profile.service';
-@ApiBearerAuth('token')
+@ApiBearerAuth('bearer')
 @Controller('profile')
 export class ProfileController {
   constructor(private readonly profileService: ProfileService) {}
@@ -55,6 +55,7 @@ export class ProfileController {
     status: 501,
     description: 'internal server error',
   })
+
   findAll() {
     return this.profileService.findAll();
   }

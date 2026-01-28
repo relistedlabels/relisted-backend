@@ -16,7 +16,7 @@ import { userEntity } from '../auth/auth.types';
 import { ApiBearerAuth, ApiBody, ApiCookieAuth, ApiResponse } from '@nestjs/swagger';
 
 
-@ApiBearerAuth('token')
+@ApiBearerAuth('bearer')
 
 @Controller('cart-items')
 export class CartItemsController {
