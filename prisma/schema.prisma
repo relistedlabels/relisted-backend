@@ -86,6 +86,8 @@ model User {
   rentalsCurated  Rental[]         @relation("Curator")
   virtualAccounts VirtualAccount[]
   transactions    Transaction[]  
+  brands          Brand[]
+  productCategory ProductCategory[]
 }
 
 
@@ -230,6 +232,8 @@ model Brand {
   id        String    @id @default(uuid())
   name      String
   products  Product[]
+  user     User? @relation(fields: [userId],references: [id])
+  userId  String?
   createdAt DateTime  @default(now())
 }
 
@@ -237,6 +241,8 @@ model ProductCategory {
   id        String    @id @default(uuid())
   name      String
   products  Product[]
+   user     User? @relation(fields: [userId],references: [id])
+  userId  String?
   createdAt DateTime  @default(now())
 }
 

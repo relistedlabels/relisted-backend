@@ -76,7 +76,7 @@ async create(dto: CreateProfileDto, user: userEntity) {
         emergencyContacts: true,
         businessInfo: true,
         address: true,
-        bankAccounts: true,
+        // bankAccounts: true,
       },
     });
 
@@ -93,7 +93,7 @@ async create(dto: CreateProfileDto, user: userEntity) {
         emergencyContacts: true,
         businessInfo: true,
         address: true,
-        bankAccounts: true,
+        // bankAccounts: true,
       },
     });
 
