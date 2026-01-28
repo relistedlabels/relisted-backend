@@ -198,14 +198,14 @@ model Product {
   warning         String
   color           String
 
-  brandId String
-  brand   Brand  @relation(fields: [brandId], references: [id])
+  brandId String?
+  brand   Brand?  @relation(fields: [brandId], references: [id])
 
-  categoryId String
-  category   ProductCategory @relation(fields: [categoryId], references: [id])
+  categoryId String?
+  category   ProductCategory? @relation(fields: [categoryId], references: [id])
 
-  tagId String
-  tag   Tag @relation(fields: [tagId], references: [id])
+  tagId String?
+  tag   Tag? @relation(fields: [tagId], references: [id])
 
   curatorId String
   curator   User   @relation("CuratedProducts", fields: [curatorId], references: [id])

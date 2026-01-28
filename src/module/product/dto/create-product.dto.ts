@@ -24,7 +24,10 @@ export class CreateProductDto {
   @ApiProperty()
   @IsNumber()
   originalValue: number;
-  
+
+  @ApiProperty()
+  @IsNumber()
+  dailyPrice:number
   @ApiProperty()
   @IsString()
   color: string;
@@ -45,10 +48,13 @@ export class CreateProductDto {
   attachments: string[];
   @ApiProperty()
   @IsString()
-  categoryId: string;
+  categoryId?:string;
+   @ApiProperty()
+  @IsString()
+  tagId?:string;
   @ApiProperty()
   @IsString()
-  brandId: string;
+  brandId?:string;
 }
 export class ListProductQuery extends PaginationQuery {}
 
@@ -56,6 +62,9 @@ export class UpdateProductStatusDto {
   @ApiProperty()
   isActive: boolean;
 }
+
+
+
 
 export class CreateFavouriteDto {
   @ApiProperty()
