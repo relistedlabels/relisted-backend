@@ -56,6 +56,11 @@ export class CreateProfileDto {
   // @IsOptional()
   // bvn?:string;
 
+  
+ @ApiProperty()
+  @ValidateNested()
+  @Type(() => CreateBusinessInfoDto)
+  businessInfo: CreateBusinessInfoDto;
 //    @ApiProperty()
 //   @ValidateNested()
 //   @Type(() => CreateEmergencyDto)

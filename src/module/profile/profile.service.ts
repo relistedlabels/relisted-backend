@@ -34,6 +34,12 @@ async create(dto: CreateProfileDto, user: userEntity) {
           create: [dto.address],
         },
       }),
+      
+      ...(dto.businessInfo && {
+        bussinesInfo: {
+          create: [dto.businessInfo],
+        },
+      }),
 
       user: {
         connect: { id: user.id },
@@ -117,7 +123,7 @@ async create(dto: CreateProfileDto, user: userEntity) {
     if (!profile) {
       throw new NotFoundException('Profile not found');
     }
-    
+
 
     const updatedProfile = await this.prisma.profile.update({
       where: { userId: user.id },
