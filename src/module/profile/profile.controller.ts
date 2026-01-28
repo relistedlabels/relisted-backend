@@ -8,14 +8,18 @@ import {
   Post,
 } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiBearerAuth,
   ApiBody,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiOperation,
   ApiResponse
 } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { userEntity } from '../auth/auth.types';
 import { Auth, AuthUser } from '../auth/decorator/auth.decorator';
-import { CreateProfileDto } from './dto/create-profile.dto';
+import { CreateProfileDto, upgradeProfile } from './dto/create-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ProfileService } from './profile.service';
 @ApiBearerAuth('bearer')
@@ -87,6 +91,8 @@ export class ProfileController {
     status: 501,
     description: 'internal server error',
   })
+
+
   update(
     @Param('id') id: string,
 
@@ -96,23 +102,54 @@ export class ProfileController {
     return this.profileService.update(id, updateProfileDto, user);
   }
 
-  @Auth([Role.ADMIN])
-  @Patch('verify/:id')
+
+  @Patch(':profileId/upgrade-lister')
+  @ApiOperation({ summary: 'Upgrade user profile to LISTER' })
+  @ApiOkResponse({
+    schema: {
+      example: {
+        message: 'User profile verified and role upgraded to LISTER successfully',
+        data: {
+          id: 'profile-id',
+          user: {
+            id: 'user-id',
+            role: 'LISTER',
+          },
+        },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'Profile already verified or incomplete',
+  })
+  @ApiNotFoundResponse({
+    description: 'Profile not found',
+  })
+  upgradeToLister(
+    @Param('profileId') profileId: string,
+    @AuthUser() user: userEntity,
+    @Body() dto: upgradeProfile,
+  ) {
+    return this.profileService.upgradeProfileToLister(
+      profileId,
+      user,
+      dto,
+    );
+  }
+   
+  @Auth()
+  @Auth()
+  @Patch(':id')
   @ApiResponse({
     status: 201,
-    description: 'User profile verified successfully',
+    description: 'User profile updated successfully',
   })
   @ApiResponse({
     status: 501,
     description: 'internal server error',
   })
-  verifyProfile(
-    @Param('id') id: string,
 
-    @AuthUser() user: userEntity,
-  ) {
-    return this.profileService.verifyProfile(id, user);
-  }
+
 
   @Auth()
   @Auth([Role.ADMIN])
