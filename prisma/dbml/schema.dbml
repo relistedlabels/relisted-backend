@@ -122,12 +122,12 @@ Table Product {
   originalValue Int [not null]
   warning String [not null]
   color String [not null]
-  brandId String [not null]
-  brand Brand [not null]
-  categoryId String [not null]
-  category ProductCategory [not null]
-  tagId String [not null]
-  tag Tag [not null]
+  brandId String
+  brand Brand
+  categoryId String
+  category ProductCategory
+  tagId String
+  tag Tag
   curatorId String [not null]
   curator User [not null]
   attachments Attachments
