@@ -52,11 +52,11 @@ async create(dto: CreateProfileDto, user: userEntity) {
         },
       }),
 
-      ...(dto.ninUploadId && {
-        ninUpload: {
-          connect: { id: dto.ninUploadId },
-        },
-      }),
+      // ...(dto.ninUploadId && {
+      //   ninUpload: {
+      //     connect: { id: dto.ninUploadId },
+      //   },
+      // }),
     },
 
     include: {

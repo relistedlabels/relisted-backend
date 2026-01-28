@@ -83,8 +83,8 @@ emergencyContacts: CreateEmergencyDto;
   @IsOptional()
   avatarUploadId?:string;
 
-  @ApiProperty()
-  @IsString()
-  @IsOptional()
-  ninUploadId?:string;
+  // @ApiProperty()
+  // @IsString()
+  // @IsOptional()
+  // ninUploadId?:string;
 }
