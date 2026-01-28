@@ -93,9 +93,9 @@ async create(dto: CreateProfileDto, user: userEntity) {
     };
   }
 
-  async findOne(id: string) {
+  async findOne(user:userEntity) {
     const profile = await this.prisma.profile.findUnique({
-      where: { userId: id },
+      where: { userId: user.id },
       include: {
         emergencyContacts: true,
         businessInfo: true,

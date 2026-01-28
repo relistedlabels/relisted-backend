@@ -62,7 +62,7 @@ export class ProfileController {
 
 
   @Auth()
-  @Get(':id')
+  @Get()
   @ApiResponse({
     status: 200,
     description: ' User profile fetched successfully',
@@ -71,8 +71,8 @@ export class ProfileController {
     status: 501,
     description: 'internal server error',
   })
-  findOne(@Param('id') id: string) {
-    return this.profileService.findOne(id);
+  findOne( @AuthUser() user: userEntity) {
+    return this.profileService.findOne(user);
   }
 
  
