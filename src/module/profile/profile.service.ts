@@ -99,6 +99,7 @@ async create(dto: CreateProfileDto, user: userEntity) {
         emergencyContacts: true,
         businessInfo: true,
         address: true,
+        user:true
         // bankAccounts: true,
       },
     });

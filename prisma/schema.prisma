@@ -191,7 +191,7 @@ model Product {
   productVerified Boolean @default(false)
   dailyPrice      Int
   isActive        Boolean @default(true)
-  quantity        Int
+  quantity        Int?
   status        ProductStatus @default(AVAILABLE)
   composition     String
   measurement     String
