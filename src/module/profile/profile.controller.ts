@@ -62,7 +62,7 @@ export class ProfileController {
 
 
   @Auth()
-  @Get()
+  @Get("user-profile")
   @ApiResponse({
     status: 200,
     description: ' User profile fetched successfully',
