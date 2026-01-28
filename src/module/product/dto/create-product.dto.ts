@@ -28,6 +28,9 @@ export class CreateProductDto {
   @ApiProperty()
   @IsNumber()
   dailyPrice:number
+    @ApiProperty()
+  @IsNumber()
+  quantity:number
   @ApiProperty()
   @IsString()
   color: string;
@@ -40,6 +43,7 @@ export class CreateProductDto {
   @ApiProperty()
   @IsString()
   careSteps: string;
+  
   @ApiProperty()
   @IsString()
   stylingTip: string;
