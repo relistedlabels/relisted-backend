@@ -56,8 +56,22 @@ async function main() {
     ],
     skipDuplicates: true,
   });
-
-  console.log('✅ Brands & Categories seeded successfully');
+  
+   await prisma.tag.createMany({
+    data: [
+      { name: 'New Arrival' },
+      { name: 'Trending' },
+      { name: 'Best Seller' },
+      { name: 'Limited Edition' },
+      { name: 'Eco Friendly' },
+      { name: 'Vintage' },
+      { name: 'Luxury' },
+      { name: 'Streetwear' },
+      { name: 'Unisex' },
+      { name: 'Sale' },
+    ],
+  })
+  console.log('Brands,tag & Categories seeded successfully');
 }
 
 main()

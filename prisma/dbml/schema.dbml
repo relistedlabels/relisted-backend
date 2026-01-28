@@ -29,6 +29,7 @@ Table User {
   transactions Transaction [not null]
   brands Brand [not null]
   productCategory ProductCategory [not null]
+  tags Tag [not null]
 }
 
 Table Profile {
@@ -125,6 +126,8 @@ Table Product {
   brand Brand [not null]
   categoryId String [not null]
   category ProductCategory [not null]
+  tagId String [not null]
+  tag Tag [not null]
   curatorId String [not null]
   curator User [not null]
   attachments Attachments
@@ -144,6 +147,15 @@ Table Product {
 }
 
 Table Brand {
+  id String [pk]
+  name String [not null]
+  products Product [not null]
+  user User
+  userId String
+  createdAt DateTime [default: `now()`, not null]
+}
+
+Table Tag {
   id String [pk]
   name String [not null]
   products Product [not null]
@@ -489,9 +501,13 @@ Ref: Product.brandId > Brand.id
 
 Ref: Product.categoryId > ProductCategory.id
 
+Ref: Product.tagId > Tag.id
+
 Ref: Product.curatorId > User.id
 
 Ref: Brand.userId > User.id
+
+Ref: Tag.userId > User.id
 
 Ref: ProductCategory.userId > User.id
 
