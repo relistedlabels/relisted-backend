@@ -6,36 +6,75 @@ import {
   Patch,
   Param,
   Delete,
-  Req,
 } from '@nestjs/common';
 import { CartService } from './cart-items.service';
 import { CreateCartItemDto } from './dto/create-cart-item.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
 import { Auth, AuthUser } from '../auth/decorator/auth.decorator';
 import { userEntity } from '../auth/auth.types';
-import { ApiBearerAuth, ApiBody, ApiCookieAuth, ApiResponse } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiResponse,
+  ApiOperation,
+  ApiParam,
+  ApiTags,
+  ApiUnauthorizedResponse,
+} from '@nestjs/swagger';
 
-
-@ApiBearerAuth('bearer')
-
+@ApiTags('Cart Items')
+@ApiBearerAuth()
 @Controller('cart-items')
 export class CartItemsController {
   constructor(private readonly cartItemsService: CartService) {}
 
+  /**
+   * Add an item to the cart
+   */
   @Auth()
   @Post('item')
-  @ApiResponse({ status: 201, description: 'Cart item added successfully' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiOperation({ summary: 'Add an item to the cart' })
   @ApiBody({ type: CreateCartItemDto })
+  @ApiResponse({
+    status: 201,
+    description: 'Cart item added successfully',
+    schema: {
+      example: {
+        id: 'uuid',
+        cartId: 'uuid',
+        productId: 'uuid',
+        days: 5,
+        createdAt: '2026-01-28T12:00:00.000Z',
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
   addCartItem(@Body() dto: CreateCartItemDto, @AuthUser() user: userEntity) {
     return this.cartItemsService.addCartItem(dto, user);
   }
 
+  /**
+   * Update a cart item
+   */
   @Auth()
   @Patch('item/:id')
-  @ApiResponse({ status: 200, description: 'Cart item updated successfully' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiOperation({ summary: 'Update a cart item' })
+  @ApiParam({ name: 'id', description: 'Cart item ID', example: 'uuid' })
   @ApiBody({ type: UpdateCartItemDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Cart item updated successfully',
+    schema: {
+      example: {
+        id: 'uuid',
+        cartId: 'uuid',
+        productId: 'uuid',
+        days: 7,
+        updatedAt: '2026-01-28T12:10:00.000Z',
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
   updateCartItem(
     @Param('id') id: string,
     @Body() dto: UpdateCartItemDto,
@@ -44,21 +83,54 @@ export class CartItemsController {
     return this.cartItemsService.updateCartItem(id, dto, user);
   }
 
+  /**
+   * Get all items in the logged-in user's cart
+   */
   @Auth()
   @Get()
+  @ApiOperation({ summary: 'Get all cart items for the logged-in user' })
   @ApiResponse({
     status: 200,
     description: 'Cart items retrieved successfully',
+    schema: {
+      example: [
+        {
+          id: 'uuid',
+          cartId: 'uuid',
+          productId: 'uuid',
+          days: 5,
+          product: {
+            id: 'uuid',
+            name: 'Nike Shoes',
+            dailyPrice: 1000,
+          },
+          createdAt: '2026-01-28T12:00:00.000Z',
+        },
+      ],
+    },
   })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
   getCart(@AuthUser() user: userEntity) {
     return this.cartItemsService.getCart(user);
   }
 
+  /**
+   * Remove a cart item
+   */
   @Auth()
   @Delete('item/:id')
-  @ApiResponse({ status: 200, description: 'Cart item removed successfully' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiOperation({ summary: 'Remove a cart item' })
+  @ApiParam({ name: 'id', description: 'Cart item ID', example: 'uuid' })
+  @ApiResponse({
+    status: 200,
+    description: 'Cart item removed successfully',
+    schema: {
+      example: {
+        message: 'Cart item removed successfully',
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
   removeCartItem(@Param('id') id: string, @AuthUser() user: userEntity) {
     return this.cartItemsService.removeCartItem(id, user);
   }

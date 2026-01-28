@@ -7,6 +7,7 @@ import {
   CreateFavouriteDto,
   CreateProductDto,
   ListProductQuery,
+  queryDto,
   UpdateProductStatusDto,
 } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -14,27 +15,27 @@ import { ProductStatus } from '@prisma/client';
 export class ProductService {
   constructor(private readonly prisma: PrismaService) {}
   async create(dto: CreateProductDto, user: userEntity) {
-    const daily_Price = dto.originalValue *0.1
+    const daily_Price = dto.originalValue * 0.1;
     const newProduct = await this.prisma.product.create({
       data: {
         name: dto.name,
         subText: dto.subText,
         description: dto.description,
-        color: dto.color ,
+        color: dto.color,
         composition: dto.composition,
         measurement: dto.measurement,
         careInstruction: dto.careInstruction,
         stylingTip: dto.stylingTip,
         warning: dto.warning,
-        quantity:dto.quantity,
+        quantity: dto.quantity,
         originalValue: dto.originalValue,
         dailyPrice: dto.dailyPrice,
         condition: dto.condition,
         careSteps: dto.careSteps,
         curator: connectId(user.id),
-        brand: connectId(dto.brandId ?? ""),
-        category: connectId(dto?.categoryId ??""),
-        tag:connectId(dto?.categoryId ??""),
+        brand: connectId(dto.brandId ?? ''),
+        category: connectId(dto?.categoryId ?? ''),
+        tag: connectId(dto?.categoryId ?? ''),
 
         attachments: createAttachments(dto.attachments),
       },
@@ -52,9 +53,9 @@ export class ProductService {
 
     const [list, totalCount] = await Promise.all([
       this.prisma.product.findMany({
-       where:{
-        productVerified:true
-       },
+        where: {
+          productVerified: true,
+        },
         skip,
         take,
         orderBy,
@@ -78,17 +79,13 @@ export class ProductService {
     return { list, pagination };
   }
 
-
-   async getUserProducts(user:userEntity) {
- 
-
-
+  async getUserProducts(user: userEntity) {
     const [list, totalCount] = await Promise.all([
       this.prisma.product.findMany({
-       where: {
-        curatorId:user.id
-      },
-      
+        where: {
+          curatorId: user.id,
+        },
+
         include: {
           brand: true,
           category: true,
@@ -98,9 +95,10 @@ export class ProductService {
       this.prisma.product.count(),
     ]);
 
-   return {
-    list,totalCount
-   }
+    return {
+      list,
+      totalCount,
+    };
   }
 
   async findOne(id: string) {
@@ -177,28 +175,21 @@ export class ProductService {
     };
   }
 
-
-
-   // ADMIN VERIFICATION METHOD
-  async verifyProduct(id: string,  user: userEntity) {
+  // ADMIN VERIFICATION METHOD
+  async verifyProduct(id: string, user: userEntity) {
     const product = await this.prisma.product.findUnique({
       where: { id },
     });
 
-    if (!product) bad("product not found")
-
-    
+    if (!product) bad('product not found');
 
     return this.prisma.product.update({
       where: { id },
       data: {
-        productVerified :true,
-        
-      
+        productVerified: true,
       },
       include: {
-        curator:true
-       
+        curator: true,
       },
     });
   }
@@ -206,20 +197,18 @@ export class ProductService {
 
   async createProductFavourite(
     dto: CreateFavouriteDto,
-    
+
     user: userEntity,
   ) {
     const product = await this.prisma.product.findUnique({
-      where: { id:dto.productId },
+      where: { id: dto.productId },
     });
     if (!product) bad('product not found');
 
     const existing = await this.prisma.favourite.findFirst({
       where: {
-      
-          userId: user.id,
-          productId: dto.productId,
-   
+        userId: user.id,
+        productId: dto.productId,
       },
     });
     if (existing) bad('Product already in favourites');
@@ -246,27 +235,46 @@ export class ProductService {
     });
   }
 
-
-   //  UPDATE PRODUCT STATUS
-  async updateProductStatus(productId: string,user: userEntity) {
-   
-
-  
+  //  UPDATE PRODUCT STATUS
+  async updateProductStatus(productId: string, user: userEntity) {
     const product = await this.prisma.product.findUnique({
       where: { id: productId },
     });
 
-    if (!product) bad("Product with ID ${productId} not found")
+    if (!product) bad('Product with ID ${productId} not found');
 
-    
     const updated = await this.prisma.product.update({
       where: { id: productId },
       data: {
-        name:"eeeeeee" ,
+        name: 'eeeeeee',
       },
     });
 
     return updated;
+  }
+
+  // filter product
+  async findAll(query: queryDto) {
+    const { brandId, categoryId, tagId, minPrice, maxPrice, verified } = query;
+    const filters: any = {};
+    if (brandId) filters.brandId = brandId;
+    if (categoryId) filters.categoryId = categoryId;
+    if (tagId) filters.tagId = tagId;
+
+    if (minPrice || maxPrice) {
+      filters.dailyPrice = {};
+      if (minPrice) filters.dailyPrice.gte = Number(minPrice);
+      if (maxPrice) filters.dailyPrice.lte = Number(maxPrice);
+    }
+
+    return this.prisma.product.findMany({
+      where: filters,
+      include: {
+        brand: true,
+        category: true,
+        tag: true,
+      },
+    });
   }
 
   // DELETE

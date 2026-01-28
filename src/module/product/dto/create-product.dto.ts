@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsNumber, IsString } from 'class-validator';
+import { IsArray, IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
 import { PaginationQuery } from 'src/utils/paginate-query';
 
 export class CreateProductDto {
@@ -26,12 +26,11 @@ export class CreateProductDto {
   originalValue: number;
   @ApiProperty()
   @IsNumber()
-  dailyPrice:number
+  dailyPrice: number;
 
-  
-    @ApiProperty()
+  @ApiProperty()
   @IsNumber()
-  quantity:number
+  quantity: number;
 
   @ApiProperty()
   @IsString()
@@ -45,7 +44,7 @@ export class CreateProductDto {
   @ApiProperty()
   @IsString()
   careSteps: string;
-  
+
   @ApiProperty()
   @IsString()
   stylingTip: string;
@@ -54,13 +53,13 @@ export class CreateProductDto {
   attachments: string[];
   @ApiProperty()
   @IsString()
-  categoryId?:string;
-   @ApiProperty()
-  @IsString()
-  tagId?:string;
+  categoryId?: string;
   @ApiProperty()
   @IsString()
-  brandId?:string;
+  tagId?: string;
+  @ApiProperty()
+  @IsString()
+  brandId?: string;
 }
 export class ListProductQuery extends PaginationQuery {}
 
@@ -69,11 +68,30 @@ export class UpdateProductStatusDto {
   isActive: boolean;
 }
 
-
-
-
 export class CreateFavouriteDto {
   @ApiProperty()
   @IsString()
   productId: string;
+}
+
+export class queryDto {
+  @IsOptional()
+  @IsString()
+  brandId: string;
+  @IsOptional()
+  @IsString()
+  categoryId: string;
+  @IsOptional()
+  @IsString()
+  tagId: string;
+   @IsOptional()
+  @IsNumber()
+  minPrice:number
+   @IsOptional()
+  @IsNumber()
+  maxPrice:number 
+
+   @IsOptional()
+  @IsBoolean()
+  verified:boolean
 }

@@ -62,35 +62,35 @@ enum TransactionStatus {
 }
 
 model User {
-  id              String           @id @default(uuid())
-  email           String           @unique
+  id              String            @id @default(uuid())
+  email           String            @unique
   password        String
   name            String
   provider        String?
-  isVerified      Boolean          @default(false)
-  role            Role             @default(RENTER)
-  curatorReviews  Review[]         @relation("CuratorReviews")
+  isVerified      Boolean           @default(false)
+  role            Role              @default(RENTER)
+  curatorReviews  Review[]          @relation("CuratorReviews")
   reviewsWritten  Review[]
   tokens          AuthOtpToken[]
-  products        Product[]        @relation("CuratedProducts")
+  products        Product[]         @relation("CuratedProducts")
   cart            Cart?
   favourites      Favourite[]
   orders          Order[]
   wallet          Wallet?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
   profile         Profile?
   uploads         Upload[]
   disputes        Dispute[]
-  rentalsRented   Rental[]         @relation("Rentee")
-  rentalsCurated  Rental[]         @relation("Curator")
+  rentalsRented   Rental[]          @relation("Rentee")
+  rentalsCurated  Rental[]          @relation("Curator")
   virtualAccounts VirtualAccount[]
-  transactions    Transaction[]  
+  transactions    Transaction[]
   brands          Brand[]
   productCategory ProductCategory[]
-  tags      Tag[]
+  fullText        String            @default("")
+  tags            Tag[]
 }
-
 
 model Profile {
   id     String @id @default(uuid())
@@ -104,7 +104,7 @@ model Profile {
 
   emergencyContacts EmergencyContact[]
   businessInfo      BusinessInfo[]
-  address Address[]
+  address           Address[]
 
   avatarUpload   Upload? @relation("AvatarUpload", fields: [avatarUploadId], references: [id])
   avatarUploadId String? @unique
@@ -113,6 +113,7 @@ model Profile {
   ninUploadId String? @unique
 
   createdAt DateTime @default(now())
+  fullText  String   @default("")
   updatedAt DateTime @updatedAt
 }
 
@@ -142,9 +143,8 @@ model BusinessInfo {
 }
 
 model BankInfo {
-  id        String  @id @default(uuid())
+  id        String @id @default(uuid())
   profileId String
-  
 
   bankName      String
   accountNumber String
@@ -183,16 +183,16 @@ model AuthOtpToken {
 }
 
 model Product {
-  id              String  @id @default(uuid())
+  id              String        @id @default(uuid())
   name            String
   subText         String
   description     String
   condition       String
-  productVerified Boolean @default(false)
+  productVerified Boolean       @default(false)
   dailyPrice      Int
-  isActive        Boolean @default(true)
+  isActive        Boolean       @default(true)
   quantity        Int?
-  status        ProductStatus @default(AVAILABLE)
+  status          ProductStatus @default(AVAILABLE)
   composition     String
   measurement     String
   originalValue   Int
@@ -206,7 +206,7 @@ model Product {
   category   ProductCategory? @relation(fields: [categoryId], references: [id])
 
   tagId String?
-  tag   Tag? @relation(fields: [tagId], references: [id])
+  tag   Tag?    @relation(fields: [tagId], references: [id])
 
   curatorId String
   curator   User   @relation("CuratedProducts", fields: [curatorId], references: [id])
@@ -230,6 +230,7 @@ model Product {
   stylingTip      String
 
   createdAt DateTime @default(now())
+  fullText  String   @default("")
   updatedAt DateTime @updatedAt
 }
 
@@ -237,17 +238,19 @@ model Brand {
   id        String    @id @default(uuid())
   name      String
   products  Product[]
-  user     User? @relation(fields: [userId],references: [id])
-  userId  String?
+  user      User?     @relation(fields: [userId], references: [id])
+  userId    String?
+  fullText  String    @default("")
   createdAt DateTime  @default(now())
-} 
+}
 
 model Tag {
-   id        String    @id @default(uuid())
+  id        String    @id @default(uuid())
   name      String
   products  Product[]
-  user     User? @relation(fields: [userId],references: [id])
-  userId  String?
+  user      User?     @relation(fields: [userId], references: [id])
+  userId    String?
+  fullText  String    @default("")
   createdAt DateTime  @default(now())
 }
 
@@ -255,8 +258,9 @@ model ProductCategory {
   id        String    @id @default(uuid())
   name      String
   products  Product[]
-   user     User? @relation(fields: [userId],references: [id])
-  userId  String?
+  user      User?     @relation(fields: [userId], references: [id])
+  userId    String?
+  fullText  String    @default("")
   createdAt DateTime  @default(now())
 }
 
@@ -284,6 +288,7 @@ model Upload {
   attachment      Attachments? @relation(fields: [attachmentId], references: [id])
   user            User         @relation(fields: [userId], references: [id])
   userId          String
+  fullText        String       @default("")
   // dispute         Dispute?     @relation("DisputeUploads", fields: [disputeId], references: [id])
   // disputeId       String?
 }
@@ -325,6 +330,7 @@ model Favourite {
   user      User     @relation(fields: [userId], references: [id])
   product   Product  @relation(fields: [productId], references: [id])
   createdAt DateTime @default(now())
+  fullText  String   @default("")
 
   @@unique([userId, productId])
 }
