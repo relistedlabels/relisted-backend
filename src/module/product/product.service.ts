@@ -22,7 +22,7 @@ export class ProductService {
         subText: dto.subText,
         description: dto.description,
         color: dto.color,
-        composition: dto.composition,
+        composition: dto.composition ?? "",
         measurement: dto.measurement,
         careInstruction: dto.careInstruction,
         stylingTip: dto.stylingTip,
