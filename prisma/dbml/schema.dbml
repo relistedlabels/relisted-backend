@@ -122,7 +122,8 @@ Table Product {
   composition String [not null]
   measurement String [not null]
   originalValue Int [not null]
-  warning String [not null]
+  size String [not null]
+  warning String
   color String [not null]
   brandId String
   brand Brand

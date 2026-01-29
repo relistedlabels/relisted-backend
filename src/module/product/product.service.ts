@@ -27,6 +27,7 @@ export class ProductService {
         careInstruction: dto.careInstruction,
         stylingTip: dto.stylingTip,
         warning: dto.warning,
+        size:dto.size,
         quantity: dto.quantity,
         originalValue: dto.originalValue,
         dailyPrice: dto.dailyPrice,

@@ -196,7 +196,8 @@ model Product {
   composition     String
   measurement     String
   originalValue   Int
-  warning         String
+  size            String
+  warning         String?
   color           String
 
   brandId String?
@@ -212,9 +213,7 @@ model Product {
   curator   User   @relation("CuratedProducts", fields: [curatorId], references: [id])
 
   attachments Attachments?
-  // profileAsAvatar Profile?     @relation("AvatarUpload")
-
-  // notification preferences 
+ 
   receiveSmsNotifications       Boolean? @default(false)
   receiveEmailNotifications     Boolean? @default(true)
   receiveProductRecommendations Boolean? @default(false)
@@ -418,6 +417,8 @@ model Rental {
 
   createdAt DateTime @default(now())
 }
+
+
 
 model Review {
   id String @id @default(uuid())

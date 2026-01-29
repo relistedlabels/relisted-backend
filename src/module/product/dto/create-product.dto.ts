@@ -21,12 +21,19 @@ export class CreateProductDto {
   @ApiProperty()
   @IsString()
   measurement: string;
+
+
   @ApiProperty()
   @IsNumber()
   originalValue: number;
   @ApiProperty()
   @IsNumber()
   dailyPrice: number;
+
+
+  @ApiProperty()
+   @IsString()
+  size:string
 
   @ApiProperty()
   @IsNumber()
