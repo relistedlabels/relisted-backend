@@ -45,6 +45,7 @@ export class CategoriesService {
       data: dto,
     });
   }
+  
 
   async remove(id: string) {
     await this.findOne(id);

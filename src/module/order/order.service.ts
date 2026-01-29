@@ -94,58 +94,6 @@ export class OrderService {
     };
   }
 
-  async listerOrderApproval(orderId: string, user: userEntity) {
-    const orderItem = await this.prisma.orderItem.findFirst({
-      where: { orderId: orderId },
-      include: { product: true, order: true },
-    });
-    if (!orderItem) bad('order not found');
-    if (orderItem.product.curatorId !== user.id)
-      bad("you can't approve this order ");
-
-    if (orderItem.order.status !== OrderStatus.PROCESSING) {
-      throw new BadRequestException(
-        'Order has already been confirmed or processed',
-      );
-    }
-     const order = orderItem.order
-    const expiresAt =addMinutes(order.createdAt,30)
-     if (isAfter(new Date(), expiresAt)) {
-    await this.prisma.$transaction([
-      this.prisma.order.update({
-        where: { id: order.id },
-        data: { status: OrderStatus.CANCELLED },
-      }),
-      
-      this.prisma.virtualAccount?.updateMany({
-        where: { orderId: order.id },
-        data: { status: 'EXPIRED' },
-      }),
-    ]);
-
-    bad('Approval window expired (30 minutes)');
-  }
-    // accept order
-    await this.prisma.order.update({
-      where: {
-        id: orderItem.orderId,
-      },
-      data: {
-        status: OrderStatus.ACCEPTED,
-        
-      },
-    });
-    // check if user balance is greater than or equal to the totla amount 
-    // Check wallet balance
-  // const wallet = order.user.wallet;
-  // if (!wallet || wallet.availableBalance < 100000) {
-  //   bad('Insufficient balance. Please fund your wallet ');
-  // }
-
-
-
-
-  }
   
   async generateOrderId() {
     return `ORD-${Date.now()}`;

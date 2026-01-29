@@ -228,7 +228,7 @@ model Product {
   careSteps       String
   items           OrderItem[]
   stylingTip      String
-
+   AvailabilityRequests AvailabilityRequest[] 
   createdAt DateTime @default(now())
   // fullText  String   @default("")
   updatedAt DateTime @updatedAt
@@ -293,6 +293,8 @@ model Upload {
   // disputeId       String?
 }
 
+
+
 model Attachments {
   id      String   @id @default(uuid())
   uploads Upload[]
@@ -333,6 +335,28 @@ model Favourite {
   fullText  String   @default("")
 
   @@unique([userId, productId])
+}
+
+
+
+model AvailabilityRequest {
+  id          String   @id @default(uuid())
+  productId   String
+  cartItemId String
+  requesterId String   
+  listerId    String   
+  status      AvailabilityStatus @default(PENDING)
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  product     Product  @relation(fields: [productId], references: [id])
+}
+
+enum AvailabilityStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
 }
 
 model Order {

@@ -4,6 +4,7 @@ import { UpdateCartItemDto } from './dto/update-cart-item.dto';
 import { PrismaService } from 'src/services/prisma/prisma.service';
 import { bad } from 'src/utils/error';
 import { userEntity } from '../auth/auth.types';
+import { addMinutes, differenceInMinutes, isAfter } from 'date-fns';
 
 @Injectable()
 export class CartService {
@@ -26,7 +27,6 @@ export class CartService {
       where: { id: dto.productId },
     });
 
-
     // Prevent duplicate
     const existing = await this.prisma.cartItem.findFirst({
       where: { cartId: cart.id, productId: dto.productId },
@@ -37,6 +37,84 @@ export class CartService {
       data: { cartId: cart.id, productId: dto.productId, days: dto.days },
     });
   }
+
+
+ async requestAvailability(cartItemId: string, user: userEntity) {
+  const cartItem = await this.prisma.cartItem.findUnique({
+    where: { id: cartItemId },
+    include: {
+      product: {
+        include: { curator: true },
+      },
+    },
+  });
+
+  if (!cartItem) bad('Cart item not found');
+
+  // prevent multiple requests
+  const existingRequest = await this.prisma.availabilityRequest.findFirst({
+    where: {
+      cartItemId,
+      status: 'PENDING',
+    },
+  });
+
+  if (existingRequest) {
+    bad('Availability request already sent');
+  }
+
+  // start 30 minutes countdown NOW
+  const expiresAt = addMinutes(new Date(), 30);
+
+  const request = await this.prisma.availabilityRequest.create({
+    data: {
+      cartItemId,
+      productId: cartItem.productId,
+      requesterId: user.id,
+      listerId: cartItem.product.curatorId,
+      expiresAt,
+    },
+  });
+
+
+
+  // await this.mailService.sendAvailabilityMail({
+  //   to: cartItem.product.curator.email, // ✅ fixed
+  //   requestId: request.id,
+  //   productName: cartItem.product.name,
+  //   expiresAt,
+  // });
+
+  
+  return {
+    message: 'Availability request sent. Awaiting curator response.',
+    expiresAt,
+  };
+}
+
+// accept request 
+
+async acceptAvailability(requestId: string) {
+  const request = await this.prisma.availabilityRequest.findUnique({
+    where: { id: requestId },
+  });
+
+  if (!request) bad('Request not found');
+
+  if (request.expiresAt < new Date()) {
+    await this.prisma.availabilityRequest.update({
+      where: { id: requestId },
+      data: { status: 'EXPIRED' },
+    });
+    bad('Request expired');
+  }
+
+  return this.prisma.availabilityRequest.update({
+    where: { id: requestId },
+    data: { status: 'ACCEPTED' },
+  });
+}
+
 
   // Update cart item (rental days)
   async updateCartItem(
@@ -55,6 +133,8 @@ export class CartService {
       data: { days: dto.days },
     });
   }
+
+  
   // Fetch cart with totals
   async getCart(user: userEntity) {
     const cart = await this.prisma.cart.findUnique({
