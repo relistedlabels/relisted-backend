@@ -196,7 +196,7 @@ model Product {
   composition     String?
   measurement     String
   originalValue   Int
-  size            String
+  
   warning         String?
   color           String
 

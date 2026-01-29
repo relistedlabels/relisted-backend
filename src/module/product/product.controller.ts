@@ -42,7 +42,7 @@ export class ProductController {
   /**
    * Create a new product (Curators only)
    */
-  @Auth([Role.LISTER])
+  @Auth()
   @Post()
   @ApiOperation({ summary: 'Create a new product' })
   @ApiBody({ type: CreateProductDto })

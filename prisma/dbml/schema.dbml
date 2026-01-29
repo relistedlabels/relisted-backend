@@ -119,10 +119,9 @@ Table Product {
   isActive Boolean [not null, default: true]
   quantity Int
   status ProductStatus [not null, default: 'AVAILABLE']
-  composition String [not null]
+  composition String
   measurement String [not null]
   originalValue Int [not null]
-  size String [not null]
   warning String
   color String [not null]
   brandId String

@@ -5,15 +5,19 @@ import { PaginationQuery } from 'src/utils/paginate-query';
 export class CreateProductDto {
   @ApiProperty()
   @IsString()
+   @IsOptional()
   name: string;
   @ApiProperty()
   @IsString()
+   @IsOptional()
   subText: string;
   @ApiProperty()
   @IsString()
+  @IsOptional()
   description: string;
   @ApiProperty()
   @IsString()
+  @IsOptional()
   condition: string;
   @ApiProperty()
   @IsString()
@@ -21,27 +25,32 @@ export class CreateProductDto {
   composition: string;
   @ApiProperty()
   @IsString()
+  @IsOptional()
   measurement: string;
 
 
   @ApiProperty()
   @IsNumber()
+   @IsOptional()
   originalValue: number;
   @ApiProperty()
   @IsNumber()
+   @IsOptional()
   dailyPrice: number;
 
 
-  @ApiProperty()
-   @IsString()
-  size:string
+  // @ApiProperty()
+  //  @IsString()
+  // size:string
 
   @ApiProperty()
   @IsNumber()
+   @IsOptional()
   quantity: number;
 
   @ApiProperty()
   @IsString()
+   @IsOptional()
   color: string;
   @ApiProperty()
   @IsString()
@@ -49,25 +58,31 @@ export class CreateProductDto {
   warning: string;
   @ApiProperty()
   @IsString()
+   @IsOptional()
   careInstruction: string;
   @ApiProperty()
   @IsString()
+   @IsOptional()
   careSteps: string;
 
   @ApiProperty()
   @IsString()
+   @IsOptional()
   stylingTip: string;
   @ApiProperty()
   @IsArray()
   attachments: string[];
   @ApiProperty()
   @IsString()
+   @IsOptional()
   categoryId?: string;
   @ApiProperty()
   @IsString()
+   @IsOptional()
   tagId?: string;
   @ApiProperty()
   @IsString()
+   @IsOptional()
   brandId?: string;
 }
 export class ListProductQuery extends PaginationQuery {}
