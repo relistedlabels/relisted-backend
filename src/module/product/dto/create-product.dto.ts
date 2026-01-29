@@ -45,6 +45,7 @@ export class CreateProductDto {
   color: string;
   @ApiProperty()
   @IsString()
+  @IsOptional()
   warning: string;
   @ApiProperty()
   @IsString()
