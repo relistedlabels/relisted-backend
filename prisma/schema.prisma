@@ -193,7 +193,7 @@ model Product {
   isActive        Boolean       @default(true)
   quantity        Int?
   status          ProductStatus @default(AVAILABLE)
-  composition     String
+  composition     String?
   measurement     String
   originalValue   Int
   size            String

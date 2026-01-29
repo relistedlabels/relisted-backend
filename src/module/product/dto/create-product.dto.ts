@@ -17,6 +17,7 @@ export class CreateProductDto {
   condition: string;
   @ApiProperty()
   @IsString()
+  @IsOptional()
   composition: string;
   @ApiProperty()
   @IsString()
