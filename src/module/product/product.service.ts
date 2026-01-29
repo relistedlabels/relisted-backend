@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException } from '@nestjs/common';
 import { connectId, createAttachments } from 'prisma/prisma.utils';
 import { PrismaService } from 'src/services/prisma/prisma.service';
 import { bad } from 'src/utils/error';
@@ -15,8 +15,12 @@ import { ProductStatus } from '@prisma/client';
 export class ProductService {
   constructor(private readonly prisma: PrismaService) {}
 async create(dto: CreateProductDto, user: userEntity) {
+  if (!dto) {
+    throw new BadRequestException('Product data is missing');
+  }
+
   try {
-    const daily_Price = dto.originalValue * 0.1;
+    const daily_Price = dto.originalValue ? dto.originalValue * 0.1 : 0;
 
     const newProduct = await this.prisma.product.create({
       data: {
@@ -24,7 +28,7 @@ async create(dto: CreateProductDto, user: userEntity) {
         subText: dto.subText ?? '',
         description: dto.description ?? '',
         color: dto.color ?? '',
-        composition: dto.composition ?? "",
+        composition: dto.composition ?? '',
         measurement: dto.measurement ?? '',
         careInstruction: dto.careInstruction ?? '',
         stylingTip: dto.stylingTip ?? '',
@@ -38,8 +42,9 @@ async create(dto: CreateProductDto, user: userEntity) {
         brand: dto.brandId ? { connect: { id: dto.brandId } } : undefined,
         category: dto.categoryId ? { connect: { id: dto.categoryId } } : undefined,
         tag: dto.tagId ? { connect: { id: dto.tagId } } : undefined,
-        attachments: createAttachments(dto.attachments)
-      }})
+        attachments: createAttachments(dto.attachments ?? []),
+      },
+    });
 
     return {
       message: 'Product created successfully',
@@ -47,13 +52,9 @@ async create(dto: CreateProductDto, user: userEntity) {
     };
   } catch (error) {
     console.error('Error creating product:', error);
-
-    // Optional: give detailed Prisma errors
-    if (error instanceof Error) {
-      return { message: 'Failed to create product', error: error.message };
-    }
-
-    return { message: 'Failed to create product', error: 'Unknown error' };
+    throw new InternalServerErrorException(
+      error instanceof Error ? error.message : 'Unknown error',
+    );
   }
 }
 
