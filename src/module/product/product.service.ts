@@ -14,8 +14,10 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductStatus } from '@prisma/client';
 export class ProductService {
   constructor(private readonly prisma: PrismaService) {}
-  async create(dto: CreateProductDto, user: userEntity) {
+async create(dto: CreateProductDto, user: userEntity) {
+  try {
     const daily_Price = dto.originalValue * 0.1;
+
     const newProduct = await this.prisma.product.create({
       data: {
         name: dto.name ?? '',
@@ -27,24 +29,34 @@ export class ProductService {
         careInstruction: dto.careInstruction ?? '',
         stylingTip: dto.stylingTip ?? '',
         warning: dto.warning ?? '',
-        // size:dto.size,
-        quantity: dto.quantity ?? '',
-        originalValue: dto.originalValue ?? '',
-        dailyPrice: dto.dailyPrice ?? '',
+        quantity: dto.quantity ?? 0,
+        originalValue: dto.originalValue ?? 0,
+        dailyPrice: dto.dailyPrice ?? daily_Price,
         condition: dto.condition ?? '',
         careSteps: dto.careSteps ?? '',
-        curator: connectId(user.id),
-        brand: connectId(dto.brandId ?? ''),
-        category: connectId(dto?.categoryId ?? ''),
-        tag: connectId(dto?.categoryId ?? ''),
+        curator: { connect: { id: user.id } },
+        brand: dto.brandId ? { connect: { id: dto.brandId } } : undefined,
+        category: dto.categoryId ? { connect: { id: dto.categoryId } } : undefined,
+        tag: dto.tagId ? { connect: { id: dto.tagId } } : undefined,
+        attachments: createAttachments(dto.attachments)
+      }})
 
-        attachments: createAttachments(dto.attachments),
-      },
-    });
     return {
-      message: 'product created successfully',
+      message: 'Product created successfully',
+      product: newProduct,
     };
+  } catch (error) {
+    console.error('Error creating product:', error);
+
+    // Optional: give detailed Prisma errors
+    if (error instanceof Error) {
+      return { message: 'Failed to create product', error: error.message };
+    }
+
+    return { message: 'Failed to create product', error: 'Unknown error' };
   }
+}
+
 
   async list(query: ListProductQuery) {
     const take = Number(query.count) || 10;
