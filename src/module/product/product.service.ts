@@ -669,14 +669,14 @@ export class ProductService {
     }
   }
 
-    /**
-   * Get product by ID with detailed information
-   */
+    
+  //  Get product by ID with detailed information
+   
   async findOne(id: string) {
     try {
       const product = await this.prisma.product.findUnique({
         where: { id },
-        // include: this.getProductDetailIncludeFields(),
+     
       });
 
       if (!product) {
@@ -704,46 +704,141 @@ export class ProductService {
     }
   }
   
-  async update(id: string, dto: UpdateProductDto, user: userEntity) {
-    const product = await this.prisma.product.findUnique({
-      where: { id },
+
+ async update(productId: string, dto: UpdateProductDto, user: userEntity) {
+  const product = await this.prisma.$transaction(async (tx) => {
+
+    const product = await tx.product.findUnique({
+      where: { id:productId},
+      include: {
+        attachments:{ 
+          include: {
+            uploads: true 
+          }
+        }
+      }
     });
 
-    if (!product) bad('product not found');
+    if (!product) bad('Product not found', 404);
+    if (product.curatorId !== user.id) bad('Unauthorized', 403);
+    if (!product.isActive) bad('Product is disabled', 400);
 
-    if (!product.isActive) {
-      bad('disabled product cannot be edited');
-    }
-
-    // Prepare update data
-    const updateData: any = { ...dto };
+    const currentImageIds = product.attachments?.uploads?.map(u => u.id) || [];
     
-    // Handle attachments separately
-    if (dto.attachments) {
-      updateData.attachments = {
-        create: {
-          uploads: {
-            connect: dto.attachments.map(id => ({ id })),
-          },
-        },
-      };
+
+    // check for removal images validation
+    if (dto.removeImages) {
+      const invalidRemovals = dto.removeImages.filter(
+        id => !currentImageIds.includes(id)
+      );
+      if (invalidRemovals.length > 0) {
+        bad(`Cannot remove images that don't exist: ${invalidRemovals.join(', ')}`, 400);
+      }
     }
 
-    const updatedProduct = await this.prisma.product.update({
-      where: { id },
-      data: updateData,
+
+
+    if (dto.keepImages) {
+      const invalidKeeps = dto.keepImages.filter(
+        id => !currentImageIds.includes(id)
+      );
+      if (invalidKeeps.length > 0) {
+        bad(`Cannot keep images that don't exist: ${invalidKeeps.join(', ')}`, 400);
+      }
+    }
+
+    let finalImageIds = [...currentImageIds];
+    
+    if (dto.removeImages?.length) {
+      finalImageIds = finalImageIds.filter(id => !dto.removeImages?.includes(id));
+    }
+    
+
+    if (dto.keepImages?.length) {
+      finalImageIds = dto.keepImages;
+    }
+    
+    
+    if (dto.addImages?.length) {
+      finalImageIds = [...finalImageIds, ...dto.addImages];
+    }
+
+
+    const existingUploads = await tx.upload.findMany({
+      where: { id: { in: finalImageIds } },
+      select: { id: true }
+    });
+
+    const existingUploadIds = existingUploads.map(u => u.id);
+    const missingUploads = finalImageIds.filter(id => !existingUploadIds.includes(id));
+    
+    if (missingUploads.length > 0) {
+      bad(`The following images were not found: ${missingUploads.join(', ')}. Please upload them first.`, 400);
+    }
+
+    // Delete all current attachments
+    if (product.attachments) {
+      await tx.attachments.deleteMany({
+        where: { productId: productId }
+      });
+      
+    }
+
+
+
+    // Create new attachment with final image set
+    if (finalImageIds.length > 0) {
+      await tx.attachments.create({
+        data: {
+          productId: productId,
+          uploads: {
+            connect: finalImageIds.map(id => ({ id }))
+          }
+        }
+      });
+
+    }
+
+    const updatedProduct = await tx.product.update({
+      where: { id:productId },
+       data: {
+        name: dto.name,
+        subText: dto.subText,
+        description: dto.description,
+        condition: dto.condition,
+        measurement: dto.measurement,
+        color: dto.color,
+        originalValue: dto.originalValue || 0,
+        dailyPrice: dto.dailyPrice,
+        careInstruction: dto.careInstruction,
+        careSteps: dto.careSteps,
+        stylingTip: dto.stylingTip,
+        quantity: dto.quantity || 1,
+        composition: dto.composition || '',
+        warning: dto.warning || '',
+        curatorId: user.id,
+        ...(dto.brandId && { brandId: dto.brandId }),
+        ...(dto.categoryId && { categoryId: dto.categoryId }),
+        ...(dto.tagId && { tagId: dto.tagId }),
+      },
+      include: {
+        attachments: {
+          include: { uploads: true }
+        }
+      }
     });
 
     return {
+      success: true,
       message: 'Product updated successfully',
       data: updatedProduct,
-
       
     };
-  }
-    /**
-   * Verify a product - Admin only
-   */
+  });
+}
+
+
+
   async verifyProduct(id: string, user: userEntity) {
     try {
      
@@ -795,9 +890,9 @@ export class ProductService {
     }
   }
 
-    /**
-   * Update product status (active/inactive)
-   */
+
+  //  Update product status (active/inactive)
+  
   async updateStatus(id: string, dto: UpdateProductStatusDto, user: userEntity) {
     try {
       const product = await this.prisma.product.findUnique({
@@ -808,10 +903,7 @@ export class ProductService {
         throw new NotFoundException(`Product with ID ${id} not found`);
       }
 
-      // // Authorization check
-      // if (product.curatorId !== user.id && user.role !== Role.ADMIN) {
-      //   throw new ForbiddenException('You can only update your own products');
-      // }
+    
 
       const updatedProduct = await this.prisma.product.update({
         where: { id },
@@ -840,9 +932,9 @@ export class ProductService {
       throw new InternalServerErrorException('Failed to update product status');
     }
   }
-    /**
-   * Add product to user's favourites
-   */
+  
+
+  // product favourite
   async createProductFavourite(dto: CreateFavouriteDto, user: userEntity) {
     try {
       // Check if product exists
@@ -879,7 +971,7 @@ export class ProductService {
         },
         include: {
           product: {
-            // include: this.getFavouriteProductIncludeFields(),
+          
           },
         },
       });
@@ -900,9 +992,7 @@ export class ProductService {
       throw new InternalServerErrorException('Failed to add product to favourites');
     }
   }
-    /**
-   * Get all favourite products for a user
-   */
+    // Get all favourite products for a user
   async findAllFavourite(user: userEntity) {
     try {
       const favourites = await this.prisma.favourite.findMany({
@@ -911,7 +1001,7 @@ export class ProductService {
         },
         include: {
           product: {
-            // include: this.getFavouriteProductIncludeFields(),
+         
           },
         },
         orderBy: { createdAt: 'desc' },
@@ -928,9 +1018,8 @@ export class ProductService {
       throw new InternalServerErrorException('Failed to retrieve favourites');
     }
   }
-    /**
-   * Delete a product (soft delete by setting isActive to false)
-   */
+  
+  // lister disable thier product
   async remove(id: string, user: userEntity) {
     try {
       const product = await this.prisma.product.findUnique({
@@ -941,15 +1030,11 @@ export class ProductService {
         throw new NotFoundException(`Product with ID ${id} not found`);
       }
 
-      // // Authorization check
-      // if (product.curatorId !== user.id && user.role !== Role.ADMIN) {
-      //   throw new ForbiddenException('You can only delete your own products');
-      // }
+      
 
-      // // Check for active rentals
-      // await this.checkActiveRentals(id);
+    
 
-      // Soft delete - set isActive to false
+      
       await this.prisma.product.update({
         where: { id },
         data: {
@@ -971,9 +1056,8 @@ export class ProductService {
         throw error;
       }
       
-      throw new InternalServerErrorException('Failed to delete product');
+      throw new InternalServerErrorException('Failed to set  product to disable');
     }
   }
 }
 
-// 2e77c94d-86fd-43c4-9d05-e326e119ff10
