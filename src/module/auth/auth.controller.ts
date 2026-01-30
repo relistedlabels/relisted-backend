@@ -29,7 +29,6 @@ import { Public } from './decorator/roles.decorator';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-   @Public()
   @Post('signup')
   @ApiCreatedResponse({
     description: 'User registered successfully',
@@ -53,7 +52,7 @@ export class AuthController {
     return this.authService.register(dto);
   }
 
-   @Public()
+  
   @Post('login')
   @ApiOkResponse({
     description: 'Login successful',

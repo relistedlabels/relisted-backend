@@ -525,6 +525,9 @@ export class ProductService {
         composition: dto.composition || '',
         warning: dto.warning || '',
         curatorId: user.id,
+        ...(dto.brandId && { brandId: dto.brandId }),
+      ...(dto.categoryId && { categoryId: dto.categoryId }),
+      ...(dto.tagId && { tagId: dto.tagId }),
           attachments : {
           create: {
             uploads: {
@@ -618,7 +621,7 @@ export class ProductService {
           select:{
             name:true,
             id:true
-            
+
           }
          }
         }
