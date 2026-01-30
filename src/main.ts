@@ -9,9 +9,8 @@ import { AllExceptionsFilter } from './utils/all-exceptions.filter';
 async function bootstrap() {
   console.log('DB URL:', process.env.DATABASE_URL);
   const app = await NestFactory.create(AppModule);
-  app.use(cookieParser());
+  
 
-  app.useGlobalPipes(new ValidationPipe());
 
   app.enableCors({
     origin: (origin, callback) => {
@@ -65,6 +64,8 @@ async function bootstrap() {
     forbidNonWhitelisted: true,
     transform: true,}))
 
+
+ app.useGlobalFilters(new AllExceptionsFilter());
   await app.listen(process.env.PORT ?? 4000);
 }
 bootstrap();

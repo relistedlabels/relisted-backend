@@ -1,27 +1,65 @@
-import { ExceptionFilter, Catch, ArgumentsHost, HttpException } from '@nestjs/common';
-import { Response } from 'express';
+// utils/all-exceptions.filter.ts
+import {
+  ExceptionFilter,
+  Catch,
+  ArgumentsHost,
+  HttpException,
+  HttpStatus,
+  Logger,
+} from '@nestjs/common';
+import { Request, Response } from 'express';
 
-@Catch() // catches all exceptions
+@Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
+  private readonly logger = new Logger(AllExceptionsFilter.name);
+
   catch(exception: unknown, host: ArgumentsHost) {
-    console.error('🔥 Exception caught:', exception);
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
+    const request = ctx.getRequest<Request>();
 
-    const status =
-      exception instanceof HttpException
-        ? exception.getStatus()
-        : 500;
+    let status = HttpStatus.INTERNAL_SERVER_ERROR;
+    let message = 'Internal server error';
+    let errorResponse: any;
 
-    const message =
-      exception instanceof HttpException
-        ? exception.message
-        : 'Internal server error';
-
+    
+    if (exception instanceof HttpException) {
+      status = exception.getStatus();
+      const responseFromException = exception.getResponse();
+      
+      if (typeof responseFromException === 'string') {
+        errorResponse = {
+          success: false,
+          statusCode: status,
+          message: responseFromException,
+          error: exception.name,
+        };
+      } else {
         
-    response.status(status).json({
-      statusCode: status,
-      message,
-    });
-  }
-}
+        errorResponse = {
+          success: false,
+          statusCode: status,
+          ...(responseFromException as any),
+        };
+      }
+      
+     
+      const logLevel = status >= 500 ? 'error' : 'warn';
+      this.logger[logLevel](
+        `${status} ${request.method} ${request.url} - ${message}`,
+      );
+      
+    } 
+    
+    else if (exception instanceof Error) {
+      errorResponse = {
+        success: false,
+        statusCode: status,
+        message: exception.message,
+        error: exception.name,
+        ...(process.env.NODE_ENV === 'development' && {
+          stack: exception.stack,
+        }),
+      };
+      
+    }}}
