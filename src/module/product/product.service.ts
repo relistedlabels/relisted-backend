@@ -567,12 +567,13 @@ export class ProductService {
     });
 
     return {
+      success: true, 
       message: 'Product created successfully',
       product: newProduct,
     };
   } catch (error) {
     console.error('ERROR creating product:', error);
-    
+     throw error;
    
   
   }

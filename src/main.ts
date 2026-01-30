@@ -44,14 +44,6 @@ async function bootstrap() {
     .setDescription('Api documentation for ecommerce application')
     .setVersion('1.0')
 
-    //    .addBearerAuth(
-    //   {
-    //     type: 'apiKey',
-    //     in: 'header',
-    //     name: 'Authorization',
-    //   },
-    //   'token',
-    // )
 
     .addBearerAuth(
       {
@@ -66,10 +58,12 @@ async function bootstrap() {
   const document = () => SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, document);
 
-  // const document = SwaggerModule.createDocument(app, config);
-  // SwaggerModule.setup('api', app, document);
+  
 
-  app.useGlobalFilters(new AllExceptionsFilter());
+  app.useGlobalPipes(new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    transform: true,}))
 
   await app.listen(process.env.PORT ?? 4000);
 }

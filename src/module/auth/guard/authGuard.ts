@@ -22,7 +22,7 @@ export class JwtAuthGuard implements CanActivate {
     if (!token) {
       throw new UnauthorizedException();
     }
-    console.log('token', token);
+   
     try {
       //  verify the voken
       const payload = await this.jwtService.verifyAsync(token, {
