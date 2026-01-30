@@ -15,56 +15,45 @@ export class ProfileService {
   constructor(private readonly prisma: PrismaService) {}
 
 async create(dto: CreateProfileDto, user: userEntity) {
+ 
   const profile = await this.prisma.profile.create({
     data: {
       phoneNumber: dto.phoneNumber,
 
-      // ...(dto.bvn && { bvn: dto.bvn }),
-
-      // emergencyContacts: {
-      //   create: dto.emergencyContacts,
-      // },
-
-    
-
-   
+      ...(dto.businessInfo && {
+        businessInfo: {
+          create: dto.businessInfo,
+        },
+      }),
 
       ...(dto.address && {
         address: {
-          create: [dto.address],
+          create: dto.address,
         },
       }),
-      
-      ...(dto.businessInfo && {
-        bussinesInfo: {
-          create: [dto.businessInfo],
+
+      ...(dto.emergencyContact && {
+        emergencyContact: {
+          create: dto.emergencyContact,
         },
       }),
+
+    
+    
+ ...(dto.avatarUploadId && dto.avatarUploadId !== "" 
+      ? { avatarUpload: { connect: { id: dto.avatarUploadId } } } 
+      : {}),
 
       user: {
         connect: { id: user.id },
       },
-
-      // ...(dto.avatarUploadId && {
-      //   avatarUpload: {
-      //     connect: { id: dto.avatarUploadId },
-      //   },
-      // }),
-
-      // ...(dto.ninUploadId && {
-      //   ninUpload: {
-      //     connect: { id: dto.ninUploadId },
-      //   },
-      // }),
     },
 
     include: {
-      // emergencyContacts: true,
       businessInfo: true,
-      // bankAccounts: true,
       address: true,
-      // avatarUpload: true,
-      // ninUpload: true,
+      emergencyContact: true,
+      avatarUpload: true,
     },
   });
 
@@ -75,11 +64,12 @@ async create(dto: CreateProfileDto, user: userEntity) {
 }
 
 
+
   async findAll() {
     const profiles = await this.prisma.profile.findMany({
       include: {
         user: true,
-        emergencyContacts: true,
+        emergencyContact: true,
         businessInfo: true,
         address: true,
         // bankAccounts: true,
@@ -96,7 +86,7 @@ async create(dto: CreateProfileDto, user: userEntity) {
     const profile = await this.prisma.profile.findUnique({
       where: { userId: user.id },
       include: {
-        emergencyContacts: true,
+        emergencyContact: true,
         businessInfo: true,
         address: true,
         user:true
@@ -161,7 +151,7 @@ async upgradeProfileToLister(profileId: string, user: userEntity,dto:upgradeProf
   }
 
   // Check required fields for LISTER upgrade
-  if (!profile.businessInfo?.length) {
+  if (!profile.businessInfo) {
     throw new BadRequestException(
       'Profile is incomplete. business information is required to become a LISTER',
     );

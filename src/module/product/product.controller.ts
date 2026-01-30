@@ -69,9 +69,9 @@ export class ProductController {
     return this.productService.create(createProductDto, user);
   }
 
-  /**
-   * List products (with optional pagination)
-   */
+  
+    // List products (with optional pagination)
+   
   @Get()
   @ApiOperation({ summary: 'List all products with pagination' })
   @ApiQuery({ name: 'page', required: false, example: 1 })
@@ -95,9 +95,9 @@ export class ProductController {
     return this.productService.list(query);
   }
 
-  /**
-   * Get all products created by the logged-in user
-   */
+  
+  //  Get all products created 
+   
   @Auth()
   @Get('user-products')
   @ApiOperation({ summary: 'Get products created by the logged-in user' })
@@ -121,9 +121,9 @@ export class ProductController {
     return this.productService.getUserProducts(user);
   }
 
-  /**
-   * Get product by ID
-   */
+ 
+  //  * Get product by ID
+  
   @Auth()
   @Get(':id')
   @ApiOperation({ summary: 'Get product by ID' })
@@ -146,9 +146,9 @@ export class ProductController {
     return this.productService.findOne(id);
   }
 
-  /**
-   * Update product (Curators only)
-   */
+
+  // Update product 
+
   @Auth([Role.LISTER])
   @Patch(':id')
   @ApiOperation({ summary: 'Update a product' })
@@ -168,9 +168,9 @@ export class ProductController {
     return this.productService.update(id, dto, user);
   }
 
-  /**
-   * Verify product (Admin only)
-   */
+  
+  //  * Verify product (Admin only)
+   
   @Auth([Role.ADMIN])
   @Patch(':id/verify')
   @ApiOperation({ summary: 'Verify a product (Admin only)' })
@@ -185,9 +185,9 @@ export class ProductController {
     return this.productService.verifyProduct(id, user);
   }
 
-  /**
-   * Update product status (Curators only)
-   */
+  
+  //  Update product status (Curators only)
+   
   @Auth([Role.LISTER])
   @Patch(':id/status')
   @ApiOperation({ summary: 'Update product status (AVAILABLE, RENTED, etc.)' })
@@ -207,9 +207,9 @@ export class ProductController {
     return this.productService.updateStatus(id, dto, user);
   }
 
-  /**
-   * Add product to favourites
-   */
+  
+  //  Add product to favourites
+   
   @Auth()
   @Post('favourite')
   @ApiOperation({ summary: 'Add a product to favourites' })
@@ -223,23 +223,23 @@ export class ProductController {
     return this.productService.createProductFavourite(dto, user);
   }
 
-  /**
-   * Delete product (Curators only)
-   */
-  @Auth([Role.LISTER])
+  
+  //  Delete product 
+  
+@Auth([Role.LISTER])
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a product' })
-  @ApiParam({ name: 'id', description: 'Product ID', example: 'uuid' })
-  @ApiResponse({
+   @ApiParam({ name: 'id', description: 'Product ID', example: 'uuid' })
+ @ApiResponse({
     status: 200,
     description: 'Product deleted successfully',
-    schema: {
-      example: { message: 'Product deleted successfully' },
-    },
-  })
-  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+   schema: {
+    example: { message: 'Product deleted successfully' },
+   },
+   })
+   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
   @ApiForbiddenResponse({ description: 'Forbidden: Not a curator' })
-  remove(@Param('id') id: string, @AuthUser() user: userEntity) {
-    return this.productService.remove(id, user);
-  }
+   remove(@Param('id') id: string, @AuthUser() user: userEntity) {
+   return this.productService.remove(id, user);
+   }
 }

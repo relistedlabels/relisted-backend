@@ -39,9 +39,9 @@ Table Profile {
   phoneNumber String [not null]
   bvn String
   isApproved Boolean [not null, default: false]
-  emergencyContacts EmergencyContact [not null]
-  businessInfo BusinessInfo [not null]
-  address Address [not null]
+  emergencyContact EmergencyContact
+  businessInfo BusinessInfo
+  address Address
   avatarUpload Upload
   avatarUploadId String [unique]
   ninUpload Upload
@@ -52,8 +52,8 @@ Table Profile {
 
 Table EmergencyContact {
   id String [pk]
-  profileId String [not null]
   profile Profile [not null]
+  profileId String [unique, not null]
   name String [not null]
   relationship String [not null]
   phoneNumber String [not null]
@@ -63,8 +63,8 @@ Table EmergencyContact {
 
 Table BusinessInfo {
   id String [pk]
-  profileId String [unique, not null]
   profile Profile [not null]
+  profileId String [unique, not null]
   businessName String [not null]
   businessEmail String [not null]
   businessRegistrationNumber String [not null]
@@ -73,18 +73,10 @@ Table BusinessInfo {
   businessState String [not null]
 }
 
-Table BankInfo {
-  id String [pk]
-  profileId String [not null]
-  bankName String [not null]
-  accountNumber String [not null]
-  nameOfAccount String [not null]
-}
-
 Table Address {
   id String [pk]
   profile Profile [not null]
-  profileId String [not null]
+  profileId String [unique, not null]
   street String [not null]
   city String [not null]
   state String [not null]
@@ -513,11 +505,11 @@ Ref: Profile.avatarUploadId - Upload.id
 
 Ref: Profile.ninUploadId - Upload.id
 
-Ref: EmergencyContact.profileId > Profile.id
+Ref: EmergencyContact.profileId - Profile.id
 
-Ref: BusinessInfo.profileId > Profile.id
+Ref: BusinessInfo.profileId - Profile.id
 
-Ref: Address.profileId > Profile.id
+Ref: Address.profileId - Profile.id
 
 Ref: AuthOtpToken.userId > User.id
 

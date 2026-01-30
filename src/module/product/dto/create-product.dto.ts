@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsBoolean, IsNumber, IsOptional, IsString, IsUUID } from 'class-validator';
 import { PaginationQuery } from 'src/utils/paginate-query';
 
 export class CreateProductDto {
@@ -69,9 +69,16 @@ export class CreateProductDto {
   @IsString()
    @IsOptional()
   stylingTip: string;
-  @ApiProperty()
-  @IsArray()
-  attachments: string[];
+
+@ApiProperty({
+  type: [String],
+  description: 'Upload IDs',
+  example: ['uuid'],
+})
+@IsOptional()
+@IsArray()
+@IsUUID('4', { each: true })
+attachments?: string[];
   @ApiProperty()
   @IsString()
    @IsOptional()

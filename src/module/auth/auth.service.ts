@@ -28,44 +28,47 @@ export class AuthService {
     private eventEmitter: EventEmitter2,
     private jwtService: JwtService,
   ) {}
-  // check if user already exist before registering them
-  async register(dto: registerDto) {
-    const { name, email, password, role } = dto;
-    // check if user already exist in the database
-    const emailExist = await this.prisma.user.findUnique({
-      where: { email },
-    });
-    if (emailExist) bad('email already exist');
+  
 
-    // create new user
-    const newUser = await this.prisma.user.create({
+async register(dto: registerDto) {
+  const { name, email, password, role } = dto;
+
+  
+  let newUser;
+  try {
+    newUser = await this.prisma.user.create({
       data: {
         name,
         email,
         password: await argon2.hash(password),
         role,
+        
       },
     });
-    
-    // creating otp to verify email
-    const otpGenerated = await this.authOtpTokenService.createOtp({
-      email: email,
-      subject: Auth_Otp_Token_Subject.Verify_Email,
-      userId: newUser.id,
-      expiry: addMinutes(Date.now(), 10),
-      type: 'OTP',
-    });
 
-    const year = new Date().getFullYear();
-    // LISTEN  TO THE EVENT
-    this.eventEmitter.emit(
-      'verification_mail',
-      new Verification_Mail(email, otpGenerated.code, name, year),
-    );
-    return {
-      message: 'user successfully registered',
-    };
+  } catch (error) {
+    if (error.code === 'P2002') bad('email already exists');
+    throw error;
   }
+
+  // create OTP async
+  this.authOtpTokenService.createOtp({
+    email,
+    subject: Auth_Otp_Token_Subject.Verify_Email,
+    userId: newUser.id,
+    expiry: addMinutes(Date.now(), 10),
+    type: 'OTP',
+  });
+
+  // send verification email async (optional)
+  // this.eventEmitter.emit(
+  //   'verification_mail',
+  //   new Verification_Mail(email, otpGenerated.code, name, new Date().getFullYear())
+  // );
+
+  return { message: 'User successfully registered' }; // respond immediately
+}
+
 
   // login in user
   async login(dto: loginDto, res) {

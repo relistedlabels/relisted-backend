@@ -52,42 +52,29 @@ export class CreateAddressInfoDto {
 export class CreateProfileDto {
   @ApiProperty()
   phoneNumber: string;
-  // @ApiProperty()
-  // @IsOptional()
-  // bvn?:string;
 
-  
- @ApiProperty()
+  @ApiProperty()
   @ValidateNested()
   @Type(() => CreateBusinessInfoDto)
-  businessInfo: CreateBusinessInfoDto;
-//    @ApiProperty()
-//   @ValidateNested()
-//   @Type(() => CreateEmergencyDto)
-// emergencyContacts: CreateEmergencyDto;
+  @IsOptional()
+  businessInfo?: CreateBusinessInfoDto;
 
-
-  //  @ApiProperty()
-  // @ValidateNested()
-  // @Type(() => CreateBankInfoDto)
-  // @IsOptional()
-  // bankAccounts: CreateBankInfoDto;
-
-   @ApiProperty()
-  @ValidateNested({ each: true })
+  @ApiProperty()
+  @ValidateNested()
   @Type(() => CreateAddressInfoDto)
   @IsOptional()
-  address?:CreateAddressInfoDto;
+  address?: CreateAddressInfoDto;
+
+  @ApiProperty()
+  @ValidateNested()
+  @Type(() => CreateEmergencyDto)
+  @IsOptional()
+  emergencyContact?: CreateEmergencyDto;
 
   @ApiProperty()
   @IsString()
   @IsOptional()
-  avatarUploadId?:string;
-
-  // @ApiProperty()
-  // @IsString()
-  // @IsOptional()
-  // ninUploadId?:string;
+  avatarUploadId?: string;
 }
 
 

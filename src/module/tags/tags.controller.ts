@@ -23,8 +23,9 @@ import {
 import { Auth } from '../auth/decorator/auth.decorator';
 
 @ApiTags('Tags')
-@ApiBearerAuth('token')
-@Auth()
+// @ApiBearerAuth('token')
+@ApiBearerAuth()
+
 @Controller('tags')
 export class TagsController {
   constructor(private readonly tagsService: TagsService) {}
@@ -32,6 +33,7 @@ export class TagsController {
   /**
    * Create a new tag
    */
+  @Auth()
   @Post()
   @ApiOperation({ summary: 'Create a new tag' })
   @ApiCreatedResponse({
@@ -52,6 +54,7 @@ export class TagsController {
   /**
    * Get all tags
    */
+  @Auth()
   @Get()
   @ApiOperation({ summary: 'Get all tags' })
   @ApiOkResponse({
@@ -70,6 +73,8 @@ export class TagsController {
   /**
    * Get a tag by ID
    */
+
+  @Auth()
   @Get(':id')
   @ApiOperation({ summary: 'Get a tag by ID' })
   @ApiOkResponse({

@@ -93,18 +93,19 @@ model User {
 }
 
 model Profile {
-  id     String @id @default(uuid())
-  userId String @unique
-  user   User   @relation(fields: [userId], references: [id])
+  id     String  @id @default(uuid())
+  userId String  @unique
+  user   User    @relation(fields: [userId], references: [id])
 
   phoneNumber String
 
   bvn        String?
   isApproved Boolean @default(false)
 
-  emergencyContacts EmergencyContact[]
-  businessInfo      BusinessInfo[]
-  address           Address[]
+  // One-to-one relations
+  emergencyContact EmergencyContact?  // optional
+  businessInfo     BusinessInfo?      // optional
+  address          Address?           // optional
 
   avatarUpload   Upload? @relation("AvatarUpload", fields: [avatarUploadId], references: [id])
   avatarUploadId String? @unique
@@ -113,14 +114,13 @@ model Profile {
   ninUploadId String? @unique
 
   createdAt DateTime @default(now())
-  // fullText  String   @default("")
   updatedAt DateTime @updatedAt
 }
 
 model EmergencyContact {
   id        String  @id @default(uuid())
-  profileId String
   profile   Profile @relation(fields: [profileId], references: [id])
+  profileId String  @unique  // one-to-one
 
   name         String
   relationship String
@@ -131,8 +131,8 @@ model EmergencyContact {
 
 model BusinessInfo {
   id        String  @id @default(uuid())
-  profileId String  @unique
   profile   Profile @relation(fields: [profileId], references: [id])
+  profileId String  @unique  // one-to-one
 
   businessName               String
   businessEmail              String
@@ -142,20 +142,11 @@ model BusinessInfo {
   businessState              String
 }
 
-model BankInfo {
-  id        String @id @default(uuid())
-  profileId String
-
-  bankName      String
-  accountNumber String
-  nameOfAccount String
-}
-
 model Address {
-  id String @id @default(uuid())
-
+  id        String  @id @default(uuid())
   profile   Profile @relation(fields: [profileId], references: [id])
-  profileId String
+  profileId String  @unique  // one-to-one
+
   street    String
   city      String
   state     String
@@ -166,6 +157,7 @@ model Address {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
 
 model AuthOtpToken {
   id      String           @id @default(uuid())

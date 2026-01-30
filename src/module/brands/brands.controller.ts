@@ -88,6 +88,7 @@ export class BrandsController {
   @ApiResponse({
     status: 200,
     description: 'User brands fetched successfully',
+    
     schema: {
       example: [
         {
