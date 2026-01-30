@@ -501,15 +501,33 @@ export class ProductService {
   constructor(private readonly prisma: PrismaService) {}
 
   
-  
   async create(dto: CreateProductDto, user: userEntity) {
+  try {
+    //  Validate that all upload IDs exist
+    if (dto.attachments?.length) {
+      const existingUploads = await this.prisma.upload.findMany({
+        where: {
+          id: { in: dto.attachments }
+        },
+        select: { id: true }
+      });
+      
+      // Check if all IDs exist
+      const existingIds = existingUploads.map(upload => upload.id);
+      const missingIds = dto.attachments.filter(id => !existingIds.includes(id));
+      
+      if (missingIds.length > 0) {
+        throw new BadRequestException(
+          `The following upload IDs do not exist: ${missingIds.join(', ')}. ` +
+          `Please upload files first or use valid upload IDs.`
+        );
+      }
+    }
 
-
-    try {
-      // Create the product
-      const newProduct = await this.prisma.product.create({
-        data: {
-          name: dto.name,
+    // Create the product with validated attachments
+    const newProduct = await this.prisma.product.create({
+      data: {
+        name: dto.name,
         subText: dto.subText,
         description: dto.description,
         condition: dto.condition,
@@ -518,7 +536,6 @@ export class ProductService {
         originalValue: dto.originalValue || 0,
         dailyPrice: dto.dailyPrice,
         careInstruction: dto.careInstruction,
-
         careSteps: dto.careSteps,
         stylingTip: dto.stylingTip,
         quantity: dto.quantity || 1,
@@ -526,32 +543,41 @@ export class ProductService {
         warning: dto.warning || '',
         curatorId: user.id,
         ...(dto.brandId && { brandId: dto.brandId }),
-      ...(dto.categoryId && { categoryId: dto.categoryId }),
-      ...(dto.tagId && { tagId: dto.tagId }),
-          attachments : {
-          create: {
-            uploads: {
-              connect:dto.attachments?.length ? dto.attachments.map(id => ({ id })):undefined
-            }
-          },
-        }
-        },
+        ...(dto.categoryId && { categoryId: dto.categoryId }),
+        ...(dto.tagId && { tagId: dto.tagId }),
         
-      });
+        // Only create attachments if there are valid uploads
+        ...(dto.attachments?.length && {
+          attachments: {
+            create: {
+              uploads: {
+                connect: dto.attachments.map(id => ({ id }))
+              }
+            }
+          }
+        })
+      },
+      include: {
+        attachments: {
+          include: {
+            uploads: true
+          }
+        }
+      }
+    });
 
-      return {
-        message: 'Product created successfully',
-        product: newProduct,
-      };
-    } catch (error) {
-      console.error(' ERROR creating product:', error);
+    return {
+      message: 'Product created successfully',
+      product: newProduct,
+    };
+  } catch (error) {
+    console.error('ERROR creating product:', error);
     
-      
-      
-      throw new InternalServerErrorException('Failed to create product');
-    }
+   
+  
   }
-
+}
+ 
 // only show all verified product ,active product
   async list(query: ListProductQuery) {
     try {
