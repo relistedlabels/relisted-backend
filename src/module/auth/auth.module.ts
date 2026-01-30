@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { AuthOtpTokenModule } from 'src/services/auth-otp-token/auth-otp-token.module';
+import { EventModule } from 'src/services/event/event.module';
 import { PrismaService } from 'src/services/prisma/prisma.service';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
@@ -11,6 +12,7 @@ import { GoogleStrategy } from './strategies/google.strategy';
   imports: [
     PassportModule.register({ defaultStrategy: 'google' }),
     AuthOtpTokenModule,
+    EventModule,
     JwtModule.register({
       global: true,
       secret: process.env.JWT_SECRET,

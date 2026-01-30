@@ -1,12 +1,12 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
-import { IsEmail, IsString } from 'class-validator';
+import { IsEmail, IsEnum, IsString } from 'class-validator';
 // import { Role } from "@prisma/client"
 
 export const Auth_Otp_Token_Subject = {
   Verify_Email: 'verify email',
   RESET_PASSWORD: 'RESET Password',
-  CONFIRM_ORDER:"Verify Order "
+  CONFIRM_ORDER: 'Verify Order ',
 };
 
 export class registerDto {
@@ -21,8 +21,10 @@ export class registerDto {
   @ApiProperty()
   @IsString()
   password: string;
-  // // email:
-  role:Role
+
+  @ApiProperty({ enum: Role })
+  @IsEnum(Role)
+  role: Role;
 }
 
 export class loginDto {
@@ -60,7 +62,7 @@ export class forgotPasswordDto {
 
 export class userEntity {
   id: string;
-  // role:Role
+  sub: string;
   email: string;
   isVerified: boolean;
   name: string;

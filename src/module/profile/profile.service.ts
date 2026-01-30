@@ -15,10 +15,15 @@ export class ProfileService {
   constructor(private readonly prisma: PrismaService) {}
 
 async create(dto: CreateProfileDto, user: userEntity) {
- 
+  const emergencyContactData =
+    dto.emergencyContact ?? dto.emergencyContacts;
+
   const profile = await this.prisma.profile.create({
     data: {
       phoneNumber: dto.phoneNumber,
+      ...(dto.bvn != null && dto.bvn !== ''
+        ? { bvn: dto.bvn }
+        : {}),
 
       ...(dto.businessInfo && {
         businessInfo: {
@@ -32,17 +37,15 @@ async create(dto: CreateProfileDto, user: userEntity) {
         },
       }),
 
-      ...(dto.emergencyContact && {
+      ...(emergencyContactData && {
         emergencyContact: {
-          create: dto.emergencyContact,
+          create: emergencyContactData,
         },
       }),
 
-    
-    
- ...(dto.avatarUploadId && dto.avatarUploadId !== "" 
-      ? { avatarUpload: { connect: { id: dto.avatarUploadId } } } 
-      : {}),
+      ...(dto.avatarUploadId && dto.avatarUploadId !== ''
+        ? { avatarUpload: { connect: { id: dto.avatarUploadId } } }
+        : {}),
 
       user: {
         connect: { id: user.id },
