@@ -3,7 +3,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { JwtService } from '@nestjs/jwt';
 import { AuthOtpTokenType } from '@prisma/client';
 import * as argon2 from 'argon2';
-import { addMinutes, subMinutes } from 'date-fns';
+import { addMinutes, addHours, subMinutes } from 'date-fns';
 import { AuthOtpTokenService } from 'src/services/auth-otp-token/auth-otp-token.service';
 import { Verification_Mail } from 'src/services/event/event.types';
 import { PrismaService } from 'src/services/prisma/prisma.service';
@@ -51,22 +51,39 @@ async register(dto: registerDto) {
     throw error;
   }
 
-  // create OTP async
-  this.authOtpTokenService.createOtp({
+  const expiryMinutes = 60;
+  const expiry = addMinutes(Date.now(), expiryMinutes);
+
+  await this.prisma.authOtpToken.deleteMany({
+    where: {
+      email,
+      subject: Auth_Otp_Token_Subject.Verify_Email,
+    },
+  });
+
+  const tokenRecord = await this.authOtpTokenService.createOtp({
     email,
     subject: Auth_Otp_Token_Subject.Verify_Email,
     userId: newUser.id,
-    expiry: addMinutes(Date.now(), 10),
-    type: 'OTP',
+    expiry,
+    type: 'TOKEN',
   });
 
-  // send verification email async (optional)
-  // this.eventEmitter.emit(
-  //   'verification_mail',
-  //   new Verification_Mail(email, otpGenerated.code, name, new Date().getFullYear())
-  // );
+  const frontendUrl =
+    process.env.FRONTEND_URL || 'http://localhost:3000';
+  const verificationLink = `${frontendUrl}/auth/verify-email?token=${tokenRecord.code}`;
 
-  return { message: 'User successfully registered' }; // respond immediately
+  const mailPayload = {
+    email,
+    code: tokenRecord.code,
+    name,
+    year: new Date().getFullYear(),
+    verificationLink,
+    expiryMinutes,
+  };
+  this.eventEmitter.emit('verification_mail', mailPayload);
+
+  return { message: 'User successfully registered' };
 }
 
 
@@ -84,6 +101,10 @@ async register(dto: registerDto) {
 
     const matched = await argon2.verify(user.password, password);
     if (!matched) bad('invalid credential');
+
+    if (!user.isVerified) {
+      bad('Please verify your email before signing in. Check your inbox for the verification link.', 401);
+    }
 
     // jwt token
     const payload = { sub: user.id, email: user.email };
@@ -223,27 +244,43 @@ async register(dto: registerDto) {
         message: 'Please wait before requesting another code',
       };
     }
+
+    const expiryMinutes = 60;
+    const expiry = addMinutes(new Date(), expiryMinutes);
+
     await this.prisma.authOtpToken.deleteMany({
       where: {
         userId: user.id,
         subject: Auth_Otp_Token_Subject.Verify_Email,
-
-        expiry: { lt: new Date() },
       },
     });
-    const otpCode = await this.authOtpTokenService.createOtp({
+
+    const tokenRecord = await this.authOtpTokenService.createOtp({
       userId: user.id,
-      type: AuthOtpTokenType.OTP,
+      type: AuthOtpTokenType.TOKEN,
       subject: Auth_Otp_Token_Subject.Verify_Email,
       email: dto.email,
-      expiry: addMinutes(new Date(), 10),
+      expiry,
     });
-    // listen to an event emitter
+
+    const frontendUrl =
+      process.env.FRONTEND_URL || 'http://localhost:3000';
+    const verificationLink = `${frontendUrl}/auth/verify-email?token=${tokenRecord.code}`;
     const year = new Date().getFullYear();
-    await this.eventEmitter.emit(
-      'verification_mail',
-      new Verification_Mail(dto.email, otpCode.code, user.name, year),
-    );
+
+    this.eventEmitter.emit('verification_mail', {
+      email: dto.email,
+      code: tokenRecord.code,
+      name: user.name,
+      year,
+      verificationLink,
+      expiryMinutes,
+    });
+
+    return {
+      success: true,
+      message: 'Verification email sent. Check your inbox.',
+    };
   }
 
   // reset password

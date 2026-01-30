@@ -9,16 +9,19 @@ import { HandlebarsAdapter } from '@nestjs-modules/mailer/dist/adapters/handleba
 @Module({
   imports:[
     MailerModule.forRoot({
-      transport:{
-        host:process.env.MAIL_HOST,
-        port:Number(process.env.MAIL_PORT),
-        auth:{
-          user:process.env.MAIL_USERNAME,
-          pass:process.env.MAIL_PASSWORD
-        }
+      transport: {
+        host: process.env.MAIL_HOST,
+        port: Number(process.env.MAIL_PORT),
+        secure: process.env.MAIL_PORT === '465',
+        auth: process.env.MAIL_USERNAME
+          ? {
+              user: process.env.MAIL_USERNAME,
+              pass: process.env.MAIL_PASSWORD,
+            }
+          : undefined,
       },
-      defaults:{
-        from:`hotel website ${process.env.MAILDEFAULT}`
+      defaults: {
+        from: process.env.MAIL_DEFAULT || 'Relisted <noreply@relisted.com>',
       },
       template:{
         dir:join(process.cwd(),"./src/services/mail/templates"),

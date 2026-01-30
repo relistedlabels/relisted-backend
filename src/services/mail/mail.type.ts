@@ -1,4 +1,4 @@
-import { IsEmail, IsNumber, IsString } from 'class-validator';
+import { IsEmail, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class VerificationDto {
   @IsEmail()
@@ -12,6 +12,14 @@ export class VerificationDto {
 
   @IsNumber()
   year: number;
+
+  @IsString()
+  @IsOptional()
+  verificationLink?: string;
+
+  @IsNumber()
+  @IsOptional()
+  expiryMinutes?: number;
 }
 
 export class VerifyOrderDto {

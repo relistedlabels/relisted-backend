@@ -4,6 +4,10 @@ export class Verification_Mail {
     public readonly code: string,
     public readonly name: string,
     public readonly year: number,
+    /** Verification link (one-time, expires). When set, email uses link instead of OTP. */
+    public readonly verificationLink?: string,
+    /** Expiry in minutes for user-facing message */
+    public readonly expiryMinutes?: number,
   ) {}
 }
 
