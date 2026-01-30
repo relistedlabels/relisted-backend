@@ -1,4 +1,3 @@
-// utils/all-exceptions.filter.ts
 import {
   ExceptionFilter,
   Catch,
@@ -19,47 +18,74 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request>();
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
-    let message = 'Internal server error';
+    let message: string | string[] = 'Internal server error';
     let errorResponse: any;
 
-    
+    // ✅ Handle HttpExceptions (401, 403, 404, etc.)
     if (exception instanceof HttpException) {
       status = exception.getStatus();
-      const responseFromException = exception.getResponse();
-      
-      if (typeof responseFromException === 'string') {
+      const exceptionResponse = exception.getResponse();
+
+      if (typeof exceptionResponse === 'string') {
+        message = exceptionResponse;
         errorResponse = {
           success: false,
           statusCode: status,
-          message: responseFromException,
+          message,
           error: exception.name,
         };
       } else {
-        
+        const res = exceptionResponse as any;
+        message = res.message || exception.message;
+
         errorResponse = {
           success: false,
           statusCode: status,
-          ...(responseFromException as any),
+          message,
+          error: res.error || exception.name,
         };
       }
-      
-     
+
       const logLevel = status >= 500 ? 'error' : 'warn';
+
       this.logger[logLevel](
-        `${status} ${request.method} ${request.url} - ${message}`,
+        `${status} ${request.method} ${request.url} - ${Array.isArray(message) ? message.join(', ') : message}`,
       );
-      
-    } 
-    
+    }
+
+   
     else if (exception instanceof Error) {
+      message = exception.message;
+
       errorResponse = {
         success: false,
         statusCode: status,
-        message: exception.message,
+        message,
         error: exception.name,
         ...(process.env.NODE_ENV === 'development' && {
           stack: exception.stack,
         }),
       };
-      
-    }}}
+
+      this.logger.error(
+        `${status} ${request.method} ${request.url} - ${message}`,
+        exception.stack,
+      );
+    }
+
+
+    else {
+      errorResponse = {
+        success: false,
+        statusCode: status,
+        message,
+      };
+
+      this.logger.error(
+        `${status} ${request.method} ${request.url} - Unknown error`,
+      );
+    }
+
+    response.status(status).json(errorResponse);
+  }
+}

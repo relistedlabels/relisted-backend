@@ -655,7 +655,7 @@ export class ProductService {
         
       });
 
-      console.log("product",products)
+      
 
       return {
         success: true,
@@ -704,138 +704,6 @@ export class ProductService {
     }
   }
   
-
- async update(productId: string, dto: UpdateProductDto, user: userEntity) {
-  const product = await this.prisma.$transaction(async (tx) => {
-
-    const product = await tx.product.findUnique({
-      where: { id:productId},
-      include: {
-        attachments:{ 
-          include: {
-            uploads: true 
-          }
-        }
-      }
-    });
-
-    if (!product) bad('Product not found', 404);
-    if (product.curatorId !== user.id) bad('Unauthorized', 403);
-    if (!product.isActive) bad('Product is disabled', 400);
-
-    const currentImageIds = product.attachments?.uploads?.map(u => u.id) || [];
-    
-
-    // check for removal images validation
-    if (dto.removeImages) {
-      const invalidRemovals = dto.removeImages.filter(
-        id => !currentImageIds.includes(id)
-      );
-      if (invalidRemovals.length > 0) {
-        bad(`Cannot remove images that don't exist: ${invalidRemovals.join(', ')}`, 400);
-      }
-    }
-
-
-
-    if (dto.keepImages) {
-      const invalidKeeps = dto.keepImages.filter(
-        id => !currentImageIds.includes(id)
-      );
-      if (invalidKeeps.length > 0) {
-        bad(`Cannot keep images that don't exist: ${invalidKeeps.join(', ')}`, 400);
-      }
-    }
-
-    let finalImageIds = [...currentImageIds];
-    
-    if (dto.removeImages?.length) {
-      finalImageIds = finalImageIds.filter(id => !dto.removeImages?.includes(id));
-    }
-    
-
-    if (dto.keepImages?.length) {
-      finalImageIds = dto.keepImages;
-    }
-    
-    
-    if (dto.addImages?.length) {
-      finalImageIds = [...finalImageIds, ...dto.addImages];
-    }
-
-
-    const existingUploads = await tx.upload.findMany({
-      where: { id: { in: finalImageIds } },
-      select: { id: true }
-    });
-
-    const existingUploadIds = existingUploads.map(u => u.id);
-    const missingUploads = finalImageIds.filter(id => !existingUploadIds.includes(id));
-    
-    if (missingUploads.length > 0) {
-      bad(`The following images were not found: ${missingUploads.join(', ')}. Please upload them first.`, 400);
-    }
-
-    // Delete all current attachments
-    if (product.attachments) {
-      await tx.attachments.deleteMany({
-        where: { productId: productId }
-      });
-      
-    }
-
-
-
-    // Create new attachment with final image set
-    if (finalImageIds.length > 0) {
-      await tx.attachments.create({
-        data: {
-          productId: productId,
-          uploads: {
-            connect: finalImageIds.map(id => ({ id }))
-          }
-        }
-      });
-
-    }
-
-    const updatedProduct = await tx.product.update({
-      where: { id:productId },
-       data: {
-        name: dto.name,
-        subText: dto.subText,
-        description: dto.description,
-        condition: dto.condition,
-        measurement: dto.measurement,
-        color: dto.color,
-        originalValue: dto.originalValue || 0,
-        dailyPrice: dto.dailyPrice,
-        careInstruction: dto.careInstruction,
-        careSteps: dto.careSteps,
-        stylingTip: dto.stylingTip,
-        quantity: dto.quantity || 1,
-        composition: dto.composition || '',
-        warning: dto.warning || '',
-        curatorId: user.id,
-        ...(dto.brandId && { brandId: dto.brandId }),
-        ...(dto.categoryId && { categoryId: dto.categoryId }),
-        ...(dto.tagId && { tagId: dto.tagId }),
-      },
-      include: {
-        attachments: {
-          include: { uploads: true }
-        }
-      }
-    });
-
-    return {
-      success: true,
-      message: 'Product updated successfully',
-      data: updatedProduct,
-      
-    };
-  });
-}
 
 
 

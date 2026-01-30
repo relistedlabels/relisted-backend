@@ -64,23 +64,7 @@ export class OrderService {
 
         createdOrders.push(order);
 
-        this.eventEmitter.emit(
-          'Order_Verification',
-          new Order_Verification(
-            product.curator.email,
-            user.name,
-            order.id,
-            product.curator.name,
-            totalAmount,
-
-            'new_order',
-            '3',
-
-            'relisted',
-            product.name,
-            rentalAmount,
-          ),
-        );
+      //  email services
       }
 
       await tx.cartItem.deleteMany({

@@ -148,29 +148,10 @@ export class ProductController {
   }
 
 
-  // Update product 
 
-  @Auth([Role.LISTER])
-  @Patch(':id')
-  @ApiOperation({ summary: 'Update a product' })
-  @ApiParam({ name: 'id', description: 'Product ID', example: 'uuid' })
-  @ApiBody({ type: UpdateProductDto })
-  @ApiResponse({
-    status: 200,
-    description: 'Product updated successfully',
-  })
-  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
-  @ApiForbiddenResponse({ description: 'Forbidden: Not a curator' })
-  update(
-    @Param('id') id: string,
-    @Body() dto: UpdateProductDto,
-    @AuthUser() user: userEntity,
-  ) {
-    return this.productService.update(id, dto, user);
-  }
 
   
-  //  * Verify product (Admin only)
+  //   Verify product (Admin only)
    
   @Auth([Role.ADMIN])
   @Patch(':id/verify')

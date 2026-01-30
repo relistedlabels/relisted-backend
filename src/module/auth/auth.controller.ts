@@ -1,15 +1,5 @@
-import { Body, Controller, Post, Req, UseGuards,Get,Res } from '@nestjs/common';
-import { AuthService } from './auth.service';
+import { Body, Controller, Get, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import {
-  forgotPasswordDto,
-  loginDto,
-  registerDto,
-  resetPasswordDto,
-  verifyEmailDto,
-  ResendVerificationEmail,
-  userEntity,
-} from './auth.types';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
@@ -20,8 +10,17 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { AuthService } from './auth.service';
+import {
+  forgotPasswordDto,
+  loginDto,
+  registerDto,
+  ResendVerificationEmail,
+  resetPasswordDto,
+  userEntity,
+  verifyEmailDto,
+} from './auth.types';
 import { Auth, AuthUser } from './decorator/auth.decorator';
-import { Public } from './decorator/roles.decorator';
 
 @ApiTags('Authentication')
 
