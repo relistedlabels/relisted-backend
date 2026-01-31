@@ -79,10 +79,10 @@ export class CreateProductDto {
   @IsNotEmpty({ message: 'Care instruction is required' })
   careInstruction: string;
 
-  @ApiProperty()
+  @ApiProperty({ required: false })
   @IsString()
-  @IsNotEmpty({ message: 'Care steps is required' })
-  careSteps: string;
+  @IsOptional()
+  careSteps?: string;
 
   @ApiProperty()
   @IsString()

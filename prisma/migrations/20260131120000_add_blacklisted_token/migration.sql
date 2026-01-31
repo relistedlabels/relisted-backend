@@ -1,0 +1,1 @@
+-- No-op: token invalidation is done via User.tokenVersion instead (see next migration).

@@ -205,8 +205,7 @@ export class AuthController {
 
   @Auth()
   @ApiBearerAuth('token')
-   @ApiOkResponse({
-    
+  @ApiOkResponse({
     schema: {
       example: {
         success: true,
@@ -215,7 +214,6 @@ export class AuthController {
     },
   })
   @ApiBadRequestResponse({
-    
     schema: {
       example: {
         success: false,
@@ -223,8 +221,20 @@ export class AuthController {
       },
     },
   })
-  @Get("/user")
-  async getUser(@AuthUser() user:userEntity){
-    return await this.authService.authUser(user)
+  @Get('/user')
+  async getUser(@AuthUser() user: userEntity) {
+    return await this.authService.authUser(user);
+  }
+
+  @Auth()
+  @Post('logout')
+  @ApiOperation({ summary: 'Log out and invalidate all tokens for this user' })
+  @ApiOkResponse({
+    description: 'Logged out successfully',
+    schema: { example: { message: 'Logged out successfully' } },
+  })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  async logout(@AuthUser() user: userEntity) {
+    return this.authService.logout(user.id);
   }
 }

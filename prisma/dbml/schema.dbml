@@ -100,6 +100,13 @@ Table AuthOtpToken {
   updatedAt DateTime [not null]
 }
 
+Table BlacklistedToken {
+  id String [pk]
+  token String [not null]
+  expiresAt DateTime [not null]
+  createdAt DateTime [default: `now()`, not null]
+}
+
 Table Product {
   id String [pk]
   name String [not null]
