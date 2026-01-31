@@ -69,6 +69,7 @@ model User {
   provider        String?
   isVerified      Boolean           @default(false)
   role            Role              @default(RENTER)
+  tokenVersion    Int               @default(0)
   curatorReviews  Review[]          @relation("CuratorReviews")
   reviewsWritten  Review[]
   tokens          AuthOtpToken[]

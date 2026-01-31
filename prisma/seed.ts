@@ -57,21 +57,51 @@ async function main() {
     skipDuplicates: true,
   });
   
-   await prisma.tag.createMany({
-    data: [
-      { name: 'New Arrival' },
-      { name: 'Trending' },
-      { name: 'Best Seller' },
-      { name: 'Limited Edition' },
-      { name: 'Eco Friendly' },
-      { name: 'Vintage' },
-      { name: 'Luxury' },
-      { name: 'Streetwear' },
-      { name: 'Unisex' },
-      { name: 'Sale' },
-    ],
-  })
-  console.log('Brands,tag & Categories seeded successfully');
+  // Tags that show in the box (display order first), then other searchable tags
+  const boxTags = [
+    'New season',
+    'Date night',
+    'Brunch outfit',
+    'Night out',
+    'Wedding guest',
+    'Mini dress',
+    'Midi dress',
+    'Classy',
+    'Vacation',
+    'Party',
+    'Luxury',
+    'Formal wear',
+  ];
+  const otherSearchableTags = [
+    'Long dress',
+    'Festival outfit',
+    'Travel',
+    'Old money',
+    'It girl',
+    'Gen z',
+    'Minimal',
+    'Girls night out',
+    'Birthday outfit',
+    'Vacation outfit',
+    'Bodycon',
+    'Flowy dress',
+    'Elegant',
+    'Sexy but classy',
+    'Day to night',
+    'Dinner outfit',
+    'Weekend outfit',
+    'Street style',
+    'Tailored fit',
+    'Relaxed fit',
+    'Minimal style',
+    'Elevated basics',
+  ];
+  const allTagNames = [...boxTags, ...otherSearchableTags];
+  for (const name of allTagNames) {
+    const existing = await prisma.tag.findFirst({ where: { name } });
+    if (!existing) await prisma.tag.create({ data: { name } });
+  }
+  console.log('Brands, tags & Categories seeded successfully');
 }
 
 main()

@@ -106,8 +106,8 @@ async register(dto: registerDto) {
       bad('Please verify your email before signing in. Check your inbox for the verification link.', 401);
     }
 
-    // jwt token
-    const payload = { sub: user.id, email: user.email };
+    const tokenVersion = (user as { tokenVersion?: number }).tokenVersion ?? 0;
+    const payload = { sub: user.id, email: user.email, v: tokenVersion };
     const token = await this.jwtService.signAsync(payload);
     
     // find the user hotel
@@ -147,10 +147,12 @@ async register(dto: registerDto) {
       });
     }
 
+    const tokenVersion = (user as { tokenVersion?: number }).tokenVersion ?? 0;
     const payload = {
       sub: user.id,
       role: user.role,
       email: user.email,
+      v: tokenVersion,
     };
 
     const accessToken = await this.jwtService.signAsync(payload);
@@ -318,8 +320,15 @@ async register(dto: registerDto) {
 
   // find user
   async authUser(user: userEntity) {
-  
+    return user;
+  }
 
-    return  user
+  // logout: invalidate all tokens for this user by bumping tokenVersion
+  async logout(userId: string) {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { tokenVersion: { increment: 1 } },
+    });
+    return { message: 'Logged out successfully' };
   }
 }

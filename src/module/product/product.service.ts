@@ -573,7 +573,7 @@ export class ProductService {
           originalValue: dto.originalValue || 0,
           dailyPrice: dto.dailyPrice,
           careInstruction: dto.careInstruction,
-          careSteps: dto.careSteps,
+          careSteps: dto.careSteps ?? '',
           stylingTip: dto.stylingTip,
           quantity: dto.quantity || 1,
           composition: dto.composition || '',
@@ -680,14 +680,20 @@ export class ProductService {
         },
         orderBy: { createdAt: 'desc' },
         include:{
-          attachments:true,
-         curator:{
-          select:{
-            name:true,
-            id:true
+          attachments: {
+            include: {
+              uploads: {
+                select: { id: true, url: true },
+              },
+            },
+          },
+          curator:{
+            select:{
+              name:true,
+              id:true
 
+            }
           }
-         }
         }
         
       });
@@ -713,7 +719,13 @@ export class ProductService {
     try {
       const product = await this.prisma.product.findUnique({
         where: { id },
-     
+        include: {
+          attachments: {
+            include: {
+              uploads: { select: { id: true, url: true } },
+            },
+          },
+        },
       });
 
       if (!product) {

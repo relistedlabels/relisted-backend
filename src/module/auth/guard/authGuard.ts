@@ -22,19 +22,14 @@ export class JwtAuthGuard implements CanActivate {
     if (!token) {
       throw new UnauthorizedException();
     }
-   
+
     try {
-      //  verify the voken
       const payload = await this.jwtService.verifyAsync(token, {
         secret: process.env.JWT_SECRET,
       });
-      // FIND USER
 
       const user = await this.prismaService.user.findUnique({
-        where: {
-          id: payload.sub,
-        },
-        
+        where: { id: payload.sub },
         select: {
           id: true,
           name: true,
@@ -43,13 +38,18 @@ export class JwtAuthGuard implements CanActivate {
           isVerified: true,
           provider: true,
           createdAt: true,
-           profile: true,
+          profile: true,
+          tokenVersion: true,
         },
-        
       });
 
       if (!user) {
         throw new UnauthorizedException('user not found');
+      }
+
+      const tokenVersion = (payload as { v?: number }).v ?? 0;
+      if (user.tokenVersion !== tokenVersion) {
+        throw new UnauthorizedException();
       }
 
       request.user = user;
