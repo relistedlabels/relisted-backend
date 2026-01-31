@@ -10,6 +10,7 @@ Table User {
   provider String
   isVerified Boolean [not null, default: false]
   role Role [not null, default: 'RENTER']
+  tokenVersion Int [not null, default: 0]
   curatorReviews Review [not null]
   reviewsWritten Review [not null]
   tokens AuthOtpToken [not null]
@@ -98,13 +99,6 @@ Table AuthOtpToken {
   user User [not null]
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
-}
-
-Table BlacklistedToken {
-  id String [pk]
-  token String [not null]
-  expiresAt DateTime [not null]
-  createdAt DateTime [default: `now()`, not null]
 }
 
 Table Product {

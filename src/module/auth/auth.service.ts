@@ -3,7 +3,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { JwtService } from '@nestjs/jwt';
 import { AuthOtpTokenType } from '@prisma/client';
 import * as argon2 from 'argon2';
-import { addMinutes, addHours, subMinutes } from 'date-fns';
+import { addMinutes, addHours, isAfter, subMinutes } from 'date-fns';
 import { AuthOtpTokenService } from 'src/services/auth-otp-token/auth-otp-token.service';
 import { Verification_Mail } from 'src/services/event/event.types';
 import { PrismaService } from 'src/services/prisma/prisma.service';
@@ -103,7 +103,69 @@ async register(dto: registerDto) {
     if (!matched) bad('invalid credential');
 
     if (!user.isVerified) {
-      bad('Please verify your email before signing in. Check your inbox for the verification link.', 401);
+      const existingToken = await this.prisma.authOtpToken.findFirst({
+        where: {
+          userId: user.id,
+          subject: Auth_Otp_Token_Subject.Verify_Email,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      const tokenStillValid =
+        existingToken && !isAfter(new Date(), existingToken.expiry);
+      const sentRecently =
+        existingToken &&
+        existingToken.createdAt >= subMinutes(new Date(), 1);
+
+      if (tokenStillValid) {
+        bad(
+          'Please verify your email. Check your inbox for the verification link.',
+          401,
+        );
+      }
+
+      if (sentRecently) {
+        bad(
+          'Please verify your email. Check your inbox for the verification link.',
+          401,
+        );
+      }
+
+      await this.prisma.authOtpToken.deleteMany({
+        where: {
+          userId: user.id,
+          subject: Auth_Otp_Token_Subject.Verify_Email,
+        },
+      });
+
+      const expiryMinutes = 60;
+      const expiry = addMinutes(new Date(), expiryMinutes);
+      const tokenRecord = await this.authOtpTokenService.createOtp({
+        userId: user.id,
+        type: AuthOtpTokenType.TOKEN,
+        subject: Auth_Otp_Token_Subject.Verify_Email,
+        email: user.email,
+        expiry,
+      });
+
+      const frontendUrl =
+        process.env.FRONTEND_URL || 'http://localhost:3000';
+      const verificationLink = `${frontendUrl}/auth/verify-email?token=${tokenRecord.code}`;
+      const year = new Date().getFullYear();
+
+      this.eventEmitter.emit('verification_mail', {
+        email: user.email,
+        code: tokenRecord.code,
+        name: user.name,
+        year,
+        verificationLink,
+        expiryMinutes,
+      });
+
+      bad(
+        'A new verification link has been sent to your email. Please check your inbox.',
+        401,
+      );
     }
 
     const tokenVersion = (user as { tokenVersion?: number }).tokenVersion ?? 0;
