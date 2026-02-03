@@ -19,6 +19,7 @@ import {
   resetPasswordDto,
   userEntity,
   verifyEmailDto,
+  verifyAdminMfaDto,
 } from './auth.types';
 import { Auth, AuthUser } from './decorator/auth.decorator';
 
@@ -236,5 +237,70 @@ export class AuthController {
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
   async logout(@AuthUser() user: userEntity) {
     return this.authService.logout(user.id);
+  }
+
+  @Post('verify-admin-mfa')
+  @ApiOperation({ summary: 'Verify admin MFA OTP and complete login' })
+  @ApiOkResponse({
+    description: 'MFA verified successfully',
+    schema: {
+      example: {
+        success: true,
+        token: 'jwt_token_here',
+        user: {
+          id: 'uuid',
+          email: 'admin@email.com',
+          role: 'ADMIN',
+        },
+        message: 'MFA verified successfully.',
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid or expired MFA code',
+    schema: {
+      example: {
+        success: false,
+        message: 'Invalid or expired MFA code.',
+      },
+    },
+  })
+  async verifyAdminMfa(@Body() dto: verifyAdminMfaDto) {
+    return this.authService.verifyAdminMfa(dto);
+  }
+
+  @Auth()
+  @ApiBearerAuth('token')
+  @Get('check-dashboard-selection')
+  @ApiOperation({
+    summary: 'Check if user needs to select dashboard (admin role)',
+  })
+  @ApiOkResponse({
+    description: 'Dashboard selection status',
+    schema: {
+      example: {
+        isAdmin: true,
+        user: {
+          id: 'uuid',
+          email: 'admin@email.com',
+          role: 'ADMIN',
+        },
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Invalid or expired token',
+    schema: {
+      example: {
+        success: false,
+        message: 'Invalid or expired token.',
+      },
+    },
+  })
+  async checkDashboardSelection(@AuthUser() user: userEntity) {
+    const fullUser = await this.authService.checkDashboardSelectionByUser(
+      user.id,
+    );
+    return fullUser;
   }
 }

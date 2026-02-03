@@ -7,6 +7,7 @@ export const Auth_Otp_Token_Subject = {
   Verify_Email: 'verify email',
   RESET_PASSWORD: 'RESET Password',
   CONFIRM_ORDER: 'Verify Order ',
+  Admin_MFA: 'admin mfa',
 };
 
 export class registerDto {
@@ -72,4 +73,14 @@ export class ResendVerificationEmail {
   @ApiProperty()
   @IsEmail()
   email: string;
+}
+
+export class verifyAdminMfaDto {
+  @ApiProperty()
+  @IsString()
+  code: string;
+
+  @ApiProperty()
+  @IsString()
+  sessionToken: string;
 }

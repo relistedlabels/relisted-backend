@@ -168,21 +168,85 @@ async register(dto: registerDto) {
       );
     }
 
+    // Check if user is admin - require MFA
+    if (user.role === Role.ADMIN) {
+      // Check for recent MFA OTP requests (rate limiting)
+      const recentMfaOtp = await this.prisma.authOtpToken.findFirst({
+        where: {
+          userId: user.id,
+          subject: Auth_Otp_Token_Subject.Admin_MFA,
+          createdAt: {
+            gte: subMinutes(new Date(), 1),
+          },
+        },
+      });
+
+      if (recentMfaOtp) {
+        bad('Please wait before requesting another MFA code.', 429);
+      }
+
+      // Delete old admin MFA tokens
+      await this.prisma.authOtpToken.deleteMany({
+        where: {
+          userId: user.id,
+          subject: Auth_Otp_Token_Subject.Admin_MFA,
+        },
+      });
+
+      // Create MFA OTP token
+      const expiryMinutes = 10;
+      const expiry = addMinutes(new Date(), expiryMinutes);
+      const mfaTokenRecord = await this.authOtpTokenService.createOtp({
+        userId: user.id,
+        type: AuthOtpTokenType.OTP,
+        subject: Auth_Otp_Token_Subject.Admin_MFA,
+        email: user.email,
+        expiry,
+      });
+
+      // Create temporary session token (short-lived, 10 minutes)
+      const sessionPayload = {
+        sub: user.id,
+        email: user.email,
+        sessionId: mfaTokenRecord.id,
+        mfaRequired: true,
+      };
+      const sessionToken = await this.jwtService.signAsync(sessionPayload, {
+        expiresIn: '10m',
+      });
+
+      // Send MFA OTP email
+      const year = new Date().getFullYear();
+      this.eventEmitter.emit('verification_mail', {
+        email: user.email,
+        code: mfaTokenRecord.code,
+        name: user.name,
+        year,
+        expiryMinutes,
+      });
+
+      return {
+        requiresMfa: true,
+        sessionToken: sessionToken,
+        message: 'MFA code sent to your email. Please verify to complete login.',
+      };
+    }
+
+    // Regular user login - no MFA required
     const tokenVersion = (user as { tokenVersion?: number }).tokenVersion ?? 0;
-    const payload = { sub: user.id, email: user.email, v: tokenVersion };
+    const payload = { sub: user.id, email: user.email, v: tokenVersion, role: user.role };
     const token = await this.jwtService.signAsync(payload);
-    
-    // find the user hotel
-    const userEntity = {
-      sub: user.id,
-      email: email,
-    };
-
-
 
     return {
       token: token,
-      user: user,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        isVerified: user.isVerified,
+      },
+      requiresMfa: false,
     };
   }
 
@@ -392,5 +456,108 @@ async register(dto: registerDto) {
       data: { tokenVersion: { increment: 1 } },
     });
     return { message: 'Logged out successfully' };
+  }
+
+  // Verify admin MFA and complete login
+  async verifyAdminMfa(dto: verifyAdminMfaDto) {
+    const { code, sessionToken } = dto;
+
+    // Verify session token
+    let sessionPayload: any;
+    try {
+      sessionPayload = await this.jwtService.verifyAsync(sessionToken, {
+        secret: process.env.JWT_SECRET,
+      });
+    } catch (error) {
+      bad('Invalid or expired session. Please login again.', 401);
+    }
+
+    if (!sessionPayload.mfaRequired || !sessionPayload.sessionId) {
+      bad('Invalid session.', 401);
+    }
+
+    // Find the MFA token by sessionId
+    const mfaToken = await this.prisma.authOtpToken.findUnique({
+      where: { id: sessionPayload.sessionId },
+      include: { user: true },
+    });
+
+    if (
+      !mfaToken ||
+      mfaToken.subject !== Auth_Otp_Token_Subject.Admin_MFA ||
+      mfaToken.code !== code
+    ) {
+      bad('Invalid or expired MFA code.', 401);
+    }
+
+    // Check if token has expired
+    if (isAfter(new Date(), mfaToken.expiry)) {
+      await this.authOtpTokenService.deleteOtp(mfaToken.id);
+      bad('MFA code has expired. Please login again.', 401);
+    }
+
+    // Delete the token after successful verification
+    await this.authOtpTokenService.deleteOtp(mfaToken.id);
+
+    // Verify user is still admin
+    const user = await this.prisma.user.findUnique({
+      where: { id: mfaToken.userId },
+    });
+
+    if (!user || user.role !== Role.ADMIN) {
+      bad('User is not an admin.', 403);
+    }
+
+    // Issue full access token
+    const tokenVersion = (user as { tokenVersion?: number }).tokenVersion ?? 0;
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      v: tokenVersion,
+      role: user.role,
+    };
+    const token = await this.jwtService.signAsync(payload);
+
+    return {
+      token: token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        isVerified: user.isVerified,
+      },
+      message: 'MFA verified successfully.',
+    };
+  }
+
+  // Check if user needs dashboard selection (is admin)
+  // Called after authentication via Auth decorator
+  async checkDashboardSelectionByUser(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        isVerified: true,
+      },
+    });
+
+    if (!user) {
+      bad('User not found.', 404);
+    }
+
+    return {
+      isAdmin: user.role === Role.ADMIN,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        isVerified: user.isVerified,
+      },
+    };
   }
 }
