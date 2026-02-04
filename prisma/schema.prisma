@@ -27,7 +27,11 @@ enum AuthOtpTokenType {
 }
 
 enum ProductStatus {
+  PENDING
+  APPROVED
+  REJECTED
   AVAILABLE
+  UNAVAILABLE
   RENTED
   MAINTENANCE
   RESERVED
@@ -185,7 +189,8 @@ model Product {
   dailyPrice      Int
   isActive        Boolean       @default(true)
   quantity        Int?
-  status          ProductStatus @default(AVAILABLE)
+  status          ProductStatus @default(PENDING)
+  rejectionComment String?
   composition     String?
   measurement     String
   originalValue   Int

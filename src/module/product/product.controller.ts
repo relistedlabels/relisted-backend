@@ -15,6 +15,8 @@ import {
   ListProductQuery,
   queryDto,
   UpdateProductStatusDto,
+  RejectProductDto,
+  ToggleAvailabilityDto,
 } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { Auth, AuthUser } from '../auth/decorator/auth.decorator';
@@ -121,6 +123,22 @@ export class ProductController {
     return this.productService.getUserProducts(user);
   }
 
+  // Get pending products for admin review (Admin only)
+  @Auth([Role.ADMIN])
+  @Get('pending')
+  @ApiOperation({ summary: 'Get all pending products for review (Admin only)' })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'count', required: false, example: 10 })
+  @ApiResponse({
+    status: 200,
+    description: 'Pending products retrieved successfully',
+  })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  @ApiForbiddenResponse({ description: 'Forbidden: Not an admin' })
+  async getPendingProducts(@Query() query: ListProductQuery) {
+    return this.productService.getPendingProducts(query);
+  }
+
   
  
   //  * Get product by ID
@@ -151,42 +169,79 @@ export class ProductController {
 
 
   
-  //   Verify product (Admin only)
-   
+  // Approve product (Admin only)
   @Auth([Role.ADMIN])
-  @Patch(':id/verify')
-  @ApiOperation({ summary: 'Verify a product (Admin only)' })
+  @Patch(':id/approve')
+  @ApiOperation({ summary: 'Approve a product (Admin only)' })
   @ApiParam({ name: 'id', description: 'Product ID', example: 'uuid' })
   @ApiResponse({
     status: 200,
-    description: 'Product verified successfully',
+    description: 'Product approved successfully',
   })
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
   @ApiForbiddenResponse({ description: 'Forbidden: Not an admin' })
-  verifyProduct(@Param('id') id: string, @AuthUser() user: userEntity) {
-    return this.productService.verifyProduct(id, user);
+  approveProduct(@Param('id') id: string, @AuthUser() user: userEntity) {
+    return this.productService.approveProduct(id, user);
   }
 
-  
-  //  Update product status (Curators only)
-   
-  @Auth([Role.LISTER])
-  @Patch(':id/status')
-  @ApiOperation({ summary: 'Update product status (AVAILABLE, RENTED, etc.)' })
+  // Reject product with comment (Admin only)
+  @Auth([Role.ADMIN])
+  @Patch(':id/reject')
+  @ApiOperation({ summary: 'Reject a product with comment (Admin only)' })
   @ApiParam({ name: 'id', description: 'Product ID', example: 'uuid' })
-  @ApiBody({ type: UpdateProductStatusDto })
+  @ApiBody({ type: RejectProductDto })
   @ApiResponse({
     status: 200,
-    description: 'Product status updated successfully',
+    description: 'Product rejected successfully',
   })
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
-  @ApiForbiddenResponse({ description: 'Forbidden: Not a curator' })
-  updateStatus(
+  @ApiForbiddenResponse({ description: 'Forbidden: Not an admin' })
+  rejectProduct(
     @Param('id') id: string,
-    @Body() dto: UpdateProductStatusDto,
+    @Body() dto: RejectProductDto,
     @AuthUser() user: userEntity,
   ) {
-    return this.productService.updateStatus(id, dto, user);
+    return this.productService.rejectProduct(id, dto.rejectionComment, user);
+  }
+
+  // Update product (Users can edit own, Admins can edit any)
+  @Auth()
+  @Patch(':id')
+  @ApiOperation({ summary: 'Update a product (Users can edit own, Admins can edit any)' })
+  @ApiParam({ name: 'id', description: 'Product ID', example: 'uuid' })
+  @ApiBody({ type: UpdateProductDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Product updated successfully',
+  })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  @ApiForbiddenResponse({ description: 'Forbidden: Not the product owner' })
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateProductDto,
+    @AuthUser() user: userEntity,
+  ) {
+    return this.productService.update(id, dto, user);
+  }
+
+  // Toggle product availability (only for approved products)
+  @Auth()
+  @Patch(':id/availability')
+  @ApiOperation({ summary: 'Toggle product availability (only for approved products)' })
+  @ApiParam({ name: 'id', description: 'Product ID', example: 'uuid' })
+  @ApiBody({ type: ToggleAvailabilityDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Product availability toggled successfully',
+  })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  @ApiForbiddenResponse({ description: 'Forbidden' })
+  toggleAvailability(
+    @Param('id') id: string,
+    @Body() dto: ToggleAvailabilityDto,
+    @AuthUser() user: userEntity,
+  ) {
+    return this.productService.toggleAvailability(id, dto.isAvailable, user);
   }
 
   
@@ -205,23 +260,21 @@ export class ProductController {
     return this.productService.createProductFavourite(dto, user);
   }
 
-  
-  //  Delete product 
-  
-@Auth([Role.LISTER])
+  // Delete product (Users can delete own, Admins can delete any)
+  @Auth()
   @Delete(':id')
-  @ApiOperation({ summary: 'Delete a product' })
-   @ApiParam({ name: 'id', description: 'Product ID', example: 'uuid' })
- @ApiResponse({
+  @ApiOperation({ summary: 'Delete a product (Users can delete own, Admins can delete any)' })
+  @ApiParam({ name: 'id', description: 'Product ID', example: 'uuid' })
+  @ApiResponse({
     status: 200,
     description: 'Product deleted successfully',
-   schema: {
-    example: { message: 'Product deleted successfully' },
-   },
-   })
-   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
-  @ApiForbiddenResponse({ description: 'Forbidden: Not a curator' })
-   remove(@Param('id') id: string, @AuthUser() user: userEntity) {
-   return this.productService.remove(id, user);
-   }
+    schema: {
+      example: { success: true, message: 'Product deleted successfully' },
+    },
+  })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  @ApiForbiddenResponse({ description: 'Forbidden: Not the product owner or admin' })
+  remove(@Param('id') id: string, @AuthUser() user: userEntity) {
+    return this.productService.remove(id, user);
+  }
 }

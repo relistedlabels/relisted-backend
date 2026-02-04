@@ -148,3 +148,23 @@ export class queryDto {
   @IsBoolean()
   verified:boolean
 }
+
+export class RejectProductDto {
+  @ApiProperty({
+    description: 'Reason for rejection',
+    example: 'Product images are not clear enough',
+  })
+  @IsString()
+  @IsNotEmpty({ message: 'Rejection comment is required' })
+  rejectionComment: string;
+}
+
+export class ToggleAvailabilityDto {
+  @ApiProperty({
+    description: 'Set product availability',
+    example: true,
+  })
+  @IsBoolean()
+  @IsNotEmpty()
+  isAvailable: boolean;
+}

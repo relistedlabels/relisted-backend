@@ -111,7 +111,8 @@ Table Product {
   dailyPrice Int [not null]
   isActive Boolean [not null, default: true]
   quantity Int
-  status ProductStatus [not null, default: 'AVAILABLE']
+  status ProductStatus [not null, default: 'PENDING']
+  rejectionComment String
   composition String
   measurement String [not null]
   originalValue Int [not null]
@@ -433,7 +434,11 @@ Enum AuthOtpTokenType {
 }
 
 Enum ProductStatus {
+  PENDING
+  APPROVED
+  REJECTED
   AVAILABLE
+  UNAVAILABLE
   RENTED
   MAINTENANCE
   RESERVED

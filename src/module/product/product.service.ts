@@ -579,6 +579,8 @@ export class ProductService {
           composition: dto.composition || '',
           warning: dto.warning || '',
           curatorId: user.id,
+          status: ProductStatus.PENDING, // Products start in pending state
+          productVerified: false,
           ...(brandId && { brandId }),
           ...(categoryId && { categoryId }),
           ...(tagId && { tagId }),
@@ -616,7 +618,7 @@ export class ProductService {
   }
 }
  
-// only show all verified product ,active product
+// only show approved and available products
   async list(query: ListProductQuery) {
     try {
       const page = Number(query.page) || 1;
@@ -624,22 +626,35 @@ export class ProductService {
       const skip = (page - 1) * limit;
 
       // Fetch products and total count in parallel
+      // Only show products that are APPROVED and AVAILABLE
       const [products, total] = await Promise.all([
         this.prisma.product.findMany({
           where: {
-            isActive: true,
-            productVerified: true,
             status: ProductStatus.AVAILABLE,
+            productVerified: true,
+            isActive: true,
           },
           skip,
           take: limit,
           orderBy: { createdAt: 'desc' },
+          include: {
+            brand: true,
+            category: true,
+            tag: true,
+            attachments: {
+              include: {
+                uploads: {
+                  select: { id: true, url: true },
+                },
+              },
+            },
+          },
         }),
         this.prisma.product.count({
           where: {
-            isActive: true,
-            productVerified: true,
             status: ProductStatus.AVAILABLE,
+            productVerified: true,
+            isActive: true,
           },
         }),
       ]);
@@ -670,6 +685,73 @@ export class ProductService {
     }
   }
 
+
+  // Get pending products for admin review
+  async getPendingProducts(query: ListProductQuery) {
+    try {
+      const page = Number(query.page) || 1;
+      const limit = Number(query.count) || 10;
+      const skip = (page - 1) * limit;
+
+      const [products, total] = await Promise.all([
+        this.prisma.product.findMany({
+          where: {
+            status: ProductStatus.PENDING,
+          },
+          skip,
+          take: limit,
+          orderBy: { createdAt: 'desc' },
+          include: {
+            brand: true,
+            category: true,
+            tag: true,
+            curator: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+            attachments: {
+              include: {
+                uploads: {
+                  select: { id: true, url: true },
+                },
+              },
+            },
+          },
+        }),
+        this.prisma.product.count({
+          where: {
+            status: ProductStatus.PENDING,
+          },
+        }),
+      ]);
+
+      const totalPages = Math.ceil(total / limit);
+      const hasNext = page < totalPages;
+      const hasPrevious = page > 1;
+
+      return {
+        success: true,
+        message: 'Pending products retrieved successfully',
+        data: {
+          products,
+          pagination: {
+            page,
+            limit,
+            total,
+            totalPages,
+            hasNext,
+            hasPrevious,
+          },
+        },
+      };
+    } catch (error) {
+      console.error('Get pending products error:', error);
+      throw new InternalServerErrorException('Failed to retrieve pending products');
+    }
+  }
 
   //get user all products 
   async getUserProducts(user: userEntity) {
@@ -756,9 +838,9 @@ export class ProductService {
 
 
 
-  async verifyProduct(id: string, user: userEntity) {
+  // Approve product (Admin only) - replaces verifyProduct
+  async approveProduct(id: string, user: userEntity) {
     try {
-     
       const product = await this.prisma.product.findUnique({
         where: { id },
       });
@@ -767,16 +849,20 @@ export class ProductService {
         throw new NotFoundException(`Product with ID ${id} not found`);
       }
 
-      if (product.productVerified) {
-        throw new BadRequestException('Product is already verified');
+      if (product.status === ProductStatus.APPROVED) {
+        throw new BadRequestException('Product is already approved');
       }
 
-      const verifiedProduct = await this.prisma.product.update({
+      if (product.status === ProductStatus.REJECTED) {
+        throw new BadRequestException('Cannot approve a rejected product. Please contact support.');
+      }
+
+      const approvedProduct = await this.prisma.product.update({
         where: { id },
         data: {
+          status: ProductStatus.APPROVED,
           productVerified: true,
-          // verifiedAt: new Date(),
-          // verifiedBy: user.id,
+          rejectionComment: null, // Clear any previous rejection comment
         },
         include: {
           curator: {
@@ -791,11 +877,11 @@ export class ProductService {
 
       return {
         success: true,
-        message: 'Product verified successfully',
-        data: verifiedProduct,
+        message: 'Product approved successfully',
+        data: approvedProduct,
       };
     } catch (error) {
-      console.error('Verify product error:', error);
+      console.error('Approve product error:', error);
       
       if (error instanceof ForbiddenException || 
           error instanceof NotFoundException || 
@@ -803,14 +889,12 @@ export class ProductService {
         throw error;
       }
       
-      throw new InternalServerErrorException('Failed to verify product');
+      throw new InternalServerErrorException('Failed to approve product');
     }
   }
 
-
-  //  Update product status (active/inactive)
-  
-  async updateStatus(id: string, dto: UpdateProductStatusDto, user: userEntity) {
+  // Reject product with comment (Admin only)
+  async rejectProduct(id: string, rejectionComment: string, user: userEntity) {
     try {
       const product = await this.prisma.product.findUnique({
         where: { id },
@@ -820,33 +904,172 @@ export class ProductService {
         throw new NotFoundException(`Product with ID ${id} not found`);
       }
 
-    
+      if (product.status === ProductStatus.REJECTED) {
+        throw new BadRequestException('Product is already rejected');
+      }
 
-      const updatedProduct = await this.prisma.product.update({
+      if (product.status === ProductStatus.APPROVED) {
+        throw new BadRequestException('Cannot reject an approved product. Use delete instead.');
+      }
+
+      const rejectedProduct = await this.prisma.product.update({
         where: { id },
         data: {
-          isActive: dto.isActive,
-          ...(dto.isActive === false && { status: ProductStatus.MAINTENANCE }),
-          ...(dto.isActive === true && { status: ProductStatus.AVAILABLE }),
+          status: ProductStatus.REJECTED,
+          productVerified: false,
+          rejectionComment: rejectionComment,
+          isActive: false, // Deactivate rejected products
+        },
+        include: {
+          curator: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
         },
       });
 
       return {
         success: true,
-        message: dto.isActive 
-          ? 'Product enabled successfully' 
-          : 'Product disabled successfully',
-        data: updatedProduct,
+        message: 'Product rejected successfully',
+        data: rejectedProduct,
       };
     } catch (error) {
-      console.error('Update product status error:', error);
+      console.error('Reject product error:', error);
       
-      if (error instanceof NotFoundException || 
-          error instanceof ForbiddenException) {
+      if (error instanceof ForbiddenException || 
+          error instanceof NotFoundException || 
+          error instanceof BadRequestException) {
         throw error;
       }
       
-      throw new InternalServerErrorException('Failed to update product status');
+      throw new InternalServerErrorException('Failed to reject product');
+    }
+  }
+
+
+  // Toggle product availability (only for approved products)
+  async toggleAvailability(id: string, isAvailable: boolean, user: userEntity) {
+    try {
+      const product = await this.prisma.product.findUnique({
+        where: { id },
+      });
+
+      if (!product) {
+        throw new NotFoundException(`Product with ID ${id} not found`);
+      }
+
+      // Only approved products can have availability toggled
+      if (product.status !== ProductStatus.APPROVED) {
+        throw new BadRequestException(
+          'Only approved products can have their availability toggled. Current status: ' + product.status
+        );
+      }
+
+      const updatedProduct = await this.prisma.product.update({
+        where: { id },
+        data: {
+          status: isAvailable ? ProductStatus.AVAILABLE : ProductStatus.UNAVAILABLE,
+          isActive: isAvailable,
+        },
+      });
+
+      return {
+        success: true,
+        message: isAvailable 
+          ? 'Product marked as available' 
+          : 'Product marked as unavailable',
+        data: updatedProduct,
+      };
+    } catch (error) {
+      console.error('Toggle availability error:', error);
+      
+      if (error instanceof NotFoundException || 
+          error instanceof ForbiddenException ||
+          error instanceof BadRequestException) {
+        throw error;
+      }
+      
+      throw new InternalServerErrorException('Failed to toggle product availability');
+    }
+  }
+
+  // Update product (users can edit own, admins can edit any)
+  async update(id: string, dto: UpdateProductDto, user: userEntity) {
+    try {
+      const product = await this.prisma.product.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          curatorId: true,
+          status: true,
+        },
+      });
+
+      if (!product) {
+        throw new NotFoundException(`Product with ID ${id} not found`);
+      }
+
+      // Check permissions: user must be owner OR admin
+      const userRecord = await this.prisma.user.findUnique({
+        where: { id: user.id },
+        select: { role: true },
+      });
+
+      const isOwner = product.curatorId === user.id;
+      const isAdmin = userRecord?.role === 'ADMIN';
+
+      if (!isOwner && !isAdmin) {
+        throw new ForbiddenException('You can only edit your own products');
+      }
+
+      // Users can only edit pending or rejected products (to resubmit)
+      // Admins can edit any product
+      if (!isAdmin && product.status !== ProductStatus.PENDING && product.status !== ProductStatus.REJECTED) {
+        throw new BadRequestException(
+          'You can only edit products that are pending or rejected. Current status: ' + product.status
+        );
+      }
+
+      // If editing a rejected product, reset to pending
+      const updateData: any = { ...dto };
+      if (product.status === ProductStatus.REJECTED && !isAdmin) {
+        updateData.status = ProductStatus.PENDING;
+        updateData.rejectionComment = null;
+      }
+
+      const updatedProduct = await this.prisma.product.update({
+        where: { id },
+        data: updateData,
+        include: {
+          attachments: {
+            include: {
+              uploads: true,
+            },
+          },
+          brand: true,
+          category: true,
+          tag: true,
+        },
+      });
+
+      return {
+        success: true,
+        message: 'Product updated successfully',
+        data: updatedProduct,
+      };
+    } catch (error) {
+      console.error('Update product error:', error);
+      
+      if (error instanceof NotFoundException || 
+          error instanceof ForbiddenException ||
+          error instanceof BadRequestException) {
+        throw error;
+      }
+      
+      throw new InternalServerErrorException('Failed to update product');
     }
   }
   
@@ -936,28 +1159,37 @@ export class ProductService {
     }
   }
   
-  // lister disable thier product
+  // Delete product: users can delete own, admins can delete any
   async remove(id: string, user: userEntity) {
     try {
       const product = await this.prisma.product.findUnique({
         where: { id },
+        select: {
+          id: true,
+          curatorId: true,
+        },
       });
 
       if (!product) {
         throw new NotFoundException(`Product with ID ${id} not found`);
       }
 
-      
+      // Check permissions: user must be owner OR admin
+      const userRecord = await this.prisma.user.findUnique({
+        where: { id: user.id },
+        select: { role: true },
+      });
 
-    
+      const isOwner = product.curatorId === user.id;
+      const isAdmin = userRecord?.role === 'ADMIN';
 
-      
-      await this.prisma.product.update({
+      if (!isOwner && !isAdmin) {
+        throw new ForbiddenException('You can only delete your own products');
+      }
+
+      // Actually delete the product (not just disable)
+      await this.prisma.product.delete({
         where: { id },
-        data: {
-          isActive: false,
-          status: ProductStatus.MAINTENANCE,
-        },
       });
 
       return {
@@ -973,7 +1205,7 @@ export class ProductService {
         throw error;
       }
       
-      throw new InternalServerErrorException('Failed to set  product to disable');
+      throw new InternalServerErrorException('Failed to delete product');
     }
   }
 }
