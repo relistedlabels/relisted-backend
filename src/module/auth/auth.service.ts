@@ -17,6 +17,7 @@ import {
   resetPasswordDto,
   userEntity,
   verifyEmailDto,
+  verifyAdminMfaDto,
 } from './auth.types';
 import { Role } from '@prisma/client';
 
