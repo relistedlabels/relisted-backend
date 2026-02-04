@@ -51,3 +51,14 @@ export class Order_Verification {
 
   ){}
 }
+
+export class Password_Reset_Mail {
+  constructor(
+    public readonly email: string,
+    public readonly code: string,
+    public readonly name: string,
+    public readonly year: number,
+    /** Expiry in minutes for user-facing message */
+    public readonly expiryMinutes?: number,
+  ) {}
+}

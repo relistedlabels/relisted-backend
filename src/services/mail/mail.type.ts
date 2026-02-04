@@ -47,3 +47,21 @@ export class VerifyOrderDto {
   @IsNumber()
   price: number;
 }
+
+export class ResetPasswordDto {
+  @IsEmail()
+  email: string;
+
+  @IsString()
+  code: string;
+
+  @IsString()
+  name: string;
+
+  @IsNumber()
+  year: number;
+
+  @IsNumber()
+  @IsOptional()
+  expiryMinutes?: number;
+}

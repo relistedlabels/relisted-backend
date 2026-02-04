@@ -1,6 +1,6 @@
 import { MailerService } from '@nestjs-modules/mailer';
 import { Injectable } from '@nestjs/common';
-import { VerificationDto, VerifyOrderDto } from './mail.type';
+import { VerificationDto, VerifyOrderDto, ResetPasswordDto } from './mail.type';
 import { Auth_Otp_Token_Subject } from '../../module/auth/auth.types';
 
 @Injectable()
@@ -26,5 +26,15 @@ export class MailService {
 
         })
 
+    }
+
+    async SendPasswordResetMail(dto: ResetPasswordDto) {
+        const { email, ...rest } = dto;
+        await this.mailerService.sendMail({
+            to: email,
+            template: './reset-password',
+            subject: Auth_Otp_Token_Subject.RESET_PASSWORD,
+            context: rest,
+        });
     }
 }

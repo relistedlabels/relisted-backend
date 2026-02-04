@@ -321,31 +321,79 @@ async register(dto: registerDto) {
     };
   }
 
-  // forget password
+  // forget password - send password reset OTP via email
   async forgotPassword(dto: forgotPasswordDto) {
     const { email } = dto;
-    // find if the email exist
-    const emailExist = await this.prisma.user.findUnique({
+    
+    // Find if the email exists
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+    });
+    
+    // Don't reveal if email exists (security best practice)
+    if (!user) {
+      // Return success even if user doesn't exist to prevent email enumeration
+      return {
+        success: true,
+        message: 'If an account with that email exists, a password reset code has been sent.',
+      };
+    }
+
+    // Check for recent password reset requests (rate limiting - 1 per minute)
+    const recentResetOtp = await this.prisma.authOtpToken.findFirst({
       where: {
-        email,
+        userId: user.id,
+        subject: Auth_Otp_Token_Subject.RESET_PASSWORD,
+        createdAt: {
+          gte: subMinutes(new Date(), 1),
+        },
       },
     });
-    if (!emailExist) bad('invalid credentials');
-    //  create token  to send
-    const otpCode = await this.authOtpTokenService.createOtp({
-      userId: emailExist.id,
-      type: AuthOtpTokenType.OTP,
-      subject: 'forgot password',
-      email: email,
-      expiry: addMinutes(new Date(), 10),
-    });
-    const year = new Date().getFullYear();
-    // listen to an event emitter
 
-    await this.eventEmitter.emit(
-      'verification_mail',
-      new Verification_Mail(email, otpCode.code, emailExist.name, year),
+    if (recentResetOtp) {
+      return {
+        success: false,
+        message: 'Please wait before requesting another password reset code.',
+      };
+    }
+
+    // Delete old password reset tokens for this user
+    await this.prisma.authOtpToken.deleteMany({
+      where: {
+        userId: user.id,
+        subject: Auth_Otp_Token_Subject.RESET_PASSWORD,
+      },
+    });
+
+    // Create new password reset OTP token (expires in 10 minutes)
+    const expiryMinutes = 10;
+    const expiry = addMinutes(new Date(), expiryMinutes);
+    const otpCode = await this.authOtpTokenService.createOtp({
+      userId: user.id,
+      type: AuthOtpTokenType.OTP,
+      subject: Auth_Otp_Token_Subject.RESET_PASSWORD,
+      email: email,
+      expiry,
+    });
+
+    const year = new Date().getFullYear();
+
+    // Send password reset email via event emitter
+    this.eventEmitter.emit(
+      'password_reset_mail',
+      {
+        email: email,
+        code: otpCode.code,
+        name: user.name,
+        year: year,
+        expiryMinutes: expiryMinutes,
+      },
     );
+
+    return {
+      success: true,
+      message: 'If an account with that email exists, a password reset code has been sent.',
+    };
   }
 
   // resend code
