@@ -23,6 +23,7 @@ async function bootstrap() {
         'http://localhost:4000',
         'https://www.relistedlabels.com',
         'https://relisted-backend.onrender.com',
+        'https://dev.relistedlabels.com',
       ];
 
       if (
