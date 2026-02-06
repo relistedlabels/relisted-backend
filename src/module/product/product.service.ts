@@ -693,10 +693,17 @@ export class ProductService {
       const limit = Number(query.count) || 10;
       const skip = (page - 1) * limit;
 
+      // Query for pending products - include products that are either:
+      // 1. Status is PENDING, OR
+      // 2. Not verified (legacy products created before status system)
       const [products, total] = await Promise.all([
         this.prisma.product.findMany({
           where: {
-            status: ProductStatus.PENDING,
+            OR: [
+              { status: ProductStatus.PENDING },
+              // Fallback: include unverified products (created before status system)
+              { productVerified: false, status: { not: ProductStatus.APPROVED } },
+            ],
           },
           skip,
           take: limit,
@@ -723,7 +730,11 @@ export class ProductService {
         }),
         this.prisma.product.count({
           where: {
-            status: ProductStatus.PENDING,
+            OR: [
+              { status: ProductStatus.PENDING },
+              // Fallback: include unverified products (created before status system)
+              { productVerified: false, status: { not: ProductStatus.APPROVED } },
+            ],
           },
         }),
       ]);
@@ -753,7 +764,7 @@ export class ProductService {
     }
   }
 
-  //get user all products 
+  // Get user all products with their statuses (for dashboard)
   async getUserProducts(user: userEntity) {
     try {
       const products = await this.prisma.product.findMany({
@@ -761,7 +772,19 @@ export class ProductService {
           curatorId: user.id,
         },
         orderBy: { createdAt: 'desc' },
-        include:{
+        select: {
+          id: true,
+          name: true,
+          subText: true,
+          status: true,
+          productVerified: true,
+          isActive: true,
+          rejectionComment: true,
+          dailyPrice: true,
+          originalValue: true,
+          quantity: true,
+          createdAt: true,
+          updatedAt: true,
           attachments: {
             include: {
               uploads: {
@@ -769,18 +792,17 @@ export class ProductService {
               },
             },
           },
-          curator:{
-            select:{
-              name:true,
-              id:true
-
-            }
-          }
-        }
-        
+          brand: {
+            select: { id: true, name: true },
+          },
+          category: {
+            select: { id: true, name: true },
+          },
+          tag: {
+            select: { id: true, name: true },
+          },
+        },
       });
-
-      
 
       return {
         success: true,
@@ -791,6 +813,185 @@ export class ProductService {
     } catch (error) {
       console.error('Get user products error:', error);
       throw new InternalServerErrorException('Failed to retrieve user products');
+    }
+  }
+
+  // Get product statistics
+  async getProductStatistics(user: userEntity) {
+    try {
+      const userRecord = await this.prisma.user.findUnique({
+        where: { id: user.id },
+        select: { role: true },
+      });
+
+      const isAdmin = userRecord?.role === 'ADMIN';
+
+      // Build where clause based on role
+      const whereClause = isAdmin
+        ? {} // Admins see all products
+        : { curatorId: user.id }; // Listers see only their products
+
+      // Product select structure (consistent with getUserProducts)
+      const productSelect = {
+        id: true,
+        name: true,
+        subText: true,
+        status: true,
+        productVerified: true,
+        isActive: true,
+        rejectionComment: true,
+        dailyPrice: true,
+        originalValue: true,
+        quantity: true,
+        createdAt: true,
+        updatedAt: true,
+        attachments: {
+          include: {
+            uploads: {
+              select: { id: true, url: true },
+            },
+          },
+        },
+        brand: {
+          select: { id: true, name: true },
+        },
+        category: {
+          select: { id: true, name: true },
+        },
+        tag: {
+          select: { id: true, name: true },
+        },
+      };
+
+      const [
+        totalProductsData,
+        approvedProductsData,
+        rejectedProductsData,
+        pendingProductsData,
+        activeProductsData,
+      ] = await Promise.all([
+        // Total products
+        Promise.all([
+          this.prisma.product.count({
+            where: whereClause,
+          }),
+          this.prisma.product.findMany({
+            where: whereClause,
+            orderBy: { createdAt: 'desc' },
+            select: productSelect,
+          }),
+        ]),
+        // Approved products (status is AVAILABLE or UNAVAILABLE, and productVerified is true)
+        Promise.all([
+          this.prisma.product.count({
+            where: {
+              ...whereClause,
+              productVerified: true,
+              OR: [
+                { status: ProductStatus.AVAILABLE },
+                { status: ProductStatus.UNAVAILABLE },
+              ],
+            },
+          }),
+          this.prisma.product.findMany({
+            where: {
+              ...whereClause,
+              productVerified: true,
+              OR: [
+                { status: ProductStatus.AVAILABLE },
+                { status: ProductStatus.UNAVAILABLE },
+              ],
+            },
+            orderBy: { createdAt: 'desc' },
+            select: productSelect,
+          }),
+        ]),
+        // Rejected products
+        Promise.all([
+          this.prisma.product.count({
+            where: {
+              ...whereClause,
+              status: ProductStatus.REJECTED,
+            },
+          }),
+          this.prisma.product.findMany({
+            where: {
+              ...whereClause,
+              status: ProductStatus.REJECTED,
+            },
+            orderBy: { createdAt: 'desc' },
+            select: productSelect,
+          }),
+        ]),
+        // Pending products
+        Promise.all([
+          this.prisma.product.count({
+            where: {
+              ...whereClause,
+              status: ProductStatus.PENDING,
+            },
+          }),
+          this.prisma.product.findMany({
+            where: {
+              ...whereClause,
+              status: ProductStatus.PENDING,
+            },
+            orderBy: { createdAt: 'desc' },
+            select: productSelect,
+          }),
+        ]),
+        // Active products (AVAILABLE status with isActive: true)
+        Promise.all([
+          this.prisma.product.count({
+            where: {
+              ...whereClause,
+              status: ProductStatus.AVAILABLE,
+              isActive: true,
+              productVerified: true,
+            },
+          }),
+          this.prisma.product.findMany({
+            where: {
+              ...whereClause,
+              status: ProductStatus.AVAILABLE,
+              isActive: true,
+              productVerified: true,
+            },
+            orderBy: { createdAt: 'desc' },
+            select: productSelect,
+          }),
+        ]),
+      ]);
+
+      return {
+        success: true,
+        message: 'Product statistics retrieved successfully',
+        data: {
+          getTotalProducts: {
+            count: totalProductsData[0],
+            products: totalProductsData[1],
+          },
+          getApprovedProducts: {
+            count: approvedProductsData[0],
+            products: approvedProductsData[1],
+          },
+          getRejectedProducts: {
+            count: rejectedProductsData[0],
+            products: rejectedProductsData[1],
+          },
+          getPendingProducts: {
+            count: pendingProductsData[0],
+            products: pendingProductsData[1],
+          },
+          getActiveProducts: {
+            count: activeProductsData[0],
+            products: activeProductsData[1],
+          },
+        },
+      };
+    } catch (error) {
+      console.error('Get product statistics error:', error);
+      throw new InternalServerErrorException('Failed to retrieve product statistics');
     }
   }
 
@@ -860,8 +1061,9 @@ export class ProductService {
       const approvedProduct = await this.prisma.product.update({
         where: { id },
         data: {
-          status: ProductStatus.APPROVED,
+          status: ProductStatus.AVAILABLE, // Set to AVAILABLE when approved (so it shows in listings)
           productVerified: true,
+          isActive: true, // Automatically set to active when approved
           rejectionComment: null, // Clear any previous rejection comment
         },
         include: {
@@ -951,20 +1153,44 @@ export class ProductService {
 
 
   // Toggle product availability (only for approved products)
+  // Users can deactivate their approved products manually
   async toggleAvailability(id: string, isAvailable: boolean, user: userEntity) {
     try {
       const product = await this.prisma.product.findUnique({
         where: { id },
+        select: {
+          id: true,
+          curatorId: true,
+          status: true,
+        },
       });
 
       if (!product) {
         throw new NotFoundException(`Product with ID ${id} not found`);
       }
 
-      // Only approved products can have availability toggled
-      if (product.status !== ProductStatus.APPROVED) {
+      // Check permissions: user must be owner OR admin
+      const userRecord = await this.prisma.user.findUnique({
+        where: { id: user.id },
+        select: { role: true },
+      });
+
+      const isOwner = product.curatorId === user.id;
+      const isAdmin = userRecord?.role === 'ADMIN';
+
+      if (!isOwner && !isAdmin) {
+        throw new ForbiddenException('You can only toggle availability of your own products');
+      }
+
+      // Only AVAILABLE/UNAVAILABLE products can have availability toggled
+      // (These are products that have been approved)
+      if (
+        product.status !== ProductStatus.AVAILABLE &&
+        product.status !== ProductStatus.UNAVAILABLE
+      ) {
         throw new BadRequestException(
-          'Only approved products can have their availability toggled. Current status: ' + product.status
+          'Only approved products can have their availability toggled. Current status: ' +
+            product.status,
         );
       }
 

@@ -72,6 +72,7 @@ model User {
   name            String
   provider        String?
   isVerified      Boolean           @default(false)
+  isSuspended     Boolean           @default(false)
   role            Role              @default(RENTER)
   tokenVersion    Int               @default(0)
   curatorReviews  Review[]          @relation("CuratorReviews")

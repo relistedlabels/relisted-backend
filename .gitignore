@@ -34,6 +34,8 @@ lerna-debug.log*
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
+.cursorrules.md
+.cursorrules
 
 # dotenv environment variable files
 .env
@@ -59,3 +61,5 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # Admin scripts (sensitive - delete account by email, etc.)
 /scripts/delete-account-by-email.ts
+/scripts/fix-product-statuses.ts
+/.md

@@ -9,6 +9,7 @@ Table User {
   name String [not null]
   provider String
   isVerified Boolean [not null, default: false]
+  isSuspended Boolean [not null, default: false]
   role Role [not null, default: 'RENTER']
   tokenVersion Int [not null, default: 0]
   curatorReviews Review [not null]

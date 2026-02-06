@@ -225,9 +225,13 @@ export class ProductController {
   }
 
   // Toggle product availability (only for approved products)
+  // Users can deactivate their approved products manually
   @Auth()
   @Patch(':id/availability')
-  @ApiOperation({ summary: 'Toggle product availability (only for approved products)' })
+  @ApiOperation({
+    summary:
+      'Toggle product availability (only for approved products). Users can deactivate their own products.',
+  })
   @ApiParam({ name: 'id', description: 'Product ID', example: 'uuid' })
   @ApiBody({ type: ToggleAvailabilityDto })
   @ApiResponse({
@@ -235,13 +239,55 @@ export class ProductController {
     description: 'Product availability toggled successfully',
   })
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
-  @ApiForbiddenResponse({ description: 'Forbidden' })
+  @ApiForbiddenResponse({ description: 'Forbidden: Not the product owner' })
   toggleAvailability(
     @Param('id') id: string,
     @Body() dto: ToggleAvailabilityDto,
     @AuthUser() user: userEntity,
   ) {
     return this.productService.toggleAvailability(id, dto.isAvailable, user);
+  }
+
+  // Get product statistics
+  @Auth()
+  @Get('statistics')
+  @ApiOperation({
+    summary: 'Get product statistics with products (total, approved, rejected, pending, active). Admins see all, listers see their own.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Product statistics retrieved successfully',
+    schema: {
+      example: {
+        success: true,
+        data: {
+          getTotalProducts: {
+            count: 50,
+            products: [],
+          },
+          getApprovedProducts: {
+            count: 30,
+            products: [],
+          },
+          getRejectedProducts: {
+            count: 5,
+            products: [],
+          },
+          getPendingProducts: {
+            count: 10,
+            products: [],
+          },
+          getActiveProducts: {
+            count: 25,
+            products: [],
+          },
+        },
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  getStatistics(@AuthUser() user: userEntity) {
+    return this.productService.getProductStatistics(user);
   }
 
   
