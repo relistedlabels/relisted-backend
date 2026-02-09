@@ -139,9 +139,65 @@ export class ProductController {
     return this.productService.getPendingProducts(query);
   }
 
+  // Get product statistics
+  @Auth()
+  @Get('statistics')
+  @ApiOperation({
+    summary: 'Get product statistics with products (total, approved, rejected, pending, active). Admins see all, listers see their own.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Product statistics retrieved successfully',
+    schema: {
+      example: {
+        success: true,
+        data: {
+          getTotalProducts: {
+            count: 50,
+            products: [],
+          },
+          getApprovedProducts: {
+            count: 30,
+            products: [],
+          },
+          getRejectedProducts: {
+            count: 5,
+            products: [],
+          },
+          getPendingProducts: {
+            count: 10,
+            products: [],
+          },
+          getActiveProducts: {
+            count: 25,
+            products: [],
+          },
+        },
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  getStatistics(@AuthUser() user: userEntity) {
+    return this.productService.getProductStatistics(user);
+  }
+
   
- 
-  //  * Get product by ID
+  //  Add product to favourites
+   
+  @Auth()
+  @Post('favourite')
+  @ApiOperation({ summary: 'Add a product to favourites' })
+  @ApiBody({ type: CreateFavouriteDto })
+  @ApiResponse({
+    status: 201,
+    description: 'Product added to favourites',
+  })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  addFavourite(@Body() dto: CreateFavouriteDto, @AuthUser() user: userEntity) {
+    return this.productService.createProductFavourite(dto, user);
+  }
+
+  //  * Get product by ID (must come after all specific routes)
   
   @Auth()
   @Get(':id')
@@ -246,64 +302,6 @@ export class ProductController {
     @AuthUser() user: userEntity,
   ) {
     return this.productService.toggleAvailability(id, dto.isAvailable, user);
-  }
-
-  // Get product statistics
-  @Auth()
-  @Get('statistics')
-  @ApiOperation({
-    summary: 'Get product statistics with products (total, approved, rejected, pending, active). Admins see all, listers see their own.',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Product statistics retrieved successfully',
-    schema: {
-      example: {
-        success: true,
-        data: {
-          getTotalProducts: {
-            count: 50,
-            products: [],
-          },
-          getApprovedProducts: {
-            count: 30,
-            products: [],
-          },
-          getRejectedProducts: {
-            count: 5,
-            products: [],
-          },
-          getPendingProducts: {
-            count: 10,
-            products: [],
-          },
-          getActiveProducts: {
-            count: 25,
-            products: [],
-          },
-        },
-      },
-    },
-  })
-  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
-  getStatistics(@AuthUser() user: userEntity) {
-    return this.productService.getProductStatistics(user);
-  }
-
-  
-  //  Add product to favourites
-   
-  @Auth()
-  @Post('favourite')
-  @ApiOperation({ summary: 'Add a product to favourites' })
-  @ApiBody({ type: CreateFavouriteDto })
-  @ApiResponse({
-    status: 201,
-    description: 'Product added to favourites',
-  })
-  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
-  addFavourite(@Body() dto: CreateFavouriteDto, @AuthUser() user: userEntity) {
-    return this.productService.createProductFavourite(dto, user);
   }
 
   // Delete product (Users can delete own, Admins can delete any)
