@@ -1,13 +1,12 @@
 import { Module } from '@nestjs/common';
 import { ListersController } from './listers.controller';
 import { ListersService } from './listers.service';
-import { PrismaModule } from 'src/services/prisma/prisma.module';
+import { PrismaService } from 'src/services/prisma/prisma.service';
 import { IssueCategoriesController } from './issue-categories.controller';
 
 @Module({
-  imports: [PrismaModule],
   controllers: [ListersController, IssueCategoriesController],
-  providers: [ListersService],
+  providers: [ListersService, PrismaService],
   exports: [ListersService],
 })
 export class ListersModule {}
