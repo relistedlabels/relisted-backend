@@ -73,6 +73,10 @@ Table BusinessInfo {
   businessAddress String [not null]
   businessCity String [not null]
   businessState String [not null]
+  businessPhone String
+  businessDescription String
+  businessCategory String
+  website String
 }
 
 Table Address {
@@ -246,6 +250,14 @@ Table Order {
   id String [pk]
   orderId String [unique, not null]
   status OrderStatus [not null, default: 'PROCESSING']
+  expiresAt DateTime
+  approvedAt DateTime
+  trackingNumber String
+  estimatedDeliveryDate DateTime
+  dispatchedAt DateTime
+  deliveredAt DateTime
+  returnDueAt DateTime
+  externalTrackingUrl String
   userId String [not null]
   user User [not null]
   rental Rental
@@ -256,6 +268,7 @@ Table Order {
   escrows Escrow
   virtualAccount VirtualAccount
   createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
 }
 
 Table OrderItem {

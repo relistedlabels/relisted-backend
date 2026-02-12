@@ -146,6 +146,11 @@ model BusinessInfo {
   businessAddress            String
   businessCity               String
   businessState              String
+  // Optional extended business metadata for lister dashboards
+  businessPhone        String?
+  businessDescription  String?
+  businessCategory     String?
+  website              String?
 }
 
 model Address {
@@ -358,9 +363,19 @@ enum AvailabilityStatus {
 }
 
 model Order {
-  id      String      @id @default(uuid())
-  orderId String      @unique
-  status  OrderStatus @default(PROCESSING)
+  id         String      @id @default(uuid())
+  orderId    String      @unique
+  status     OrderStatus @default(PROCESSING)
+  expiresAt  DateTime?   // 15-min approval window; null once approved/expired
+  approvedAt DateTime?
+
+  // Shipping / tracking metadata (for lister dashboards & dispatch workflow)
+  trackingNumber        String?
+  estimatedDeliveryDate DateTime?
+  dispatchedAt          DateTime?
+  deliveredAt           DateTime?
+  returnDueAt           DateTime?
+  externalTrackingUrl   String?
 
   userId String
   user   User   @relation(fields: [userId], references: [id])
@@ -374,6 +389,7 @@ model Order {
   virtualAccount     VirtualAccount?
 
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model OrderItem {

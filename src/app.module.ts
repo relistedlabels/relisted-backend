@@ -22,10 +22,10 @@ import { BrandsModule } from './module/brands/brands.module';
 import { CategoriesModule } from './module/categories/categories.module';
 import { WebhookModule } from './services/webhook/webhook.module';
 import { TagsModule } from './module/tags/tags.module';
-
+import { ListersModule } from './module/listers/listers.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, MailModule, EventModule, AuthOtpTokenModule, UserModule, ProfileModule, UploadModule, ProductModule, ReviewModule, DisputeModule, OrderModule, CartItemsModule, RentalModule, WaitlistModule, ChatRoomModule, WemaServiceModule, BrandsModule, CategoriesModule, WebhookModule, TagsModule],
+  imports: [PrismaModule, AuthModule, MailModule, EventModule, AuthOtpTokenModule, UserModule, ProfileModule, UploadModule, ProductModule, ReviewModule, DisputeModule, OrderModule, CartItemsModule, RentalModule, WaitlistModule, ChatRoomModule, WemaServiceModule, BrandsModule, CategoriesModule, WebhookModule, TagsModule, ListersModule],
   controllers: [AppController],
   providers: [AppService],
 })

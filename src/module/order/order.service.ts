@@ -7,6 +7,8 @@ import { bad } from 'src/utils/error';
 import { userEntity } from '../auth/auth.types';
 import { addMinutes, isAfter } from 'date-fns';
 
+const APPROVAL_WINDOW_MINUTES = 15;
+
 @Injectable()
 export class OrderService {
   constructor(
@@ -46,10 +48,13 @@ export class OrderService {
         const cleaningFee = 2000;
         const totalAmount = rentalAmount + collateralAmount + cleaningFee;
 
+        const now = new Date();
+        const expiresAt = addMinutes(now, APPROVAL_WINDOW_MINUTES);
         const order = await tx.order.create({
           data: {
             orderId: await this.generateOrderId(),
             userId: user.id,
+            expiresAt,
           },
         });
 
