@@ -607,3 +607,14 @@ model VirtualAccount {
   updatedAt    DateTime             @updatedAt
   transactions Transaction[]
 }
+
+model ContactSubmission {
+  id        String   @id @default(uuid())
+  firstName String
+  lastName  String
+  email     String
+  message   String
+  status    String   @default("RECEIVED") // RECEIVED, IN_REVIEW, RESOLVED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

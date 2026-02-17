@@ -2547,7 +2547,7 @@ export class ListersService {
     };
   }
 
-  private async ensureOrderBelongsToLister(curatorId: string, orderId: string) {
+  async ensureOrderBelongsToLister(curatorId: string, orderId: string) {
     const hasItem = await this.prisma.orderItem.findFirst({
       where: {
         orderId,
@@ -2555,5 +2555,352 @@ export class ListersService {
       },
     });
     if (!hasItem) throw new ForbiddenException('Order not found or access denied');
+  }
+
+  // PUBLIC METHODS
+
+  async getPublicListers(query: any) {
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const where: any = {
+      role: Role.LISTER,
+      // Only active/verified listers ideally
+      isVerified: true,
+      isSuspended: false,
+    };
+
+    if (query.search) {
+      where.OR = [
+        { name: { contains: query.search, mode: 'insensitive' } },
+        { profile: { businessInfo: { businessName: { contains: query.search, mode: 'insensitive' } } } },
+      ];
+    }
+
+    const [listers, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy:
+          query.sort === 'newest'
+            ? { createdAt: 'desc' }
+            : { curatorReviews: { _count: 'desc' } }, // default sort by popularity/rating count
+        select: {
+          id: true,
+          name: true,
+          createdAt: true,
+          isVerified: true,
+          profile: {
+            select: {
+              avatarUpload: { select: { url: true } },
+              businessInfo: {
+                select: {
+                  businessName: true,
+                  businessDescription: true,
+                },
+              },
+            },
+          },
+          _count: {
+            select: {
+              products: { where: { status: ProductStatus.AVAILABLE } },
+              curatorReviews: true,
+            },
+          },
+        },
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    const data = await Promise.all(
+      listers.map(async (lister) => {
+        // Calculate average rating
+        const ratingAgg = await this.prisma.review.aggregate({
+          where: { curatorId: lister.id },
+          _avg: { rating: true },
+        });
+
+        return {
+          id: lister.id,
+          name: lister.profile?.businessInfo?.businessName || lister.name,
+          avatar: lister.profile?.avatarUpload?.url || null,
+          role: 'lister',
+          rating: Math.round((ratingAgg._avg.rating || 0) * 10) / 10,
+          reviewCount: lister._count.curatorReviews,
+          shopDescription: lister.profile?.businessInfo?.businessDescription || '',
+          itemCount: lister._count.products,
+          joined: lister.createdAt,
+          isVerified: lister.isVerified,
+          featured: false, // logic for featured?
+        };
+      }),
+    );
+
+    return {
+      success: true,
+      data,
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(total / limit),
+        totalItems: total,
+        itemsPerPage: limit,
+      },
+    };
+  }
+
+  async getPublicListerProfile(userId: string) {
+    const lister = await this.prisma.user.findUnique({
+      where: { id: userId, role: Role.LISTER },
+      include: {
+        profile: {
+          include: {
+            avatarUpload: { select: { url: true } },
+            businessInfo: true,
+            address: true,
+          },
+        },
+        _count: {
+          select: {
+            products: { where: { status: ProductStatus.AVAILABLE } },
+            curatorReviews: true,
+          },
+        },
+      },
+    });
+
+    if (!lister) throw new NotFoundException('Lister not found');
+
+    const ratingAgg = await this.prisma.review.aggregate({
+      where: { curatorId: lister.id },
+      _avg: { rating: true },
+    });
+
+    // Get featured products (e.g. recent 5 available)
+    const featuredProducts = await this.prisma.product.findMany({
+      where: {
+        curatorId: lister.id,
+        status: ProductStatus.AVAILABLE,
+        isActive: true,
+        productVerified: true,
+      },
+      take: 4,
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        dailyPrice: true,
+        attachments: {
+          select: { uploads: { take: 1, select: { url: true } } },
+        },
+      },
+    });
+
+    // Get recent reviews
+    const recentReviews = await this.prisma.review.findMany({
+      where: { curatorId: lister.id },
+      take: 2,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        user: {
+          select: {
+            name: true,
+            profile: { select: { avatarUpload: { select: { url: true } } } },
+          },
+        },
+      },
+    });
+
+    return {
+      success: true,
+      data: {
+        user: {
+          id: lister.id,
+          name: lister.profile?.businessInfo?.businessName || lister.name,
+          avatar: lister.profile?.avatarUpload?.url || null,
+          role: 'lister',
+          bio: lister.profile?.businessInfo?.businessDescription || '', // Use description as bio
+          shopDescription: lister.profile?.businessInfo?.businessDescription || '',
+          rating: Math.round((ratingAgg._avg.rating || 0) * 10) / 10,
+          reviewCount: lister._count.curatorReviews,
+          itemCount: lister._count.products,
+          joined: lister.createdAt,
+          isVerified: lister.isVerified,
+          verificationDate: lister.updatedAt, // Approximate
+          featured: false,
+          shopPolicies: {
+            returnPolicy: 'Full refund within 30 days of rental', // placeholder
+            deliveryTime: '2-3 business days',
+            cancellationPolicy: 'Free cancellation up to 48 hours before rental',
+          },
+          featuredProducts: featuredProducts.map((p) => ({
+            id: p.id,
+            name: p.name,
+            dailyPrice: p.dailyPrice,
+            image: p.attachments?.uploads?.[0]?.url || null,
+          })),
+          recentReviews: recentReviews.map((r) => ({
+            reviewId: r.id,
+            renterName: r.user.name,
+            rating: r.rating,
+            text: r.comment,
+            date: r.createdAt,
+          })),
+        },
+      },
+    };
+  }
+
+  async getListerPublicProducts(userId: string, query: any) {
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const where: any = {
+      curatorId: userId,
+      status: ProductStatus.AVAILABLE,
+      isActive: true,
+      productVerified: true,
+    };
+
+    if (query.category) {
+      where.category = { name: { equals: query.category, mode: 'insensitive' } };
+    }
+    if (query.search) {
+      where.name = { contains: query.search, mode: 'insensitive' };
+    }
+
+    const [products, total] = await Promise.all([
+      this.prisma.product.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy:
+          query.sort === 'price_low'
+            ? { dailyPrice: 'asc' }
+            : query.sort === 'price_high'
+            ? { dailyPrice: 'desc' }
+            : { createdAt: 'desc' }, // default newest
+        include: {
+          brand: { select: { name: true } },
+          category: { select: { name: true } },
+          attachments: {
+            include: { uploads: { take: 1, select: { url: true } } },
+          },
+          _count: { select: { reviews: true } },
+        },
+      }),
+      this.prisma.product.count({ where }),
+    ]);
+
+    const data = await Promise.all(
+      products.map(async (p) => {
+        const ratingAgg = await this.prisma.review.aggregate({
+          where: { productId: p.id },
+          _avg: { rating: true },
+        });
+        return {
+          id: p.id,
+          name: p.name,
+          brand: p.brand?.name || null,
+          category: p.category?.name || null,
+          dailyPrice: p.dailyPrice,
+          image: p.attachments?.uploads?.[0]?.url || null,
+          rating: Math.round((ratingAgg._avg.rating || 0) * 10) / 10,
+          reviews: p._count.reviews,
+          isInStock: p.status === ProductStatus.AVAILABLE,
+        };
+      }),
+    );
+
+    return {
+      success: true,
+      data: {
+        products: data,
+        pagination: {
+          currentPage: page,
+          totalPages: Math.ceil(total / limit),
+          totalItems: total,
+          itemsPerPage: limit,
+        },
+      },
+    };
+  }
+
+  async getListerPublicReviews(userId: string, query: any) {
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const where = {
+      curatorId: userId,
+      // Only show reviews for completed rentals? Or all reviews?
+      // Assuming all public reviews are okay
+    };
+
+    const [reviews, total] = await Promise.all([
+      this.prisma.review.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy:
+          query.sort === 'oldest'
+            ? { createdAt: 'asc' }
+            : query.sort === 'rating_high'
+            ? { rating: 'desc' }
+            : query.sort === 'rating_low'
+            ? { rating: 'asc' }
+            : { createdAt: 'desc' }, // default newest
+        include: {
+          user: {
+            select: {
+              name: true,
+              profile: { select: { avatarUpload: { select: { url: true } } } },
+            },
+          },
+        },
+      }),
+      this.prisma.review.count({ where }),
+    ]);
+
+    const ratingAgg = await this.prisma.review.aggregate({
+      where: { curatorId: userId },
+      _avg: { rating: true },
+      _count: { rating: true },
+    });
+    
+    // Count 5-star reviews
+    const fiveStarCount = await this.prisma.review.count({
+      where: { curatorId: userId, rating: 5 },
+    });
+
+    const data = reviews.map((r) => ({
+      id: r.id,
+      name: r.user.name,
+      avatarUrl: r.user.profile?.avatarUpload?.url || null,
+      rating: r.rating,
+      comment: r.comment,
+      date: r.createdAt,
+      isMostHelpful: r.rating === 5 && (r.comment?.length ?? 0) > 50, // simple heuristic
+    }));
+
+    return {
+      success: true,
+      data: {
+        reviews: data,
+        pagination: {
+          currentPage: page,
+          totalPages: Math.ceil(total / limit),
+          totalItems: total,
+          itemsPerPage: limit,
+        },
+        summary: {
+          totalReviews: total,
+          averageRating: Math.round((ratingAgg._avg.rating || 0) * 10) / 10,
+          fiveStarCount,
+        },
+      },
+    };
   }
 }

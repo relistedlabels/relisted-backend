@@ -23,9 +23,11 @@ import { CategoriesModule } from './module/categories/categories.module';
 import { WebhookModule } from './services/webhook/webhook.module';
 import { TagsModule } from './module/tags/tags.module';
 import { ListersModule } from './module/listers/listers.module';
+import { ContactModule } from './module/contact/contact.module';
+import { SearchModule } from './module/search/search.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, MailModule, EventModule, AuthOtpTokenModule, UserModule, ProfileModule, UploadModule, ProductModule, ReviewModule, DisputeModule, OrderModule, CartItemsModule, RentalModule, WaitlistModule, ChatRoomModule, WemaServiceModule, BrandsModule, CategoriesModule, WebhookModule, TagsModule, ListersModule],
+  imports: [PrismaModule, AuthModule, MailModule, EventModule, AuthOtpTokenModule, UserModule, ProfileModule, UploadModule, ProductModule, ReviewModule, DisputeModule, OrderModule, CartItemsModule, RentalModule, WaitlistModule, ChatRoomModule, WemaServiceModule, BrandsModule, CategoriesModule, WebhookModule, TagsModule, ListersModule, ContactModule, SearchModule],
   controllers: [AppController],
   providers: [AppService],
 })

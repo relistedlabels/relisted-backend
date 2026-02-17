@@ -60,6 +60,7 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 /generated/prisma
 
 # Admin scripts (sensitive - delete account by email, etc.)
+scripts/
 /scripts/delete-account-by-email.ts
 /scripts/fix-product-statuses.ts
 /.md

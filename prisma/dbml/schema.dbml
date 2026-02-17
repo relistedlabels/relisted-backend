@@ -436,6 +436,17 @@ Table VirtualAccount {
   transactions Transaction [not null]
 }
 
+Table ContactSubmission {
+  id String [pk]
+  firstName String [not null]
+  lastName String [not null]
+  email String [not null]
+  message String [not null]
+  status String [not null, default: 'RECEIVED']
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+}
+
 Enum Role {
   ADMIN
   LISTER

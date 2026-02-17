@@ -1434,5 +1434,103 @@ export class ProductService {
       throw new InternalServerErrorException('Failed to delete product');
     }
   }
+  // Get product availability
+  async getProductAvailability(
+    productId: string,
+    startDate?: string,
+    endDate?: string,
+  ) {
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+      select: { id: true, name: true, dailyPrice: true },
+    });
+
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    const start = startDate ? new Date(startDate) : new Date();
+    const end = endDate
+      ? new Date(endDate)
+      : new Date(new Date().setDate(new Date().getDate() + 60));
+
+    // Get all rentals and cart items that overlap with the requested period
+    const rentals = await this.prisma.rental.findMany({
+      where: {
+        productId,
+        OR: [
+          {
+            startDate: { lte: end },
+            endDate: { gte: start },
+          },
+        ],
+        isReturned: false,
+      },
+    });
+
+    // Calculate available dates
+    const availableDates: string[] = [];
+    const unavailableDates: string[] = [];
+    const calendarData: any[] = [];
+    const monthAvailability: any = {};
+
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const dateStr = d.toISOString().split('T')[0];
+      const isBooked = rentals.some(
+        (r) =>
+          new Date(r.startDate) <= d &&
+          new Date(r.endDate) >= d,
+      );
+
+      const dayOfWeek = d.toLocaleDateString('en-US', { weekday: 'long' });
+      const monthKey = dateStr.slice(0, 7); // YYYY-MM
+
+      if (!monthAvailability[monthKey]) {
+        monthAvailability[monthKey] = { total: 0, available: 0, unavailable: 0 };
+      }
+      monthAvailability[monthKey].total++;
+
+      if (isBooked) {
+        unavailableDates.push(dateStr);
+        monthAvailability[monthKey].unavailable++;
+      } else {
+        availableDates.push(dateStr);
+        monthAvailability[monthKey].available++;
+      }
+
+      calendarData.push({
+        date: dateStr,
+        available: !isBooked,
+        dayOfWeek,
+        bookedBy: isBooked ? 'reserved' : null,
+      });
+    }
+
+    // Calculate stats
+    Object.keys(monthAvailability).forEach((key) => {
+      const m = monthAvailability[key];
+      m.percentAvailable = Math.round((m.available / m.total) * 100);
+    });
+
+    return {
+      success: true,
+      data: {
+        availability: {
+          productId: product.id,
+          productName: product.name,
+          dailyPrice: product.dailyPrice,
+          currency: 'NGN',
+          availableDates,
+          unavailableDates,
+          monthAvailability,
+          calendarData,
+          minRentalDays: 1,
+          maxConsecutiveDays: 30,
+          checkDateFrom: start.toISOString(),
+          checkDateTo: end.toISOString(),
+        },
+      },
+    };
+  }
 }
 
