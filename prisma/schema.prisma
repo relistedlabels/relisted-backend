@@ -96,6 +96,10 @@ model User {
   productCategory ProductCategory[]
   // fullText        String            @default("")
   tags            Tag[]
+  
+  bankAccounts       BankAccount[]
+  withdrawalRequests WithdrawalRequest[]
+  notificationSettings NotificationSettings?
 }
 
 model Profile {
@@ -118,6 +122,11 @@ model Profile {
 
   ninUpload   Upload? @relation("NinUpload", fields: [ninUploadId], references: [id])
   ninUploadId String? @unique
+
+  idDocumentType    String?
+  idDocumentStatus  String @default("NOT_UPLOADED")
+  idDocumentUpload  Upload? @relation("IdDocumentUpload", fields: [idDocumentUploadId], references: [id])
+  idDocumentUploadId String? @unique
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -288,6 +297,7 @@ model Upload {
   attachmentId    String?
   profileAsAvatar Profile?     @relation("AvatarUpload")
   profileAsNin    Profile?     @relation("NinUpload")
+  profileAsIdDoc  Profile?     @relation("IdDocumentUpload")
   attachment      Attachments? @relation(fields: [attachmentId], references: [id])
   user            User         @relation(fields: [userId], references: [id])
   userId          String
@@ -353,6 +363,14 @@ model AvailabilityRequest {
   createdAt   DateTime @default(now())
 
   product     Product  @relation(fields: [productId], references: [id])
+
+  // Rental Request Fields
+  startDate         DateTime?
+  endDate           DateTime?
+  rentalDays        Int?
+  totalPrice        Int?
+  deliveryAddressId String?
+  autoPay           Boolean  @default(false)
 }
 
 enum AvailabilityStatus {
@@ -615,6 +633,62 @@ model ContactSubmission {
   email     String
   message   String
   status    String   @default("RECEIVED") // RECEIVED, IN_REVIEW, RESOLVED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model BankAccount {
+  id                String   @id @default(uuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id])
+  bankName          String
+  bankCode          String
+  accountNumber     String
+  accountName       String
+  accountType       String?
+  isDefault         Boolean  @default(false)
+  verificationStatus String   @default("PENDING")
+  verifiedAt        DateTime?
+  
+  withdrawals       WithdrawalRequest[]
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model WithdrawalRequest {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  amount        Int
+  currency      String   @default("NGN")
+  
+  bankAccountId String
+  bankAccount   BankAccount @relation(fields: [bankAccountId], references: [id])
+
+  status        String   @default("PENDING")
+  reference     String   @unique
+  fee           Int      @default(0)
+  netAmount     Int
+
+  processedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model NotificationSettings {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id])
+  
+  emailAlertsEnabled Boolean @default(true)
+  emailAlertsCategories String[] 
+  
+  smsUpdatesEnabled Boolean @default(false)
+  smsUpdatesCategories String[]
+  
+  marketingEmailsEnabled Boolean @default(true)
+  
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

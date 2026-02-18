@@ -42,7 +42,7 @@ export class ProductController {
   constructor(private readonly productService: ProductService) {}
 
   /**
-   * Create a new product (Curators only)
+   * Create a new product (Listers only)
    */
   @Auth()
   @Post()
@@ -63,7 +63,7 @@ export class ProductController {
     },
   })
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
-  @ApiForbiddenResponse({ description: 'Forbidden: Not a curator' })
+  @ApiForbiddenResponse({ description: 'Forbidden: Not a lister' })
   create(
     @Body() createProductDto: CreateProductDto,
     @AuthUser() user: userEntity,

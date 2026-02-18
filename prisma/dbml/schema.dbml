@@ -32,6 +32,9 @@ Table User {
   brands Brand [not null]
   productCategory ProductCategory [not null]
   tags Tag [not null]
+  bankAccounts BankAccount [not null]
+  withdrawalRequests WithdrawalRequest [not null]
+  notificationSettings NotificationSettings
 }
 
 Table Profile {
@@ -48,6 +51,10 @@ Table Profile {
   avatarUploadId String [unique]
   ninUpload Upload
   ninUploadId String [unique]
+  idDocumentType String
+  idDocumentStatus String [not null, default: 'NOT_UPLOADED']
+  idDocumentUpload Upload
+  idDocumentUploadId String [unique]
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
 }
@@ -188,6 +195,7 @@ Table Upload {
   attachmentId String
   profileAsAvatar Profile
   profileAsNin Profile
+  profileAsIdDoc Profile
   attachment Attachments
   user User [not null]
   userId String [not null]
@@ -244,6 +252,12 @@ Table AvailabilityRequest {
   expiresAt DateTime [not null]
   createdAt DateTime [default: `now()`, not null]
   product Product [not null]
+  startDate DateTime
+  endDate DateTime
+  rentalDays Int
+  totalPrice Int
+  deliveryAddressId String
+  autoPay Boolean [not null, default: false]
 }
 
 Table Order {
@@ -447,6 +461,53 @@ Table ContactSubmission {
   updatedAt DateTime [not null]
 }
 
+Table BankAccount {
+  id String [pk]
+  userId String [not null]
+  user User [not null]
+  bankName String [not null]
+  bankCode String [not null]
+  accountNumber String [not null]
+  accountName String [not null]
+  accountType String
+  isDefault Boolean [not null, default: false]
+  verificationStatus String [not null, default: 'PENDING']
+  verifiedAt DateTime
+  withdrawals WithdrawalRequest [not null]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+}
+
+Table WithdrawalRequest {
+  id String [pk]
+  userId String [not null]
+  user User [not null]
+  amount Int [not null]
+  currency String [not null, default: 'NGN']
+  bankAccountId String [not null]
+  bankAccount BankAccount [not null]
+  status String [not null, default: 'PENDING']
+  reference String [unique, not null]
+  fee Int [not null, default: 0]
+  netAmount Int [not null]
+  processedAt DateTime
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+}
+
+Table NotificationSettings {
+  id String [pk]
+  userId String [unique, not null]
+  user User [not null]
+  emailAlertsEnabled Boolean [not null, default: true]
+  emailAlertsCategories String[] [not null]
+  smsUpdatesEnabled Boolean [not null, default: false]
+  smsUpdatesCategories String[] [not null]
+  marketingEmailsEnabled Boolean [not null, default: true]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+}
+
 Enum Role {
   ADMIN
   LISTER
@@ -535,6 +596,8 @@ Ref: Profile.userId - User.id
 Ref: Profile.avatarUploadId - Upload.id
 
 Ref: Profile.ninUploadId - Upload.id
+
+Ref: Profile.idDocumentUploadId - Upload.id
 
 Ref: EmergencyContact.profileId - Profile.id
 
@@ -625,3 +688,11 @@ Ref: Escrow.orderId - Order.id
 Ref: VirtualAccount.orderId - Order.id
 
 Ref: VirtualAccount.userId > User.id
+
+Ref: BankAccount.userId > User.id
+
+Ref: WithdrawalRequest.userId > User.id
+
+Ref: WithdrawalRequest.bankAccountId > BankAccount.id
+
+Ref: NotificationSettings.userId - User.id
