@@ -383,6 +383,15 @@ Table Transaction {
   userId String [not null]
   virtualAccountId String
   virtualAccount VirtualAccount
+  sessionId String [unique]
+  paymentReference String
+  originatorName String
+  originatorAccountNumber String
+  bankName String
+  narration String
+  crAccountName String
+  crAccount String
+  bankCode String
   createdAt DateTime [default: `now()`, not null]
 }
 
@@ -443,6 +452,7 @@ Table VirtualAccount {
   user User [not null]
   amount Int
   status VirtualAccountStatus [not null, default: 'PENDING']
+  blockReason String
   expiresAt DateTime [not null]
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
@@ -593,6 +603,7 @@ Enum VirtualAccountStatus {
   PENDING
   PAID
   EXPIRED
+  INACTIVE
 }
 
 Ref: Profile.userId - User.id

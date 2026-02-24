@@ -529,6 +529,18 @@ model Transaction {
   userId           String
   virtualAccountId String?
   virtualAccount   VirtualAccount? @relation(fields: [virtualAccountId], references: [id])
+
+  // Wema Bank Webhook Fields
+  sessionId                 String? @unique
+  paymentReference          String?
+  originatorName            String?
+  originatorAccountNumber   String?
+  bankName                  String?
+  narration                 String?
+  crAccountName             String?
+  crAccount                 String?
+  bankCode                  String?
+
   createdAt        DateTime        @default(now())
 }
 
@@ -605,6 +617,7 @@ enum VirtualAccountStatus {
   PENDING
   PAID
   EXPIRED
+  INACTIVE
 }
 
 model VirtualAccount {
@@ -619,6 +632,7 @@ model VirtualAccount {
   user         User                 @relation(fields: [userId], references: [id])
   amount       Int?
   status       VirtualAccountStatus @default(PENDING)
+  blockReason  String?
   expiresAt    DateTime
   createdAt    DateTime             @default(now())
   updatedAt    DateTime             @updatedAt
