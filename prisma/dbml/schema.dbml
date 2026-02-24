@@ -134,8 +134,7 @@ Table Product {
   brand Brand
   categoryId String
   category ProductCategory
-  tagId String
-  tag Tag
+  tags Tag [not null]
   curatorId String [not null]
   curator User [not null]
   attachments Attachments
@@ -508,6 +507,11 @@ Table NotificationSettings {
   updatedAt DateTime [not null]
 }
 
+Table ProductToTag {
+  tagsId String [ref: > Tag.id]
+  productsId String [ref: > Product.id]
+}
+
 Enum Role {
   ADMIN
   LISTER
@@ -610,8 +614,6 @@ Ref: AuthOtpToken.userId > User.id
 Ref: Product.brandId > Brand.id
 
 Ref: Product.categoryId > ProductCategory.id
-
-Ref: Product.tagId > Tag.id
 
 Ref: Product.curatorId > User.id
 

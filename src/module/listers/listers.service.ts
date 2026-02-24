@@ -2810,6 +2810,7 @@ export class ListersService {
           rating: Math.round((ratingAgg._avg.rating || 0) * 10) / 10,
           reviews: p._count.reviews,
           isInStock: p.status === ProductStatus.AVAILABLE,
+          originalValue: p.originalValue
         };
       }),
     );

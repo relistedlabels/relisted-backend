@@ -475,4 +475,23 @@ export class RentersService {
           }
       }
   }
+
+  async addFavorite(userId: string, productId: string) {
+      return this.prisma.favourite.create({
+          data: {
+              userId,
+              productId
+          }
+      })
+  }
+
+  async removeFavorite(userId: string, productId: string) {
+      return this.prisma.favourite.delete({
+          where: {
+              userId_productId: {
+                  userId,
+                  productId
+              }
+          }
+      })
 }

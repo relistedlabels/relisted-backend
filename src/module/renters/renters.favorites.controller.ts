@@ -19,4 +19,16 @@ export class RentersFavoritesController {
   async getFavorites(@Request() req, @Query() query: any) {
     return this.rentersService.getFavorites(req.user.id, query);
   }
+
+  @Post(':productId')
+  @ApiOperation({ summary: 'Add favorite item' })
+  async addFavorite(@Request() req, @Param('productId') productId: string) {
+    return this.rentersService.addFavorite(req.user.id, productId);
+  }
+
+  @Delete(':productId')
+  @ApiOperation({ summary: 'Remove favorite item' })
+  async removeFavorite(@Request() req, @Param('productId') productId: string) {
+    return this.rentersService.removeFavorite(req.user.id, productId);
+  }
 }
