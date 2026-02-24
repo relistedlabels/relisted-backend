@@ -104,10 +104,11 @@ export class CreateProductDto {
   @IsOptional()
   categoryId?: string;
 
-  @ApiProperty()
-  @IsString()
+  @ApiProperty({ required: false, type: [String] })
   @IsOptional()
-  tagId?: string;
+  @IsArray()
+  @IsString({ each: true })
+  tagids?: string[];
 
   @ApiProperty()
   @IsString()
@@ -147,6 +148,10 @@ export class queryDto {
    @IsOptional()
   @IsBoolean()
   verified:boolean
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  tagids?: string[];
 }
 
 export class RejectProductDto {

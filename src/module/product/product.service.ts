@@ -503,19 +503,24 @@ export class ProductService {
   
   async create(dto: CreateProductDto, user: userEntity) {
     try {
-      const tagId = dto.tagId?.trim() || undefined;
       const categoryId = dto.categoryId?.trim() || undefined;
       const brandId = dto.brandId?.trim() || undefined;
+      let tagIdsToConnect: string[] = [];
+      if (dto.tagids) {
+        const incomingTags = Array.isArray(dto.tagids) ? dto.tagids : [dto.tagids];
+        tagIdsToConnect = incomingTags.map(id => typeof id === 'string' ? id.trim() : '').filter(id => id.length > 0);
+        
+        if (tagIdsToConnect.length > 0) {
+          const existingTags = await this.prisma.tag.findMany({
+            where: { id: { in: tagIdsToConnect } },
+            select: { id: true },
+          });
 
-      if (tagId) {
-        const tagExists = await this.prisma.tag.findUnique({
-          where: { id: tagId },
-          select: { id: true },
-        });
-        if (!tagExists) {
-          throw new BadRequestException(
-            'Invalid tag selected. Please choose a tag from the list.',
-          );
+          if (existingTags.length !== tagIdsToConnect.length) {
+            throw new BadRequestException(
+              'One or more invalid tags selected. Please choose valid tags.',
+            );
+          }
         }
       }
       if (categoryId) {
@@ -583,7 +588,11 @@ export class ProductService {
           productVerified: false,
           ...(brandId && { brandId }),
           ...(categoryId && { categoryId }),
-          ...(tagId && { tagId }),
+          ...(tagIdsToConnect.length > 0 && {
+            tags: {
+              connect: tagIdsToConnect.map(id => ({ id }))
+            }
+          }),
         
         // Only create attachments if there are valid uploads
         ...(dto.attachments?.length && {

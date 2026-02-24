@@ -107,11 +107,43 @@ async create(dto: CreateProfileDto, user: userEntity) {
     };
   }
 
+  async findOneById(id: string) {
+    const profile = await this.prisma.profile.findFirst({
+      where: {
+        OR: [
+          { id },
+          { userId: id }
+        ]
+      },
+      include: {
+        emergencyContact: true,
+        businessInfo: true,
+        address: true,
+        user: true,
+        avatarUpload: true,
+      },
+    });
+
+    if (!profile) {
+      throw new NotFoundException('Profile not found');
+    }
+
+    const responseData = {
+      ...profile,
+      avatarUrl: profile.avatarUpload?.url || null,
+    };
+
+    return {
+      message: 'Profile retrieved successfully',
+      data: responseData,
+    };
+  }
+
   
   
   async update(id: string, dto: UpdateProfileDto, user: userEntity) {
     const profile = await this.prisma.profile.findUnique({
-      where: { id },
+      where: { userId: id },
     });
 
     if (!profile) {
@@ -120,7 +152,7 @@ async create(dto: CreateProfileDto, user: userEntity) {
 
 
     const updatedProfile = await this.prisma.profile.update({
-      where: { userId: user.id },
+      where: { userId: id},
       data: {
         phoneNumber: dto.phoneNumber,
            ...(dto.avatarUploadId && {
