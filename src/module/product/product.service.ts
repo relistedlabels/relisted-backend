@@ -649,7 +649,7 @@ export class ProductService {
           include: {
             brand: true,
             category: true,
-            tag: true,
+            tags: true,
             attachments: {
               include: {
                 uploads: {
@@ -720,7 +720,7 @@ export class ProductService {
           include: {
             brand: true,
             category: true,
-            tag: true,
+            tags: true,
             curator: {
               select: {
                 id: true,
@@ -807,7 +807,7 @@ export class ProductService {
           category: {
             select: { id: true, name: true },
           },
-          tag: {
+          tags: {
             select: { id: true, name: true },
           },
         },
@@ -867,7 +867,7 @@ export class ProductService {
         category: {
           select: { id: true, name: true },
         },
-        tag: {
+        tags: {
           select: { id: true, name: true },
         },
       };
@@ -1286,7 +1286,7 @@ export class ProductService {
           },
           brand: true,
           category: true,
-          tag: true,
+          tags: true,
         },
       });
 
