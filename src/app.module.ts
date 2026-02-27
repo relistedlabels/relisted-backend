@@ -26,9 +26,10 @@ import { ListersModule } from './module/listers/listers.module';
 import { ContactModule } from './module/contact/contact.module';
 import { SearchModule } from './module/search/search.module';
 import { RentersModule } from './module/renters/renters.module';
+import { AdminModule } from './module/admin/admin.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, MailModule, EventModule, AuthOtpTokenModule, UserModule, ProfileModule, UploadModule, ProductModule, ReviewModule, DisputeModule, OrderModule, CartItemsModule, RentalModule, WaitlistModule, ChatRoomModule, WemaServiceModule, BrandsModule, CategoriesModule, WebhookModule, TagsModule, ListersModule, ContactModule, SearchModule, RentersModule],
+  imports: [PrismaModule, AuthModule, MailModule, EventModule, AuthOtpTokenModule, UserModule, ProfileModule, UploadModule, ProductModule, ReviewModule, DisputeModule, OrderModule, CartItemsModule, RentalModule, WaitlistModule, ChatRoomModule, WemaServiceModule, BrandsModule, CategoriesModule, WebhookModule, TagsModule, ListersModule, ContactModule, SearchModule, RentersModule, AdminModule],
   controllers: [AppController],
   providers: [AppService],
 })

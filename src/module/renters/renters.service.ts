@@ -844,7 +844,7 @@ export class RentersService {
       data: {
         preferences: {
           emailAlerts: {
-            enabled: notifSettings?.receiveEmailNotifications ?? true,
+            enabled: notifSettings?.emailAlertsEnabled ?? true,
             categories: ['orders', 'returns', 'disputes'],
           },
           smsUpdates: {
@@ -880,7 +880,7 @@ export class RentersService {
     const updated = await this.prisma.notificationSettings.update({
       where: { userId },
       data: {
-        receiveEmailNotifications: data.emailAlerts ?? notifSettings.receiveEmailNotifications,
+        emailAlertsEnabled: data.emailAlerts ?? notifSettings.emailAlertsEnabled,
         marketingEmailsEnabled: data.marketingEmails ?? notifSettings.marketingEmailsEnabled,
       },
     });
@@ -890,7 +890,7 @@ export class RentersService {
       message: 'Notification preferences updated successfully',
       data: {
         preferences: {
-          emailAlerts: updated.receiveEmailNotifications,
+          emailAlerts: updated.emailAlertsEnabled,
           smsUpdates: false,
           marketingEmails: updated.marketingEmailsEnabled,
         },
@@ -911,7 +911,7 @@ export class RentersService {
         where: { userId, status: 'IN_REVIEW' },
       }),
       this.prisma.dispute.count({
-        where: { userId, status: 'RESOLVED' },
+        where: { userId, status: 'RESELOVED' },
       }),
     ]);
 
@@ -941,7 +941,7 @@ export class RentersService {
       const map: Record<string, string> = {
         pending: 'PENDING',
         in_review: 'IN_REVIEW',
-        resolved: 'RESOLVED',
+        resolved: 'RESELOVED',
       };
       where.status = map[status] || undefined;
     }
@@ -1086,21 +1086,19 @@ export class RentersService {
   async getDisputeEvidence(userId: string, disputeId: string) {
     const dispute = await this.prisma.dispute.findUnique({
       where: { disputeId },
-      include: { attachment: true },
+      include: { attachment: { include: { uploads: true } } },
     });
 
     if (!dispute || dispute.userId !== userId) throw new NotFoundException('Dispute not found');
 
-    const files = dispute.attachment
-      ? [
-          {
-            fileId: dispute.attachment.id,
-            fileName: dispute.attachment.name,
-            fileType: 'image',
-            fileUrl: dispute.attachment.url,
-            uploadedDate: dispute.attachment.createdAt?.toISOString() || new Date().toISOString(),
-          },
-        ]
+    const files = dispute.attachment?.uploads
+      ? dispute.attachment.uploads.map(upload => ({
+          fileId: upload.id,
+          fileName: upload.name,
+          fileType: upload.type, // Could map to 'image' if needed
+          fileUrl: upload.url,
+          uploadedDate: upload.createdAt.toISOString(),
+        }))
       : [];
 
     return {
@@ -1147,17 +1145,17 @@ export class RentersService {
       data: {
         resolution: {
           status:
-            dispute.status === 'RESOLVED'
+            dispute.status === 'RESELOVED'
               ? 'Resolved'
               : dispute.status === 'IN_REVIEW'
                 ? 'Reviewing'
                 : 'Reviewing',
           resolutionDetails:
-            dispute.status === 'RESOLVED'
+            dispute.status === 'RESELOVED'
               ? 'Dispute resolved in favor of renter. Full refund approved.'
               : 'Your dispute is currently being reviewed by our team',
-          refundAmount: dispute.status === 'RESOLVED' ? 8500 : null,
-          refundDate: dispute.status === 'RESOLVED' ? new Date().toISOString() : null,
+          refundAmount: dispute.status === 'RESELOVED' ? 8500 : null,
+          refundDate: dispute.status === 'RESELOVED' ? new Date().toISOString() : null,
         },
       },
     };
@@ -1171,14 +1169,14 @@ export class RentersService {
 
     if (!dispute || dispute.userId !== userId) throw new NotFoundException('Dispute not found');
 
-    const messages: any[] = dispute.chatRooms?.flatMap((cr) =>
-      cr.message.map((m: any) => ({
-        id: m.id,
-        type: m.senderRole === 'admin' ? 'admin' : 'user',
-        content: m.content,
-        timestamp: m.createdAt.toISOString(),
-      })),
-    ) || [];
+    const messages: any[] = dispute.chatRooms
+      ? dispute.chatRooms.message.map((m: any) => ({
+          id: m.id,
+          type: m.senderRole === 'admin' ? 'admin' : 'user',
+          content: m.content,
+          timestamp: m.createdAt.toISOString(),
+        }))
+      : [];
 
     return {
       success: true,

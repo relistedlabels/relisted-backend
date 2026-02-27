@@ -35,6 +35,9 @@ Table User {
   bankAccounts BankAccount [not null]
   withdrawalRequests WithdrawalRequest [not null]
   notificationSettings NotificationSettings
+  adminRoleId String
+  adminRole AdminRole
+  auditLogs AuditLog [not null]
 }
 
 Table Profile {
@@ -517,6 +520,36 @@ Table NotificationSettings {
   updatedAt DateTime [not null]
 }
 
+Table AdminRole {
+  id String [pk]
+  name String [unique, not null]
+  description String [not null]
+  permissions Json [not null]
+  createdAt DateTime [default: `now()`, not null]
+  users User [not null]
+}
+
+Table PlatformSetting {
+  id String [pk]
+  key String [unique, not null]
+  value Json [not null]
+}
+
+Table AuditLog {
+  id String [pk]
+  action String [not null]
+  actionType String [not null]
+  performedBy String [not null]
+  admin User [not null]
+  targetType String [not null]
+  targetId String [not null]
+  targetName String [not null]
+  details Json
+  ipAddress String
+  status String [not null, default: 'Success']
+  createdAt DateTime [default: `now()`, not null]
+}
+
 Table ProductToTag {
   tagsId String [ref: > Tag.id]
   productsId String [ref: > Product.id]
@@ -605,6 +638,8 @@ Enum VirtualAccountStatus {
   EXPIRED
   INACTIVE
 }
+
+Ref: User.adminRoleId > AdminRole.id
 
 Ref: Profile.userId - User.id
 
@@ -709,3 +744,5 @@ Ref: WithdrawalRequest.userId > User.id
 Ref: WithdrawalRequest.bankAccountId > BankAccount.id
 
 Ref: NotificationSettings.userId - User.id
+
+Ref: AuditLog.performedBy > User.id

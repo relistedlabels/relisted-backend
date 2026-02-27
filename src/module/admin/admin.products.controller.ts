@@ -1,0 +1,75 @@
+import { Controller, Get, Param, Patch, Post, Body, Query, Put } from '@nestjs/common';
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { AdminService } from './admin.service';
+
+@ApiTags('Admin Products')
+@Controller('api/admin/products')
+export class AdminProductsController {
+  constructor(private readonly adminService: AdminService) {}
+
+  @Get('statistics')
+  @ApiOperation({ summary: 'Get product statistics' })
+  async getProductStats() {
+    return this.adminService.getProductStats();
+  }
+
+  @Get('pending')
+  @ApiOperation({ summary: 'Get pending products' })
+  async getPendingProducts(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.adminService.getProductsByStatus('PENDING', page ? parseInt(page, 10) : 1, limit ? parseInt(limit, 10) : 10);
+  }
+
+  @Get('rejected')
+  @ApiOperation({ summary: 'Get rejected products' })
+  async getRejectedProducts(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.adminService.getProductsByStatus('REJECTED', page ? parseInt(page, 10) : 1, limit ? parseInt(limit, 10) : 10);
+  }
+
+  @Get('active')
+  @ApiOperation({ summary: 'Get active products' })
+  async getActiveProducts(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.adminService.getProductsByStatus('APPROVED', page ? parseInt(page, 10) : 1, limit ? parseInt(limit, 10) : 10);
+  }
+
+  @Get('categories')
+  @ApiOperation({ summary: 'Get product categories' })
+  async getProductCategories() {
+    return this.adminService.getProductCategories();
+  }
+
+  @Get('brands')
+  @ApiOperation({ summary: 'Get product brands' })
+  async getProductBrands() {
+    return this.adminService.getProductBrands();
+  }
+
+  @Get(':productId')
+  @ApiOperation({ summary: 'Get product details' })
+  async getProductDetails(@Param('productId') productId: string) {
+    return this.adminService.getProductDetails(productId);
+  }
+
+  @Patch(':productId/approve')
+  @ApiOperation({ summary: 'Approve a product' })
+  async approveProduct(@Param('productId') productId: string) {
+    return this.adminService.updateProductStatus(productId, 'APPROVED');
+  }
+
+  @Patch(':productId/reject')
+  @ApiOperation({ summary: 'Reject a product' })
+  async rejectProduct(
+    @Param('productId') productId: string,
+    @Body() data: { reason: string },
+  ) {
+    return this.adminService.updateProductStatus(productId, 'REJECTED', data.reason);
+  }
+}

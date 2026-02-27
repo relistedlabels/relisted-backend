@@ -100,6 +100,10 @@ model User {
   bankAccounts       BankAccount[]
   withdrawalRequests WithdrawalRequest[]
   notificationSettings NotificationSettings?
+
+  adminRoleId String?
+  adminRole   AdminRole? @relation(fields: [adminRoleId], references: [id])
+  auditLogs   AuditLog[] @relation("AdminAuditLogs")
 }
 
 model Profile {
@@ -704,4 +708,34 @@ model NotificationSettings {
   
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model AdminRole {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String
+  permissions Json
+  createdAt   DateTime @default(now())
+  users       User[]
+}
+
+model PlatformSetting {
+  id    String @id @default(uuid())
+  key   String @unique
+  value Json
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  action      String
+  actionType  String
+  performedBy String
+  admin       User     @relation("AdminAuditLogs", fields: [performedBy], references: [id])
+  targetType  String
+  targetId    String
+  targetName  String
+  details     Json?
+  ipAddress   String?
+  status      String   @default("Success")
+  createdAt   DateTime @default(now())
 }

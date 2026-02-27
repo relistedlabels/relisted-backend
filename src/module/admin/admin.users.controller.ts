@@ -1,0 +1,58 @@
+import { Controller, Get, Param } from '@nestjs/common';
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { AdminService } from './admin.service';
+
+@ApiTags('Admin Users')
+@Controller('api/admin/users')
+export class AdminUsersController {
+  constructor(private readonly adminService: AdminService) {}
+
+  @Get()
+  @ApiOperation({ summary: 'Get all users' })
+  async getAllUsers() {
+    return this.adminService.getAllUsers();
+  }
+
+  @Get(':userId')
+  @ApiOperation({ summary: 'Get user details' })
+  async getUserDetails(@Param('userId') userId: string) {
+    return this.adminService.getUserDetails(userId);
+  }
+
+  @Get(':userId/rentals')
+  @ApiOperation({ summary: 'Get user rentals' })
+  async getUserRentals(@Param('userId') userId: string) {
+    return this.adminService.getUserRentals(userId);
+  }
+
+  @Get(':userId/listings')
+  @ApiOperation({ summary: 'Get user listings' })
+  async getUserListings(@Param('userId') userId: string) {
+    return this.adminService.getUserListings(userId);
+  }
+
+  @Get(':userId/wallet')
+  @ApiOperation({ summary: 'Get user wallet' })
+  async getUserWallet(@Param('userId') userId: string) {
+    return this.adminService.getUserWallet(userId);
+  }
+
+  @Get(':userId/transactions')
+  @ApiOperation({ summary: 'Get user transactions' })
+  async getUserTransactions(@Param('userId') userId: string) {
+    return this.adminService.getUserTransactions(userId);
+  }
+
+  @Get(':userId/disputes')
+  @ApiOperation({ summary: 'Get user disputes' })
+  async getUserDisputes(@Param('userId') userId: string) {
+    return this.adminService.getUserDisputes(userId);
+  }
+
+  @Get(':userId/favorites')
+  @ApiOperation({ summary: 'Get user favorites' })
+  async getUserFavorites(@Param('userId') userId: string) {
+    return this.adminService.getUserFavorites(userId);
+  }
+}
+
