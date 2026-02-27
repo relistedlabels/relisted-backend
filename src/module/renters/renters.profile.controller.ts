@@ -57,4 +57,40 @@ export class RentersProfileController {
   async uploadAvatar(@Request() req, @UploadedFile() file: Express.Multer.File) {
     return this.rentersService.uploadAvatar(req.user.id, file);
   }
+
+  @Get('verifications/status')
+  @ApiOperation({ summary: 'Get verification status' })
+  async getVerificationStatus(@Request() req) {
+    return this.rentersService.getVerificationStatus(req.user.id);
+  }
+
+  @Post('verifications/id-document')
+  @UseInterceptors(FileInterceptor('idDocument'))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        idDocument: {
+          type: 'string',
+          format: 'binary',
+        },
+        idType: {
+          type: 'string',
+          enum: ['national_id', 'passport', 'drivers_license'],
+        },
+      },
+    },
+  })
+  @ApiOperation({ summary: 'Upload ID document for verification' })
+  async uploadIdDocument(
+    @Request() req,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: any,
+  ) {
+    return this.rentersService.uploadIdDocument(req.user.id, {
+      idDocument: file,
+      idType: body.idType || 'national_id',
+    });
+  }
 }

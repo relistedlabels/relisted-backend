@@ -8,6 +8,8 @@ import { RentersOrdersController } from './renters.orders.controller';
 import { RentersDisputesController } from './renters.disputes.controller';
 import { RentersRentalRequestsController } from './renters.rental-requests.controller';
 import { RentersFavoritesController } from './renters.favorites.controller';
+import { RentersSecurityController } from './renters.security.controller';
+import { RentersNotificationsController } from './renters.notifications.controller';
 import { PrismaService } from '../../services/prisma/prisma.service';
 
 @Module({
@@ -19,7 +21,9 @@ import { PrismaService } from '../../services/prisma/prisma.service';
     RentersOrdersController,
     RentersDisputesController,
     RentersRentalRequestsController,
-    RentersFavoritesController
+    RentersFavoritesController,
+    RentersSecurityController,
+    RentersNotificationsController,
   ],
   providers: [RentersService, PrismaService],
   exports: [RentersService],
