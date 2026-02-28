@@ -237,7 +237,7 @@ export class ListersService {
     }
   }
 
-  /** GET /api/listers/orders - orders that include at least one product from this lister */
+  /** GET /api/listers/orders - returns AvailabilityRequests for pending, Orders for ongoing/completed */
   async getOrders(
     user: userEntity,
     status: string | undefined,
@@ -247,63 +247,158 @@ export class ListersService {
   ) {
     try {
       const skip = (page - 1) * limit;
-      const statusFilter = this.mapStatusToOrderStatuses(status);
+      const targetStatus = status?.toLowerCase() || 'all';
       
-      const orderWhere: any = {
-        orderItems: { some: { product: { curatorId: user.id } } },
-      };
-      if (statusFilter && statusFilter.length > 0) {
-        orderWhere.status = { in: statusFilter };
+      let allItems: any[] = [];
+      let total = 0;
+
+      // 1. Fetch pending requests (AvailabilityRequests)
+      if (['all', 'pending', 'pending_approval'].includes(targetStatus)) {
+        const [pendingCount, pendingReqs] = await Promise.all([
+          this.prisma.availabilityRequest.count({
+            where: { listerId: user.id, status: 'PENDING' },
+          }),
+          this.prisma.availabilityRequest.findMany({
+            where: { listerId: user.id, status: 'PENDING' },
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  measurement: true,
+                  color: true,
+                  originalValue: true,
+                  dailyPrice: true,
+                  attachments: { include: { uploads: { take: 1, select: { url: true } } } },
+                }
+              }
+            }
+          }),
+        ]);
+        
+        // Fetch users for these requests (Prisma lacks requester relation in standard way, must fetch manually if relation isn't mapped, but here we can just join or map)
+        // For simplicity, we fetch users separately
+        const userIds = [...new Set(pendingReqs.map(r => r.requesterId))];
+        const users = await this.prisma.user.findMany({
+          where: { id: { in: userIds } },
+          include: { profile: { select: { avatarUpload: { select: { url: true } } } } }
+        });
+        const userMap = new Map(users.map(u => [u.id, u]));
+
+        const formattedPending = pendingReqs.map(r => {
+          const u = userMap.get(r.requesterId);
+          const diff = Math.max(0, Math.floor((new Date(r.expiresAt).getTime() - Date.now()) / 1000));
+          return {
+            id: r.id, // Using request ID
+            orderNumber: `REQ-${r.id.slice(0, 8)}`,
+            createdAt: r.createdAt.toISOString(),
+            expiresAt: r.expiresAt.toISOString(),
+            timeRemainingSeconds: diff,
+            status: 'pending_approval',
+            statusLabel: 'Pending Approval',
+            statusColor: '#FFF3E0',
+            statusTextColor: '#E65100',
+            itemCount: 1,
+            totalAmount: r.totalPrice || 0,
+            currency: CURRENCY,
+            dresser: u ? {
+              id: u.id,
+              name: u.name,
+              avatar: u.profile?.avatarUpload?.url ?? 'https://via.placeholder.com/64?text=U',
+              rating: 0,
+              reviews: 0,
+              memberSince: u.createdAt.toISOString().split('T')[0],
+            } : null,
+            items: [{
+              id: r.productId,
+              name: r.product.name,
+              image: r.product.attachments?.uploads?.[0]?.url ?? 'https://via.placeholder.com/300?text=No+Image',
+              size: r.product.measurement ?? 'N/A',
+              color: r.product.color ?? 'N/A',
+              rentalFee: r.totalPrice || 0,
+              itemValue: r.product.originalValue || 0,
+              returnDue: r.endDate ? new Date(r.endDate).toISOString().split('T')[0] : null,
+              status: 'pending_approval',
+              statusLabel: 'Pending Approval',
+            }],
+            canApprove: diff > 0,
+            canReject: true,
+            approvalRequired: true,
+            approvalExpiredAt: r.expiresAt.toISOString(),
+          };
+        });
+
+        allItems = [...allItems, ...formattedPending];
+        total += pendingCount;
       }
 
-      const sortField = sort?.startsWith('-') ? sort.slice(1) : sort;
-      const orderByField =
-        sortField === 'createdAt' || !sortField
-          ? 'createdAt'
-          : 'createdAt';
-      const [orders, total, summary] = await Promise.all([
-        this.prisma.order.findMany({
-          where: orderWhere,
-          skip,
-          take: limit,
-          orderBy:
-             sort?.startsWith('-')
-              ? { [orderByField]: 'desc' }
-              : { [orderByField]: 'asc' },
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                profile: { select: { avatarUpload: { select: { url: true } } } },
+      // 2. Fetch active/completed orders
+      if (['all', 'ongoing', 'completed', 'cancelled'].includes(targetStatus)) {
+        const orderWhere: any = {
+           orderItems: { some: { product: { curatorId: user.id } } },
+        };
+        const statusFilter = this.mapStatusToOrderStatuses(status);
+        if (statusFilter && statusFilter.length > 0) {
+           orderWhere.status = { in: statusFilter };
+        } else if (targetStatus === 'all') {
+           // Exclude PROCESSING since 'pending' handles that now via AvailabilityRequest
+           orderWhere.status = { not: OrderStatus.PROCESSING };
+        }
+
+        const [orderCount, orders] = await Promise.all([
+          this.prisma.order.count({ where: orderWhere }),
+          this.prisma.order.findMany({
+            where: orderWhere,
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  createdAt: true,
+                  profile: { select: { avatarUpload: { select: { url: true } } } },
+                },
               },
-            },
-            orderItems: {
-              include: {
-                product: {
-                  select: {
-                    id: true,
-                    name: true,
-                    measurement: true,
-                    color: true,
-                    attachments: { include: { uploads: { take: 1, select: { url: true } } } },
+              orderItems: {
+                include: {
+                  product: {
+                    select: {
+                      id: true,
+                      name: true,
+                      measurement: true,
+                      color: true,
+                      originalValue: true,
+                      dailyPrice: true,
+                      attachments: { include: { uploads: { take: 1, select: { url: true } } } },
+                    },
                   },
                 },
               },
             },
-          },
-        }),
-        this.prisma.order.count({ where: orderWhere }),
-        this.getOrdersSummary(user.id),
-      ]);
+          }),
+        ]);
 
-      const ordersResponse = orders.map((o) => this.formatOrderForList(o));
+        const formattedOrders = orders.map(o => this.formatOrderForList(o));
+        allItems = [...allItems, ...formattedOrders];
+        total += orderCount;
+      }
+
+      // 3. Sort and Paginate
+      const sortField = sort?.startsWith('-') ? sort.slice(1) : sort;
+      const isDesc = sort?.startsWith('-');
+      allItems.sort((a, b) => {
+        const dateA = new Date(a.createdAt).getTime();
+        const dateB = new Date(b.createdAt).getTime();
+        return isDesc ? dateB - dateA : dateA - dateB;
+      });
+
+      const paginatedItems = allItems.slice(skip, skip + limit);
       const pages = Math.ceil(total / limit) || 1;
+      const summary = await this.getOrdersSummary(user.id);
 
       return {
         success: true,
         data: {
-          orders: ordersResponse,
+          orders: paginatedItems,
           pagination: { total, page, limit, pages },
           summary,
         },
@@ -317,6 +412,24 @@ export class ListersService {
   /** GET /api/listers/orders/:orderId */
   async getOrderById(user: userEntity, orderId: string) {
     try {
+      // First check if it's an AvailabilityRequest
+      const req = await this.prisma.availabilityRequest.findUnique({
+        where: { id: orderId },
+        include: {
+           product: {
+             include: {
+               attachments: { include: { uploads: true } }
+             }
+           }
+        }
+      });
+      
+      if (req && req.listerId === user.id) {
+         // return formatted request as order detail
+         const u = await this.prisma.user.findUnique({ where: { id: req.requesterId }, include: { profile: { include: { avatarUpload: true } } } });
+         return { success: true, data: { order: this.formatRequestDetail(req, u) } };
+      }
+
       await this.ensureOrderBelongsToLister(user.id, orderId);
       const order = await this.prisma.order.findUnique({
         where: { id: orderId },
@@ -364,6 +477,61 @@ export class ListersService {
       console.error('getOrderById error:', e);
       throw new InternalServerErrorException('Failed to fetch order');
     }
+  }
+
+  private formatRequestDetail(req: any, user: any) {
+     const diff = Math.max(0, Math.floor((new Date(req.expiresAt).getTime() - Date.now()) / 1000));
+     return {
+        id: req.id,
+        orderNumber: `REQ-${req.id.slice(0, 8)}`,
+        createdAt: req.createdAt.toISOString(),
+        expiresAt: req.expiresAt.toISOString(),
+        timeRemainingSeconds: diff,
+        status: 'pending_approval',
+        statusLabel: 'Pending Approval',
+        statusColor: '#FFF3E0',
+        statusTextColor: '#E65100',
+        itemCount: 1,
+        totalAmount: req.totalPrice || 0,
+        currency: CURRENCY,
+        dresser: {
+          id: user?.id,
+          name: user?.name,
+          avatar: user?.profile?.avatarUpload?.url ?? 'https://via.placeholder.com/64?text=U',
+          rating: 0,
+          reviews: 0,
+          memberSince: user?.createdAt?.toISOString().split('T')[0],
+        },
+        items: [{
+          id: req.productId,
+          name: req.product.name,
+          image: req.product.attachments?.uploads?.[0]?.url ?? 'https://via.placeholder.com/300?text=No+Image',
+          size: req.product.measurement ?? 'N/A',
+          color: req.product.color ?? 'N/A',
+          rentalFee: req.totalPrice || 0,
+          itemValue: req.product.originalValue || 0,
+          returnDue: req.endDate ? new Date(req.endDate).toISOString().split('T')[0] : null,
+          status: 'pending_approval',
+          statusLabel: 'Pending Approval',
+        }],
+        canApprove: diff > 0 && req.status === 'PENDING',
+        canReject: req.status === 'PENDING',
+        approvalRequired: req.status === 'PENDING',
+        approvalExpiredAt: req.expiresAt.toISOString(),
+        timeline: {
+           dateOrdered: req.createdAt.toISOString().split('T')[0],
+           itemsCount: 1,
+           itemsDelivered: 0,
+           currentStep: 'pending_approval'
+        },
+        escrow: {
+           rentalFeeTotal: req.totalPrice || 0,
+           itemValueHeld: req.product.originalValue || 0,
+           totalHeld: (req.totalPrice || 0) + (req.product.originalValue || 0),
+           currency: CURRENCY,
+           releaseCondition: 'Upon successful return confirmation'
+        }
+     };
   }
 
   /** GET /api/listers/orders/:orderId/items */
@@ -481,8 +649,7 @@ export class ListersService {
   }
 
   /** POST /api/listers/orders/:orderId/approve
-   *  Approve a pending order within the 15‑minute window.
-   *  Dispatch / notification are left as placeholders.
+   *  Approve an AvailabilityRequest (Pending order)
    */
   async approveOrder(
     user: userEntity,
@@ -490,68 +657,47 @@ export class ListersService {
     notes?: string,
   ) {
     try {
-      await this.ensureOrderBelongsToLister(user.id, orderId);
-
-      const order = await this.prisma.order.findUnique({
-        where: { id: orderId },
-        include: {
-          user: true,
-        },
+      const request = await this.prisma.availabilityRequest.findUnique({
+         where: { id: orderId }
       });
 
-      if (!order) {
-        throw new NotFoundException('Order not found');
+      if (!request) {
+        throw new NotFoundException('Order/Request not found');
+      }
+      
+      if (request.listerId !== user.id) {
+         throw new ForbiddenException('You do not have access to this request');
       }
 
-      // Only pending_approval (PROCESSING) orders, with still-valid approval window
       const now = new Date();
       if (
-        order.status !== OrderStatus.PROCESSING ||
-        !order.expiresAt ||
-        order.expiresAt <= now
+        request.status !== 'PENDING' ||
+        !request.expiresAt ||
+        request.expiresAt <= now
       ) {
         throw new ForbiddenException(
-          'Order is not pending approval or approval window has expired',
+          'Request is not pending approval or approval window has expired',
         );
       }
 
-      const approvedAt = now;
-
-      const updated = await this.prisma.order.update({
+      const updated = await this.prisma.availabilityRequest.update({
         where: { id: orderId },
         data: {
-          status: OrderStatus.ACCEPTED,
-          approvedAt,
-          // once approved, approval timer no longer applies
-          expiresAt: null,
-        },
-        include: {
-          user: true,
+          status: 'ACCEPTED',
         },
       });
-
-      // Placeholder for future dispatch workflow integration
-      // e.g. await this.dispatchService.enqueueDispatch(updated, user.id, notes);
-
-      // Placeholder for notification to dresser
-      // e.g. this.eventEmitter.emit('order_approved', { orderId, dresserId: updated.userId });
 
       return {
         success: true,
         message: 'Order approved successfully',
         data: {
           orderId: updated.id,
-          orderNumber: updated.orderId,
+          orderNumber: `REQ-${updated.id.slice(0,8)}`,
           status: 'approved',
           statusLabel: 'Approved',
-          approvedAt: approvedAt.toISOString(),
+          approvedAt: new Date().toISOString(),
           approvedBy: user.id,
-          nextSteps: 'Prepare items for dispatch',
-          notification: {
-            sent: false, // placeholder until email / push is wired
-            recipientId: updated.userId,
-            type: 'order_approved',
-          },
+          nextSteps: 'Waiting for renter to complete payment and create the official Order',
           notes: notes ?? null,
         },
       };
@@ -568,7 +714,7 @@ export class ListersService {
   }
 
   /** POST /api/listers/orders/:orderId/reject
-   *  Reject a pending order within the 15‑minute window.
+   *  Reject an AvailabilityRequest (Pending order)
    */
   async rejectOrder(
     user: userEntity,
@@ -576,68 +722,47 @@ export class ListersService {
     body: { reason: string; notes?: string; refundType?: string },
   ) {
     try {
-      await this.ensureOrderBelongsToLister(user.id, orderId);
-
-      const order = await this.prisma.order.findUnique({
-        where: { id: orderId },
-        include: {
-          user: true,
-        },
+      const request = await this.prisma.availabilityRequest.findUnique({
+         where: { id: orderId }
       });
 
-      if (!order) {
-        throw new NotFoundException('Order not found');
+      if (!request) {
+        throw new NotFoundException('Order/Request not found');
+      }
+      
+      if (request.listerId !== user.id) {
+         throw new ForbiddenException('You do not have access to this request');
       }
 
       const now = new Date();
       if (
-        order.status !== OrderStatus.PROCESSING ||
-        !order.expiresAt ||
-        order.expiresAt <= now
+        request.status !== 'PENDING' ||
+        !request.expiresAt ||
+        request.expiresAt <= now
       ) {
         throw new ForbiddenException(
-          'Order is not pending approval or approval window has expired',
+          'Request is not pending approval or approval window has expired',
         );
       }
 
-      const rejectedAt = now;
-
-      const updated = await this.prisma.order.update({
+      const updated = await this.prisma.availabilityRequest.update({
         where: { id: orderId },
         data: {
-          status: OrderStatus.REJECTED,
-          // when rejected, expiry no longer relevant
-          expiresAt: null,
+          status: 'REJECTED',
         },
-        include: { user: true },
       });
-
-      // Placeholder: refund / escrow release logic goes here
-
-      // Placeholder: notification event
-      // this.eventEmitter.emit('order_rejected', { orderId, dresserId: updated.userId, reason: body.reason });
 
       return {
         success: true,
         message: 'Order rejected',
         data: {
           orderId: updated.id,
-          orderNumber: updated.orderId,
+          orderNumber: `REQ-${updated.id.slice(0,8)}`,
           status: 'rejected',
           statusLabel: 'Rejected',
-          rejectedAt: rejectedAt.toISOString(),
+          rejectedAt: new Date().toISOString(),
           rejectedBy: user.id,
           reason: body.reason,
-          refund: {
-            amount: 0,
-            reason: 'No payment charged for pending orders',
-          },
-          notification: {
-            sent: false,
-            recipientId: updated.userId,
-            type: 'order_rejected',
-            reason: body.reason,
-          },
           notes: body.notes ?? null,
         },
       };
