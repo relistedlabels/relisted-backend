@@ -248,36 +248,26 @@ export class ListersService {
     try {
       const skip = (page - 1) * limit;
       const statusFilter = this.mapStatusToOrderStatuses(status);
-      const [orderIds, summary] = await Promise.all([
-        this.prisma.orderItem.findMany({
-          where: {
-            product: { curatorId: user.id },
-            order: statusFilter ? { status: { in: statusFilter } } : undefined,
-          },
-          select: { orderId: true },
-          distinct: ['orderId'],
-        }),
-        this.getOrdersSummary(user.id),
-      ]);
-
-      const uniqueOrderIds = [...new Set(orderIds.map((o) => o.orderId))];
-      const orderWhere = {
-        id: { in: uniqueOrderIds },
-        ...(statusFilter && statusFilter.length > 0 ? { status: { in: statusFilter } } : {}),
+      
+      const orderWhere: any = {
+        orderItems: { some: { product: { curatorId: user.id } } },
       };
+      if (statusFilter && statusFilter.length > 0) {
+        orderWhere.status = { in: statusFilter };
+      }
 
       const sortField = sort?.startsWith('-') ? sort.slice(1) : sort;
       const orderByField =
         sortField === 'createdAt' || !sortField
           ? 'createdAt'
           : 'createdAt';
-      const [orders, total] = await Promise.all([
+      const [orders, total, summary] = await Promise.all([
         this.prisma.order.findMany({
           where: orderWhere,
           skip,
           take: limit,
           orderBy:
-            sort?.startsWith('-')
+             sort?.startsWith('-')
               ? { [orderByField]: 'desc' }
               : { [orderByField]: 'asc' },
           include: {
@@ -285,9 +275,7 @@ export class ListersService {
               select: {
                 id: true,
                 name: true,
-                profile: {
-                  select: { avatarUpload: { select: { url: true } } },
-                },
+                profile: { select: { avatarUpload: { select: { url: true } } } },
               },
             },
             orderItems: {
@@ -298,11 +286,7 @@ export class ListersService {
                     name: true,
                     measurement: true,
                     color: true,
-                    attachments: {
-                      include: {
-                        uploads: { take: 1, select: { url: true } },
-                      },
-                    },
+                    attachments: { include: { uploads: { take: 1, select: { url: true } } } },
                   },
                 },
               },
@@ -310,6 +294,7 @@ export class ListersService {
           },
         }),
         this.prisma.order.count({ where: orderWhere }),
+        this.getOrdersSummary(user.id),
       ]);
 
       const ordersResponse = orders.map((o) => this.formatOrderForList(o));
@@ -791,9 +776,10 @@ export class ListersService {
   }
 
   private mapStatusToOrderStatuses(status: string | undefined): OrderStatus[] | undefined {
-    if (!status || status === 'all') return undefined;
-    switch (status) {
+    if (!status || status.toLowerCase() === 'all') return undefined;
+    switch (status.toLowerCase()) {
       case 'pending':
+      case 'pending_approval':
         return [OrderStatus.PROCESSING];
       case 'ongoing':
         return [
