@@ -1,8 +1,8 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { IsObject } from "class-validator";
+import { IsObject, IsString } from "class-validator";
 
 export class CreateTagDto {
     @ApiProperty()
-     @IsObject()
+     @IsString()
     name:string 
 }

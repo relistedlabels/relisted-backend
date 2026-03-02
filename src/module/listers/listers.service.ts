@@ -14,31 +14,31 @@ const APPROVAL_WINDOW_MINUTES = 15;
 
 // Order status mapping for listers API
 const ORDER_STATUS_TO_LABEL: Record<OrderStatus, string> = {
-  [OrderStatus.PROCESSING]: 'Pending Approval',
-  [OrderStatus.ACCEPTED]: 'Ongoing',
-  [OrderStatus.CONFIRMED]: 'Ongoing',
-  [OrderStatus.IN_TRANSIT]: 'Ongoing',
-  [OrderStatus.DELIVERED]: 'Ongoing',
-  [OrderStatus.ACTIVE]: 'Ongoing',
-  [OrderStatus.RETURN_DUE]: 'Ongoing',
+  [OrderStatus.PROCESSING]: 'Pending',
+  [OrderStatus.ACCEPTED]: 'Accepted',
+  [OrderStatus.CONFIRMED]: 'Confirmed',
+  [OrderStatus.IN_TRANSIT]: 'In Transit',
+  [OrderStatus.DELIVERED]: 'Delivered',
+  [OrderStatus.ACTIVE]: 'Active',
+  [OrderStatus.RETURN_DUE]: 'Return Due',
   [OrderStatus.RETURNED]: 'Completed',
   [OrderStatus.COMPLETED]: 'Completed',
   [OrderStatus.CANCELLED]: 'Cancelled',
-  [OrderStatus.REJECTED]: 'Cancelled',
+  [OrderStatus.REJECTED]: 'Rejected',
 };
 
 const ORDER_STATUS_TO_API: Record<OrderStatus, string> = {
-  [OrderStatus.PROCESSING]: 'pending_approval',
-  [OrderStatus.ACCEPTED]: 'ongoing',
-  [OrderStatus.CONFIRMED]: 'ongoing',
-  [OrderStatus.IN_TRANSIT]: 'ongoing',
-  [OrderStatus.DELIVERED]: 'ongoing',
-  [OrderStatus.ACTIVE]: 'ongoing',
-  [OrderStatus.RETURN_DUE]: 'ongoing',
+  [OrderStatus.PROCESSING]: 'processing',
+  [OrderStatus.ACCEPTED]: 'accepted',
+  [OrderStatus.CONFIRMED]: 'confirmed',
+  [OrderStatus.IN_TRANSIT]: 'intransit',
+  [OrderStatus.DELIVERED]: 'delivered',
+  [OrderStatus.ACTIVE]: 'active',
+  [OrderStatus.RETURN_DUE]: 'return_due',
   [OrderStatus.RETURNED]: 'completed',
   [OrderStatus.COMPLETED]: 'completed',
   [OrderStatus.CANCELLED]: 'cancelled',
-  [OrderStatus.REJECTED]: 'cancelled',
+  [OrderStatus.REJECTED]: 'rejected',
 };
 
 const RENTAL_STATUS_TO_LABEL: Record<string, string> = {

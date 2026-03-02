@@ -114,6 +114,11 @@ export class CreateProductDto {
   @IsString()
   @IsOptional()
   brandId?: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsOptional()
+  material?: string;
 }
 export class ListProductQuery extends PaginationQuery {}
 
