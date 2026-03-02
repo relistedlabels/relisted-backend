@@ -533,6 +533,7 @@ export class AdminService {
           brand: true,
           category: true,
           curator: { select: { name: true, email: true } },
+          attachments: true,
         },
       }),
     ]);
