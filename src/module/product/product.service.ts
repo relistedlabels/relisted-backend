@@ -1275,9 +1275,48 @@ export class ProductService {
         updateData.rejectionComment = null;
       }
 
+      // Handle specific fields and relations mappings
+      delete updateData.attachments;
+      delete updateData.tagids;
+      delete updateData.categoryId;
+      delete updateData.brandId;
+      
+      if (dto.categoryId !== undefined) {
+          updateData.category = { connect: { id: dto.categoryId } };
+      }
+      if (dto.brandId !== undefined) {
+          updateData.brand = { connect: { id: dto.brandId } };
+      }
+      
+      let tagIdsToConnect: string[] = [];
+      if (dto.tagids) {
+        const incomingTags = Array.isArray(dto.tagids) ? dto.tagids : [dto.tagids];
+        tagIdsToConnect = incomingTags.map(id => typeof id === 'string' ? id.trim() : '').filter(id => id.length > 0);
+        
+        if (tagIdsToConnect.length > 0) {
+           updateData.tags = { set: tagIdsToConnect.map(id => ({ id })) };
+        } else {
+           updateData.tags = { set: [] };
+        }
+      }
+
       const updatedProduct = await this.prisma.product.update({
         where: { id },
-        data: updateData,
+        data: {
+          ...updateData,
+          ...(dto.attachments?.length && {
+            attachments: {
+              upsert: {
+                create: {
+                  uploads: { connect: dto.attachments.map(uploadId => ({ id: uploadId })) }
+                },
+                update: {
+                  uploads: { set: dto.attachments.map(uploadId => ({ id: uploadId })) }
+                }
+              }
+            }
+          })
+        },
         include: {
           attachments: {
             include: {
