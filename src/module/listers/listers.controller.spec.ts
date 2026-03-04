@@ -36,7 +36,7 @@ describe('ListersController', () => {
     }),
     getOrderProgress: jest.fn().mockResolvedValue({
       success: true,
-      data: { currentStep: 'pending_approval', steps: [], progressPercentage: 0, orderId: 'ord-1' },
+      data: { currentStep: 'processing', steps: [], progressPercentage: 0, orderId: 'ord-1' },
     }),
   };
 
@@ -134,7 +134,7 @@ describe('ListersController', () => {
       const result = await controller.getOrderProgress(mockUser as any, 'order-123');
       expect(service.getOrderProgress).toHaveBeenCalledWith(mockUser, 'order-123');
       expect(result.success).toBe(true);
-      expect(result.data.currentStep).toBe('pending_approval');
+      expect(result.data.currentStep).toBe('processing');
     });
   });
 });

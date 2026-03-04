@@ -14,7 +14,7 @@ const APPROVAL_WINDOW_MINUTES = 15;
 
 // Order status mapping for listers API
 const ORDER_STATUS_TO_LABEL: Record<OrderStatus, string> = {
-  [OrderStatus.PROCESSING]: 'Pending',
+  [OrderStatus.PROCESSING]: 'Processing',
   [OrderStatus.ACCEPTED]: 'Accepted',
   [OrderStatus.CONFIRMED]: 'Confirmed',
   [OrderStatus.IN_TRANSIT]: 'In Transit',
@@ -340,9 +340,6 @@ export class ListersService {
         const statusFilter = this.mapStatusToOrderStatuses(status);
         if (statusFilter && statusFilter.length > 0) {
            orderWhere.status = { in: statusFilter };
-        } else if (targetStatus === 'all') {
-           // Exclude PROCESSING since 'pending' handles that now via AvailabilityRequest
-           orderWhere.status = { not: OrderStatus.PROCESSING };
         }
 
         const [orderCount, orders] = await Promise.all([
@@ -613,10 +610,7 @@ export class ListersService {
         select: { id: true, status: true, createdAt: true },
       });
       if (!order) throw new NotFoundException('Order not found');
-      const currentStep =
-        order.status === OrderStatus.PROCESSING
-          ? 'pending_approval'
-          : ORDER_STATUS_TO_API[order.status] ?? order.status.toLowerCase();
+      const currentStep = ORDER_STATUS_TO_API[order.status] ?? order.status.toLowerCase();
       const stepIndex = PROGRESS_STEPS.findIndex(
         (s) => s.orderStatus === order.status || s.label.toLowerCase().replace(' ', '_') === currentStep,
       );
@@ -905,9 +899,10 @@ export class ListersService {
     switch (status.toLowerCase()) {
       case 'pending':
       case 'pending_approval':
-        return [OrderStatus.PROCESSING];
+        return [];
       case 'ongoing':
         return [
+          OrderStatus.PROCESSING,
           OrderStatus.ACCEPTED,
           OrderStatus.CONFIRMED,
           OrderStatus.IN_TRANSIT,
@@ -1036,6 +1031,7 @@ export class ListersService {
     );
     const statusColors: Record<string, { bg: string; text: string }> = {
       pending_approval: { bg: '#FFF9E5', text: '#D4A017' },
+      processing: { bg: '#FFF9E5', text: '#D4A017' },
       ongoing: { bg: '#E8F4FD', text: '#1E88E5' },
       completed: { bg: '#E8F5E9', text: '#2E7D32' },
       cancelled: { bg: '#FFEBEE', text: '#C62828' },
