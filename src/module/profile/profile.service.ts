@@ -24,6 +24,10 @@ async create(dto: CreateProfileDto, user: userEntity) {
       ...(dto.bvn != null && dto.bvn !== ''
         ? { bvn: dto.bvn }
         : {}),
+        
+      ...(dto.nin != null && dto.nin !== ''
+        ? { nin: dto.nin }
+        : {}),
 
       ...(dto.businessInfo && {
         businessInfo: {
@@ -161,6 +165,8 @@ async create(dto: CreateProfileDto, user: userEntity) {
         },
       }),
         // bvn: dto.bvn,
+        ...(dto.bvn !== undefined ? { bvn: dto.bvn } : {}),
+        ...(dto.nin !== undefined ? { nin: dto.nin } : {}),
       },
     });
 

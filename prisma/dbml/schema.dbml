@@ -46,6 +46,7 @@ Table Profile {
   user User [not null]
   phoneNumber String [not null]
   bvn String
+  nin String
   isApproved Boolean [not null, default: false]
   emergencyContact EmergencyContact
   businessInfo BusinessInfo
@@ -131,6 +132,7 @@ Table Product {
   composition String
   measurement String [not null]
   originalValue Int [not null]
+  material String
   warning String
   color String [not null]
   brandId String

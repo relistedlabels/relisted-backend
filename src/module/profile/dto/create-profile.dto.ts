@@ -78,6 +78,11 @@ export class CreateProfileDto {
   @IsString()
   bvn?: string;
 
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  nin?: string;
+
   @ApiProperty()
   @ValidateNested()
   @Type(() => CreateBusinessInfoDto)

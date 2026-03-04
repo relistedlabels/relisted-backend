@@ -602,7 +602,21 @@ export class AdminService {
     return { success: true, data: { users, total: users.length } };
   }
   async getUserDetails(userId: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId }, include: { profile: true } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        profile: {
+          include: {
+            emergencyContact: true,
+            businessInfo: true,
+            address: true,
+            avatarUpload: true,
+            ninUpload: true,
+            idDocumentUpload: true,
+          },
+        },
+      },
+    });
     if (!user) throw new NotFoundException('User not found');
     return { success: true, data: user };
   }

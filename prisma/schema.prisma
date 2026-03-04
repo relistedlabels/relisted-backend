@@ -114,6 +114,8 @@ model Profile {
   phoneNumber String
 
   bvn        String?
+  nin        String?
+
   isApproved Boolean @default(false)
 
   // One-to-one relations
