@@ -275,6 +275,7 @@ model Tag {
 model ProductCategory {
   id        String    @id @default(uuid())
   name      String
+  imageUrl  String?
   products  Product[]
   user      User?     @relation(fields: [userId], references: [id])
   userId    String?

@@ -1,8 +1,13 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { IsObject } from "class-validator";
+import { IsObject, IsOptional, IsString } from "class-validator";
 
 export class CreateCategoryDto {
     @ApiProperty()
-    @IsObject()
+    @IsString()
     name:string 
+
+    @ApiProperty({ required: false })
+    @IsOptional()
+    @IsString()
+    imageUrl?: string
 }

@@ -95,14 +95,16 @@ export class RentersService {
   }
 
   async updateProfile(userId: string, updateData: any) {
+    const phoneToSet = updateData.phone || updateData.phoneNumber || '';
+
     const user = await this.prisma.user.update({
       where: { id: userId },
       data: {
-        name: updateData.fullName,
+        name: updateData.fullName || updateData.name,
         profile: {
           upsert: {
-            create: { phoneNumber: updateData.phone },
-            update: { phoneNumber: updateData.phone }
+            create: { phoneNumber: phoneToSet },
+            update: { phoneNumber: phoneToSet || undefined }
           }
         }
       },

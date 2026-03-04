@@ -12,6 +12,7 @@ export class CategoriesService {
     return this.prisma.productCategory.create({
       data: {
         name: dto.name,
+        imageUrl: dto.imageUrl,
         user: {
           connect: { id: user.id },
         },

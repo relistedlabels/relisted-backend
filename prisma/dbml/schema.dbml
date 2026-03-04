@@ -180,6 +180,7 @@ Table Tag {
 Table ProductCategory {
   id String [pk]
   name String [not null]
+  imageUrl String
   products Product [not null]
   user User
   userId String
