@@ -905,6 +905,7 @@ export class RentersService {
       data: {
         emailAlertsEnabled: data.emailAlerts ?? notifSettings.emailAlertsEnabled,
         marketingEmailsEnabled: data.marketingEmails ?? notifSettings.marketingEmailsEnabled,
+        smsUpdatesEnabled: data.smsUpdates ?? notifSettings.smsUpdatesEnabled,
       },
     });
 
@@ -914,7 +915,7 @@ export class RentersService {
       data: {
         preferences: {
           emailAlerts: updated.emailAlertsEnabled,
-          smsUpdates: false,
+          smsUpdates: updated.smsUpdatesEnabled,
           marketingEmails: updated.marketingEmailsEnabled,
         },
         savedAt: new Date().toISOString(),
