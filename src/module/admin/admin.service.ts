@@ -654,8 +654,85 @@ export class AdminService {
   }
   async getAllOrders(page: number, limit: number, status?: string) {
     const where = status && status !== 'ALL' ? { status: status as any } : {};
-    const orders = await this.prisma.order.findMany({ where, skip: (page - 1) * limit, take: limit, include: { orderItems: true } });
-    return { success: true, data: { orders, total: await this.prisma.order.count({ where }), page } };
+    
+    const [total, orders, totalListings, completedOrders, activeOrders, disputedOrders, revenue] = await this.prisma.$transaction([
+      this.prisma.order.count({ where }),
+      this.prisma.order.findMany({ 
+        where, 
+        skip: (page - 1) * limit, 
+        take: limit, 
+        orderBy: { createdAt: 'desc' },
+        include: { 
+          orderItems: { include: { product: { include: { curator: { include: { profile: { include: { avatarUpload: true } } } } } } } },
+          rental: { include: { curator: { include: { profile: { include: { avatarUpload: true } } } } } },
+          user: { include: { profile: { include: { avatarUpload: true } } } },
+          payments: { take: 1, orderBy: { createdAt: 'desc' } }
+        } 
+      }),
+      this.prisma.product.count(),
+      this.prisma.order.count({ where: { status: 'COMPLETED' } }),
+      this.prisma.order.count({ where: { status: { in: ['CONFIRMED', 'IN_TRANSIT', 'DELIVERED', 'ACTIVE'] } } }),
+      this.prisma.dispute.count(),
+      this.prisma.transaction.aggregate({ where: { status: 'SUCCESS' }, _sum: { amount: true } })
+    ]);
+
+    const formattedOrders = orders.map((o: any) => {
+      // Determine total amount
+      const totalAmount = o.rental?.totalAmount || o.orderItems.reduce((sum: number, item: any) => sum + (item.pricePerDay * item.days), 0);
+      
+      // Determine curator (from rental or first order item)
+      const curatorUser = o.rental?.curator || o.orderItems[0]?.product?.curator;
+      
+      // Determine if payment reference exists
+      const paymentRef = o.payments?.[0]?.referenceId || null;
+
+      // Map status enum to human readable if needed
+      let displayStatus = o.status;
+      if (displayStatus === 'IN_TRANSIT') displayStatus = 'In Transit';
+      else if (displayStatus === 'COMPLETED') displayStatus = 'Completed';
+      else if (displayStatus === 'RETURN_DUE') displayStatus = 'Return Due';
+      else if (displayStatus === 'PROCESSING') displayStatus = 'Processing';
+
+      return {
+        id: o.orderId,
+        date: o.createdAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        curator: curatorUser ? {
+          id: curatorUser.id,
+          name: curatorUser.name,
+          avatar: curatorUser.profile?.avatarUpload?.url || null
+        } : null,
+        dresser: o.user ? {
+          id: o.user.id,
+          name: o.user.name,
+          avatar: o.user.profile?.avatarUpload?.url || null
+        } : null,
+        items: o.orderItems.length,
+        total: totalAmount,
+        status: displayStatus,
+        returnDue: o.returnDueAt ? o.returnDueAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null,
+        paymentReference: paymentRef
+      };
+    });
+
+    return { 
+      success: true, 
+      data: {
+        orders: formattedOrders,
+        pagination: {
+          total,
+          page,
+          limit,
+          pages: Math.ceil(total / limit)
+        },
+        stats: {
+          totalListings,
+          completedOrders,
+          activeOrders,
+          disputedOrders,
+          totalRevenue: revenue._sum.amount || 0
+        }
+      }
+    };
   }
   async exportOrders() {
     return { success: true, data: { message: 'Export initiated' } };

@@ -1,11 +1,16 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../services/prisma/prisma.service';
+import { UploadService } from '../upload/upload.service';
+import { randomUUID } from 'crypto';
 import { Role } from '@prisma/client';
 import { addMinutes } from 'date-fns';
 
 @Injectable()
 export class RentersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private uploadService: UploadService
+  ) {}
 
   async getDashboardSummary(userId: string, timeframe: string = 'month') {
     const activeRentals = await this.prisma.rental.findMany({
@@ -72,7 +77,7 @@ export class RentersService {
   async getProfile(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      include: { profile: { include: { address: true, avatarUpload: true } } }
+      include: { profile: { include: { address: true, avatarUpload: true, emergencyContact: true } } }
     });
 
     if (!user) throw new NotFoundException('User not found');
@@ -86,8 +91,9 @@ export class RentersService {
           email: user.email,
           role: user.role,
           phone: user.profile?.phoneNumber,
-          profileImage: user.profile?.avatarUpload?.url,
+          profileImage: user.profile?.avatarUpload?.url || null, // ensure it defaults to null
           dateJoined: user.createdAt,
+          emergencyContact: user.profile?.emergencyContact || null,
           addresses: user.profile?.address ? [user.profile.address] : []
         }
       }
@@ -573,12 +579,27 @@ export class RentersService {
   }
 
   async uploadAvatar(userId: string, file: Express.Multer.File) {
+      if (!file) throw new BadRequestException('No file provided');
+
+      const profile = await this.prisma.profile.findUnique({ where: { userId } });
+      if (!profile) throw new NotFoundException('Profile not found');
+
+      const uploadId = randomUUID();
+      const mockUser = { id: userId, email: '', sub: userId } as any; 
+      
+      const uploadedFile = await this.uploadService.uploadFile(uploadId, file, mockUser);
+
+      await this.prisma.profile.update({
+          where: { id: profile.id },
+          data: { avatarUploadId: uploadedFile.id }
+      });
+
       return {
           success: true,
           message: "Profile avatar updated successfully",
           data: {
-              profileImage: "https://cloudinary.com/mock.jpg",
-              uploadedAt: new Date()
+              profileImage: uploadedFile.url,
+              uploadedAt: uploadedFile.createdAt
           }
       }
   }

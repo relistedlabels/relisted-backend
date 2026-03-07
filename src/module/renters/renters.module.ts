@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { RentersService } from './renters.service';
 import { PrismaModule } from '../../services/prisma/prisma.module';
+import { UploadModule } from '../upload/upload.module';
 import { RentersDashboardController } from './renters.dashboard.controller';
 import { RentersProfileController } from './renters.profile.controller';
 import { RentersWalletController } from './renters.wallet.controller';
@@ -13,7 +14,7 @@ import { RentersNotificationsController } from './renters.notifications.controll
 import { PrismaService } from '../../services/prisma/prisma.service';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, UploadModule],
   controllers: [
     RentersDashboardController,
     RentersProfileController,

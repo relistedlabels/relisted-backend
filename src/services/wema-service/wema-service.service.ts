@@ -217,7 +217,7 @@ async getKycDetails(dto: any) {
   return {
     accountname: account.user.name,
     BVN: account.bvn || account.user.profile?.bvn || null,
-    NIN: account.nin || null,
+    NIN: account.nin || account.user.profile?.nin || null,
     mobilenumber: account.user.profile?.phoneNumber || "",
     walletbalance: wallet?.mainBalance || 0,
     status_desc: account.status === 'INACTIVE' ? 'Inactive' : 'Active'
@@ -245,6 +245,45 @@ async blockAccount(dto: any) {
   });
 
   return { message: "Account Restricted Successfully" };
+}
+
+// ==========================================
+// TODO: Implement placeholders for wallet operations later
+// ==========================================
+
+async fundWalletPlaceholder(dto: any) {
+  // Placeholder implementation for funding wallet
+  return { 
+    message: "Placeholder: Wallet funded successfully", 
+    amount: dto.amount || 0 
+  };
+}
+
+async removeMoneyPlaceholder(dto: any) {
+  // Placeholder implementation for removing money from wallet
+  return { 
+    message: "Placeholder: Money removed from wallet successfully", 
+    amount: dto.amount || 0 
+  };
+}
+
+async getTransactionsPlaceholder(page: number, limit: number) {
+  // Placeholder implementation for paginated transactions
+  return {
+    message: "Placeholder: Paginated transactions fetched",
+    data: [],
+    meta: { page, limit, total: 0 }
+  };
+}
+
+async getWalletBalancePlaceholder() {
+  // Placeholder implementation for fetching wallet balance
+  return { 
+    message: "Placeholder: Wallet balance fetched", 
+    mainBalance: 0,
+    availableBalance: 0,
+    collateralBalance: 0
+  };
 }
 
 }

@@ -42,4 +42,40 @@ export class WemaServiceController {
   async blockAccount(@Body() body: any) {
     return this.wemaServiceService.blockAccount(body);
   }
+
+  // ==========================================
+  // TODO: Implement placeholders for wallet operations later
+  // ==========================================
+
+  @Post('fund')
+  @UseGuards(WemaAuthGuard)
+  @HttpCode(200)
+  async fundWalletPlaceholder(@Body() body: any) {
+    return this.wemaServiceService.fundWalletPlaceholder(body);
+  }
+
+  @Post('remove-money')
+  @UseGuards(WemaAuthGuard)
+  @HttpCode(200)
+  async removeMoneyPlaceholder(@Body() body: any) {
+    return this.wemaServiceService.removeMoneyPlaceholder(body);
+  }
+
+  @Get('transactions')
+  @UseGuards(WemaAuthGuard)
+  @HttpCode(200)
+  async getTransactionsPlaceholder(@Body() body: any) {
+    // Note: GET requests shouldn't typically use body. Better to use Query parameters.
+    // For now, keeping signature simple for the placeholder.
+    const page = body?.page || 1;
+    const limit = body?.limit || 10;
+    return this.wemaServiceService.getTransactionsPlaceholder(page, limit);
+  }
+
+  @Get('balance')
+  @UseGuards(WemaAuthGuard)
+  @HttpCode(200)
+  async getWalletBalancePlaceholder() {
+    return this.wemaServiceService.getWalletBalancePlaceholder();
+  }
 }
