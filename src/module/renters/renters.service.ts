@@ -101,20 +101,84 @@ export class RentersService {
   }
 
   async updateProfile(userId: string, updateData: any) {
-    const phoneToSet = updateData.phone || updateData.phoneNumber || '';
+    const phoneToSet = updateData.phone !== undefined ? updateData.phone : updateData.phoneNumber;
+    const emergencyContactData = updateData.emergencyContact || updateData.emergencyContacts;
+
+    const profileUpdate: any = {};
+    if (phoneToSet !== undefined) profileUpdate.phoneNumber = phoneToSet;
+    if (updateData.bvn !== undefined) profileUpdate.bvn = updateData.bvn;
+    if (updateData.nin !== undefined) profileUpdate.nin = updateData.nin;
+    
+    if (emergencyContactData) {
+      profileUpdate.emergencyContact = {
+        upsert: {
+          create: emergencyContactData,
+          update: emergencyContactData
+        }
+      };
+    }
+    if (updateData.businessInfo) {
+      profileUpdate.businessInfo = {
+        upsert: {
+          create: updateData.businessInfo,
+          update: updateData.businessInfo
+        }
+      };
+    }
+    if (updateData.address) {
+      profileUpdate.address = {
+        upsert: {
+          create: updateData.address,
+          update: updateData.address
+        }
+      };
+    }
+    if (updateData.avatarUploadId) {
+      profileUpdate.avatarUpload = { connect: { id: updateData.avatarUploadId } };
+    }
+
+    const profileCreate: any = {
+      phoneNumber: phoneToSet || '',
+      ...(updateData.bvn && { bvn: updateData.bvn }),
+      ...(updateData.nin && { nin: updateData.nin }),
+      ...(emergencyContactData && {
+        emergencyContact: {
+          create: emergencyContactData
+        }
+      }),
+      ...(updateData.businessInfo && {
+        businessInfo: {
+          create: updateData.businessInfo
+        }
+      }),
+      ...(updateData.address && {
+        address: {
+          create: updateData.address
+        }
+      }),
+      ...(updateData.avatarUploadId && {
+        avatarUpload: { connect: { id: updateData.avatarUploadId } }
+      })
+    };
+
+    const userDataUpdate: any = {};
+    if (updateData.fullName || updateData.name) {
+      userDataUpdate.name = updateData.fullName || updateData.name;
+    }
+
+    if (Object.keys(profileUpdate).length > 0 || Object.keys(profileCreate).length > 0) {
+      userDataUpdate.profile = {
+        upsert: {
+          create: profileCreate,
+          update: profileUpdate
+        }
+      };
+    }
 
     const user = await this.prisma.user.update({
       where: { id: userId },
-      data: {
-        name: updateData.fullName || updateData.name,
-        profile: {
-          upsert: {
-            create: { phoneNumber: phoneToSet },
-            update: { phoneNumber: phoneToSet || undefined }
-          }
-        }
-      },
-      include: { profile: true }
+      data: userDataUpdate,
+      include: { profile: { include: { emergencyContact: true, address: true, avatarUpload: true } } }
     });
 
     return {
@@ -126,6 +190,11 @@ export class RentersService {
                 fullName: user.name,
                 email: user.email,
                 phone: user.profile?.phoneNumber,
+                bvn: user.profile?.bvn,
+                nin: user.profile?.nin,
+                profileImage: user.profile?.avatarUpload?.url || null,
+                emergencyContact: user.profile?.emergencyContact || null,
+                addresses: user.profile?.address ? [user.profile.address] : [],
                 updatedAt: new Date()
             }
         }
