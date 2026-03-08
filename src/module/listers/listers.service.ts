@@ -7,7 +7,7 @@ import {
 import { PrismaService } from 'src/services/prisma/prisma.service';
 import { userEntity } from '../auth/auth.types';
 import { DisputeStatus, Message, OrderStatus, ProductStatus, Role } from '@prisma/client';
-import { differenceInSeconds } from 'date-fns';
+import { differenceInSeconds, subMonths, startOfMonth, endOfMonth, subYears, startOfYear, endOfYear } from 'date-fns';
 
 const CURRENCY = 'NGN';
 const APPROVAL_WINDOW_MINUTES = 15;
@@ -3010,5 +3010,175 @@ export class ListersService {
         },
       },
     };
+  }
+
+  /** GET /api/listers/stats */
+  async getListerStats(user: userEntity, timeframe: string = 'month') {
+    try {
+      const now = new Date();
+      let currentStart: Date, currentEnd: Date, prevStart: Date, prevEnd: Date;
+
+      if (timeframe === 'year') {
+        currentStart = startOfYear(now);
+        currentEnd = endOfYear(now);
+        prevStart = startOfYear(subYears(now, 1));
+        prevEnd = endOfYear(subYears(now, 1));
+      } else {
+        // Default to month
+        currentStart = startOfMonth(now);
+        currentEnd = endOfMonth(now);
+        prevStart = startOfMonth(subMonths(now, 1));
+        prevEnd = endOfMonth(subMonths(now, 1));
+      }
+
+      const getStatsForPeriod = async (start: Date, end: Date) => {
+        const [earnings, ordersCount, activeRentals, pendingPayouts] = await Promise.all([
+          // Total Earnings from rentals in period
+          this.prisma.rental.aggregate({
+            where: { curatorId: user.id, startDate: { gte: start, lte: end } },
+            _sum: { totalAmount: true },
+          }),
+          // Total Orders count
+          this.prisma.order.count({
+            where: {
+              orderItems: { some: { product: { curatorId: user.id } } },
+              createdAt: { gte: start, lte: end },
+            },
+          }),
+          // Active Rentals
+          this.prisma.rental.count({
+            where: { curatorId: user.id, isReturned: false, createdAt: { lte: end } },
+          }),
+          // Pending Payouts (Escrow LOCKED)
+          this.prisma.escrow.aggregate({
+            where: { curatorId: user.id, status: 'LOCKED', createdAt: { lte: end } },
+            _sum: { rentalAmount: true },
+          }),
+        ]);
+
+        return {
+          earnings: earnings._sum.totalAmount || 0,
+          orders: ordersCount || 0,
+          activeRentals: activeRentals || 0,
+          pendingPayouts: pendingPayouts._sum.rentalAmount || 0,
+        };
+      };
+
+      const currentStats = await getStatsForPeriod(currentStart, currentEnd);
+      const prevStats = await getStatsForPeriod(prevStart, prevEnd);
+
+      const calculateChange = (current: number, previous: number) => {
+        if (previous === 0) return { percent: current > 0 ? 100 : 0, direction: 'up' };
+        const percent = Math.round(((current - previous) / previous) * 10000) / 100;
+        return {
+          percent: Math.abs(percent),
+          direction: percent >= 0 ? 'up' : 'down',
+        };
+      };
+
+      const earningsChange = calculateChange(currentStats.earnings, prevStats.earnings);
+      const ordersChange = calculateChange(currentStats.orders, prevStats.orders);
+      const activeChange = calculateChange(currentStats.activeRentals, prevStats.activeRentals);
+      const payoutsChange = calculateChange(currentStats.pendingPayouts, prevStats.pendingPayouts);
+
+      return {
+        success: true,
+        data: {
+          totalEarnings: {
+            amount: currentStats.earnings,
+            currency: CURRENCY,
+            changePercent: earningsChange.percent,
+            changeDirection: earningsChange.direction,
+          },
+          totalOrders: {
+            count: currentStats.orders,
+            changePercent: ordersChange.percent,
+            changeDirection: ordersChange.direction,
+          },
+          activeRentals: {
+            count: currentStats.activeRentals,
+            changePercent: activeChange.percent,
+            changeDirection: activeChange.direction,
+          },
+          pendingPayouts: {
+            amount: currentStats.pendingPayouts,
+            currency: CURRENCY,
+            changePercent: payoutsChange.percent,
+            changeDirection: payoutsChange.direction,
+          },
+          timeframe,
+          generatedAt: now.toISOString(),
+        },
+      };
+    } catch (e) {
+      console.error('getListerStats error:', e);
+      throw new InternalServerErrorException('Failed to fetch lister stats');
+    }
+  }
+
+  /** GET /api/listers/rentals/overtime */
+  async getRentalsOvertime(user: userEntity, timeframe: string = 'year', yearStr?: string) {
+    try {
+      const year = yearStr ? parseInt(yearStr, 10) : new Date().getFullYear();
+      const startOfYear = new Date(year, 0, 1);
+      const endOfYear = new Date(year, 11, 31, 23, 59, 59);
+
+      const rentals = await this.prisma.rental.findMany({
+        where: {
+          curatorId: user.id,
+          startDate: {
+            gte: startOfYear,
+            lte: endOfYear,
+          },
+        },
+        select: {
+          totalAmount: true,
+          startDate: true,
+        },
+      });
+
+      const months = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+      ];
+
+      const monthlyData = months.map((month, index) => {
+        const monthRentals = rentals.filter(r => r.startDate.getMonth() === index);
+        const revenue = monthRentals.reduce((sum, r) => sum + r.totalAmount, 0);
+        const orders = monthRentals.length;
+        
+        // Use the last day of the month for the timestamp as a placeholder
+        const timestamp = new Date(year, index + 1, 0, 23, 59, 59).toISOString();
+
+        return {
+          month,
+          revenue,
+          orders,
+          timestamp,
+        };
+      });
+
+      const totalRevenue = monthlyData.reduce((sum, m) => sum + m.revenue, 0);
+      const totalOrders = monthlyData.reduce((sum, m) => sum + m.orders, 0);
+      const activeMonths = monthlyData.filter(m => m.orders > 0).length || 1;
+
+      return {
+        success: true,
+        data: {
+          rentalsOvertime: monthlyData,
+          timeframe,
+          year,
+          summary: {
+            totalRevenue,
+            totalOrders,
+            avgMonthlyRevenue: Math.round(totalRevenue / 12),
+            avgMonthlyOrders: Math.round((totalOrders / 12) * 10) / 10,
+          },
+        },
+      };
+    } catch (e) {
+      console.error('getRentalsOvertime error:', e);
+      throw new InternalServerErrorException('Failed to fetch rentals overtime data');
+    }
   }
 }

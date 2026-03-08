@@ -37,6 +37,32 @@ export class ListersController {
   }
 
   @Auth([Role.LISTER, Role.ADMIN])
+  @Get('stats')
+  @ApiOperation({ summary: 'High-level performance metrics for listers' })
+  @ApiQuery({ name: 'timeframe', required: false, enum: ['month', 'year'] })
+  @ApiResponse({ status: 200, description: 'Lister stats with period comparison' })
+  getListerStats(
+    @AuthUser() user: userEntity,
+    @Query('timeframe') timeframe?: string,
+  ) {
+    return this.listersService.getListerStats(user, timeframe);
+  }
+
+  @Auth([Role.LISTER, Role.ADMIN])
+  @Get('rentals/overtime')
+  @ApiOperation({ summary: 'Lister rental performance trends over time' })
+  @ApiQuery({ name: 'timeframe', required: false, enum: ['month', 'quarter', 'year'] })
+  @ApiQuery({ name: 'year', required: false, type: Number })
+  @ApiResponse({ status: 200, description: 'Revenue and orders trends over time' })
+  getRentalsOvertime(
+    @AuthUser() user: userEntity,
+    @Query('timeframe') timeframe?: string,
+    @Query('year') year?: string,
+  ) {
+    return this.listersService.getRentalsOvertime(user, timeframe, year);
+  }
+
+  @Auth([Role.LISTER, Role.ADMIN])
   @Get('rentals/recent')
   @ApiOperation({ summary: 'Recent rental activity for listers' })
   @ApiQuery({ name: 'page', required: false, type: Number })
