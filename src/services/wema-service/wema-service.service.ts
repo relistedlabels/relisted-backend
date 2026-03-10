@@ -20,12 +20,12 @@ const userExist =await this.prisma.user.findUnique({
 
 
 
-  const vaNumber = `759${Math.floor(100000000 + Math.random() * 900000000)}`;
+  const vaNumber = `698${Math.floor(1000000 + Math.random() * 9000000)}`;
 //  create virtual account
   const virtualAccount = await this.prisma.virtualAccount.create({
     data: {
       userId: user.id,
-      prefix:"759",
+      prefix:"698",
       vaNumber,
       status: 'PENDING',
       expiresAt: addMinutes(new Date(), 30),

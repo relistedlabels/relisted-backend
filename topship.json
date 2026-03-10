@@ -1,0 +1,67 @@
+[dotenv@17.3.1] injecting env (16) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+Sending params: {
+  shipmentDetail: {
+    senderDetails: { cityName: 'Lagos', countryCode: 'NG' },
+    receiverDetails: { cityName: 'Abuja', countryCode: 'NG' },
+    totalWeight: 1
+  }
+}
+Failed (isStringified=false): {
+  message: "Bad request, Specified sender / reciever Address not available (Cannot read property 'totalWeight' of undefined)",
+  locations: [ { line: 2, column: 3 } ],
+  path: [ 'getShipmentRate' ]
+}
+---
+Sending params: {
+  shipmentDetail: '{"senderDetails":{"cityName":"Lagos","countryCode":"NG"},"receiverDetails":{"cityName":"Abuja","countryCode":"NG"},"totalWeight":1}'
+}
+Success (isStringified=true)! Response data: [
+  {
+    "mode": "Express Plus Shipping",
+    "cost": 700000,
+    "duration": "Delivery on next working day",
+    "currency": "KOBO",
+    "pricingTier": "Premium",
+    "actualCost": null,
+    "remoteAreaCost": null,
+    "isDisabled": false,
+    "isRecommended": false,
+    "budgetDeliveryCost": null,
+    "budgetCategory": null,
+    "tags": [
+      "[{\"type\":\"p\",\"style\":{\"color\":\"#416eb2\",\"backgroundColor\":\"#e1f9ff\"},\"content\":[{\"type\":\"text\",\"content\":\"Order on or before 11am\"}]}]",
+      "[{\"type\":\"p\",\"style\":{\"color\":\"#416eb2\",\"backgroundColor\":\"#e1f9ff\"},\"content\":[{\"type\":\"text\",\"content\":\"2 Working Days for Late Bookings\"}]}]"
+    ],
+    "estimatedDeliveryDate": "2026-03-11T16:33:35.768Z"
+  },
+  {
+    "mode": "Express Shipping",
+    "cost": 3055000,
+    "duration": "Delivery in 3 - 5 working days",
+    "currency": "KOBO",
+    "pricingTier": "Express",
+    "actualCost": null,
+    "remoteAreaCost": null,
+    "isDisabled": false,
+    "isRecommended": false,
+    "budgetDeliveryCost": null,
+    "budgetCategory": null,
+    "tags": [
+      "[{\"type\":\"p\",\"style\":{\"color\":\"#416eb2\",\"backgroundColor\":\"#e1f9ff\"},\"content\":[{\"type\":\"text\",\"content\":\"Doorstep Delivery\"}]}]",
+      "[{\"type\":\"p\",\"style\":{\"color\":\"#416eb2\",\"backgroundColor\":\"#e1f9ff\"},\"content\":[{\"type\":\"text\",\"content\":\"Receiver's Signature Required\"}]}]",
+      "[{\"type\":\"p\",\"style\":{\"color\":\"#9e7201\",\"backgroundColor\":\"#fff8e6\"},\"content\":[{\"type\":\"text\",\"content\":\"Receiver will be required to pay customs clearance charges\"}]}]"
+    ],
+    "estimatedDeliveryDate": "2026-03-17T16:33:35.768Z"
+  }
+]
+---
+POST Failed: {
+  statusCode: 404,
+  message: 'Cannot POST /api/get-shipment-rate',
+  error: 'Not Found'
+}
+POST Wrapped Failed: {
+  statusCode: 404,
+  message: 'Cannot POST /api/get-shipment-rate',
+  error: 'Not Found'
+}

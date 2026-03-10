@@ -10,6 +10,12 @@ export class OrderController {
   constructor(private readonly orderService: OrderService) {}
   
   @Auth()
+  @Get('summary')
+  getCheckoutSummary(@AuthUser() user: userEntity) {
+    return this.orderService.getCheckoutSummary(user);
+  }
+
+  @Auth()
   @Post()
   create(@AuthUser() user:userEntity) {
     return this.orderService.checkout(user);

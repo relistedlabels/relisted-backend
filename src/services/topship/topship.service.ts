@@ -22,7 +22,7 @@ export class TopshipService {
     try {
       const response = await axios.get(`${this.baseUrl}/get-shipment-rate`, {
         headers: this.headers,
-        params: { shipmentDetail: data },
+        params: { shipmentDetail: typeof data === 'string' ? data : JSON.stringify(data) },
       });
       return response.data;
     } catch (error: any) {
