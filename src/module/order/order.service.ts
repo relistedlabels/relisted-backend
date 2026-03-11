@@ -63,6 +63,7 @@ export class OrderService {
     let globalRentalTotal = 0;
     let globalCollateralTotal = 0;
     let globalCleaningTotal = 0;
+    let globalPickupTotal = 0;
 
     const listerBreakdowns: any[] = [];
     const shippingTiersMap = new Map<string, { name: string; totalShippingCost: number }>();
@@ -92,6 +93,28 @@ export class OrderService {
       const senderCity = curatorAddress?.city || 'Lagos';
       const receiverCity = renterProfile.address.city || 'Lagos';
       
+      let pickupChargeRaw = 0;
+      try {
+          const pickupPayload = {
+             senderDetail: {
+                addressLine1: curatorAddress?.street || 'Lagos',
+                addressLine2: '',
+                country: 'Nigeria',
+                countryCode: 'NG',
+                state: curatorAddress?.state || 'Lagos',
+                city: senderCity
+             },
+             pickupDate: new Date().toISOString()
+          };
+          const pickupData = await this.topshipService.getPickupRates(pickupPayload);
+          if (pickupData && pickupData.length > 0) {
+              pickupChargeRaw = Number(pickupData[0].pickupCharge) || 0;
+          }
+      } catch (err: any) {
+          console.warn(`Pickup calculation failed for ${senderCity}. Reason:`, err.message);
+      }
+      const pickupChargeNGN = Math.ceil(pickupChargeRaw / 100);
+
       let rateData: any[] = [];
       try {
           const ratePayload = {
@@ -129,11 +152,12 @@ export class OrderService {
       // Inside lister Breakdown we assume baseline fallback for backwards compatibility UI, 
       // actual final costs will be calculated fully via checkout payload
       const baselineShipping = Math.ceil((rateData[0]?.cost || 300000) / 100);
-      const listerGrandTotal = listerRentalTotal + listerCollateralTotal + listerCleaningTotal + baselineShipping;
+      const listerGrandTotal = listerRentalTotal + listerCollateralTotal + listerCleaningTotal + baselineShipping + pickupChargeNGN;
       
       globalRentalTotal += listerRentalTotal;
       globalCollateralTotal += listerCollateralTotal;
       globalCleaningTotal += listerCleaningTotal;
+      globalPickupTotal += pickupChargeNGN;
       
       listerBreakdowns.push({
          listerId,
@@ -143,11 +167,12 @@ export class OrderService {
          collateralTotal: listerCollateralTotal,
          cleaningTotal: listerCleaningTotal,
          shippingCost: baselineShipping,
+         pickupCost: pickupChargeNGN,
          listerGrandTotal
       });
     }
 
-    const itemTotalsBase = globalRentalTotal + globalCollateralTotal + globalCleaningTotal;
+    const itemTotalsBase = globalRentalTotal + globalCollateralTotal + globalCleaningTotal + globalPickupTotal;
     
     // Map the aggregated shipping tiers into the response array
     const shippingTiers = Array.from(shippingTiersMap.values()).map(tier => ({
@@ -168,6 +193,7 @@ export class OrderService {
            rentalTotal: globalRentalTotal,
            collateralTotal: globalCollateralTotal,
            cleaningTotal: globalCleaningTotal,
+           pickupTotal: globalPickupTotal,
            shippingTotal: baselineShippingTotal,
            grandTotal: baselineGrandTotal,
          },
@@ -246,12 +272,42 @@ export class OrderService {
         listerItemsTotal += rentalAmount + collateralAmount + cleaningFee;
       }
 
-      // Calculate shipping
+      // Calculate shipping & pickup
       // Provide fallback cities if missing in testing
       const senderCity = curatorAddress?.city || 'Lagos'; // Using Lagos as fallback for staging
       const receiverCity = renterProfile.address.city || 'Lagos';
       
+      let pickupChargeRaw = 0;
+      let deliveryLocation = '';
+      let pickupId = '';
+      let pickupPartner = 'Standard';
+      try {
+          const pickupPayload = {
+             senderDetail: {
+                addressLine1: curatorAddress?.street || 'Lagos',
+                addressLine2: '',
+                country: 'Nigeria',
+                countryCode: 'NG',
+                state: curatorAddress?.state || 'Lagos',
+                city: senderCity
+             },
+             pickupDate: new Date().toISOString()
+          };
+          const pickupData = await this.topshipService.getPickupRates(pickupPayload);
+          console.log(`[OrderService] Fetched Pickup Rates for ${senderCity}:`, JSON.stringify(pickupData, null, 2));
+          if (pickupData && pickupData.length > 0) {
+              pickupChargeRaw = Number(pickupData[0].pickupCharge) || 0;
+              deliveryLocation = pickupData[0].deliveryLocation || '';
+              pickupId = pickupData[0].pickupId || '';
+              pickupPartner = pickupData[0].partner || 'Standard';
+          }
+      } catch (err: any) {
+          console.warn(`Pickup calculation failed for ${senderCity}. Reason:`, err.message);
+      }
+      const pickupCostNGN = Math.ceil(pickupChargeRaw / 100);
+
       let shippingCost = 0;
+      let shipmentChargeRaw = 300000;
       try {
           const ratePayload = {
             senderDetails: { cityName: senderCity, countryCode: "NG" },
@@ -268,14 +324,17 @@ export class OrderService {
               }
           }
           
+          if (matchedRate) {
+             shipmentChargeRaw = Number(matchedRate.cost) || 0;
+          }
           // Pick selected or fallback price and convert from Kobo to NGN
-          shippingCost = matchedRate ? Math.ceil(matchedRate.cost / 100) : 3000;
+          shippingCost = Math.ceil(shipmentChargeRaw / 100);
       } catch (err: any) {
          console.warn(`Shipping calculation failed between ${senderCity} and ${receiverCity}. Reason:`, err.message);
          shippingCost = 3000;
       }
 
-      const listerGrandTotal = listerItemsTotal + shippingCost;
+      const listerGrandTotal = listerItemsTotal + shippingCost + pickupCostNGN;
       grandTotal += listerGrandTotal;
       
       listerOrdersData.push({
@@ -283,7 +342,12 @@ export class OrderService {
          items,
          listerGrandTotal,
          shippingCost,
-         usedPricingTier: selectedPricingTier || 'Budget'
+         usedPricingTier: selectedPricingTier || 'Budget',
+         pickupChargeRaw,
+         deliveryLocation,
+         pickupId,
+         pickupPartner,
+         shipmentChargeRaw
       });
     }
 
@@ -365,26 +429,42 @@ export class OrderService {
 
         const payload = { 
           shipment: [{
-            senderDetails: {
+            senderDetail: {
               name: curatorBusiness?.businessName || firstItem.product.curator.name,
               phoneNumber: curatorBusiness?.businessPhone || curatorProfile?.phoneNumber || '08000000000',
               email: curatorBusiness?.businessEmail || firstItem.product.curator.email || 'lister@relisted.com',
-              cityName: senderCity,
+              city: senderCity,
+              state:curatorAddress?.state || 'Lagos',
               countryCode: "NG",
-              addressLine: curatorBusiness?.businessAddress || curatorAddress?.street || 'Lagos, Nigeria'
+              addressLine1: curatorBusiness?.businessAddress || curatorAddress?.street || 'Lagos, Nigeria',
+              country:"Nigeria",
+              postalCode:""
             },
-            receiverDetails: {
+            receiverDetail: {
               name: user.name || 'Renter',
               phoneNumber: renterProfile.phoneNumber || '08000000000',
               email: user.email || 'renter@relisted.com',
-              cityName: receiverCity,
+              city: receiverCity,
+              state:renterProfile.address?.state || 'Lagos',
               countryCode: "NG",
-              addressLine: renterProfile.address?.street || 'Lagos, Nigeria'
+              addressLine1: renterProfile.address?.street || 'Lagos, Nigeria',
+              country:"Nigeria",
+              postalCode:""
             },
             pricingTier: listerData.usedPricingTier,
+            insuranceType: 'None',
             itemCollectionMode: 'PickUp',
+            shipmentRoute:'Domestic',
+            insuranceCharge:0,
+            shipmentCharge: listerData.shipmentChargeRaw || 0,
+            pickupId: listerData.pickupId || `PICKUP-${Date.now()}`,
+            pickupPartner: listerData.pickupPartner || 'Standard',
+            pickupCharge: listerData.pickupChargeRaw || 0,
+            valueAddedTaxCharge: Math.ceil(((listerData.shipmentChargeRaw || 0) + (listerData.pickupChargeRaw || 0)) * 0.075),
+            discount:0,
+            deliveryLocation: listerData.deliveryLocation || renterProfile.address?.street || 'Lagos, Nigeria',
             items: [{
-              category: firstItem.product?.category?.name || 'apparel',
+              category: 'ClothingAndTextile',
               description: description.substring(0, 50) || 'Clothing Rental Item',
               weight: 1,
               quantity: listerData.items.length,

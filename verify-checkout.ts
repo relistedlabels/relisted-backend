@@ -109,6 +109,31 @@ async function bootstrap() {
      console.error('Checkout Error:', err);
   }
   
+  console.log('--- Cleaning up test data ---');
+  try {
+     const testUserIds = [renter.id, lister1.id, lister2.id];
+
+     await prisma.walletTransaction.deleteMany({ where: { wallet: { userId: { in: testUserIds } } } });
+     await prisma.wallet.deleteMany({ where: { userId: { in: testUserIds } } });
+     await prisma.address.deleteMany({ where: { profile: { userId: { in: testUserIds } } } });
+     await prisma.profile.deleteMany({ where: { userId: { in: testUserIds } } });
+     
+     await prisma.orderItem.deleteMany({ where: { order: { userId: { in: testUserIds } } } });
+     await prisma.order.deleteMany({ where: { userId: { in: testUserIds } } });
+     
+     await prisma.cartItem.deleteMany({ where: { cart: { userId: { in: testUserIds } } } });
+     await prisma.cart.deleteMany({ where: { userId: { in: testUserIds } } });
+
+     await prisma.product.deleteMany({ where: { curatorId: { in: testUserIds } } });
+
+     await prisma.user.deleteMany({
+       where: { id: { in: testUserIds } }
+     });
+     console.log('Test users and associated data cleaned up successfully.');
+  } catch (cleanupErr) {
+     console.error('Cleanup Error:', cleanupErr);
+  }
+
   await app.close();
 }
 

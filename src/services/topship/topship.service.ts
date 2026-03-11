@@ -34,7 +34,7 @@ export class TopshipService {
     try {
       const response = await axios.get(`${this.baseUrl}/get-shopnship-rates`, {
         headers: this.headers,
-        params: { input: data },
+        params: { input: typeof data === 'string' ? data : JSON.stringify(data) },
       });
       return response.data;
     } catch (error: any) {
@@ -46,7 +46,7 @@ export class TopshipService {
     try {
       const response = await axios.get(`${this.baseUrl}/get-pickup-rates`, {
         headers: this.headers,
-        params: { input: data },
+        params: { input: typeof data === 'string' ? data : JSON.stringify(data) },
       });
       return response.data;
     } catch (error: any) {
