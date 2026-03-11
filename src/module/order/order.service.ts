@@ -63,10 +63,9 @@ export class OrderService {
     let globalRentalTotal = 0;
     let globalCollateralTotal = 0;
     let globalCleaningTotal = 0;
-    let globalShippingTotal = 0;
-    let grandTotal = 0;
 
     const listerBreakdowns: any[] = [];
+    const shippingTiersMap = new Map<string, { name: string; totalShippingCost: number }>();
 
     // Calculate totals and shipping for each lister
     for (const [listerId, items] of itemsByLister.entries()) {
@@ -93,27 +92,48 @@ export class OrderService {
       const senderCity = curatorAddress?.city || 'Lagos';
       const receiverCity = renterProfile.address.city || 'Lagos';
       
-      let shippingCost = 0;
+      let rateData: any[] = [];
       try {
           const ratePayload = {
             senderDetails: { cityName: senderCity, countryCode: "NG" },
             receiverDetails: { cityName: receiverCity, countryCode: "NG" },
             totalWeight: 1 
           };
-          const rateData = await this.topshipService.getShipmentRate(ratePayload);
-          shippingCost = rateData?.[0] ? Math.ceil(rateData[0].cost / 100) : 3000;
+          rateData = await this.topshipService.getShipmentRate(ratePayload);
       } catch (err: any) {
          console.warn(`Shipping calculation failed between ${senderCity} and ${receiverCity}. Reason:`, err.message);
-         shippingCost = 3000;
       }
 
-      const listerGrandTotal = listerRentalTotal + listerCollateralTotal + listerCleaningTotal + shippingCost;
+      if (!rateData || !rateData.length) {
+          // Fallback if Topship fails to return anything
+          rateData = [{ pricingTier: 'Budget', name: 'Standard (Fallback)', cost: 300000 }]; // 300000 kobo = NGN 3000
+      }
+
+      // Aggregate shipping tiers globally
+      for (const rate of rateData) {
+          if (!rate.pricingTier) continue;
+          
+          const tierCost = Math.ceil((rate.cost || 300000) / 100);
+          const existingTier = shippingTiersMap.get(rate.pricingTier);
+          
+          if (existingTier) {
+              existingTier.totalShippingCost += tierCost;
+          } else {
+              shippingTiersMap.set(rate.pricingTier, {
+                  name: rate.pricingTier,
+                  totalShippingCost: tierCost
+              });
+          }
+      }
+
+      // Inside lister Breakdown we assume baseline fallback for backwards compatibility UI, 
+      // actual final costs will be calculated fully via checkout payload
+      const baselineShipping = Math.ceil((rateData[0]?.cost || 300000) / 100);
+      const listerGrandTotal = listerRentalTotal + listerCollateralTotal + listerCleaningTotal + baselineShipping;
       
       globalRentalTotal += listerRentalTotal;
       globalCollateralTotal += listerCollateralTotal;
       globalCleaningTotal += listerCleaningTotal;
-      globalShippingTotal += shippingCost;
-      grandTotal += listerGrandTotal;
       
       listerBreakdowns.push({
          listerId,
@@ -122,10 +142,23 @@ export class OrderService {
          rentalTotal: listerRentalTotal,
          collateralTotal: listerCollateralTotal,
          cleaningTotal: listerCleaningTotal,
-         shippingCost: shippingCost,
+         shippingCost: baselineShipping,
          listerGrandTotal
       });
     }
+
+    const itemTotalsBase = globalRentalTotal + globalCollateralTotal + globalCleaningTotal;
+    
+    // Map the aggregated shipping tiers into the response array
+    const shippingTiers = Array.from(shippingTiersMap.values()).map(tier => ({
+        name: tier.name,
+        totalShippingCost: tier.totalShippingCost,
+        grandTotal: itemTotalsBase + tier.totalShippingCost
+    }));
+
+    // For backwards compatibility and baseline metrics
+    const baselineShippingTotal = shippingTiers.length > 0 ? shippingTiers[0].totalShippingCost : 3000;
+    const baselineGrandTotal = itemTotalsBase + baselineShippingTotal;
 
     return {
       success: true,
@@ -135,15 +168,16 @@ export class OrderService {
            rentalTotal: globalRentalTotal,
            collateralTotal: globalCollateralTotal,
            cleaningTotal: globalCleaningTotal,
-           shippingTotal: globalShippingTotal,
-           grandTotal: grandTotal,
+           shippingTotal: baselineShippingTotal,
+           grandTotal: baselineGrandTotal,
          },
+         shippingTiers,
          listerBreakdowns
       }
     };
   }
 
-  async checkout(user: userEntity) {
+  async checkout(user: userEntity, selectedPricingTier?: string) {
     const renterProfile = await this.prisma.profile.findUnique({
       where: { userId: user.id },
       include: { address: true }
@@ -225,8 +259,17 @@ export class OrderService {
             totalWeight: 1 // Default weight 1kg
           };
           const rateData = await this.topshipService.getShipmentRate(ratePayload);
-          // Pick standard/first price if available and convert from Kobo to NGN
-          shippingCost = rateData?.[0] ? Math.ceil(rateData[0].cost / 100) : 3000;
+          
+          let matchedRate = rateData?.[0]; // Default to first available tier
+          if (selectedPricingTier && rateData && rateData.length > 0) {
+              const exactMatch = rateData.find((r: any) => r.pricingTier === selectedPricingTier);
+              if (exactMatch) {
+                  matchedRate = exactMatch;
+              }
+          }
+          
+          // Pick selected or fallback price and convert from Kobo to NGN
+          shippingCost = matchedRate ? Math.ceil(matchedRate.cost / 100) : 3000;
       } catch (err: any) {
          console.warn(`Shipping calculation failed between ${senderCity} and ${receiverCity}. Reason:`, err.message);
          shippingCost = 3000;
@@ -239,7 +282,8 @@ export class OrderService {
          listerId,
          items,
          listerGrandTotal,
-         shippingCost
+         shippingCost,
+         usedPricingTier: selectedPricingTier || 'Budget'
       });
     }
 
@@ -304,7 +348,7 @@ export class OrderService {
       });
     });
 
-    // 5. Trigger Topship Save Shipment As Draft automatically
+    // 5. Trigger Topship Save Shipment As Draft automatically (Outside transaction to prevent P2028 Timeouts)
     for (const listerData of listerOrdersData) {
       try {
         const firstItem = listerData.items[0];
@@ -319,28 +363,35 @@ export class OrderService {
         
         const description = listerData.items.map((i: any) => i.product.name).join(', ');
 
-        const payload = [{
-          senderDetails: {
-            name: curatorBusiness?.businessName || firstItem.product.curator.name,
-            phoneNumber: curatorBusiness?.businessPhone || curatorProfile?.phoneNumber || '08000000000',
-            email: curatorBusiness?.businessEmail || firstItem.product.curator.email || 'lister@relisted.com',
-            cityName: senderCity,
-            countryCode: "NG",
-            addressLine: curatorBusiness?.businessAddress || curatorAddress?.street || 'Lagos, Nigeria'
-          },
-          receiverDetails: {
-            name: user.name || 'Renter',
-            phoneNumber: renterProfile.phoneNumber || '08000000000',
-            email: user.email || 'renter@relisted.com',
-            cityName: receiverCity,
-            countryCode: "NG",
-            addressLine: renterProfile.address?.street || 'Lagos, Nigeria'
-          },
-          shipmentDetail: {
-            weight: 1,
-            description: description.substring(0, 50) || 'Clothing Rental Item'
-          }
-        }];
+        const payload = { 
+          shipment: [{
+            senderDetails: {
+              name: curatorBusiness?.businessName || firstItem.product.curator.name,
+              phoneNumber: curatorBusiness?.businessPhone || curatorProfile?.phoneNumber || '08000000000',
+              email: curatorBusiness?.businessEmail || firstItem.product.curator.email || 'lister@relisted.com',
+              cityName: senderCity,
+              countryCode: "NG",
+              addressLine: curatorBusiness?.businessAddress || curatorAddress?.street || 'Lagos, Nigeria'
+            },
+            receiverDetails: {
+              name: user.name || 'Renter',
+              phoneNumber: renterProfile.phoneNumber || '08000000000',
+              email: user.email || 'renter@relisted.com',
+              cityName: receiverCity,
+              countryCode: "NG",
+              addressLine: renterProfile.address?.street || 'Lagos, Nigeria'
+            },
+            pricingTier: listerData.usedPricingTier,
+            itemCollectionMode: 'PickUp',
+            items: [{
+              category: firstItem.product?.category?.name || 'apparel',
+              description: description.substring(0, 50) || 'Clothing Rental Item',
+              weight: 1,
+              quantity: listerData.items.length,
+              value: Number(firstItem.product.dailyPrice) || 1000
+            }]
+          }]
+        };
 
         await this.topshipService.bookShipmentAsDraft(payload);
       } catch (err: any) {

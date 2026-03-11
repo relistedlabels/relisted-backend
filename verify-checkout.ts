@@ -99,7 +99,7 @@ async function bootstrap() {
 
   console.log('--- Calling OrderService.checkout ---');
   try {
-     const result = await orderService.checkout(renter as any);
+     const result = await orderService.checkout(renter as any, 'Express');
      console.log('Checkout Result:', result);
      
      const updatedWallet = await prisma.wallet.findUnique({ where: { userId: renter.id }});

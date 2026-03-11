@@ -17,8 +17,8 @@ export class OrderController {
 
   @Auth()
   @Post()
-  create(@AuthUser() user:userEntity) {
-    return this.orderService.checkout(user);
+  create(@AuthUser() user: userEntity, @Body('pricingTier') pricingTier?: string) {
+    return this.orderService.checkout(user, pricingTier);
   }
 
 }
