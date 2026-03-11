@@ -499,6 +499,83 @@ export class AdminService {
     return { success: true, data: { message: 'Wallets exported successfully' } };
   }
 
+  async getAllWithdrawals(page: number, limit: number, status?: string) {
+    const skip = (page - 1) * limit;
+    const where: any = {};
+    if (status && status !== 'ALL') {
+      where.status = status;
+    }
+
+    const [total, withdrawals] = await this.prisma.$transaction([
+      this.prisma.withdrawalRequest.count({ where }),
+      this.prisma.withdrawalRequest.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          user: { select: { id: true, name: true, email: true } },
+          bankAccount: true,
+        },
+      }),
+    ]);
+
+    return {
+      success: true,
+      data: {
+        withdrawals,
+        total,
+        page,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async updateWithdrawalStatus(withdrawalId: string, status: 'APPROVED' | 'REJECTED', note?: string) {
+    const withdrawal = await this.prisma.withdrawalRequest.findUnique({ where: { id: withdrawalId } });
+    if (!withdrawal) throw new NotFoundException('Withdrawal request not found');
+    if (withdrawal.status !== 'PENDING') throw new BadRequestException(`Withdrawal is already ${withdrawal.status}`);
+
+    if (status === 'REJECTED') {
+      // Refund wallet in a transaction
+      await this.prisma.$transaction(async (tx) => {
+        const wallet = await (tx as any).wallet.findUnique({ where: { userId: withdrawal.userId } });
+        if (wallet) {
+          await (tx as any).wallet.update({
+            where: { id: wallet.id },
+            data: { mainBalance: { increment: withdrawal.amount } }
+          });
+          
+          await (tx as any).walletTransaction.create({
+            data: {
+              walletId: wallet.id,
+              type: "MAIN",
+              amount: withdrawal.amount,
+              status: "SUCCESS",
+              note: `Refund for rejected withdrawal request (Ref: ${withdrawal.reference})`
+            }
+          });
+        }
+        
+        await (tx as any).withdrawalRequest.update({
+          where: { id: withdrawalId },
+          data: { status }
+        });
+      });
+    } else {
+      await this.prisma.withdrawalRequest.update({
+        where: { id: withdrawalId },
+        data: { status }
+      });
+    }
+
+    return {
+      success: true,
+      message: `Withdrawal ${status.toLowerCase()} successfully`,
+      data: { status }
+    };
+  }
+
   /* PRODUCTS */
 
   async getProductStats() {

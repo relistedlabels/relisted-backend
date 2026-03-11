@@ -12,6 +12,7 @@ import { RentersFavoritesController } from './renters.favorites.controller';
 import { RentersSecurityController } from './renters.security.controller';
 import { RentersNotificationsController } from './renters.notifications.controller';
 import { PrismaService } from '../../services/prisma/prisma.service';
+import { WemaServiceService } from '../../services/wema-service/wema-service.service';
 
 @Module({
   imports: [PrismaModule, UploadModule],
@@ -26,7 +27,7 @@ import { PrismaService } from '../../services/prisma/prisma.service';
     RentersSecurityController,
     RentersNotificationsController,
   ],
-  providers: [RentersService, PrismaService],
+  providers: [RentersService, PrismaService, WemaServiceService],
   exports: [RentersService],
 })
 export class RentersModule {}

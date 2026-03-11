@@ -66,6 +66,29 @@ export class AdminWalletsController {
     return this.adminService.releaseEscrow(escrowId, data);
   }
 
+  @Get('withdrawals')
+  @ApiOperation({ summary: 'Get all withdrawal requests' })
+  async getAllWithdrawals(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.adminService.getAllWithdrawals(
+      page ? parseInt(page, 10) : 1,
+      limit ? parseInt(limit, 10) : 10,
+      status,
+    );
+  }
+
+  @Put('withdrawals/:id/status')
+  @ApiOperation({ summary: 'Update withdrawal status' })
+  async updateWithdrawalStatus(
+    @Param('id') withdrawalId: string,
+    @Body() data: { status: 'APPROVED' | 'REJECTED'; note?: string },
+  ) {
+    return this.adminService.updateWithdrawalStatus(withdrawalId, data.status, data.note);
+  }
+
   @Get(':walletId')
   @ApiOperation({ summary: 'Get wallet details' })
   async getWalletDetails(@Param('walletId') walletId: string) {

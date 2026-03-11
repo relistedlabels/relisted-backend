@@ -23,8 +23,8 @@ const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
 async function createAdmin() {
-  const email = 'nwikechisom77@gmail.com';
-  const name = 'Nwike Chisom';
+  const email = 'keneobiejesi96@gmail.com';
+  const name = 'Kene Obiejesi';
 
   // Generate a random password (16 characters: 12 alphanumeric + 4 special chars)
   const randomPassword = generateRandomPassword();

@@ -44,8 +44,9 @@ export class RentersWalletController {
     return this.rentersService.getWithdrawal(req.user.id, withdrawalId);
   }
 
-  // Supported POST endpoints (deposit, withdraw, add bank account) are EXCLUDED per instructions?
-  // User spec said: "excluded the post wallet endpoints"
-  // But also said: "implement the following renter routes, excluding the post wallet endpoints"
-  // So I skip POST /api/renters/wallet/deposit, POST /api/renters/wallet/bank-accounts, POST /api/renters/wallet/withdraw
+  @Post('withdraw')
+  @ApiOperation({ summary: 'Request wallet withdrawal' })
+  async requestWithdrawal(@Request() req, @Body() body: { amount: number, bankAccountId: string }) {
+    return this.rentersService.requestWithdrawal(req.user.id, body);
+  }
 }

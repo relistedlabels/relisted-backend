@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../services/prisma/prisma.service';
 import { UploadService } from '../upload/upload.service';
+import { WemaServiceService } from '../../services/wema-service/wema-service.service';
 import { randomUUID } from 'crypto';
 import { Role } from '@prisma/client';
 import { addMinutes } from 'date-fns';
@@ -9,7 +10,8 @@ import { addMinutes } from 'date-fns';
 export class RentersService {
   constructor(
     private prisma: PrismaService,
-    private uploadService: UploadService
+    private uploadService: UploadService,
+    private wemaService: WemaServiceService
   ) {}
 
   async getDashboardSummary(userId: string, timeframe: string = 'month') {
@@ -77,7 +79,10 @@ export class RentersService {
   async getProfile(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      include: { profile: { include: { address: true, avatarUpload: true, emergencyContact: true } } }
+      include: { 
+        profile: { include: { address: true, avatarUpload: true, emergencyContact: true } },
+        virtualAccounts: true
+      }
     });
 
     if (!user) throw new NotFoundException('User not found');
@@ -91,6 +96,13 @@ export class RentersService {
           email: user.email,
           role: user.role,
           phone: user.profile?.phoneNumber,
+          bvn: user.profile?.bvn,
+          nin: user.profile?.nin,
+          virtualAccount: user.virtualAccounts?.[0] ? {
+            vaNumber: user.virtualAccounts[0].vaNumber,
+            bankName: "Wema Bank",
+            status: user.virtualAccounts[0].status
+          } : null,
           profileImage: user.profile?.avatarUpload?.url || null, // ensure it defaults to null
           dateJoined: user.createdAt,
           emergencyContact: user.profile?.emergencyContact || null,
@@ -178,7 +190,27 @@ export class RentersService {
     const user = await this.prisma.user.update({
       where: { id: userId },
       data: userDataUpdate,
-      include: { profile: { include: { emergencyContact: true, address: true, avatarUpload: true } } }
+      include: { 
+        profile: { include: { emergencyContact: true, address: true, avatarUpload: true } },
+        virtualAccounts: true
+      }
+    });
+
+    if ((updateData.bvn || updateData.nin) && user.virtualAccounts?.length === 0) {
+        try {
+            await this.wemaService.createAccount(user as any, 0);
+        } catch (err: any) {
+            console.warn(`Failed to generate Virtual Account for ${userId}:`, err.message);
+        }
+    }
+
+    // Refetch in case it was created
+    const finalUser = await this.prisma.user.findUnique({
+        where: { id: userId },
+        include: { 
+            profile: { include: { emergencyContact: true, address: true, avatarUpload: true } },
+            virtualAccounts: true
+        }
     });
 
     return {
@@ -186,15 +218,20 @@ export class RentersService {
         message: "Profile updated successfully",
         data: {
             profile: {
-                userId: user.id,
-                fullName: user.name,
-                email: user.email,
-                phone: user.profile?.phoneNumber,
-                bvn: user.profile?.bvn,
-                nin: user.profile?.nin,
-                profileImage: user.profile?.avatarUpload?.url || null,
-                emergencyContact: user.profile?.emergencyContact || null,
-                addresses: user.profile?.address ? [user.profile.address] : [],
+                userId: finalUser?.id,
+                fullName: finalUser?.name,
+                email: finalUser?.email,
+                phone: finalUser?.profile?.phoneNumber,
+                bvn: finalUser?.profile?.bvn,
+                nin: finalUser?.profile?.nin,
+                virtualAccount: finalUser?.virtualAccounts?.[0] ? {
+                  vaNumber: finalUser?.virtualAccounts[0].vaNumber,
+                  bankName: "Wema Bank",
+                  status: finalUser?.virtualAccounts[0].status
+                } : null,
+                profileImage: finalUser?.profile?.avatarUpload?.url || null,
+                emergencyContact: finalUser?.profile?.emergencyContact || null,
+                addresses: finalUser?.profile?.address ? [finalUser?.profile.address] : [],
                 updatedAt: new Date()
             }
         }
@@ -405,6 +442,76 @@ export class RentersService {
                   reference: withdrawal.reference,
                   initiatedAt: withdrawal.createdAt,
                   timeline: []
+              }
+          }
+      }
+  }
+
+  async requestWithdrawal(userId: string, data: { amount: number, bankAccountId: string }) {
+      if (!data.amount || data.amount <= 0) {
+          throw new BadRequestException("Invalid withdrawal amount");
+      }
+
+      const bankAccount = await (this.prisma as any).bankAccount.findFirst({
+          where: { id: data.bankAccountId, userId }
+      });
+
+      if (!bankAccount) {
+          throw new BadRequestException("Invalid bank account linked to user");
+      }
+
+      const wallet = await (this.prisma as any).wallet.findUnique({ where: { userId } });
+      
+      if (!wallet || wallet.mainBalance < data.amount) {
+          throw new BadRequestException("Insufficient wallet balance");
+      }
+
+      const reference = `WD-${randomUUID().split("-")[0].toUpperCase()}`;
+
+      const withdrawal = await this.prisma.$transaction(async (tx) => {
+          // Deduct from wallet
+          await (tx as any).wallet.update({
+              where: { id: wallet.id },
+              data: {
+                  mainBalance: { decrement: data.amount }
+              }
+          });
+
+          // Create transaction record
+          await (tx as any).walletTransaction.create({
+              data: {
+                  walletId: wallet.id,
+                  type: "MAIN",
+                  amount: -data.amount,
+                  status: "SUCCESS",
+                  note: `Withdrawal request to ${bankAccount.bankName} (Ref: ${reference})`
+              }
+          });
+
+          // Create withdrawal request
+          return await (tx as any).withdrawalRequest.create({
+              data: {
+                  userId,
+                  amount: data.amount,
+                  netAmount: data.amount,
+                  currency: "NGN",
+                  bankAccountId: data.bankAccountId,
+                  status: "PENDING",
+                  reference
+              }
+          });
+      });
+
+      return {
+          success: true,
+          message: "Withdrawal request submitted successfully",
+          data: {
+              withdrawal: {
+                  withdrawalId: withdrawal.id,
+                  amount: withdrawal.amount,
+                  status: withdrawal.status,
+                  reference: withdrawal.reference,
+                  initiatedAt: withdrawal.createdAt
               }
           }
       }
