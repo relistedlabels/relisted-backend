@@ -138,7 +138,7 @@ async transactionNotify(dto: any) {
   };
 }
 
-private async fundWallet(userId: string, amount: number) {
+ async fundWallet(userId: string, amount: number) {
   let wallet = await this.prisma.wallet.findUnique({ where: { userId } });
   if (!wallet) {
     wallet = await this.prisma.wallet.create({
