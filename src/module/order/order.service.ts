@@ -351,7 +351,7 @@ export class OrderService {
       });
     }
 
-    if (wallet.availableBalance < grandTotal) {
+    if (wallet.mainBalance < grandTotal) {
        bad(`Insufficient wallet balance. Total cost is NGN ${grandTotal}, but your available balance is NGN ${wallet.availableBalance}.`);
     }
 
