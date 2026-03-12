@@ -81,7 +81,7 @@ export class RentersService {
       where: { id: userId },
       include: { 
         profile: { include: { address: true, avatarUpload: true, emergencyContact: true } },
-        virtualAccounts: true
+        virtualAccounts: true, bankAccounts:true
       }
     });
 
@@ -106,7 +106,8 @@ export class RentersService {
           profileImage: user.profile?.avatarUpload?.url || null, // ensure it defaults to null
           dateJoined: user.createdAt,
           emergencyContact: user.profile?.emergencyContact || null,
-          addresses: user.profile?.address ? [user.profile.address] : []
+          addresses: user.profile?.address ? [user.profile.address] : [],
+          bankAccounts: user.bankAccounts || [] 
         }
       }
     };

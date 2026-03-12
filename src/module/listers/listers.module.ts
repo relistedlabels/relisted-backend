@@ -9,6 +9,7 @@ import { UploadModule } from '../upload/upload.module';
 import { ListersPublicController } from './listers.public.controller';
 import { ListersWalletController } from './listers.wallet.controller';
 import { PrismaService } from 'src/services/prisma/prisma.service';
+import { WemaServiceService } from 'src/services/wema-service/wema-service.service';
 
 @Module({
   imports: [PrismaModule, AuthModule, ProfileModule, UploadModule],
@@ -18,6 +19,6 @@ import { PrismaService } from 'src/services/prisma/prisma.service';
     ListersPublicController,
     ListersWalletController,
   ],
-  providers: [ListersService, PrismaService],
+  providers: [ListersService, PrismaService, WemaServiceService],
 })
 export class ListersModule {}

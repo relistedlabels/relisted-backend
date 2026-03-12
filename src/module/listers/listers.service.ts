@@ -10,6 +10,7 @@ import { userEntity } from '../auth/auth.types';
 import { DisputeStatus, Message, OrderStatus, ProductStatus, Role } from '@prisma/client';
 import { differenceInSeconds, subMonths, startOfMonth, endOfMonth, subYears, startOfYear, endOfYear } from 'date-fns';
 import { randomUUID } from 'crypto';
+import { WemaServiceService } from 'src/services/wema-service/wema-service.service';
 
 const CURRENCY = 'NGN';
 const APPROVAL_WINDOW_MINUTES = 15;
@@ -70,7 +71,10 @@ const PROGRESS_STEPS = [
 
 @Injectable()
 export class ListersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly wemaService: WemaServiceService,
+  ) {}
 
   /** GET /api/listers/inventory/top-items */
   async getTopItems(user: userEntity, limit: number = 5) {
@@ -2108,7 +2112,12 @@ export class ListersService {
     const profile = await this.prisma.profile.findUnique({
       where: { userId: user.id },
       include: {
-        user: true,
+        user: {
+          include: {
+            virtualAccounts: true,
+            bankAccounts: true,
+          },
+        },
         address: true,
         avatarUpload: true,
       },
@@ -2145,6 +2154,10 @@ export class ListersService {
           profileImage: profile.avatarUpload?.url ?? null,
           dateJoined: profile.user.createdAt.toISOString(),
           addresses,
+          vaNumber: (profile.user as any).virtualAccounts?.[0]?.vaNumber ?? null,
+          bankAccounts: (profile.user as any).bankAccounts ?? [],
+          nin: profile.nin,
+          bvn: profile.bvn, 
         },
       },
     };
@@ -2153,36 +2166,193 @@ export class ListersService {
   /** 32. PUT /api/listers/profile */
   async updateListerProfile(
     user: userEntity,
-    body: { fullName?: string; phone?: string },
+    body: {
+      fullName?: string;
+      phone?: string;
+      phoneNumber?: string;
+      bvn?: string;
+      nin?: string;
+      businessInfo?: any;
+      address?: any;
+      emergencyContact?: any;
+      emergencyContacts?: any;
+      bankAccounts?: any;
+      avatarUploadId?: string;
+    },
   ) {
+    const userId = user.id;
     const currentUser = await this.prisma.user.findUnique({
-      where: { id: user.id },
+      where: { id: userId },
+      include: { 
+        profile: { 
+          include: { 
+            emergencyContact: true, 
+            address: true, 
+            avatarUpload: true,
+            businessInfo: true
+          } 
+        },
+        virtualAccounts: true
+      }
     });
+
     if (!currentUser) {
       throw new NotFoundException('User not found');
     }
 
+    const phoneToSet = body.phone !== undefined ? body.phone : body.phoneNumber;
+    const emergencyContactData = body.emergencyContact || body.emergencyContacts;
+
+    const profileUpdate: any = {};
+    if (phoneToSet !== undefined) profileUpdate.phoneNumber = phoneToSet;
+    if (body.bvn !== undefined) profileUpdate.bvn = body.bvn;
+    if (body.nin !== undefined) profileUpdate.nin = body.nin;
+
+    if (emergencyContactData) {
+      profileUpdate.emergencyContact = {
+        upsert: {
+          create: emergencyContactData,
+          update: emergencyContactData
+        }
+      };
+    }
+    if (body.businessInfo) {
+      profileUpdate.businessInfo = {
+        upsert: {
+          create: body.businessInfo,
+          update: body.businessInfo
+        }
+      };
+    }
+    if (body.address) {
+      profileUpdate.address = {
+        upsert: {
+          create: body.address,
+          update: body.address
+        }
+      };
+    }
+    if (body.avatarUploadId) {
+      profileUpdate.avatarUpload = { connect: { id: body.avatarUploadId } };
+    }
+
+    const profileCreate: any = {
+      phoneNumber: phoneToSet || '',
+      ...(body.bvn && { bvn: body.bvn }),
+      ...(body.nin && { nin: body.nin }),
+      ...(emergencyContactData && {
+        emergencyContact: {
+          create: emergencyContactData
+        }
+      }),
+      ...(body.businessInfo && {
+        businessInfo: {
+          create: body.businessInfo
+        }
+      }),
+      ...(body.address && {
+        address: {
+          create: body.address
+        }
+      }),
+      ...(body.avatarUploadId && {
+        avatarUpload: {
+          connect: { id: body.avatarUploadId }
+        }
+      })
+    };
+
+    const userDataUpdate: any = {};
     if (body.fullName) {
-      // Update name on User
-      await this.prisma.user.update({
-        where: { id: user.id },
-        data: { name: body.fullName },
-      });
+      userDataUpdate.name = body.fullName;
     }
 
-    if (body.phone) {
-      await this.prisma.profile.update({
-        where: { userId: user.id },
-        data: { phoneNumber: body.phone },
-      });
+    if (Object.keys(profileUpdate).length > 0 || Object.keys(profileCreate).length > 0) {
+      userDataUpdate.profile = {
+        upsert: {
+          create: profileCreate,
+          update: profileUpdate
+        }
+      };
     }
 
-    const updatedProfile = await this.prisma.profile.findUnique({
-      where: { userId: user.id },
-      include: { user: true },
+    // Handle bank account update/upsert separately
+    if (body.bankAccounts) {
+      const existingBank = await (this.prisma as any).bankAccount.findFirst({
+        where: {
+          userId: userId,
+          accountNumber: body.bankAccounts.accountNumber,
+        },
+      });
+
+      if (existingBank) {
+        await (this.prisma as any).bankAccount.update({
+          where: { id: existingBank.id },
+          data: {
+            bankName: body.bankAccounts.bankName,
+            bankCode: body.bankAccounts.bankCode,
+            accountName: body.bankAccounts.nameOfAccount || body.bankAccounts.accountName,
+          },
+        });
+      } else {
+        await (this.prisma as any).bankAccount.create({
+          data: {
+            userId: userId,
+            bankName: body.bankAccounts.bankName,
+            bankCode: body.bankAccounts.bankCode,
+            accountNumber: body.bankAccounts.accountNumber,
+            accountName: body.bankAccounts.nameOfAccount || body.bankAccounts.accountName,
+            isDefault: true,
+          },
+        });
+      }
+    }
+
+    const updatedUser = await this.prisma.user.update({
+      where: { id: userId },
+      data: userDataUpdate,
+      include: {
+        profile: {
+          include: {
+            user: {
+              include: {
+                virtualAccounts: true,
+                bankAccounts: true,
+              },
+            },
+            address: true,
+            avatarUpload: true,
+          },
+        },
+        virtualAccounts: true
+      }
     });
-    if (!updatedProfile) {
-      throw new NotFoundException('Profile not found');
+
+    if ((body.bvn || body.nin) && updatedUser.virtualAccounts?.length === 0) {
+        try {
+            await this.wemaService.createAccount(updatedUser as any, 0);
+        } catch (err: any) {
+            console.warn(`Failed to generate Virtual Account for ${userId}:`, err.message);
+        }
+    }
+
+    // Refetch in case it was created
+    const finalProfile = await this.prisma.profile.findUnique({
+      where: { userId: userId },
+      include: {
+        user: {
+          include: {
+            virtualAccounts: true,
+            bankAccounts: true,
+          },
+        },
+        address: true,
+        avatarUpload: true,
+      },
+    });
+
+    if (!finalProfile) {
+      throw new NotFoundException('Profile not found after update');
     }
 
     return {
@@ -2190,12 +2360,16 @@ export class ListersService {
       message: 'Profile updated successfully',
       data: {
         profile: {
-          userId: updatedProfile.userId,
-          fullName: updatedProfile.user.name,
-          email: updatedProfile.user.email,
-          phone: updatedProfile.phoneNumber,
-          role: updatedProfile.user.role,
-          updatedAt: updatedProfile.updatedAt.toISOString(),
+          userId: finalProfile.userId,
+          fullName: finalProfile.user.name,
+          email: finalProfile.user.email,
+          phone: finalProfile.phoneNumber,
+          role: finalProfile.user.role,
+          profileImage: finalProfile.avatarUpload?.url ?? null,
+          dateJoined: finalProfile.user.createdAt.toISOString(),
+          updatedAt: finalProfile.updatedAt.toISOString(),
+          vaNumber: (finalProfile.user as any).virtualAccounts?.[0]?.vaNumber ?? null,
+          bankAccounts: (finalProfile.user as any).bankAccounts ?? [],
         },
       },
     };

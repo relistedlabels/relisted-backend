@@ -464,6 +464,15 @@ export class ListersController {
     body: {
       fullName?: string;
       phone?: string;
+      phoneNumber?: string;
+      bvn?: string;
+      nin?: string;
+      businessInfo?: any;
+      address?: any;
+      emergencyContact?: any;
+      emergencyContacts?: any;
+      bankAccounts?: any;
+      avatarUploadId?: string;
     },
   ) {
     return this.listersService.updateListerProfile(user, body);
