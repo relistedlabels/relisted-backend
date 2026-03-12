@@ -7,6 +7,7 @@ import { AuthModule } from '../auth/auth.module';
 import { ProfileModule } from '../profile/profile.module';
 import { UploadModule } from '../upload/upload.module';
 import { ListersPublicController } from './listers.public.controller';
+import { ListersWalletController } from './listers.wallet.controller';
 import { PrismaService } from 'src/services/prisma/prisma.service';
 
 @Module({
@@ -15,6 +16,7 @@ import { PrismaService } from 'src/services/prisma/prisma.service';
     ListersController,
     IssueCategoriesController,
     ListersPublicController,
+    ListersWalletController,
   ],
   providers: [ListersService, PrismaService],
 })

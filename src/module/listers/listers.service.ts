@@ -3,11 +3,13 @@ import {
   ForbiddenException,
   NotFoundException,
   InternalServerErrorException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from 'src/services/prisma/prisma.service';
 import { userEntity } from '../auth/auth.types';
 import { DisputeStatus, Message, OrderStatus, ProductStatus, Role } from '@prisma/client';
 import { differenceInSeconds, subMonths, startOfMonth, endOfMonth, subYears, startOfYear, endOfYear } from 'date-fns';
+import { randomUUID } from 'crypto';
 
 const CURRENCY = 'NGN';
 const APPROVAL_WINDOW_MINUTES = 15;
@@ -3180,5 +3182,236 @@ export class ListersService {
       console.error('getRentalsOvertime error:', e);
       throw new InternalServerErrorException('Failed to fetch rentals overtime data');
     }
+  }
+
+  async getWallet(userId: string) {
+    let wallet: any = await this.prisma.wallet.findUnique({
+      where: { userId },
+      include: { transactions: { take: 1, orderBy: { createdAt: 'desc' } } }
+    });
+
+    if (!wallet) {
+        wallet = await this.prisma.wallet.create({ data: { userId } });
+        wallet.transactions = [];
+    }
+    
+    const safeWallet = wallet as any;
+
+    const activeRentals = await this.prisma.rental.findMany({
+        where: { curatorId: userId, isReturned: false },
+        include: { order: true }
+    });
+    
+    return {
+      success: true,
+      data: {
+        wallet: {
+          walletId: safeWallet.id,
+          userId: safeWallet.userId,
+          balance: {
+            availableBalance: safeWallet.availableBalance,
+            lockedBalance: safeWallet.collateralBalance, 
+            totalBalance: safeWallet.mainBalance,
+            currency: CURRENCY,
+            lastUpdated: safeWallet.updatedAt
+          },
+          lockedBreakdown: {
+              activeRentals: [], 
+              disputeHolds: [],
+              totalLockedAmount: 0
+          },
+          statistics: {
+              totalDeposits: 0,
+              totalSpent: 0,
+              totalRefunds: 0,
+              lifetimeTransactions: 0,
+              activeRentalOrders: activeRentals.length,
+              activeDisputes: 0
+          },
+          lastTransaction: safeWallet.transactions?.[0] ? {
+              type: safeWallet.transactions[0].amount < 0 ? 'debit' : 'credit', 
+              amount: Math.abs(safeWallet.transactions[0].amount),
+              description: safeWallet.transactions[0].note,
+              date: safeWallet.transactions[0].createdAt
+          } : null,
+          linkedBankAccounts: await (this.prisma as any).bankAccount.count({ where: { userId } }),
+          canWithdraw: true,
+          minimumFundsForTransaction: 1000
+        }
+      }
+    };
+  }
+
+  async getWalletTransactions(userId: string, query: any) {
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const [total, transactions] = await this.prisma.$transaction([
+        this.prisma.walletTransaction.count({ where: { wallet: { userId } } }),
+        this.prisma.walletTransaction.findMany({
+            where: { wallet: { userId } },
+            skip,
+            take: limit,
+            orderBy: { createdAt: 'desc' },
+            include: { order: { include: { orderItems: { include: { product: true }, take: 1 } } } }
+        })
+    ]);
+
+    return {
+        success: true,
+        data: {
+            transactions: transactions.map(t => ({
+                transactionId: t.id,
+                type: t.amount < 0 ? 'debit' : 'credit', 
+                amount: Math.abs(t.amount),
+                currency: CURRENCY,
+                description: t.note,
+                orderId: t.orderId,
+                status: t.status,
+                timestamp: t.createdAt,
+                relatedOrder: t.order ? {
+                    orderId: t.order.orderId,
+                    itemName: t.order.orderItems[0]?.product.name || 'Unknown Item',
+                    listerName: 'Unknown' 
+                } : null
+            })),
+            totalTransactions: total,
+            page,
+            totalPages: Math.ceil(total / limit)
+        }
+    }
+  }
+
+  async getBankAccounts(userId: string) {
+      const accounts = await (this.prisma as any).bankAccount.findMany({ where: { userId } });
+      return {
+          success: true,
+          data: {
+              bankAccounts: accounts,
+              totalAccounts: accounts.length
+          }
+      }
+  }
+
+  async getLockedBalances(userId: string) {
+      return {
+          success: true,
+          data: {
+              lockedBalances: {
+                  totalLocked: 0,
+                  currency: CURRENCY,
+                  activeRentals: [],
+                  disputeHolds: [],
+                  lockReleaseSchedule: {
+                      nextReleaseDate: null,
+                      nextReleaseAmount: 0,
+                      upcomingReleases: []
+                  }
+              }
+          }
+      }
+  }
+  
+  async getWithdrawal(userId: string, withdrawalId: string) {
+      const withdrawal = await (this.prisma as any).withdrawalRequest.findFirst({
+          where: { id: withdrawalId, userId },
+          include: { bankAccount: true }
+      });
+      
+      if (!withdrawal) throw new NotFoundException('Withdrawal not found');
+      
+      return {
+          success: true,
+          data: {
+              withdrawal: {
+                  withdrawalId: withdrawal.id,
+                  amount: withdrawal.amount,
+                  currency: withdrawal.currency,
+                  bankAccount: {
+                      bankName: withdrawal.bankAccount.bankName,
+                      accountNumber: withdrawal.bankAccount.accountNumber,
+                      accountName: withdrawal.bankAccount.accountName
+                  },
+                  fee: withdrawal.fee,
+                  netAmount: withdrawal.netAmount,
+                  status: withdrawal.status, 
+                  estimatedDelivery: null,
+                  reference: withdrawal.reference,
+                  initiatedAt: withdrawal.createdAt,
+                  timeline: []
+              }
+          }
+      }
+  }
+
+  async requestWithdrawal(userId: string, data: { amount: number, bankAccountId: string }) {
+      if (!data.amount || data.amount <= 0) {
+          throw new BadRequestException("Invalid withdrawal amount");
+      }
+
+      const bankAccount = await (this.prisma as any).bankAccount.findFirst({
+          where: { id: data.bankAccountId, userId }
+      });
+
+      if (!bankAccount) {
+          throw new BadRequestException("Invalid bank account linked to user");
+      }
+
+      const wallet = await (this.prisma as any).wallet.findUnique({ where: { userId } });
+      
+      if (!wallet || wallet.mainBalance < data.amount) {
+          throw new BadRequestException("Insufficient wallet balance");
+      }
+
+      const reference = `WD-${randomUUID().split("-")[0].toUpperCase()}`;
+
+      const withdrawal = await this.prisma.$transaction(async (tx) => {
+          // Deduct from wallet
+          await (tx as any).wallet.update({
+              where: { id: wallet.id },
+              data: {
+                  mainBalance: { decrement: data.amount }
+              }
+          });
+
+          // Create transaction record
+          await (tx as any).walletTransaction.create({
+              data: {
+                  walletId: wallet.id,
+                  type: "MAIN",
+                  amount: -data.amount,
+                  status: "SUCCESS",
+                  note: `Withdrawal request to ${bankAccount.bankName} (Ref: ${reference})`
+              }
+          });
+
+          // Create withdrawal request
+          return await (tx as any).withdrawalRequest.create({
+              data: {
+                  userId,
+                  amount: data.amount,
+                  netAmount: data.amount,
+                  currency: CURRENCY,
+                  bankAccountId: data.bankAccountId,
+                  status: "PENDING",
+                  reference
+              }
+          });
+      });
+
+      return {
+          success: true,
+          message: "Withdrawal request submitted successfully",
+          data: {
+              withdrawal: {
+                  withdrawalId: withdrawal.id,
+                  amount: withdrawal.amount,
+                  status: withdrawal.status,
+                  reference: withdrawal.reference,
+                  initiatedAt: withdrawal.createdAt
+              }
+          }
+      }
   }
 }

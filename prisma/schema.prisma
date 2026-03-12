@@ -663,7 +663,7 @@ model BankAccount {
   userId            String
   user              User     @relation(fields: [userId], references: [id])
   bankName          String
-  bankCode          String
+  bankCode          String?
   accountNumber     String
   accountName       String
   accountType       String?
