@@ -481,7 +481,7 @@ Table BankAccount {
   userId String [not null]
   user User [not null]
   bankName String [not null]
-  bankCode String [not null]
+  bankCode String
   accountNumber String [not null]
   accountName String [not null]
   accountType String

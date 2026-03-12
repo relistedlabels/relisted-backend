@@ -64,6 +64,20 @@ async create(dto: CreateProfileDto, user: userEntity) {
     },
   });
 
+  // Handle bank account creation
+  if (dto.bankAccounts) {
+    await (this.prisma as any).bankAccount.create({
+      data: {
+        userId: user.id,
+        bankName: dto.bankAccounts.bankName,
+        bankCode: dto.bankAccounts.bankCode,
+        accountNumber: dto.bankAccounts.accountNumber,
+        accountName: dto.bankAccounts.nameOfAccount,
+        isDefault: true,
+      },
+    });
+  }
+
   return {
     message: 'User profile created',
     profile,
@@ -169,6 +183,35 @@ async create(dto: CreateProfileDto, user: userEntity) {
         ...(dto.nin !== undefined ? { nin: dto.nin } : {}),
       },
     });
+
+    // Handle bank account update/upsert
+    if (dto.bankAccounts) {
+      const existingBank = await (this.prisma as any).bankAccount.findFirst({
+        where: { userId: id, accountNumber: dto.bankAccounts.accountNumber }
+      });
+
+      if (existingBank) {
+        await (this.prisma as any).bankAccount.update({
+          where: { id: existingBank.id },
+          data: {
+            bankName: dto.bankAccounts.bankName,
+            bankCode: dto.bankAccounts.bankCode,
+            accountName: dto.bankAccounts.nameOfAccount,
+          }
+        });
+      } else {
+        await (this.prisma as any).bankAccount.create({
+          data: {
+            userId: id,
+            bankName: dto.bankAccounts.bankName,
+            bankCode: dto.bankAccounts.bankCode,
+            accountNumber: dto.bankAccounts.accountNumber,
+            accountName: dto.bankAccounts.nameOfAccount,
+            isDefault: true,
+          }
+        });
+      }
+    }
 
     return {
       message: 'Profile updated successfully',

@@ -45,6 +45,10 @@ export class CreateBankInfoDto {
   @ApiProperty()
   @IsString()
   bankName: string;
+  @ApiProperty({ required: false })
+  @IsString()
+  @IsOptional()
+  bankCode?: string;
   @ApiProperty()
   @IsString()
   accountNumber: string;
