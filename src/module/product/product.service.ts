@@ -639,7 +639,6 @@ export class ProductService {
       const [products, total] = await Promise.all([
         this.prisma.product.findMany({
           where: {
-            status: ProductStatus.AVAILABLE,
             productVerified: true,
             isActive: true,
           },
@@ -661,7 +660,7 @@ export class ProductService {
         }),
         this.prisma.product.count({
           where: {
-            status: ProductStatus.AVAILABLE,
+
             productVerified: true,
             isActive: true,
           },

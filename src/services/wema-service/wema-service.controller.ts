@@ -51,7 +51,7 @@ export class WemaServiceController {
   @UseGuards(WemaAuthGuard)
   @HttpCode(200)
   async fundWalletPlaceholder(@Body() body: any) {
-    return this.wemaServiceService.fundWalletPlaceholder(body);
+    return this.wemaServiceService.fundWallet(body.userId, body.amount);
   }
 
   @Post('remove-money')
