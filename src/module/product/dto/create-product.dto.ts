@@ -50,6 +50,13 @@ export class CreateProductDto {
   @IsOptional()
   originalValue: number;
 
+  @ApiProperty({ required: false })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0, { message: 'Collateral price must be 0 or greater' })
+  @IsOptional()
+  collateralPrice?: number;
+
   @ApiProperty()
   @Type(() => Number)
   @IsNumber()

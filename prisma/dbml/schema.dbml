@@ -132,6 +132,7 @@ Table Product {
   composition String
   measurement String [not null]
   originalValue Int [not null]
+  collateralPrice Int
   material String
   warning String
   color String [not null]

@@ -82,7 +82,7 @@ export class OrderService {
         curatorAddress = item.product.curator.profile?.address || item.product.curator.profile?.businessInfo;
         
         const rentalAmount = item.product.dailyPrice * item.days;
-        const collateralAmount = Number(item.product.originalValue) || 0;
+        const collateralAmount = Number(item.product.collateralPrice || item.product.originalValue) || 0;
         const cleaningFee = 2000;
         
         listerRentalTotal += rentalAmount;
@@ -267,7 +267,7 @@ export class OrderService {
         curatorAddress = item.product.curator.profile?.address || item.product.curator.profile?.businessInfo;
         
         const rentalAmount = item.product.dailyPrice * item.days;
-        const collateralAmount = Number(item.product.originalValue) || 0;
+        const collateralAmount = Number(item.product.collateralPrice || item.product.originalValue) || 0;
         const cleaningFee = 2000;
         listerItemsTotal += rentalAmount + collateralAmount + cleaningFee;
       }

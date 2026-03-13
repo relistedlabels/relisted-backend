@@ -576,6 +576,7 @@ export class ProductService {
           measurement: dto.measurement,
           color: dto.color,
           originalValue: dto.originalValue || 0,
+          collateralPrice: dto.collateralPrice,
           dailyPrice: dto.dailyPrice,
           careInstruction: dto.careInstruction,
           careSteps: dto.careSteps ?? '',

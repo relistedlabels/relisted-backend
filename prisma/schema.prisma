@@ -215,6 +215,7 @@ model Product {
   composition     String?
   measurement     String
   originalValue   Int
+  collateralPrice Int?
   material        String?
   
   warning         String?
