@@ -100,6 +100,9 @@ model User {
   bankAccounts       BankAccount[]
   withdrawalRequests WithdrawalRequest[]
   notificationSettings NotificationSettings?
+  notifications      Notification[]
+  requestedAvailability AvailabilityRequest[] @relation("RequestedAvailability")
+  listerRequests       AvailabilityRequest[] @relation("ListerAvailability")
 
   adminRoleId String?
   adminRole   AdminRole? @relation(fields: [adminRoleId], references: [id])
@@ -371,6 +374,8 @@ model AvailabilityRequest {
   createdAt   DateTime @default(now())
 
   product     Product  @relation(fields: [productId], references: [id])
+  requester   User     @relation("RequestedAvailability", fields: [requesterId], references: [id])
+  lister      User     @relation("ListerAvailability", fields: [listerId], references: [id])
 
   // Rental Request Fields
   startDate         DateTime?
@@ -743,4 +748,19 @@ model AuditLog {
   ipAddress   String?
   status      String   @default("Success")
   createdAt   DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  
+  title     String
+  message   String
+  type      String   // e.g., 'RENTAL_REQUEST', 'ORDER_ACCEPTED', 'WITHDRAWAL_STATUS', etc.
+  metadata  Json?    // Store related IDs (orderId, requestId, etc.)
+  
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

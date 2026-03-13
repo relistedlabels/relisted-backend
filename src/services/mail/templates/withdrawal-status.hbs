@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+        }
+
+        .container {
+            width: 80%;
+            margin: 20px auto;
+            border: 1px solid #eee;
+            padding: 20px;
+            border-radius: 10px;
+        }
+
+        .header {
+            background: #f8f9fa;
+            padding: 10px;
+            text-align: center;
+            border-bottom: 2px solid #555;
+        }
+
+        .content {
+            padding: 20px;
+        }
+
+        .footer {
+            font-size: 12px;
+            color: #777;
+            margin-top: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>Withdrawal Status Update</h2>
+        </div>
+        <div class="content">
+            <p>Hello {{userName}},</p>
+            <p>Your withdrawal request has been updated.</p>
+            <p><strong>Amount:</strong> NGN {{amount}}</p>
+            <p><strong>Reference:</strong> {{reference}}</p>
+            <p><strong>Status:</strong> {{status}}</p>
+
+            {{#if (eq status "APPROVED")}}
+            <p>Your withdrawal has been approved and processed. The funds should reflect in your bank account shortly.
+            </p>
+            {{else if (eq status "REJECTED")}}
+            <p>Your withdrawal request was rejected and the funds have been returned to your wallet balance.</p>
+            {{else}}
+            <p>Your withdrawal request is currently being processed.</p>
+            {{/if}}
+        </div>
+        <div class="footer">
+            <p>&copy; 2024 Relisted. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+
+</html>

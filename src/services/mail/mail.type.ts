@@ -65,3 +65,82 @@ export class ResetPasswordDto {
   @IsOptional()
   expiryMinutes?: number;
 }
+
+export class RentalRequestDto {
+  @IsEmail()
+  email: string;
+  @IsString()
+  renterName: string;
+  @IsString()
+  listerName: string;
+  @IsString()
+  productName: string;
+  @IsString()
+  requestId: string;
+  @IsNumber()
+  rentalDays: number;
+  @IsNumber()
+  totalPrice: number;
+  @IsString()
+  startDate: string;
+  @IsString()
+  endDate: string;
+  @IsString()
+  @IsOptional()
+  viewLink?: string;
+}
+
+export class RentalResponseDto {
+  @IsEmail()
+  email: string;
+  @IsString()
+  renterName: string;
+  @IsString()
+  listerName: string;
+  @IsString()
+  productName: string;
+  @IsString()
+  status: string;
+  @IsString()
+  @IsOptional()
+  reason?: string;
+  @IsString()
+  @IsOptional()
+  checkoutLink?: string;
+}
+
+export class WithdrawalDto {
+  @IsEmail()
+  email: string;
+  @IsString()
+  userName: string;
+  @IsNumber()
+  amount: number;
+  @IsString()
+  reference: string;
+  @IsString()
+  status: string;
+  @IsString()
+  @IsOptional()
+  bankName?: string;
+  @IsString()
+  @IsOptional()
+  accountNumber?: string;
+}
+
+export class ShippingDto {
+  @IsEmail()
+  email: string;
+  @IsString()
+  userName: string;
+  @IsString()
+  orderId: string;
+  @IsString()
+  status: string;
+  @IsString()
+  @IsOptional()
+  trackingNumber?: string;
+  @IsString()
+  @IsOptional()
+  estimatedDelivery?: string;
+}

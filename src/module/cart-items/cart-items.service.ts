@@ -6,9 +6,14 @@ import { bad } from 'src/utils/error';
 import { userEntity } from '../auth/auth.types';
 import { addMinutes, differenceInMinutes, isAfter } from 'date-fns';
 
+import { NotificationService } from 'src/services/notification/notification.service';
+
 @Injectable()
 export class CartService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService
+  ) {}
 
   //  create cart for user
   async CreateCart(userId: string) {
@@ -74,16 +79,42 @@ export class CartService {
       listerId: cartItem.product.curatorId,
       expiresAt,
     },
+    include: {
+        product: { include: { curator: true } },
+        requester: true
+    }
   });
 
+  // Notify Lister
+  await this.notificationService.createNotification({
+      userId: request.listerId,
+      title: "New Rental Request",
+      message: `You have a new rental request for ${request.product?.name} from ${request.requester?.name || 'a user'}.`,
+      type: "RENTAL_REQUEST",
+      metadata: { requestId: request.id, productId: request.productId },
+      sendEmail: true,
+      emailData: {
+          email: request.product?.curator?.email,
+          listerName: request.product?.curator?.name,
+          renterName: request.requester?.name || 'A user',
+          productName: request.product?.name,
+          requestId: request.id,
+          rentalDays: cartItem.days,
+          totalPrice: (request.product?.dailyPrice || 0) * (cartItem.days || 0),
+          startDate: 'TBD',
+          endDate: 'TBD',
+      }
+  });
 
-
-  // await this.mailService.sendAvailabilityMail({
-  //   to: cartItem.product.curator.email, // ✅ fixed
-  //   requestId: request.id,
-  //   productName: cartItem.product.name,
-  //   expiresAt,
-  // });
+  // Notify Renter
+  await this.notificationService.createNotification({
+      userId: user.id,
+      title: "Rental Request Sent",
+      message: `Your rental request for ${request.product?.name} has been sent to the lister.`,
+      type: "RENTAL_REQUEST_SENT",
+      metadata: { requestId: request.id, productId: request.productId },
+      sendEmail: false
+  });
 
   
   return {

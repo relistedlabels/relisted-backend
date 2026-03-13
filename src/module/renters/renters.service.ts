@@ -6,12 +6,15 @@ import { randomUUID } from 'crypto';
 import { Role } from '@prisma/client';
 import { addMinutes } from 'date-fns';
 
+import { NotificationService } from '../../services/notification/notification.service';
+
 @Injectable()
 export class RentersService {
   constructor(
     private prisma: PrismaService,
     private uploadService: UploadService,
-    private wemaService: WemaServiceService
+    private wemaService: WemaServiceService,
+    private notificationService: NotificationService
   ) {}
 
   async getDashboardSummary(userId: string, timeframe: string = 'month') {
@@ -537,7 +540,41 @@ export class RentersService {
         deliveryAddressId: data.deliveryAddressId,
         autoPay: data.autoPay || false,
       },
-      include: { product: { include: { curator: true } } },
+      include: { 
+        product: { include: { curator: true } },
+        requester: true 
+      },
+    });
+
+    // Notify Lister
+    await this.notificationService.createNotification({
+        userId: request.listerId,
+        title: "New Rental Request",
+        message: `You have a new rental request for ${request.product?.name} from ${request.requester?.name || 'a user'}.`,
+        type: "RENTAL_REQUEST",
+        metadata: { requestId: request.id, productId: request.productId },
+        sendEmail: true,
+        emailData: {
+            email: request.product?.curator?.email,
+            listerName: request.product?.curator?.name,
+            renterName: request.requester?.name || 'A user',
+            productName: request.product?.name,
+            requestId: request.id,
+            rentalDays: request.rentalDays,
+            totalPrice: request.totalPrice,
+            startDate: request.startDate ? request.startDate.toDateString() : 'N/A',
+            endDate: request.endDate ? request.endDate.toDateString() : 'N/A',
+        }
+    });
+
+    // Notify Renter
+    await this.notificationService.createNotification({
+        userId: userId,
+        title: "Rental Request Sent",
+        message: `Your rental request for ${request.product?.name} has been sent to the lister.`,
+        type: "RENTAL_REQUEST_SENT",
+        metadata: { requestId: request.id, productId: request.productId },
+        sendEmail: false 
     });
 
     // build response similar to spec sample

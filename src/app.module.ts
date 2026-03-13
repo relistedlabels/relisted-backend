@@ -16,6 +16,7 @@ import { AuthOtpTokenModule } from './services/auth-otp-token/auth-otp-token.mod
 import { EventModule } from './services/event/event.module';
 import { MailModule } from './services/mail/mail.module';
 import { PrismaModule } from './services/prisma/prisma.module';
+import { NotificationModule } from './services/notification/notification.module';
 import { ChatRoomModule } from './module/chat-room/chat-room.module';
 import { WemaServiceModule } from './services/wema-service/wema-service.module';
 import { BrandsModule } from './module/brands/brands.module';
@@ -30,7 +31,7 @@ import { AdminModule } from './module/admin/admin.module';
 import { TopshipModule } from './services/topship/topship.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, MailModule, EventModule, AuthOtpTokenModule, UserModule, ProfileModule, UploadModule, ProductModule, ReviewModule, DisputeModule, OrderModule, CartItemsModule, RentalModule, WaitlistModule, ChatRoomModule, WemaServiceModule, BrandsModule, CategoriesModule, WebhookModule, TagsModule, ListersModule, ContactModule, SearchModule, RentersModule, AdminModule, TopshipModule],
+  imports: [PrismaModule, AuthModule, MailModule, NotificationModule, EventModule, AuthOtpTokenModule, UserModule, ProfileModule, UploadModule, ProductModule, ReviewModule, DisputeModule, OrderModule, CartItemsModule, RentalModule, WaitlistModule, ChatRoomModule, WemaServiceModule, BrandsModule, CategoriesModule, WebhookModule, TagsModule, ListersModule, ContactModule, SearchModule, RentersModule, AdminModule, TopshipModule],
   controllers: [AppController],
   providers: [AppService],
 })

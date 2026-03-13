@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+        }
+
+        .container {
+            width: 80%;
+            margin: 20px auto;
+            border: 1px solid #eee;
+            padding: 20px;
+            border-radius: 10px;
+        }
+
+        .header {
+            background: #f8f9fa;
+            padding: 10px;
+            text-align: center;
+            border-bottom: 2px solid #555;
+        }
+
+        .content {
+            padding: 20px;
+        }
+
+        .footer {
+            font-size: 12px;
+            color: #777;
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        .button {
+            background: #000;
+            color: #fff;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 5px;
+            display: inline-block;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>New Rental Request</h2>
+        </div>
+        <div class="content">
+            <p>Hello {{listerName}},</p>
+            <p>You have a new rental request for your item: <strong>{{productName}}</strong>.</p>
+            <p><strong>From:</strong> {{renterName}}</p>
+            <p><strong>Duration:</strong> {{rentalDays}} days</p>
+            <p><strong>Price:</strong> NGN {{totalPrice}}</p>
+            <p><strong>Dates:</strong> {{startDate}} - {{endDate}}</p>
+            <p>Please log in to your dashboard to approve or decline this request before it expires.</p>
+            <p><a href="{{viewLink}}" class="button">View Request</a></p>
+        </div>
+        <div class="footer">
+            <p>&copy; 2024 Relisted. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+
+</html>

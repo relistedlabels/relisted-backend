@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+        }
+
+        .container {
+            width: 80%;
+            margin: 20px auto;
+            border: 1px solid #eee;
+            padding: 20px;
+            border-radius: 10px;
+        }
+
+        .header {
+            background: #f8f9fa;
+            padding: 10px;
+            text-align: center;
+            border-bottom: 2px solid #555;
+        }
+
+        .content {
+            padding: 20px;
+        }
+
+        .footer {
+            font-size: 12px;
+            color: #777;
+            margin-top: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>Shipping Update</h2>
+        </div>
+        <div class="content">
+            <p>Hello {{userName}},</p>
+            <p>There is an update on your order for: <strong>{{productName}}</strong> (Order ID: {{orderId}}).</p>
+            <p>New Status: <strong>{{status}}</strong></p>
+
+            {{#if trackingNumber}}
+            <p><strong>Tracking Number:</strong> {{trackingNumber}}</p>
+            {{/if}}
+
+            {{#if estimatedDelivery}}
+            <p><strong>Estimated Delivery:</strong> {{estimatedDelivery}}</p>
+            {{/if}}
+
+            <p>Thank you for choosing Relisted!</p>
+        </div>
+        <div class="footer">
+            <p>&copy; 2024 Relisted. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+
+</html>

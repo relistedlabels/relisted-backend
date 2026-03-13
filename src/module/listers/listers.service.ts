@@ -11,6 +11,7 @@ import { DisputeStatus, Message, OrderStatus, ProductStatus, Role } from '@prism
 import { differenceInSeconds, subMonths, startOfMonth, endOfMonth, subYears, startOfYear, endOfYear } from 'date-fns';
 import { randomUUID } from 'crypto';
 import { WemaServiceService } from 'src/services/wema-service/wema-service.service';
+import { NotificationService } from 'src/services/notification/notification.service';
 
 const CURRENCY = 'NGN';
 const APPROVAL_WINDOW_MINUTES = 15;
@@ -74,6 +75,7 @@ export class ListersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly wemaService: WemaServiceService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   /** GET /api/listers/inventory/top-items */
@@ -658,7 +660,8 @@ export class ListersService {
   ) {
     try {
       const request = await this.prisma.availabilityRequest.findUnique({
-         where: { id: orderId }
+         where: { id: orderId },
+         include: { product: true, requester: true }
       });
 
       if (!request) {
@@ -685,6 +688,24 @@ export class ListersService {
         data: {
           status: 'ACCEPTED',
         },
+      });
+
+      // Notify Renter
+      await this.notificationService.createNotification({
+          userId: request.requesterId,
+          title: "Rental Request Approved",
+          message: `Good news! Your rental request for ${request.product?.name} has been approved. Please proceed to payment.`,
+          type: "RENTAL_RESPONSE",
+          metadata: { requestId: request.id, productId: request.productId, status: "ACCEPTED" },
+          sendEmail: true,
+          emailData: {
+              email: request.requester?.email,
+              userName: request.requester?.name,
+              productName: request.product?.name,
+              status: "ACCEPTED",
+              requestId: request.id,
+              notes: notes || "No additional notes provided.",
+          }
       });
 
       return {
@@ -723,7 +744,8 @@ export class ListersService {
   ) {
     try {
       const request = await this.prisma.availabilityRequest.findUnique({
-         where: { id: orderId }
+         where: { id: orderId },
+         include: { product: true, requester: true }
       });
 
       if (!request) {
@@ -750,6 +772,24 @@ export class ListersService {
         data: {
           status: 'REJECTED',
         },
+      });
+
+      // Notify Renter
+      await this.notificationService.createNotification({
+          userId: request.requesterId,
+          title: "Rental Request Declined",
+          message: `Unfortunately, your rental request for ${request.product?.name} was declined. Reason: ${body.reason}`,
+          type: "RENTAL_RESPONSE",
+          metadata: { requestId: request.id, productId: request.productId, status: "REJECTED" },
+          sendEmail: true,
+          emailData: {
+              email: request.requester?.email,
+              userName: request.requester?.name,
+              productName: request.product?.name,
+              status: "REJECTED",
+              requestId: request.id,
+              notes: body.notes || body.reason,
+          }
       });
 
       return {
@@ -859,6 +899,10 @@ export class ListersService {
       const updated = await this.prisma.order.update({
         where: { id: orderId },
         data: updateData,
+        include: {
+            user: true,
+            orderItems: { include: { product: true } }
+        }
       });
 
       const timeline = {
@@ -869,12 +913,28 @@ export class ListersService {
         externalTrackingUrl: updated.externalTrackingUrl ?? null,
       };
 
-      // Placeholder notification
-      const notification = {
-        sent: false,
-        type: 'order_status_updated',
-        recipientId: updated.userId,
-      };
+      // If status changed to something related to shipping, notify renter
+      const shippingStatuses = [OrderStatus.IN_TRANSIT, OrderStatus.DELIVERED, OrderStatus.RETURN_DUE];
+      if (shippingStatuses.includes(updated.status)) {
+          const firstProduct = updated.orderItems[0]?.product;
+          await this.notificationService.createNotification({
+              userId: updated.userId,
+              title: `Order Update: ${ORDER_STATUS_TO_LABEL[updated.status]}`,
+              message: `Your order for ${firstProduct?.name || 'an item'} is now ${ORDER_STATUS_TO_LABEL[updated.status]}.`,
+              type: "SHIPPING_UPDATE",
+              metadata: { orderId: updated.id, status: updated.status },
+              sendEmail: true,
+              emailData: {
+                  email: updated.user?.email,
+                  userName: updated.user?.name,
+                  orderId: updated.orderId,
+                  status: ORDER_STATUS_TO_LABEL[updated.status],
+                  productName: firstProduct?.name || 'Your Item',
+                  trackingNumber: updated.trackingNumber || 'N/A',
+                  estimatedDelivery: updated.estimatedDeliveryDate?.toDateString() || 'N/A',
+              }
+          });
+      }
 
       return {
         success: true,
@@ -885,7 +945,7 @@ export class ListersService {
           newStatus: ORDER_STATUS_TO_API[updated.status] ?? updated.status,
           updatedAt: updated.updatedAt.toISOString(),
           timeline,
-          notification,
+          notification: { sent: shippingStatuses.includes(updated.status), type: 'order_status_updated' },
         },
       };
     } catch (e) {

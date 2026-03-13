@@ -8,6 +8,10 @@ export const Auth_Otp_Token_Subject = {
   RESET_PASSWORD: 'RESET Password',
   CONFIRM_ORDER: 'Verify Order ',
   Admin_MFA: 'admin mfa',
+  RENTAL_REQUEST: 'New Rental Request',
+  RENTAL_RESPONSE: 'Update on your Rental Request',
+  WITHDRAWAL_STATUS: 'Withdrawal Request Status',
+  SHIPPING_UPDATE: 'Shipping Status Update',
 };
 
 export class registerDto {

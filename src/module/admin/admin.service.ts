@@ -1,9 +1,13 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../services/prisma/prisma.service';
+import { NotificationService } from 'src/services/notification/notification.service';
 
 @Injectable()
 export class AdminService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private notificationService: NotificationService
+  ) {}
 
   async getAnalyticsStats(timeframe: string, year?: string, month?: string) {
     const totalRentees = await this.prisma.user.count({ where: { role: 'RENTER' } });
@@ -568,6 +572,23 @@ export class AdminService {
         data: { status }
       });
     }
+
+    // Trigger Notification
+    await this.notificationService.createNotification({
+        userId: withdrawal.userId,
+        title: `Withdrawal ${status === 'APPROVED' ? 'Approved' : 'Rejected'}`,
+        message: `Your withdrawal request of NGN ${withdrawal.amount} (Ref: ${withdrawal.reference}) has been ${status.toLowerCase()}.`,
+        type: "WITHDRAWAL_STATUS",
+        metadata: { withdrawalId: withdrawal.id, status },
+        sendEmail: true,
+        emailData: {
+            email: (await this.prisma.user.findUnique({ where: { id: withdrawal.userId } }))?.email,
+            userName: (await this.prisma.user.findUnique({ where: { id: withdrawal.userId } }))?.name,
+            amount: withdrawal.amount,
+            reference: withdrawal.reference,
+            status: status,
+        }
+    });
 
     return {
       success: true,

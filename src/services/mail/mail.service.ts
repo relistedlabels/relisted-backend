@@ -1,6 +1,6 @@
 import { MailerService } from '@nestjs-modules/mailer';
 import { Injectable } from '@nestjs/common';
-import { VerificationDto, VerifyOrderDto, ResetPasswordDto } from './mail.type';
+import { VerificationDto, VerifyOrderDto, ResetPasswordDto, RentalRequestDto, RentalResponseDto, WithdrawalDto, ShippingDto } from './mail.type';
 import { Auth_Otp_Token_Subject } from '../../module/auth/auth.types';
 
 @Injectable()
@@ -34,6 +34,46 @@ export class MailService {
             to: email,
             template: './reset-password',
             subject: Auth_Otp_Token_Subject.RESET_PASSWORD,
+            context: rest,
+        });
+    }
+
+    async SendRentalRequestMail(dto: RentalRequestDto) {
+        const { email, ...rest } = dto;
+        await this.mailerService.sendMail({
+            to: email,
+            template: './rental-request',
+            subject: Auth_Otp_Token_Subject.RENTAL_REQUEST,
+            context: rest,
+        });
+    }
+
+    async SendRentalResponseMail(dto: RentalResponseDto) {
+        const { email, ...rest } = dto;
+        await this.mailerService.sendMail({
+            to: email,
+            template: './rental-response',
+            subject: Auth_Otp_Token_Subject.RENTAL_RESPONSE,
+            context: rest,
+        });
+    }
+
+    async SendWithdrawalMail(dto: WithdrawalDto) {
+        const { email, ...rest } = dto;
+        await this.mailerService.sendMail({
+            to: email,
+            template: './withdrawal-status',
+            subject: Auth_Otp_Token_Subject.WITHDRAWAL_STATUS,
+            context: rest,
+        });
+    }
+
+    async SendShippingUpdateMail(dto: ShippingDto) {
+        const { email, ...rest } = dto;
+        await this.mailerService.sendMail({
+            to: email,
+            template: './shipping-update',
+            subject: Auth_Otp_Token_Subject.SHIPPING_UPDATE,
             context: rest,
         });
     }
