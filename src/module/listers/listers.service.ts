@@ -916,7 +916,7 @@ export class ListersService {
       };
 
       // If status changed to something related to shipping, notify renter
-      const shippingStatuses = [OrderStatus.IN_TRANSIT, OrderStatus.DELIVERED, OrderStatus.RETURN_DUE];
+      const shippingStatuses: OrderStatus[] = [OrderStatus.IN_TRANSIT, OrderStatus.DELIVERED, OrderStatus.RETURN_DUE];
       if (shippingStatuses.includes(updated.status)) {
           const firstProduct = updated.orderItems[0]?.product;
           await this.notificationService.createNotification({
@@ -3140,6 +3140,8 @@ export class ListersService {
 
     const where: any = {
       curatorId: userId,
+      status: ProductStatus.AVAILABLE,
+      isActive: true,
       productVerified: true,
     };
 

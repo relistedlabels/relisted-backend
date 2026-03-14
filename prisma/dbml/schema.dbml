@@ -35,6 +35,9 @@ Table User {
   bankAccounts BankAccount [not null]
   withdrawalRequests WithdrawalRequest [not null]
   notificationSettings NotificationSettings
+  notifications Notification [not null]
+  requestedAvailability AvailabilityRequest [not null]
+  listerRequests AvailabilityRequest [not null]
   adminRoleId String
   adminRole AdminRole
   auditLogs AuditLog [not null]
@@ -258,6 +261,8 @@ Table AvailabilityRequest {
   expiresAt DateTime [not null]
   createdAt DateTime [default: `now()`, not null]
   product Product [not null]
+  requester User [not null]
+  lister User [not null]
   startDate DateTime
   endDate DateTime
   rentalDays Int
@@ -554,6 +559,19 @@ Table AuditLog {
   createdAt DateTime [default: `now()`, not null]
 }
 
+Table Notification {
+  id String [pk]
+  userId String [not null]
+  user User [not null]
+  title String [not null]
+  message String [not null]
+  type String [not null]
+  metadata Json
+  isRead Boolean [not null, default: false]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+}
+
 Table ProductToTag {
   tagsId String [ref: > Tag.id]
   productsId String [ref: > Product.id]
@@ -693,6 +711,10 @@ Ref: Favourite.productId > Product.id
 
 Ref: AvailabilityRequest.productId > Product.id
 
+Ref: AvailabilityRequest.requesterId > User.id
+
+Ref: AvailabilityRequest.listerId > User.id
+
 Ref: Order.userId > User.id
 
 Ref: OrderItem.orderId > Order.id
@@ -750,3 +772,5 @@ Ref: WithdrawalRequest.bankAccountId > BankAccount.id
 Ref: NotificationSettings.userId - User.id
 
 Ref: AuditLog.performedBy > User.id
+
+Ref: Notification.userId > User.id

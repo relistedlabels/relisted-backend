@@ -80,8 +80,7 @@ export class CartService {
       expiresAt,
     },
     include: {
-        product: { include: { curator: true } },
-        requester: true
+        product: { include: { curator: true } }
     }
   });
 
@@ -89,14 +88,14 @@ export class CartService {
   await this.notificationService.createNotification({
       userId: request.listerId,
       title: "New Rental Request",
-      message: `You have a new rental request for ${request.product?.name} from ${request.requester?.name || 'a user'}.`,
+      message: `You have a new rental request for ${request.product?.name} from ${user.name || 'a user'}.`,
       type: "RENTAL_REQUEST",
       metadata: { requestId: request.id, productId: request.productId },
       sendEmail: true,
       emailData: {
           email: request.product?.curator?.email,
           listerName: request.product?.curator?.name,
-          renterName: request.requester?.name || 'A user',
+          renterName: user.name || 'A user',
           productName: request.product?.name,
           requestId: request.id,
           rentalDays: cartItem.days,
