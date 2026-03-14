@@ -641,7 +641,6 @@ export class ProductService {
         this.prisma.product.findMany({
           where: {
             productVerified: true,
-            isActive: true,
           },
           skip,
           take: limit,
@@ -661,9 +660,7 @@ export class ProductService {
         }),
         this.prisma.product.count({
           where: {
-
             productVerified: true,
-            isActive: true,
           },
         }),
       ]);
