@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
   ApiOperation,
@@ -9,6 +10,8 @@ import {
   ApiUnauthorizedResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
+  ApiConsumes,
+  ApiBody,
 } from '@nestjs/swagger';
 import { ListersService } from './listers.service';
 import { Auth, AuthUser } from '../auth/decorator/auth.decorator';
@@ -509,11 +512,36 @@ export class ListersController {
   // 35. POST /api/listers/profile/avatar
   @Auth([Role.LISTER, Role.ADMIN])
   @Post('profile/avatar')
+  @UseInterceptors(FileInterceptor('avatar'))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        avatar: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+    },
+  })
   @ApiOperation({
-    summary:
-      'Update lister profile avatar (links to existing upload by uploadId)',
+    summary: 'Update lister profile avatar (direct upload)',
   })
   updateProfileAvatar(
+    @AuthUser() user: userEntity,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.listersService.uploadAvatar(user, file);
+  }
+
+  // 35.1 POST /api/listers/profile/avatar-link
+  @Auth([Role.LISTER, Role.ADMIN])
+  @Post('profile/avatar-link')
+  @ApiOperation({
+    summary: 'Update lister profile avatar (link existing uploadId)',
+  })
+  linkProfileAvatar(
     @AuthUser() user: userEntity,
     @Body() body: { uploadId: string },
   ) {

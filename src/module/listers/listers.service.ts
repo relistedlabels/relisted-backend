@@ -12,6 +12,7 @@ import { differenceInSeconds, subMonths, startOfMonth, endOfMonth, subYears, sta
 import { randomUUID } from 'crypto';
 import { WemaServiceService } from 'src/services/wema-service/wema-service.service';
 import { NotificationService } from 'src/services/notification/notification.service';
+import { UploadService } from '../upload/upload.service';
 
 const CURRENCY = 'NGN';
 const APPROVAL_WINDOW_MINUTES = 15;
@@ -76,6 +77,7 @@ export class ListersService {
     private readonly prisma: PrismaService,
     private readonly wemaService: WemaServiceService,
     private readonly notificationService: NotificationService,
+    private readonly uploadService: UploadService,
   ) {}
 
   /** GET /api/listers/inventory/top-items */
@@ -2537,6 +2539,42 @@ export class ListersService {
   }
 
   /** 35. POST /api/listers/profile/avatar
+   *  Directly uploads a file as the lister's profile avatar.
+   */
+  async uploadAvatar(user: userEntity, file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file provided');
+
+    const profile = await this.prisma.profile.findUnique({
+      where: { userId: user.id },
+    });
+    if (!profile) throw new NotFoundException('Profile not found');
+
+    const uploadId = randomUUID();
+    // Using a simplified user object for the upload service
+    const mockUser = { id: user.id, email: user.email, sub: user.id } as any;
+
+    const uploadedFile = await this.uploadService.uploadFile(
+      uploadId,
+      file,
+      mockUser,
+    );
+
+    await this.prisma.profile.update({
+      where: { id: profile.id },
+      data: { avatarUploadId: uploadedFile.id },
+    });
+
+    return {
+      success: true,
+      message: 'Profile avatar updated successfully',
+      data: {
+        profileImage: uploadedFile.url,
+        uploadedAt: uploadedFile.createdAt,
+      },
+    };
+  }
+
+  /** 35.1 POST /api/listers/profile/avatar-link
    *  This endpoint expects an existing upload ID to be linked as avatar.
    *  File upload is handled by the /upload module.
    */
