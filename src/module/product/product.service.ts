@@ -640,7 +640,7 @@ export class ProductService {
       const [products, total] = await Promise.all([
         this.prisma.product.findMany({
           where: {
-            productVerified: true,
+            status: 'APPROVED',
           },
           skip,
           take: limit,
@@ -660,7 +660,7 @@ export class ProductService {
         }),
         this.prisma.product.count({
           where: {
-            productVerified: true,
+            status: 'APPROVED',
           },
         }),
       ]);
@@ -1552,6 +1552,13 @@ export class ProductService {
           maxConsecutiveDays: 30,
           checkDateFrom: start.toISOString(),
           checkDateTo: end.toISOString(),
+        },
+      },
+    };
+  }
+}
+
+oISOString(),
         },
       },
     };
