@@ -7,13 +7,16 @@ import {
   Request,
   Query,
   Param,
+  UseInterceptors,
+  UploadedFiles,
 } from '@nestjs/common';
+import { FilesInterceptor } from '@nestjs/platform-express';
 import { RentersService } from './renters.service';
 import { JwtAuthGuard } from '../auth/guard/authGuard';
 import { RoleGuard } from '../auth/guard/roleGuard';
 import { Roles } from '../auth/decorator/roles.decorator';
 import { Role } from '@prisma/client';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiConsumes, ApiBody } from '@nestjs/swagger';
 
 @ApiTags('Renters Orders')
 @ApiBearerAuth('bearer')
@@ -59,5 +62,31 @@ export class RentersOrdersController {
     @Body() data: any,
   ) {
     return this.rentersService.updateOrderTracking(req.user.id, orderId, data);
+  }
+
+  @Post(':orderId/ready-to-return')
+  @UseInterceptors(FilesInterceptor('images'))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        images: {
+          type: 'array',
+          items: { type: 'string', format: 'binary' },
+        },
+        itemCondition: { type: 'string', enum: ['good', 'fair', 'poor'] },
+        damageNotes: { type: 'string' },
+      },
+    },
+  })
+  @ApiOperation({ summary: 'Mark order as ready to return with condition report and images' })
+  async readyToReturn(
+    @Request() req,
+    @Param('orderId') orderId: string,
+    @UploadedFiles() files: Express.Multer.File[],
+    @Body() body: any,
+  ) {
+    return this.rentersService.readyToReturn(req.user.id, orderId, files, body);
   }
 }

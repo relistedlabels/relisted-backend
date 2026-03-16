@@ -261,6 +261,7 @@ export class OrderService {
       let listerItemsTotal = 0;
       let listerRentalAndCleaning = 0;
       let listerCollateralTotal = 0;
+      let listerVatTotal = 0;
       let curatorAddress: any = null;
       
       for (const item of items) {
@@ -272,10 +273,12 @@ export class OrderService {
         const rentalAmount = item.product.dailyPrice * item.days;
         const collateralAmount = Number(item.product.collateralPrice || item.product.originalValue) || 0;
         const cleaningFee = 2000;
+        const vatAmount = Math.round(rentalAmount * 0.20);
 
-        listerItemsTotal += rentalAmount + collateralAmount + cleaningFee;
+        listerItemsTotal += rentalAmount + collateralAmount + cleaningFee + vatAmount;
         listerRentalAndCleaning += rentalAmount + cleaningFee;
         listerCollateralTotal += collateralAmount;
+        listerVatTotal += vatAmount;
       }
       totalCollateral += listerCollateralTotal;
 
@@ -350,6 +353,7 @@ export class OrderService {
          listerGrandTotal,
          listerRentalAndCleaning,
          listerCollateralTotal,
+         listerVatTotal,
          shippingCost,
          usedPricingTier: selectedPricingTier || 'Budget',
          pickupChargeRaw,
@@ -393,12 +397,45 @@ export class OrderService {
         const expiresAt = addMinutes(now, APPROVAL_WINDOW_MINUTES);
         
         const orderIdStr = await this.generateOrderId();
+
+        // Fetch lister details to persist
+        const lister = await tx.user.findUnique({
+          where: { id: listerData.listerId },
+          include: { 
+            profile: { 
+              include: { 
+                businessInfo: true,
+                avatarUpload: { select: { url: true } },
+              } 
+            },
+            curatorReviews: true,
+          },
+        });
+
+        const listerRating = lister?.curatorReviews && lister.curatorReviews.length > 0
+          ? lister.curatorReviews.reduce((acc: number, r: any) => acc + r.rating, 0) / lister.curatorReviews.length
+          : 0;
+        
+        const listerBusinessName = lister?.profile?.businessInfo?.businessName || lister?.name || 'Unknown';
+        const listerImage = lister?.profile?.avatarUpload?.url || null;
+
+        // Calculate lister-specific platform fee (10% of rental + cleaning)
+        const listerServiceFee = Math.round(listerData.listerRentalAndCleaning * 0.1);
         
         const order = await tx.order.create({
           data: {
             orderId: orderIdStr,
             userId: user.id,
             expiresAt,
+          // New persisted fields
+          totalAmountPaid: listerData.listerGrandTotal,
+          deliveryFee: listerData.shippingCost + Math.ceil(listerData.pickupChargeRaw / 100),
+          serviceFee: listerServiceFee,
+          vatAmount: listerData.listerVatTotal,
+          listerId: listerData.listerId,
+          listerBusinessName: listerBusinessName,
+          listerImage: listerImage,
+          listerRating: listerRating,
           },
         });
 
@@ -409,6 +446,11 @@ export class OrderService {
               productId: item.product.id,
               days: item.days,
               pricePerDay: item.product.dailyPrice,
+              // New persisted fields
+              imageUrl: item.product.images?.[0] || null,
+              rentalFee: item.product.dailyPrice * item.days,
+              cleaningFee: item.product.cleaningFee || 0,
+              collateralFee: item.product.collateralValue || 0,
             },
           });
         }
@@ -442,7 +484,7 @@ export class OrderService {
       await tx.cartItem.deleteMany({
         where: { cartId: cart.id },
       });
-    });
+    }, { timeout: 30000 });
 
     // 5. Trigger Topship Save Shipment As Draft automatically (Outside transaction to prevent P2028 Timeouts)
     for (const listerData of listerOrdersData) {

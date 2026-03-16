@@ -419,6 +419,20 @@ model Order {
   escrows            Escrow?
   virtualAccount     VirtualAccount?
 
+  // Financial Totals at checkout
+  totalAmountPaid Int?
+  deliveryFee     Int?
+  serviceFee      Int?
+  vatAmount       Int?
+
+  returnRequest   ReturnRequest?
+
+  // Lister Summary at checkout
+  listerId           String?
+  listerBusinessName String?
+  listerImage        String?
+  listerRating       Float?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -430,6 +444,11 @@ model OrderItem {
   productId   String
   days        Int
   pricePerDay Int
+  
+  imageUrl      String?
+  rentalFee     Int?
+  cleaningFee   Int?
+  collateralFee Int?
 
   order Order @relation(fields: [orderId], references: [id])
 
@@ -774,4 +793,22 @@ model Newsletter {
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model ReturnRequest {
+  id            String        @id @default(uuid())
+  orderId       String        @unique
+  order         Order         @relation(fields: [orderId], references: [id])
+  itemCondition ItemCondition
+  damageNotes   String?
+  imageUrls     String[]
+  status        String        @default("PENDING") // PENDING, APPROVED, REJECTED
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+enum ItemCondition {
+  GOOD
+  FAIR
+  POOR
 }
