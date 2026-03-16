@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../../services/prisma/prisma.service';
 import { NotificationService } from 'src/services/notification/notification.service';
+import { OrderStatus, ProductStatus, Role } from '@prisma/client';
 
 @Injectable()
 export class AdminService {
@@ -137,6 +138,11 @@ export class AdminService {
     return { success: true, message: 'Profile updated', data: admin };
   }
 
+  async addAdmin(data: any) {
+    // In real app, create user and assign role
+    return { success: true, message: 'Admin added successfully' };
+  }
+
   async updateAdminProfilePhoto(adminId: string, data: any) {
     return { success: true, message: 'Profile photo updated' };
   }
@@ -201,9 +207,55 @@ export class AdminService {
     return { success: true, data: admins };
   }
 
-  async addAdmin(data: any) {
-    // In real app, create user and assign role
-    return { success: true, message: 'Admin added successfully' };
+  async suspendAdmin(adminId: string, suspended: boolean) {
+    const admin = await this.prisma.user.findFirst({
+      where: { id: adminId, role: Role.ADMIN },
+    });
+
+    if (!admin) {
+      throw new NotFoundException('Admin user not found');
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: adminId },
+      data: { isSuspended: suspended },
+    });
+
+    return {
+      success: true,
+      message: `Admin ${suspended ? 'suspended' : 'unsuspended'} successfully`,
+      data: updated,
+    };
+  }
+
+  async verifyUser(userId: string, verified: boolean) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: { isVerified: verified },
+      include: {
+        profile: {
+          include: {
+            avatarUpload: {
+              select: { url: true },
+            },
+          },
+        },
+      },
+    });
+
+    return {
+      success: true,
+      message: `User ${verified ? 'verified' : 'unverified'} successfully`,
+      data: updated,
+    };
   }
 
   async updateAdminSettings(adminId: string, data: any) {
@@ -503,11 +555,20 @@ export class AdminService {
     return { success: true, data: { message: 'Wallets exported successfully' } };
   }
 
-  async getAllWithdrawals(page: number, limit: number, status?: string) {
+  async getAllWithdrawals(page: number, limit: number, status?: string, search?: string) {
     const skip = (page - 1) * limit;
     const where: any = {};
+    
     if (status && status !== 'ALL') {
       where.status = status;
+    }
+
+    if (search) {
+      where.OR = [
+        { reference: { contains: search, mode: 'insensitive' } },
+        { user: { name: { contains: search, mode: 'insensitive' } } },
+        { user: { email: { contains: search, mode: 'insensitive' } } },
+      ];
     }
 
     const [total, withdrawals] = await this.prisma.$transaction([
@@ -518,19 +579,99 @@ export class AdminService {
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
-          user: { select: { id: true, name: true, email: true } },
-          bankAccount: true,
+          user: { 
+            select: { 
+              id: true, 
+              name: true, 
+              email: true,
+              profile: {
+                select: {
+                  avatarUpload: { select: { url: true } }
+                }
+              }
+            } 
+          },
+          bankAccount: {
+            select: {
+              accountNumber: true,
+              bankName: true,
+              accountName: true,
+            }
+          },
         },
       }),
     ]);
 
+    // Format to match user requested structure
+    const formatted = withdrawals.map(w => ({
+      id: w.id,
+      userId: w.userId,
+      user: {
+        id: w.user.id,
+        name: w.user.name,
+        email: w.user.email,
+        avatar: (w.user as any).profile?.avatarUpload?.url || null
+      },
+      bankAccount: w.bankAccount,
+      amount: w.amount,
+      status: w.status.toLowerCase(),
+      requestedDate: w.createdAt,
+      paidDate: (w as any).paidDate,
+      trackingId: (w as any).trackingId,
+      reference: w.reference
+    }));
+
     return {
       success: true,
       data: {
-        withdrawals,
+        withdrawals: formatted,
         total,
         page,
         totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async getPayouts(page: number, limit: number, search?: string) {
+    return this.getAllWithdrawals(page, limit, 'paid', search);
+  }
+
+  async markWithdrawalAsPaid(withdrawalId: string, trackingId: string) {
+    const withdrawal = await this.prisma.withdrawalRequest.findUnique({
+      where: { id: withdrawalId },
+    });
+
+    if (!withdrawal) {
+      throw new NotFoundException('Withdrawal request not found');
+    }
+
+    if (withdrawal.status.toLowerCase() === 'paid') {
+      throw new BadRequestException('Withdrawal is already marked as paid');
+    }
+
+    // Usually withdrawal must be APPROVED before being PAID?
+    // But user request just says "Mark Withdrawal as Paid"
+
+    const updated = await this.prisma.withdrawalRequest.update({
+      where: { id: withdrawalId },
+      data: {
+        status: 'paid',
+        paidDate: new Date(),
+        trackingId: trackingId,
+        processedAt: new Date(),
+      } as any,
+      include: {
+        user: { select: { name: true, email: true } }
+      }
+    });
+
+    return {
+      success: true,
+      data: {
+        id: updated.id,
+        status: updated.status.toLowerCase(),
+        paidDate: (updated as any).paidDate,
+        trackingId: (updated as any).trackingId,
       },
     };
   }
@@ -563,7 +704,10 @@ export class AdminService {
         
         await (tx as any).withdrawalRequest.update({
           where: { id: withdrawalId },
-          data: { status }
+          data: { 
+            status: (status as string) === 'APPROVED' ? 'approved' : 'rejected',
+            processedAt: new Date(),
+          }
         });
       });
     } else {
@@ -614,6 +758,235 @@ export class AdminService {
         getApprovedProducts: { count: approved },
         getRejectedProducts: { count: rejected },
         getActiveProducts: { count: approved },
+      },
+    };
+  }
+
+  async getProductAvailability(productId: string, month: number, year: number) {
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+      select: { id: true, status: true },
+    });
+
+    if (!product) throw new NotFoundException('Product not found');
+
+    const firstDay = new Date(year, month - 1, 1);
+    const lastDay = new Date(year, month, 0, 23, 59, 59);
+
+    // Find all orders that overlap with this month
+    const orders = await this.prisma.order.findMany({
+      where: {
+        orderItems: { some: { productId } },
+        status: { notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED] },
+        rental: {
+          OR: [
+            {
+              // Starts or ends within the month
+              startDate: { gte: firstDay, lte: lastDay },
+            },
+            {
+              endDate: { gte: firstDay, lte: lastDay },
+            },
+            {
+              // Spans across the entire month
+              startDate: { lte: firstDay },
+              endDate: { gte: lastDay },
+            },
+          ],
+        },
+      },
+      include: {
+        rental: true,
+        user: { select: { id: true, name: true } },
+      },
+    });
+
+    const calendar: any[] = [];
+    let daysRentedThisMonth = 0;
+    let totalRentalRevenue = 0;
+
+    // Generate daily calendar
+    const numDays = lastDay.getDate();
+    for (let i = 1; i <= numDays; i++) {
+      const date = new Date(year, month - 1, i);
+      const isoDate = date.toISOString().split('T')[0];
+
+      // Find booking for this day
+      const booking = orders.find((o) => {
+        if (!o.rental) return false;
+        const start = new Date(o.rental.startDate);
+        const end = new Date(o.rental.endDate);
+        // Normalize to date parts for comparison
+        const d = new Date(date);
+        d.setHours(0, 0, 0, 0);
+        const s = new Date(start);
+        s.setHours(0, 0, 0, 0);
+        const e = new Date(end);
+        e.setHours(23, 59, 59, 999);
+        return d >= s && d <= e;
+      });
+
+      if (booking && booking.rental) {
+        daysRentedThisMonth++;
+        calendar.push({
+          date: isoDate,
+          status: 'rented',
+          booking: {
+            id: booking.id,
+            dresserId: booking.userId,
+            dresserName: booking.user.name,
+            startDate: booking.rental.startDate.toISOString().split('T')[0],
+            endDate: booking.rental.endDate.toISOString().split('T')[0],
+            orderTotal: booking.rental.totalAmount || 0,
+          },
+        });
+      } else {
+        calendar.push({
+          date: isoDate,
+          status: 'available',
+          booking: null,
+        });
+      }
+    }
+
+    // Revenue for this months rentals (prorated or just simple sum if it starts this month?) 
+    // User requested "totalRentalRevenue" - typically means revenue from orders placed/active this month.
+    totalRentalRevenue = orders.reduce((sum, o) => sum + (o.rental?.totalAmount || 0), 0);
+
+    // Current status
+    const now = new Date();
+    const currentRental = orders.find(o => o.rental && now >= o.rental.startDate && now <= o.rental.endDate);
+
+    const nextAvailable = await this.prisma.rental.findFirst({
+      where: {
+        productId,
+        startDate: { gt: now },
+      },
+      orderBy: { startDate: 'asc' },
+    });
+
+    return {
+      success: true,
+      data: {
+        productId,
+        month,
+        year,
+        nextAvailableDate: nextAvailable?.startDate.toISOString().split('T')[0] || null,
+        currentlyRented: !!currentRental,
+        currentRentalEndDate: currentRental?.rental?.endDate.toISOString().split('T')[0] || null,
+        stats: {
+          daysRentedThisMonth,
+          totalRentalsThisMonth: orders.length,
+          totalRentalRevenue,
+        },
+        calendar,
+      },
+    };
+  }
+
+  async getProductActivity(productId: string) {
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+      include: {
+        curator: { select: { id: true, name: true, email: true } },
+      },
+    });
+
+    if (!product) throw new NotFoundException('Product not found');
+
+    // Activities from AuditLog
+    const auditLogs = await this.prisma.auditLog.findMany({
+      where: {
+        OR: [
+          { targetType: 'PRODUCT', targetId: productId },
+          { targetType: 'ORDER', details: { path: ['productId'], equals: productId } as any },
+        ],
+      },
+      include: { admin: { select: { id: true, name: true, email: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Activities from Orders (Rented, Returned)
+    const orders = await this.prisma.order.findMany({
+      where: {
+        orderItems: { some: { productId } },
+      },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const activities: any[] = [];
+
+    // Add "Listed" activity
+    activities.push({
+      id: `initial_${product.id}`,
+      type: 'listed',
+      title: `Listed by ${product.curator.name}`,
+      description: 'Product added to platform',
+      timestamp: product.createdAt.toISOString(),
+      actor: {
+        id: product.curator.id,
+        name: product.curator.name,
+        email: product.curator.email,
+      },
+    });
+
+    // Add Audit Log activities
+    for (const log of auditLogs) {
+      activities.push({
+        id: log.id,
+        type: log.action.toLowerCase(),
+        title: log.action,
+        description: log.targetName,
+        timestamp: log.createdAt.toISOString(),
+        actor: {
+          id: log.admin.id,
+          name: log.admin.name,
+          email: log.admin.email,
+        },
+        metadata: log.details,
+      });
+    }
+
+    // Add Order activities
+    for (const order of orders) {
+      activities.push({
+        id: `rented_${order.id}`,
+        type: 'rented',
+        title: `Rented by ${order.user.name}`,
+        description: `Rental order ${order.orderId} created`,
+        timestamp: order.createdAt.toISOString(),
+        actor: {
+          id: order.user.id,
+          name: order.user.name,
+          email: order.user.email,
+        },
+        metadata: { orderId: order.id },
+      });
+
+      if (order.status === OrderStatus.COMPLETED || order.status === OrderStatus.RETURNED) {
+        activities.push({
+          id: `returned_${order.id}`,
+          type: 'returned',
+          title: 'Returned',
+          description: `Item returned by renter for order ${order.orderId}`,
+          timestamp: order.updatedAt.toISOString(),
+          actor: null,
+          metadata: { orderId: order.id },
+        });
+      }
+    }
+
+    // Sort all by timestamp descending
+    activities.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    return {
+      success: true,
+      data: {
+        productId,
+        activities,
       },
     };
   }

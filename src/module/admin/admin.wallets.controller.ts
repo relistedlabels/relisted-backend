@@ -66,18 +66,43 @@ export class AdminWalletsController {
     return this.adminService.releaseEscrow(escrowId, data);
   }
 
-  @Get('withdrawals')
+  @Get('withdrawal-requests')
   @ApiOperation({ summary: 'Get all withdrawal requests' })
-  async getAllWithdrawals(
+  async getWithdrawalRequests(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('status') status?: string,
+    @Query('search') search?: string,
   ) {
     return this.adminService.getAllWithdrawals(
       page ? parseInt(page, 10) : 1,
       limit ? parseInt(limit, 10) : 10,
       status,
+      search,
     );
+  }
+
+  @Get('payouts')
+  @ApiOperation({ summary: 'Get payouts' })
+  async getPayouts(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.adminService.getPayouts(
+      page ? parseInt(page, 10) : 1,
+      limit ? parseInt(limit, 10) : 10,
+      search,
+    );
+  }
+
+  @Put('withdrawal-requests/:id/paid')
+  @ApiOperation({ summary: 'Mark withdrawal as paid' })
+  async markWithdrawalAsPaid(
+    @Param('id') id: string,
+    @Body('trackingId') trackingId: string,
+  ) {
+    return this.adminService.markWithdrawalAsPaid(id, trackingId);
   }
 
   @Put('withdrawals/:id/status')

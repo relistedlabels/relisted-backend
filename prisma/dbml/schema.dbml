@@ -511,6 +511,8 @@ Table WithdrawalRequest {
   reference String [unique, not null]
   fee Int [not null, default: 0]
   netAmount Int [not null]
+  trackingId String
+  paidDate DateTime
   processedAt DateTime
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]

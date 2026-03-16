@@ -1,4 +1,4 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get, Param, Patch, Body, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
 
@@ -53,6 +53,15 @@ export class AdminUsersController {
   @ApiOperation({ summary: 'Get user favorites' })
   async getUserFavorites(@Param('userId') userId: string) {
     return this.adminService.getUserFavorites(userId);
+  }
+
+  @Patch(':userId/verify')
+  @ApiOperation({ summary: 'Verify user' })
+  async verifyUser(
+    @Param('userId') userId: string,
+    @Body('verified') verified: boolean,
+  ) {
+    return this.adminService.verifyUser(userId, verified);
   }
 }
 

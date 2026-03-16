@@ -85,6 +85,15 @@ export class AdminSettingsController {
     return this.adminService.getAdmins();
   }
 
+  @Post('admins/:adminId/suspend')
+  @ApiOperation({ summary: 'Suspend/Unsuspend admin' })
+  async suspendAdmin(
+    @Param('adminId') adminId: string,
+    @Body('suspended') suspended: boolean,
+  ) {
+    return this.adminService.suspendAdmin(adminId, suspended);
+  }
+
   @Post('admins')
   @ApiOperation({ summary: 'Add a new admin' })
   async addAdmin(@Body() data: any) {

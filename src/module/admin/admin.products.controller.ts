@@ -72,4 +72,24 @@ export class AdminProductsController {
   ) {
     return this.adminService.updateProductStatus(productId, 'REJECTED', data.reason);
   }
+
+  @Get('listings/:productId/availability')
+  @ApiOperation({ summary: 'Get product rental availability & calendar' })
+  async getProductAvailability(
+    @Param('productId') productId: string,
+    @Query('month') month: string,
+    @Query('year') year: string,
+  ) {
+    return this.adminService.getProductAvailability(
+      productId,
+      parseInt(month, 10),
+      parseInt(year, 10),
+    );
+  }
+
+  @Get('listings/:productId/activity')
+  @ApiOperation({ summary: 'Get product activity history' })
+  async getProductActivity(@Param('productId') productId: string) {
+    return this.adminService.getProductActivity(productId);
+  }
 }
