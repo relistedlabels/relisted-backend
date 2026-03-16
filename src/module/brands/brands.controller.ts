@@ -155,7 +155,7 @@ export class BrandsController {
     @Body() dto: UpdateBrandDto,
     @AuthUser() user: userEntity,
   ) {
-    return this.brandsService.update(id, dto, user.id);
+    return this.brandsService.update(id, dto, user);
   }
 
   
@@ -172,11 +172,11 @@ export class BrandsController {
     },
   })
   @ApiForbiddenResponse({
-    description: 'You do not own this brand',
+    description: 'You do not own this brand or you are not an admin',
   })
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
   @ApiNotFoundResponse({ description: 'Brand not found' })
   remove(@Param('id') id: string, @AuthUser() user: userEntity) {
-    return this.brandsService.remove(id, user.id);
+    return this.brandsService.remove(id, user);
   }
 }

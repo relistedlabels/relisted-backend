@@ -7,6 +7,8 @@ import { PrismaService } from 'src/services/prisma/prisma.service';
 import { CreateBrandDto } from './dto/create-brand.dto';
 import { UpdateBrandDto } from './dto/update-brand.dto';
 import { userEntity } from '../auth/auth.types';
+import { Role } from '@prisma/client';
+
 
 @Injectable()
 export class BrandsService {
@@ -47,10 +49,10 @@ export class BrandsService {
     return brand;
   }
 
-  async update(id: string, dto: UpdateBrandDto, userId: string) {
+  async update(id: string, dto: UpdateBrandDto, user: userEntity) {
     const brand = await this.findOne(id);
 
-    if (brand.userId !== userId) {
+    if (brand.userId !== user.id && user.role !== Role.ADMIN) {
       throw new ForbiddenException('You cannot update this brand');
     }
 
@@ -60,10 +62,10 @@ export class BrandsService {
     });
   }
 
-  async remove(id: string, userId: string) {
+  async remove(id: string, user: userEntity) {
     const brand = await this.findOne(id);
 
-    if (brand.userId !== userId) {
+    if (brand.userId !== user.id && user.role !== Role.ADMIN) {
       throw new ForbiddenException('You cannot delete this brand');
     }
 

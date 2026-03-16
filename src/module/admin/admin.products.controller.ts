@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Patch, Post, Body, Query, Put } from '@nestjs/common';
+import { Controller, Get, Param, Patch, Post, Body, Query, Put, Delete } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
 
@@ -91,5 +91,11 @@ export class AdminProductsController {
   @ApiOperation({ summary: 'Get product activity history' })
   async getProductActivity(@Param('productId') productId: string) {
     return this.adminService.getProductActivity(productId);
+  }
+
+  @Delete(':productId')
+  @ApiOperation({ summary: 'Delete a product' })
+  async deleteProduct(@Param('productId') productId: string) {
+    return this.adminService.deleteProduct(productId);
   }
 }

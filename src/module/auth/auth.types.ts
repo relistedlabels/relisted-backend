@@ -71,6 +71,7 @@ export class userEntity {
   email: string;
   isVerified: boolean;
   name: string;
+  role: Role;
 }
 
 export class ResendVerificationEmail {

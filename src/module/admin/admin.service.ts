@@ -1067,6 +1067,20 @@ export class AdminService {
     };
   }
 
+  async deleteProduct(productId: string) {
+    const product = await this.prisma.product.findUnique({ where: { id: productId } });
+    if (!product) throw new NotFoundException('Product not found');
+
+    await this.prisma.product.delete({
+      where: { id: productId },
+    });
+
+    return {
+      success: true,
+      message: 'Product deleted successfully',
+    };
+  }
+
   /* USERS */
   async getAllUsers() {
     const users = await this.prisma.user.findMany({ select: { id: true, name: true, email: true, role: true, profile: true } });
