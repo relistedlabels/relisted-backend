@@ -207,7 +207,29 @@ export class AdminService {
     return { success: true, data: admins };
   }
 
+  async suspendUser(userId: string, suspended: boolean) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: { isSuspended: suspended },
+    });
+
+    return {
+      success: true,
+      message: `User ${suspended ? 'suspended' : 'unsuspended'} successfully`,
+      data: updated,
+    };
+  }
+
   async suspendAdmin(adminId: string, suspended: boolean) {
+    // Check if it's an admin first
     const admin = await this.prisma.user.findFirst({
       where: { id: adminId, role: Role.ADMIN },
     });
@@ -216,15 +238,133 @@ export class AdminService {
       throw new NotFoundException('Admin user not found');
     }
 
-    const updated = await this.prisma.user.update({
-      where: { id: adminId },
-      data: { isSuspended: suspended },
+    return this.suspendUser(adminId, suspended);
+  }
+
+  async deleteUser(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
     });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    await this.prisma.$transaction(
+      async (tx) => {
+        // 1. Auth OTP tokens
+        await tx.authOtpToken.deleteMany({ where: { userId } });
+
+        // 2. Profile and related (EmergencyContact, BusinessInfo, Address)
+        const profile = await tx.profile.findUnique({ where: { userId } });
+        if (profile) {
+          const profileId = profile.id;
+          await tx.emergencyContact.deleteMany({ where: { profileId } });
+          await tx.businessInfo.deleteMany({ where: { profileId } });
+          await tx.address.deleteMany({ where: { profileId } });
+          await tx.profile.update({
+            where: { id: profileId },
+            data: { avatarUploadId: null, ninUploadId: null },
+          });
+          await tx.profile.delete({ where: { id: profileId } });
+        }
+
+        // 3. Cart and cart items
+        const cart = await tx.cart.findUnique({ where: { userId } });
+        if (cart) {
+          await tx.cartItem.deleteMany({ where: { cartId: cart.id } });
+          await tx.cart.delete({ where: { id: cart.id } });
+        }
+
+        // 4. Favourites
+        await tx.favourite.deleteMany({ where: { userId } });
+
+        // 5. Virtual accounts (by userId)
+        await tx.virtualAccount.deleteMany({ where: { userId } });
+
+        // 6. Transactions (by userId)
+        await tx.transaction.deleteMany({ where: { userId } });
+
+        // 7. Uploads
+        await tx.upload.deleteMany({ where: { userId } });
+
+        // 8. Nullify user-owned Brand, Tag, ProductCategory
+        await tx.brand.updateMany({ where: { userId }, data: { userId: null } });
+        await tx.productCategory.updateMany({ where: { userId }, data: { userId: null } });
+        await tx.tag.updateMany({ where: { userId }, data: { userId: null } });
+
+        // 9. Orders and their dependencies
+        const orders = await tx.order.findMany({ where: { userId }, select: { id: true } });
+        for (const order of orders) {
+          const orderId = order.id;
+          const rental = await tx.rental.findUnique({ where: { orderId } });
+          if (rental) {
+            await tx.review.deleteMany({ where: { rentalId: rental.id } });
+          }
+          await tx.rental.deleteMany({ where: { orderId } });
+          await tx.orderItem.deleteMany({ where: { orderId } });
+          await tx.walletTransaction.deleteMany({ where: { orderId } });
+          await tx.transaction.deleteMany({ where: { orderId } });
+          await tx.virtualAccount.deleteMany({ where: { orderId } });
+          await tx.escrow.deleteMany({ where: { orderId } });
+          const dispute = await tx.dispute.findFirst({ where: { orderId } });
+          if (dispute) {
+            const chatRoom = await tx.chatRoom.findUnique({ where: { disputeId: dispute.id } });
+            if (chatRoom) {
+              await tx.message.deleteMany({ where: { chatRoomId: chatRoom.id } });
+              await tx.chatRoom.delete({ where: { id: chatRoom.id } });
+            }
+            await tx.attachments.updateMany({ where: { disputeId: dispute.id }, data: { disputeId: null } });
+            await tx.dispute.delete({ where: { id: dispute.id } });
+          }
+          await tx.order.delete({ where: { id: orderId } });
+        }
+
+        // 10. Rentals where user is curator or rentee (not already deleted via order)
+        await tx.rental.deleteMany({ where: { userId } });
+        await tx.rental.deleteMany({ where: { curatorId: userId } });
+
+        // 11. Reviews by this user
+        await tx.review.deleteMany({ where: { userId } });
+        await tx.review.deleteMany({ where: { curatorId: userId } });
+
+        // 12. Products owned by user (curator)
+        const products = await tx.product.findMany({ where: { curatorId: userId }, select: { id: true } });
+        for (const product of products) {
+          const productId = product.id;
+          await tx.availabilityRequest.deleteMany({ where: { productId } });
+          await tx.cartItem.deleteMany({ where: { productId } });
+          await tx.favourite.deleteMany({ where: { productId } });
+          await tx.review.deleteMany({ where: { productId } });
+          await tx.orderItem.deleteMany({ where: { productId } });
+          const att = await tx.attachments.findFirst({ where: { productId } });
+          if (att) {
+            await tx.upload.deleteMany({ where: { attachmentId: att.id } });
+            await tx.attachments.delete({ where: { id: att.id } });
+          }
+          await tx.product.delete({ where: { id: productId } });
+        }
+
+        // 13. Wallet and wallet transactions
+        const wallet = await tx.wallet.findUnique({ where: { userId } });
+        if (wallet) {
+          await tx.walletTransaction.deleteMany({ where: { walletId: wallet.id } });
+          await tx.wallet.delete({ where: { id: wallet.id } });
+        }
+
+        // 14. Disputes and Notification Settings
+        await tx.dispute.deleteMany({ where: { userId } });
+        await tx.notificationSettings.deleteMany({ where: { userId } });
+
+        // 15. User
+        await tx.user.delete({ where: { id: userId } });
+      },
+      { timeout: 60_000 }
+    );
 
     return {
       success: true,
-      message: `Admin ${suspended ? 'suspended' : 'unsuspended'} successfully`,
-      data: updated,
+      message: 'User and all related data deleted successfully',
     };
   }
 

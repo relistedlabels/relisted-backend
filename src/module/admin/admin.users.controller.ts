@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Patch, Body, Query } from '@nestjs/common';
+import { Controller, Get, Param, Patch, Body, Query, Delete } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
 
@@ -62,6 +62,21 @@ export class AdminUsersController {
     @Body('verified') verified: boolean,
   ) {
     return this.adminService.verifyUser(userId, verified);
+  }
+
+  @Patch(':userId/suspend')
+  @ApiOperation({ summary: 'Suspend/Unsuspend user' })
+  async suspendUser(
+    @Param('userId') userId: string,
+    @Body('suspended') suspended: boolean,
+  ) {
+    return this.adminService.suspendUser(userId, suspended);
+  }
+
+  @Delete(':userId')
+  @ApiOperation({ summary: 'Delete a user and all related data' })
+  async deleteUser(@Param('userId') userId: string) {
+    return this.adminService.deleteUser(userId);
   }
 }
 
