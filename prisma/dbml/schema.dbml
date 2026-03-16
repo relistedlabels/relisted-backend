@@ -574,6 +574,14 @@ Table Notification {
   updatedAt DateTime [not null]
 }
 
+Table Newsletter {
+  id String [pk]
+  email String [unique, not null]
+  isActive Boolean [not null, default: true]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+}
+
 Table ProductToTag {
   tagsId String [ref: > Tag.id]
   productsId String [ref: > Product.id]
