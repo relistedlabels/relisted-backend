@@ -3140,9 +3140,8 @@ export class ListersService {
 
     const where: any = {
       curatorId: userId,
-      status: ProductStatus.AVAILABLE,
+      status: ProductStatus.APPROVED,
       isActive: true,
-      productVerified: true,
     };
 
     if (query.category) {
