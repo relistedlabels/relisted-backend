@@ -9,67 +9,48 @@ async function testCheckoutFlow() {
   const prisma = app.get(PrismaService);
 
   try {
-    // 1. Find a user with items in their cart
-    const userWithCart = await prisma.user.findFirst({
+    let userWithCart = await prisma.user.findFirst({
       where: {
-        cart: {
-          items: {
-            some: {}
-          }
-        },
-        profile: {
-          address: {
-            isNot: null
-          }
-        },
-        wallet: {
-          mainBalance: {
-            gt: 10000 // Ensure they have some balance
-          }
-        }
+        cart: { items: { some: {} } },
+        profile: { address: { isNot: null } },
+        wallet: { isNot: null }
       },
       include: {
-        cart: {
-          include: {
-            items: {
-              include: {
-                product: true
-              }
-            }
-          }
-        },
-        profile: {
-          include: {
-            address: true
-          }
-        },
+        cart: { include: { items: { include: { product: { include: { curator: true } } } } } },
+        profile: { include: { address: true } },
         wallet: true
       }
     });
-
+    
     if (!userWithCart) {
-        // Just find any user and a product to add to cart
+        console.log('No user with cart found. Setting up a new cart...');
         const user = await prisma.user.findFirst({ include: { cart: true, profile: { include: { address: true } } } });
-        const product = await prisma.product.findFirst({ where: { isActive: true } });
+        const product = await prisma.product.findFirst({ where: { curatorId: { not: user?.id }, isActive: true } });
         
         if (user && product) {
-            console.log(`Adding product ${product.id} to cart for user ${user.id}`);
+            console.log(`Adding product ${product.id} (Curator: ${product.curatorId}) to cart for user ${user.id}`);
             if (!user.cart) {
                 await prisma.cart.create({ data: { userId: user.id } });
             }
             const cart = await prisma.cart.findUnique({ where: { userId: user.id } });
             await prisma.cartItem.create({
-                data: {
-                    cartId: cart!.id,
-                    productId: product.id,
-                    days: 3
-                }
+                data: { cartId: cart!.id, productId: product.id, days: 3 },
             });
-            // Re-fetch user with cart info
-            return testCheckoutFlow(); // Restart with data
+            
+            // Re-fetch
+            userWithCart = await prisma.user.findUnique({
+              where: { id: user.id },
+              include: {
+                cart: { include: { items: { include: { product: { include: { curator: true } } } } } },
+                profile: { include: { address: true } },
+                wallet: true
+              }
+            }) as any;
         }
-      console.log('No suitable user/product found.');
-      await app.close();
+    }
+
+    if (!userWithCart) {
+      console.log('Could not setup test data.');
       return;
     }
 
@@ -91,7 +72,6 @@ async function testCheckoutFlow() {
 
     if (!summaryResponse.success || !summaryResponse.data.shippingTiers?.length) {
       console.error('Failed to get summary or no shipping tiers available.');
-      await app.close();
       return;
     }
 
@@ -102,6 +82,18 @@ async function testCheckoutFlow() {
     // 4. Perform Checkout
     const checkoutResponse = await orderService.checkout(userWithCart as any, selectedTier);
     console.log('Checkout Result:', JSON.stringify(checkoutResponse, null, 2));
+
+    // 5. Verify Balances
+    console.log('\n--- Step 3: Verifying Balances ---');
+    const finalRenterWallet = await prisma.wallet.findUnique({ where: { userId: userWithCart.id } });
+    console.log('Final Renter Wallet:', JSON.stringify(finalRenterWallet, null, 2));
+
+    const listerIds = [...new Set(userWithCart.cart?.items.map(i => i.product.curatorId))];
+    for (const lid of listerIds) {
+        const lWallet = await prisma.wallet.findUnique({ where: { userId: lid } });
+        const name = userWithCart.cart?.items.find(i => i.product.curatorId === lid)?.product.curator.name || lid;
+        console.log(`Final Lister Wallet (${name} - ${lid}):`, JSON.stringify(lWallet, null, 2));
+    }
 
   } catch (error) {
     console.error('Error during checkout flow test:', error);

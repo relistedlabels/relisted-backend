@@ -253,11 +253,14 @@ export class OrderService {
     }
 
     let grandTotal = 0;
+    let totalCollateral = 0;
     const listerOrdersData: any[] = [];
 
     // Calculate totals and shipping for each lister
     for (const [listerId, items] of itemsByLister.entries()) {
       let listerItemsTotal = 0;
+      let listerRentalAndCleaning = 0;
+      let listerCollateralTotal = 0;
       let curatorAddress: any = null;
       
       for (const item of items) {
@@ -269,8 +272,12 @@ export class OrderService {
         const rentalAmount = item.product.dailyPrice * item.days;
         const collateralAmount = Number(item.product.collateralPrice || item.product.originalValue) || 0;
         const cleaningFee = 2000;
+
         listerItemsTotal += rentalAmount + collateralAmount + cleaningFee;
+        listerRentalAndCleaning += rentalAmount + cleaningFee;
+        listerCollateralTotal += collateralAmount;
       }
+      totalCollateral += listerCollateralTotal;
 
       // Calculate shipping & pickup
       // Provide fallback cities if missing in testing
@@ -341,6 +348,8 @@ export class OrderService {
          listerId,
          items,
          listerGrandTotal,
+         listerRentalAndCleaning,
+         listerCollateralTotal,
          shippingCost,
          usedPricingTier: selectedPricingTier || 'Budget',
          pickupChargeRaw,
@@ -357,27 +366,28 @@ export class OrderService {
 
     // Process transaction and orders
     await this.prisma.$transaction(async (tx) => {
-      // 1. Deduct wallet
+      // 1. Deduct wallet & lock collateral
       await tx.wallet.update({
         where: { id: wallet.id },
         data: {
-          mainBalance: { decrement: grandTotal },
-          availableBalance: { decrement: grandTotal }
+          availableBalance: { decrement: grandTotal },
+          mainBalance: { decrement: grandTotal - totalCollateral },
+          collateralBalance: { increment: totalCollateral }
         }
       });
 
-      // 2. Create Wallet Transaction
+      // 2. Create Wallet Transaction for Renter
       await tx.walletTransaction.create({
         data: {
           walletId: wallet.id,
           amount: -grandTotal, // Negative for deduction
           type: 'MAIN',
           status: 'SUCCESS',
-          note: 'Cart checkout payment for ' + cart.items.length + ' items',
+          note: 'Cart checkout payment for ' + cart.items.length + ' items (Collateral locked: ' + totalCollateral + ')',
         }
       });
 
-      // 3. Create orders per lister
+      // 3. Create orders per lister & payout listers
       for (const listerData of listerOrdersData) {
         const now = new Date();
         const expiresAt = addMinutes(now, APPROVAL_WINDOW_MINUTES);
@@ -402,6 +412,28 @@ export class OrderService {
             },
           });
         }
+        
+        // 3b. Credit Lister Wallet (90% of Rental and Cleaning fee)
+        const payoutAmount = Math.floor(listerData.listerRentalAndCleaning * 0.9);
+        const listerWallet = await tx.wallet.upsert({
+            where: { userId: listerData.listerId },
+            create: { userId: listerData.listerId, mainBalance: payoutAmount, availableBalance: payoutAmount },
+            update: { 
+                mainBalance: { increment: payoutAmount },
+                availableBalance: { increment: payoutAmount }
+            }
+        });
+
+        await tx.walletTransaction.create({
+            data: {
+                walletId: listerWallet.id,
+                amount: payoutAmount,
+                type: 'MAIN',
+                status: 'SUCCESS',
+                note: `Earning from order ${order.orderId} (90% of rental/cleaning)`,
+                orderId: order.id
+            }
+        });
         
         createdOrders.push(order);
       }
