@@ -428,24 +428,24 @@ export class OrderService {
         const description = listerData.items.map((i: any) => i.product.name).join(', ');
 
         const payload = { 
-          shipment: [{
-            senderDetail: {
+          shipmentDetail: {
+            senderDetails: {
               name: curatorBusiness?.businessName || firstItem.product.curator.name,
               phoneNumber: curatorBusiness?.businessPhone || curatorProfile?.phoneNumber || '08000000000',
               email: curatorBusiness?.businessEmail || firstItem.product.curator.email || 'lister@relisted.com',
-              city: senderCity,
-              state:curatorAddress?.state || 'Lagos',
+              cityName: senderCity,
+              stateName: curatorAddress?.state || 'Lagos',
               countryCode: "NG",
               addressLine1: curatorBusiness?.businessAddress || curatorAddress?.street || 'Lagos, Nigeria',
               country:"Nigeria",
               postalCode:""
             },
-            receiverDetail: {
+            receiverDetails: {
               name: user.name || 'Renter',
               phoneNumber: renterProfile.phoneNumber || '08000000000',
               email: user.email || 'renter@relisted.com',
-              city: receiverCity,
-              state:renterProfile.address?.state || 'Lagos',
+              cityName: receiverCity,
+              stateName: renterProfile.address?.state || 'Lagos',
               countryCode: "NG",
               addressLine1: renterProfile.address?.street || 'Lagos, Nigeria',
               country:"Nigeria",
@@ -463,6 +463,7 @@ export class OrderService {
             valueAddedTaxCharge: Math.ceil(((listerData.shipmentChargeRaw || 0) + (listerData.pickupChargeRaw || 0)) * 0.075),
             discount:0,
             deliveryLocation: listerData.deliveryLocation || renterProfile.address?.street || 'Lagos, Nigeria',
+            totalWeight: 1,
             items: [{
               category: 'ClothingAndTextile',
               description: description.substring(0, 50) || 'Clothing Rental Item',
@@ -470,7 +471,7 @@ export class OrderService {
               quantity: listerData.items.length,
               value: Number(firstItem.product.dailyPrice) || 1000
             }]
-          }]
+          }
         };
 
         await this.topshipService.bookShipmentAsDraft(payload);

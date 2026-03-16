@@ -632,19 +632,67 @@ export class ProductService {
   async list(query: ListProductQuery) {
     try {
       const page = Number(query.page) || 1;
-      const limit = Number(query.count) || 10;
+      const limit = Number(query.count) || 20;
       const skip = (page - 1) * limit;
 
+      // 1. Build where clause
+      const where: any = {
+        status: ProductStatus.APPROVED,
+      };
+
+      if (query.category) {
+        where.categoryId = query.category;
+      }
+
+      if (query.brand) {
+        where.brandId = query.brand;
+      }
+
+      if (query.minPrice || query.maxPrice) {
+        where.dailyPrice = {};
+        if (query.minPrice) where.dailyPrice.gte = Number(query.minPrice);
+        if (query.maxPrice) where.dailyPrice.lte = Number(query.maxPrice);
+      }
+
+      if (query.search) {
+        where.OR = [
+          { name: { contains: query.search, mode: 'insensitive' } },
+          { description: { contains: query.search, mode: 'insensitive' } },
+          { subText: { contains: query.search, mode: 'insensitive' } },
+        ];
+      }
+
+      // 2. Build orderBy
+      let orderBy: any = { createdAt: 'desc' }; // Default: newest
+      if (query.sort) {
+        switch (query.sort) {
+          case 'oldest':
+            orderBy = { createdAt: 'asc' };
+            break;
+          case 'price_low':
+            orderBy = { dailyPrice: 'asc' };
+            break;
+          case 'price_high':
+            orderBy = { dailyPrice: 'desc' };
+            break;
+          case 'popular':
+            // If we have a viewCount or similar, we can sort by it. 
+            // For now fallback to newest if not available.
+            orderBy = { favourites: { _count: 'desc' } }; 
+            break;
+          case 'rating':
+            orderBy = { reviews: { _avg: { rating: 'desc' } } };
+            break;
+        }
+      }
+
       // Fetch products and total count in parallel
-      // Only show products that are APPROVED and AVAILABLE
       const [products, total] = await Promise.all([
         this.prisma.product.findMany({
-          where: {
-            status:ProductStatus.APPROVED,
-          },
+          where,
           skip,
           take: limit,
-          orderBy: { createdAt: 'desc' },
+          orderBy,
           include: {
             brand: true,
             category: true,
@@ -656,12 +704,13 @@ export class ProductService {
                 },
               },
             },
+            _count: {
+               select: { favourites: true, reviews: true }
+            }
           },
         }),
         this.prisma.product.count({
-          where: {
-            status:ProductStatus.APPROVED,
-          },
+          where,
         }),
       ]);
 

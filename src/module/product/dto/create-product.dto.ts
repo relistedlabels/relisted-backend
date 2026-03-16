@@ -127,7 +127,29 @@ export class CreateProductDto {
   @IsOptional()
   material?: string;
 }
-export class ListProductQuery extends PaginationQuery {}
+export class ListProductQuery extends PaginationQuery {
+  @IsOptional()
+  @IsString()
+  sort?: string;
+
+  @IsOptional()
+  @IsString()
+  category?: string;
+
+  @IsOptional()
+  @IsString()
+  brand?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  minPrice?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  maxPrice?: number;
+}
 
 export class UpdateProductStatusDto {
   @ApiProperty()

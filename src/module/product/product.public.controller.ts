@@ -27,7 +27,12 @@ export class ProductPublicController {
     const listQuery: ListProductQuery = {
       page: query.page,
       count: query.limit,
-      // Add other filters as needed in ProductService.list
+      search: query.search,
+      sort: query.sort,
+      category: query.category,
+      brand: query.brand,
+      minPrice: query.minPrice,
+      maxPrice: query.maxPrice,
     };
     return this.productService.list(listQuery);
   }
