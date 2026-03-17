@@ -358,6 +358,8 @@ export class AdminService {
 
         // 15. User
         await tx.user.delete({ where: { id: userId } });
+        await tx.notification.deleteMany({ where: { userId } });
+        await tx.notificationSettings.delete({where:{userId}})
       },
       { timeout: 60_000 }
     );
@@ -1246,7 +1248,20 @@ export class AdminService {
     return { success: true, data: user };
   }
   async getUserRentals(userId: string) {
-    const rentals = await this.prisma.rental.findMany({ where: { userId }, include: { product: true } });
+    const rentals = await this.prisma.rental.findMany({
+      where: {
+        OR: [
+          { userId }, // Items the user rented
+          { curatorId: userId }, // Items the user listed being rented
+        ],
+      },
+      include: {
+        product: true,
+        user: true, // Rentee
+        curator: true, // Lister
+        order: true,
+      },
+    });
     return { success: true, data: rentals };
   }
   async getUserListings(userId: string) {

@@ -428,7 +428,7 @@ export class OrderService {
             userId: user.id,
             expiresAt,
           // New persisted fields
-          totalAmountPaid: listerData.listerGrandTotal,
+          totalAmountPaid: listerData.listerGrandTotal as any,
           deliveryFee: listerData.shippingCost + Math.ceil(listerData.pickupChargeRaw / 100),
           serviceFee: listerServiceFee,
           vatAmount: listerData.listerVatTotal,
@@ -447,7 +447,7 @@ export class OrderService {
               days: item.days,
               pricePerDay: item.product.dailyPrice,
               // New persisted fields
-              imageUrl: item.product.images?.[0] || null,
+              imageUrl: (item.product.images?.[0] || null) as any,
               rentalFee: item.product.dailyPrice * item.days,
               cleaningFee: item.product.cleaningFee || 0,
               collateralFee: item.product.collateralValue || 0,

@@ -662,6 +662,26 @@ export class ProductService {
         ];
       }
 
+      if (query.color) {
+        const colors = query.color.split(',').map(s => s.trim());
+        where.color = { in: colors, mode: 'insensitive' };
+      }
+
+      if (query.size) {
+        const sizes = query.size.split(',').map(s => s.trim());
+        where.measurement = { in: sizes, mode: 'insensitive' };
+      }
+
+      if (query.condition) {
+        const conditions = query.condition.split(',').map(s => s.trim());
+        where.condition = { in: conditions, mode: 'insensitive' };
+      }
+
+      if (query.material) {
+        const materials = query.material.split(',').map(s => s.trim());
+        where.material = { in: materials, mode: 'insensitive' };
+      }
+
       // 2. Build orderBy
       let orderBy: any = { createdAt: 'desc' }; // Default: newest
       if (query.sort) {

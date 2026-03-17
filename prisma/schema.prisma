@@ -411,7 +411,7 @@ model Order {
   userId String
   user   User   @relation(fields: [userId], references: [id])
 
-  rental             Rental?
+  rentals            Rental[]
   payments           Transaction[]
   disputes           Dispute[]
   walletTransactions WalletTransaction[]
@@ -458,7 +458,7 @@ model OrderItem {
 model Rental {
   id String @id @default(uuid())
 
-  orderId String @unique
+  orderId String
   order   Order  @relation(fields: [orderId], references: [id])
 
   productId String

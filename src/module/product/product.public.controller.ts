@@ -18,6 +18,10 @@ export class ProductPublicController {
   @ApiQuery({ name: 'minPrice', required: false })
   @ApiQuery({ name: 'maxPrice', required: false })
   @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'color', required: false, description: 'Comma-separated colors' })
+  @ApiQuery({ name: 'size', required: false, description: 'Comma-separated sizes (measurement)' })
+  @ApiQuery({ name: 'condition', required: false, description: 'Comma-separated conditions' })
+  @ApiQuery({ name: 'material', required: false, description: 'Comma-separated materials' })
   @ApiResponse({
     status: 200,
     description: 'Products retrieved successfully',
@@ -33,6 +37,10 @@ export class ProductPublicController {
       brand: query.brand,
       minPrice: query.minPrice,
       maxPrice: query.maxPrice,
+      color: query.color,
+      size: query.size,
+      condition: query.condition,
+      material: query.material,
     };
     return this.productService.list(listQuery);
   }

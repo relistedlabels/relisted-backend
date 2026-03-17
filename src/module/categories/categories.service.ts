@@ -3,16 +3,29 @@ import { PrismaService } from 'src/services/prisma/prisma.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { userEntity } from '../auth/auth.types';
+import { randomUUID } from 'crypto';
+
+import { UploadService } from '../upload/upload.service';
 
 @Injectable()
 export class CategoriesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly uploadService: UploadService,
+  ) {}
 
-  async create(dto: CreateCategoryDto, user: userEntity) {
+  async create(dto: CreateCategoryDto, user: userEntity, file?: any) {
+    let imageUrl = dto.imageUrl;
+
+    if (file) {
+      const upload = await this.uploadService.uploadFile(randomUUID(), file, user);
+      imageUrl = upload.url;
+    }
+
     return this.prisma.productCategory.create({
       data: {
         name: dto.name,
-        imageUrl: dto.imageUrl,
+        imageUrl,
         user: {
           connect: { id: user.id },
         },
@@ -38,12 +51,21 @@ export class CategoriesService {
     return category;
   }
 
-  async update(id: string, dto: UpdateCategoryDto) {
+  async update(id: string, dto: UpdateCategoryDto, user: userEntity, file?: any) {
     await this.findOne(id);
+
+    let imageUrl = dto.imageUrl;
+    if (file) {
+      const upload = await this.uploadService.uploadFile(randomUUID(), file, user);
+      imageUrl = upload.url;
+    }
 
     return this.prisma.productCategory.update({
       where: { id },
-      data: dto,
+      data: {
+        ...dto,
+        ...(imageUrl && { imageUrl }),
+      },
     });
   }
   

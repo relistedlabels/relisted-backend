@@ -6,6 +6,8 @@ import {
   Delete,
   Param,
   Body,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
 import { CategoriesService } from './categories.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
@@ -21,7 +23,9 @@ import {
   ApiParam,
   ApiUnauthorizedResponse,
   ApiNotFoundResponse,
+  ApiConsumes,
 } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
 
 @ApiTags('Categories')
 @ApiBearerAuth()
@@ -32,51 +36,34 @@ export class CategoriesController {
 
 
   @Post()
+  @UseInterceptors(FileInterceptor('image'))
+  @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Create a new category' })
-  @ApiBody({ type: CreateCategoryDto })
-  @ApiResponse({
-    status: 201,
-    description: 'Category created successfully',
+  @ApiBody({
     schema: {
-      example: {
-        id: 'uuid',
-        name: 'Electronics',
-        userId: 'uuid',
-        fullText: 'Electronics',
-        createdAt: '2026-01-28T12:00:00.000Z',
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        image: { type: 'string', format: 'binary' },
       },
     },
   })
+  @ApiResponse({
+    status: 201,
+    description: 'Category created successfully',
+  })
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
-  create(@Body() dto: CreateCategoryDto, @AuthUser() user: userEntity) {
-    return this.categoriesService.create(dto, user);
+  create(
+    @Body() dto: CreateCategoryDto,
+    @AuthUser() user: userEntity,
+    @UploadedFile() file?: any,
+  ) {
+    return this.categoriesService.create(dto, user, file);
   }
 
   
   @Get()
   @ApiOperation({ summary: 'Get all categories' })
-  @ApiResponse({
-    status: 200,
-    description: 'List of categories fetched successfully',
-    schema: {
-      example: [
-        {
-          id: 'uuid',
-          name: 'Electronics',
-          userId: 'uuid',
-          fullText: 'Electronics',
-          createdAt: '2026-01-28T12:00:00.000Z',
-        },
-        {
-          id: 'uuid',
-          name: 'Furniture',
-          userId: 'uuid',
-          fullText: 'Furniture',
-          createdAt: '2026-01-28T12:05:00.000Z',
-        },
-      ],
-    },
-  })
   findAll() {
     return this.categoriesService.findAll();
   }
@@ -84,62 +71,40 @@ export class CategoriesController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get category by ID' })
-  @ApiParam({ name: 'id', description: 'Category ID', example: 'uuid' })
-  @ApiResponse({
-    status: 200,
-    description: 'Category fetched successfully',
-    schema: {
-      example: {
-        id: 'uuid',
-        name: 'Electronics',
-        userId: 'uuid',
-        fullText: 'Electronics',
-        createdAt: '2026-01-28T12:00:00.000Z',
-      },
-    },
-  })
-  @ApiNotFoundResponse({ description: 'Category not found' })
   findOne(@Param('id') id: string) {
     return this.categoriesService.findOne(id);
   }
 
  
   @Patch(':id')
+  @UseInterceptors(FileInterceptor('image'))
+  @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Update a category' })
-  @ApiParam({ name: 'id', description: 'Category ID', example: 'uuid' })
-  @ApiBody({ type: UpdateCategoryDto })
-  @ApiResponse({
-    status: 200,
-    description: 'Category updated successfully',
+  @ApiBody({
     schema: {
-      example: {
-        id: 'uuid',
-        name: 'Updated Electronics',
-        userId: 'uuid',
-        fullText: 'Updated Electronics',
-        updatedAt: '2026-01-28T12:10:00.000Z',
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        image: { type: 'string', format: 'binary' },
       },
     },
   })
-  @ApiNotFoundResponse({ description: 'Category not found' })
-  update(@Param('id') id: string, @Body() dto: UpdateCategoryDto) {
-    return this.categoriesService.update(id, dto);
+  @ApiResponse({
+    status: 200,
+    description: 'Category updated successfully',
+  })
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateCategoryDto,
+    @AuthUser() user: userEntity,
+    @UploadedFile() file?: any,
+  ) {
+    return this.categoriesService.update(id, dto, user, file);
   }
 
  
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a category' })
-  @ApiParam({ name: 'id', description: 'Category ID', example: 'uuid' })
-  @ApiResponse({
-    status: 200,
-    description: 'Category deleted successfully',
-    schema: {
-      example: {
-        message: 'Category deleted successfully',
-      },
-    },
-  })
-  @ApiNotFoundResponse({ description: 'Category not found' })
   remove(@Param('id') id: string) {
     return this.categoriesService.remove(id);
   }

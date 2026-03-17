@@ -149,6 +149,22 @@ export class ListProductQuery extends PaginationQuery {
   @Type(() => Number)
   @IsNumber()
   maxPrice?: number;
+
+  @IsOptional()
+  @IsString()
+  color?: string;
+
+  @IsOptional()
+  @IsString()
+  size?: string;
+
+  @IsOptional()
+  @IsString()
+  condition?: string;
+
+  @IsOptional()
+  @IsString()
+  material?: string;
 }
 
 export class UpdateProductStatusDto {
@@ -179,13 +195,29 @@ export class queryDto {
   @IsNumber()
   maxPrice:number 
 
-   @IsOptional()
+  @IsOptional()
   @IsBoolean()
   verified:boolean
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
   tagids?: string[];
+
+  @IsOptional()
+  @IsString()
+  color?: string;
+
+  @IsOptional()
+  @IsString()
+  size?: string;
+
+  @IsOptional()
+  @IsString()
+  condition?: string;
+
+  @IsOptional()
+  @IsString()
+  material?: string;
 }
 
 export class RejectProductDto {

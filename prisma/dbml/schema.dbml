@@ -285,7 +285,7 @@ Table Order {
   externalTrackingUrl String
   userId String [not null]
   user User [not null]
-  rental Rental
+  rentals Rental [not null]
   payments Transaction [not null]
   disputes Dispute [not null]
   walletTransactions WalletTransaction [not null]
@@ -321,7 +321,7 @@ Table OrderItem {
 
 Table Rental {
   id String [pk]
-  orderId String [unique, not null]
+  orderId String [not null]
   order Order [not null]
   productId String [not null]
   product Product [not null]
@@ -762,7 +762,7 @@ Ref: OrderItem.orderId > Order.id
 
 Ref: OrderItem.productId > Product.id
 
-Ref: Rental.orderId - Order.id
+Ref: Rental.orderId > Order.id
 
 Ref: Rental.productId > Product.id
 

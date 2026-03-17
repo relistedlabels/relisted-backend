@@ -915,6 +915,38 @@ export class ListersService {
         externalTrackingUrl: updated.externalTrackingUrl ?? null,
       };
 
+      // Create Rental records if order is ACTIVE or DELIVERED
+      if (updated.status === OrderStatus.ACTIVE || updated.status === OrderStatus.DELIVERED) {
+        for (const item of updated.orderItems as any[]) {
+            // Check if rental already exists for this order item
+            const existingRental = await this.prisma.rental.findFirst({
+                where: { 
+                    orderId: updated.id,
+                    productId: item.productId
+                }
+            });
+
+            if (!existingRental) {
+                const startDate = updated.deliveredAt || now;
+                const endDate = new Date(startDate);
+                endDate.setDate(endDate.getDate() + item.days);
+
+                await this.prisma.rental.create({
+                    data: {
+                        orderId: updated.id,
+                        userId: updated.userId,
+                        productId: item.productId,
+                        curatorId: item.product.curatorId,
+                        days: item.days,
+                        totalAmount: item.rentalFee || 0,
+                        startDate,
+                        endDate,
+                    }
+                });
+            }
+        }
+      }
+
       // If status changed to something related to shipping, notify renter
       const shippingStatuses: OrderStatus[] = [OrderStatus.IN_TRANSIT, OrderStatus.DELIVERED, OrderStatus.RETURN_DUE];
       if (shippingStatuses.includes(updated.status)) {
