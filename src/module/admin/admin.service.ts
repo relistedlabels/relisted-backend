@@ -297,7 +297,7 @@ export class AdminService {
         const orders = await tx.order.findMany({ where: { userId }, select: { id: true } });
         for (const order of orders) {
           const orderId = order.id;
-          const rental = await tx.rental.findUnique({ where: { orderId } });
+          const rental = await tx.rental.findFirst({ where: { orderId } });
           if (rental) {
             await tx.review.deleteMany({ where: { rentalId: rental.id } });
           }
@@ -918,29 +918,31 @@ export class AdminService {
     // Find all orders that overlap with this month
     const orders = await this.prisma.order.findMany({
       where: {
-        orderItems: { some: { productId } },
+        orderItems: { some: { productId } } as any,
         status: { notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED] },
-        rental: {
-          OR: [
-            {
-              // Starts or ends within the month
-              startDate: { gte: firstDay, lte: lastDay },
-            },
-            {
-              endDate: { gte: firstDay, lte: lastDay },
-            },
-            {
-              // Spans across the entire month
-              startDate: { lte: firstDay },
-              endDate: { gte: lastDay },
-            },
-          ],
+        rentals: {
+          some: {
+            OR: [
+              {
+                // Starts or ends within the month
+                startDate: { gte: firstDay, lte: lastDay },
+              },
+              {
+                endDate: { gte: firstDay, lte: lastDay },
+              },
+              {
+                // Spans across the entire month
+                startDate: { lte: firstDay },
+                endDate: { gte: lastDay },
+              },
+            ],
+          },
         },
       },
       include: {
-        rental: true,
+        rentals: true,
         user: { select: { id: true, name: true } },
-      },
+      } as any,
     });
 
     const calendar: any[] = [];
@@ -954,10 +956,11 @@ export class AdminService {
       const isoDate = date.toISOString().split('T')[0];
 
       // Find booking for this day
-      const booking = orders.find((o) => {
-        if (!o.rental) return false;
-        const start = new Date(o.rental.startDate);
-        const end = new Date(o.rental.endDate);
+      const booking: any = orders.find((o: any) => {
+        const rental = o.rentals?.[0];
+        if (!rental) return false;
+        const start = new Date(rental.startDate);
+        const end = new Date(rental.endDate);
         // Normalize to date parts for comparison
         const d = new Date(date);
         d.setHours(0, 0, 0, 0);
@@ -968,7 +971,8 @@ export class AdminService {
         return d >= s && d <= e;
       });
 
-      if (booking && booking.rental) {
+      if (booking && booking.rentals?.[0]) {
+        const rental = booking.rentals[0];
         daysRentedThisMonth++;
         calendar.push({
           date: isoDate,
@@ -977,9 +981,9 @@ export class AdminService {
             id: booking.id,
             dresserId: booking.userId,
             dresserName: booking.user.name,
-            startDate: booking.rental.startDate.toISOString().split('T')[0],
-            endDate: booking.rental.endDate.toISOString().split('T')[0],
-            orderTotal: booking.rental.totalAmount || 0,
+            startDate: rental.startDate.toISOString().split('T')[0],
+            endDate: rental.endDate.toISOString().split('T')[0],
+            orderTotal: rental.totalAmount || 0,
           },
         });
       } else {
@@ -993,11 +997,14 @@ export class AdminService {
 
     // Revenue for this months rentals (prorated or just simple sum if it starts this month?) 
     // User requested "totalRentalRevenue" - typically means revenue from orders placed/active this month.
-    totalRentalRevenue = orders.reduce((sum, o) => sum + (o.rental?.totalAmount || 0), 0);
+    totalRentalRevenue = orders.reduce((sum, o: any) => sum + (o.rentals?.[0]?.totalAmount || 0), 0);
 
     // Current status
     const now = new Date();
-    const currentRental = orders.find(o => o.rental && now >= o.rental.startDate && now <= o.rental.endDate);
+    const currentRental: any = orders.find((o: any) => {
+      const rental = o.rentals?.[0];
+      return rental && now >= rental.startDate && now <= rental.endDate;
+    });
 
     const nextAvailable = await this.prisma.rental.findFirst({
       where: {
@@ -1015,7 +1022,7 @@ export class AdminService {
         year,
         nextAvailableDate: nextAvailable?.startDate.toISOString().split('T')[0] || null,
         currentlyRented: !!currentRental,
-        currentRentalEndDate: currentRental?.rental?.endDate.toISOString().split('T')[0] || null,
+        currentRentalEndDate: currentRental?.rentals?.[0]?.endDate?.toISOString().split('T')[0] || null,
         stats: {
           daysRentedThisMonth,
           totalRentalsThisMonth: orders.length,
@@ -1304,7 +1311,7 @@ export class AdminService {
         orderBy: { createdAt: 'desc' },
         include: { 
           orderItems: { include: { product: { include: { curator: { include: { profile: { include: { avatarUpload: true } } } } } } } },
-          rental: { include: { curator: { include: { profile: { include: { avatarUpload: true } } } } } },
+          rentals: { include: { curator: { include: { profile: { include: { avatarUpload: true } } } } } } as any,
           user: { include: { profile: { include: { avatarUpload: true } } } },
           payments: { take: 1, orderBy: { createdAt: 'desc' } }
         } 
@@ -1318,10 +1325,11 @@ export class AdminService {
 
     const formattedOrders = orders.map((o: any) => {
       // Determine total amount
-      const totalAmount = o.rental?.totalAmount || o.orderItems.reduce((sum: number, item: any) => sum + (item.pricePerDay * item.days), 0);
+      const rental = o.rentals?.[0];
+      const totalAmount = rental?.totalAmount || o.orderItems.reduce((sum: number, item: any) => sum + (item.pricePerDay * item.days), 0);
       
       // Determine curator (from rental or first order item)
-      const curatorUser = o.rental?.curator || o.orderItems[0]?.product?.curator;
+      const curatorUser = rental?.curator || o.orderItems[0]?.product?.curator;
       
       // Determine if payment reference exists
       const paymentRef = o.payments?.[0]?.referenceId || null;

@@ -860,7 +860,7 @@ export class RentersService {
       const status = query.status; 
 
       const where: any = { userId };
-      if (status === 'active') where.status = { in: ['CONFIRMED', 'IN_TRANSIT', 'DELIVERED', 'ACTIVE', 'PROCESSING'] };
+      if (status === 'active') where.status = { in: ['CONFIRMED', 'IN_TRANSIT', 'DELIVERED', 'ACTIVE', 'PROCESSING', 'ACCEPTED', 'RETURN_DUE'] };
       if (status === 'completed') where.status = 'COMPLETED';
       if (status === 'cancelled') where.status = 'CANCELLED';
 
@@ -871,8 +871,7 @@ export class RentersService {
               skip,
               take: limit,
               orderBy: { createdAt: 'desc' },
-              include: { orderItems: true, rental: true } 
-          })
+              include: { orderItems: true, rentals: true } as any          })
       ]);
 
       const typedOrders = orders as any[];
@@ -881,7 +880,7 @@ export class RentersService {
           success: true,
           data: {
               orders: typedOrders.map(o => {
-                  const totalAmount = o.totalAmountPaid || o.rental?.totalAmount || o.orderItems.reduce((sum: number, item: any) => sum + (item.pricePerDay * item.days), 0);
+                  const totalAmount = o.totalAmountPaid || o.rentals?.[0]?.totalAmount || o.orderItems.reduce((sum: number, item: any) => sum + (item.pricePerDay * item.days), 0);
                   const firstItem = o.orderItems[0];
                   const image = firstItem?.imageUrl || null;
                   
@@ -907,15 +906,14 @@ export class RentersService {
           where: { orderId },
           include: { 
               orderItems: { include: { product: true } },
-              rental: true,
+              rentals: true,
               user: { include: { profile: { include: { address: true } } } }
-          }
-      });
+          } as any      });
 
       if (!order || order.userId !== userId) throw new NotFoundException('Order not found');
       
       const typedOrder = order as any;
-      const totalAmount = typedOrder.totalAmountPaid || typedOrder.rental?.totalAmount || typedOrder.orderItems.reduce((sum: number, item: any) => sum + (item.pricePerDay * item.days), 0);
+      const totalAmount = typedOrder.totalAmountPaid || typedOrder.rentals?.[0]?.totalAmount || typedOrder.orderItems.reduce((sum: number, item: any) => sum + (item.pricePerDay * item.days), 0);
 
       return {
           success: true,
@@ -1504,7 +1502,7 @@ export class RentersService {
   async getOrderProgress(userId: string, orderId: string) {
     const order = await this.prisma.order.findUnique({
       where: { orderId },
-      include: { rental: true },
+      include: { rentals: true } as any,
     });
 
     if (!order || order.userId !== userId) throw new NotFoundException('Order not found');
@@ -1582,7 +1580,7 @@ export class RentersService {
       throw new BadRequestException('Unauthorized to return this order');
     }
 
-    const imageUrls = [];
+    const imageUrls: string[] = [];
     if (files && files.length > 0) {
       const user = await this.prisma.user.findUnique({ where: { id: userId } });
       for (const file of files) {

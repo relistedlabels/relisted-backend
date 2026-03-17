@@ -436,7 +436,7 @@ export class OrderService {
           listerBusinessName: listerBusinessName,
           listerImage: listerImage,
           listerRating: listerRating,
-          },
+          } as any,
         });
 
         for (const item of listerData.items) {
@@ -451,7 +451,7 @@ export class OrderService {
               rentalFee: item.product.dailyPrice * item.days,
               cleaningFee: item.product.cleaningFee || 0,
               collateralFee: item.product.collateralValue || 0,
-            },
+            } as any,
           });
         }
         

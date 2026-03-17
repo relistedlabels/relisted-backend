@@ -438,10 +438,10 @@ export class ListersService {
       }
 
       await this.ensureOrderBelongsToLister(user.id, orderId);
-      const order = await this.prisma.order.findUnique({
+      const order = await (this.prisma.order as any).findUnique({
         where: { id: orderId },
         include: {
-          rental: true,
+          rentals: true,
           user: {
             select: {
               id: true,
@@ -569,11 +569,11 @@ export class ListersService {
               },
             },
           },
-          rental: true,
+          rentals: true,
         },
       });
       if (!order) throw new NotFoundException('Order not found');
-      const rental = order.rental;
+      const rental = order.rentals?.[0];
       const items = order.orderItems.map((oi) => ({
         id: oi.product.id,
         name: oi.product.name,
@@ -1239,7 +1239,7 @@ export class ListersService {
         }),
         this.prisma.order.count({
           where: {
-            rental: { curatorId: user.id },
+            rentals: { some: { curatorId: user.id } },
           },
         }),
       ]);
@@ -1314,7 +1314,7 @@ export class ListersService {
 
       const where: any = {
         order: {
-          rental: { curatorId: user.id },
+          rentals: { some: { curatorId: user.id } },
         },
       };
 
@@ -1378,7 +1378,7 @@ export class ListersService {
           include: {
             order: {
               include: {
-                rental: true,
+                rentals: true,
                 orderItems: {
                   include: {
                     product: { select: { name: true } },
@@ -1393,8 +1393,8 @@ export class ListersService {
       ]);
 
       const mapped = rawDisputes.map((d) => {
-        const order = d.order;
-        const rental = order?.rental;
+        const order: any = d.order;
+        const rental = order?.rentals?.[0];
         const itemName =
           order?.orderItems?.[0]?.product?.name ?? 'Unknown item';
         const curatorName = d.user.name;
@@ -1475,7 +1475,7 @@ export class ListersService {
       const order = await this.prisma.order.findUnique({
         where: { id: body.orderId },
         include: {
-          rental: true,
+          rentals: true,
         },
       });
       if (!order) {
@@ -1483,7 +1483,7 @@ export class ListersService {
       }
 
       // Lister-only ownership check – order must involve this curator
-      const rental = order.rental;
+      const rental = (order as any).rentals?.[0];
       if (!rental || rental.curatorId !== user.id) {
         throw new ForbiddenException(
           'You can only raise disputes for your own rentals',
@@ -1571,7 +1571,7 @@ export class ListersService {
       include: {
         order: {
           include: {
-            rental: true,
+            rentals: true,
             orderItems: {
               include: {
                 product: {
@@ -1604,7 +1604,7 @@ export class ListersService {
       throw new NotFoundException('Dispute not found');
     }
 
-    const curatorId = dispute.order?.rental?.curatorId;
+    const curatorId = (dispute as any).order?.rentals?.[0]?.curatorId;
     if (curatorId !== user.id) {
       throw new ForbiddenException('Dispute not found or access denied');
     }
@@ -1621,7 +1621,7 @@ export class ListersService {
       const statusPresentation =
         this.mapDisputeStatusPresentation(statusApi);
 
-      const order = dispute.order;
+      const order: any = (dispute as any).order;
       const orderNumber = order?.orderId;
       const itemName =
         order?.orderItems?.[0]?.product?.name ?? 'Unknown item';
@@ -1635,7 +1635,7 @@ export class ListersService {
       estimatedResolutionDate.setDate(estimatedResolutionDate.getDate() + 7);
 
       // Evidence summary
-      const uploads = dispute.attachment?.uploads ?? [];
+      const uploads = (dispute as any).attachment?.uploads ?? [];
 
       const evidence = {
         filesCount: uploads.length,
@@ -1668,7 +1668,7 @@ export class ListersService {
         ],
       };
 
-      const messages = dispute.chatRooms?.message ?? [];
+      const messages = (dispute as any).chatRooms?.message ?? [];
 
       const messagesSummary = {
         count: messages.length,
@@ -1734,7 +1734,7 @@ export class ListersService {
   /** 23. GET /api/listers/disputes/:disputeId/overview */
   async getDisputeOverview(user: userEntity, disputeId: string) {
     const dispute = await this.findListerDisputeOrThrow(user, disputeId);
-    const order = dispute.order;
+    const order: any = (dispute as any).order;
     const itemName =
       order?.orderItems?.[0]?.product?.name ?? 'Unknown item';
     const curatorName =
@@ -1764,7 +1764,7 @@ export class ListersService {
   /** 24. GET /api/listers/disputes/:disputeId/evidence */
   async getDisputeEvidence(user: userEntity, disputeId: string) {
     const dispute = await this.findListerDisputeOrThrow(user, disputeId);
-    const uploads = dispute.attachment?.uploads ?? [];
+    const uploads = (dispute as any).attachment?.uploads ?? [];
     const files = uploads.map((u) => ({
       fileId: u.id,
       fileName: u.name,
@@ -1921,7 +1921,7 @@ export class ListersService {
     const skip = (page - 1) * limit;
 
     const room =
-      dispute.chatRooms ??
+      (dispute as any).chatRooms ??
       (await this.prisma.chatRoom.findFirst({
         where: { disputeId: dispute.id },
         include: { message: true },
@@ -1974,7 +1974,7 @@ export class ListersService {
     const dispute = await this.findListerDisputeOrThrow(user, disputeId);
 
     let room =
-      dispute.chatRooms ??
+      (dispute as any).chatRooms ??
       (await this.prisma.chatRoom.findFirst({
         where: { disputeId: dispute.id },
       }));

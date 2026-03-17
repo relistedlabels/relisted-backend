@@ -16,15 +16,14 @@ async  create(dto: CreateDisputeDto,user:userEntity) {
       where:{
         id:dto.orderId
       },
-      include:{
-        rental:{
-          include:{
-            product:true
-          }
+      include: {
+        rentals: {
+          include: {
+            product: true,
+          },
         },
-       
-        user:true
-      }
+        user: true,
+      } as any,
     })
 
     if(!orderExist) bad ("order not found")
