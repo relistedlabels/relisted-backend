@@ -1341,6 +1341,15 @@ export class ProductService {
         updateData.rejectionComment = null;
       }
 
+      // Sanitize optional foreign key fields: remove empty strings so Prisma doesn't
+      // try to set an empty string as a FK value (causes constraint violations).
+      const optionalFkFields = ['brandId', 'categoryId'];
+      for (const field of optionalFkFields) {
+        if (updateData[field] === '' || updateData[field] === null || updateData[field] === undefined) {
+          delete updateData[field];
+        }
+      }
+
       if (dto.attachments) {
         updateData.attachments = {
           upsert: {
