@@ -19,8 +19,11 @@ export class SearchService {
           OR: [
             { name: { contains: query, mode: 'insensitive' } },
             { description: { contains: query, mode: 'insensitive' } },
+            { brand: { name: { contains: query, mode: 'insensitive' } } },
+            { category: { name: { contains: query, mode: 'insensitive' } } },
+            { tags: { some: { name: { contains: query, mode: 'insensitive' } } } },
           ],
-          status: 'AVAILABLE',
+          status: { in: ['AVAILABLE', 'APPROVED'] },
         },
         take: limit,
         include: {
