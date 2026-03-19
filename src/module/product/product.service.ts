@@ -662,6 +662,11 @@ export class ProductService {
           { name: { contains: query.search, mode: 'insensitive' } },
           { description: { contains: query.search, mode: 'insensitive' } },
           { subText: { contains: query.search, mode: 'insensitive' } },
+          { brand: { name: { contains: query.search, mode: 'insensitive' } } },
+          { category: { name: { contains: query.search, mode: 'insensitive' } } },
+          { tags: { some: { name: { contains: query.search, mode: 'insensitive' } } } },
+          { color: { contains: query.search, mode: 'insensitive' } },
+          { composition: { contains: query.search, mode: 'insensitive' } },
         ];
       }
 
@@ -687,7 +692,13 @@ export class ProductService {
 
       if (query.tags) {
         const tags = query.tags.split(',').map(s => s.trim());
-        where.tags = { some: { name: { in: tags, mode: 'insensitive' } } };
+        where.tags = {
+          some: {
+            OR: tags.map(tag => ({
+              name: { contains: tag, mode: 'insensitive' }
+            }))
+          }
+        };
       }
 
       // 2. Build orderBy
