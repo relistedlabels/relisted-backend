@@ -23,6 +23,8 @@ export class SearchService {
             { category: { name: { contains: query, mode: 'insensitive' } } },
             { tags: { some: { name: { contains: query, mode: 'insensitive' } } } },
             {color: {in: [query], mode: 'insensitive'}},
+            {stylingTip: {in: [query], mode: 'insensitive'}},
+            {composition: {in: [query], mode: 'insensitive'}},
           ],
           status: { in: ['AVAILABLE', 'APPROVED'] },
         },
@@ -30,6 +32,7 @@ export class SearchService {
         include: {
           curator: { select: { name: true } },
           attachments: { include: { uploads: { take: 1 } } },
+          tags: true,
         },
       });
 
@@ -41,6 +44,7 @@ export class SearchService {
           image: product.attachments?.uploads[0]?.url || null,
           lister: product.curator.name,
           price: product.dailyPrice,
+          tags: product.tags.map((t: any) => t.name),
         });
       });
     }

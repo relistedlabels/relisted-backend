@@ -165,6 +165,10 @@ export class ListProductQuery extends PaginationQuery {
   @IsOptional()
   @IsString()
   material?: string;
+
+  @IsOptional()
+  @IsString()
+  tags?: string;
 }
 
 export class UpdateProductStatusDto {

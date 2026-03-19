@@ -41,6 +41,7 @@ export class ProductPublicController {
       size: query.size,
       condition: query.condition,
       material: query.material,
+      tags: query.tags,
     };
     return this.productService.list(listQuery);
   }

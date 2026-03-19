@@ -611,7 +611,10 @@ export class ProductService {
           include: {
             uploads: true
           }
-        }
+        },
+        brand: true,
+        category: true,
+        tags: true
       }
     });
 
@@ -680,6 +683,11 @@ export class ProductService {
       if (query.material) {
         const materials = query.material.split(',').map(s => s.trim());
         where.material = { in: materials, mode: 'insensitive' };
+      }
+
+      if (query.tags) {
+        const tags = query.tags.split(',').map(s => s.trim());
+        where.tags = { some: { name: { in: tags, mode: 'insensitive' } } };
       }
 
       // 2. Build orderBy
@@ -1083,6 +1091,9 @@ export class ProductService {
               uploads: { select: { id: true, url: true } },
             },
           },
+          brand: true,
+          category: true,
+          tags: true,
         },
       });
 
