@@ -22,6 +22,7 @@ export class SearchService {
             { brand: { name: { contains: query, mode: 'insensitive' } } },
             { category: { name: { contains: query, mode: 'insensitive' } } },
             { tags: { some: { name: { contains: query, mode: 'insensitive' } } } },
+            {color: {in: [query], mode: 'insensitive'}},
           ],
           status: { in: ['AVAILABLE', 'APPROVED'] },
         },
