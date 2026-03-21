@@ -609,7 +609,7 @@ export class RentersService {
         message: `Your rental request for ${request.product?.name} has been sent to the lister.`,
         type: "RENTAL_REQUEST_SENT",
         metadata: { requestId: request.id, productId: request.productId },
-        sendEmail: false 
+        sendEmail: true 
     });
 
     // build response similar to spec sample
@@ -1574,7 +1574,8 @@ export class RentersService {
 
   async readyToReturn(userId: string, orderId: string, files: Express.Multer.File[], data: any) {
     const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
+      where: { orderId }, // Use orderId mapping
+      include: { returnRequest: true },
     });
 
     if (!order) {
@@ -1583,6 +1584,10 @@ export class RentersService {
 
     if (order.userId !== userId) {
       throw new BadRequestException('Unauthorized to return this order');
+    }
+
+    if (order.returnRequest) {
+        throw new BadRequestException('Return request already exists for this order');
     }
 
     const imageUrls: string[] = [];
@@ -1598,18 +1603,59 @@ export class RentersService {
       }
     }
 
-    const returnRequest = await this.prisma.returnRequest.create({
-      data: {
-        orderId,
-        itemCondition: data.itemCondition.toUpperCase() as any,
-        damageNotes: data.damageNotes,
-        imageUrls,
-      },
-    });
+    const [returnRequest] = await this.prisma.$transaction([
+        this.prisma.returnRequest.create({
+            data: {
+              orderId: order.id,
+              itemCondition: (data.itemCondition || 'GOOD').toUpperCase() as any,
+              damageNotes: data.damageNotes,
+              imageUrls,
+            },
+        }),
+        this.prisma.order.update({
+            where: { id: order.id },
+            data: { 
+                status: 'RETURN_DUE',
+                returnDueAt: new Date()
+            }
+        })
+    ]);
 
     return {
+      success: true,
       message: 'Return request submitted successfully',
       data: returnRequest,
     };
+  }
+
+  async getReturnRequest(userId: string, orderId: string) {
+      const order = await this.prisma.order.findUnique({
+          where: { orderId },
+          include: { 
+              returnRequest: true,
+              orderItems: { include: { product: { include: { attachments: { include: { uploads: true } } } } } }
+          }
+      });
+
+      if (!order || order.userId !== userId) {
+          throw new NotFoundException('Order not found or access denied');
+      }
+
+      if (!order.returnRequest) {
+          throw new NotFoundException('No return request found for this order');
+      }
+
+      return {
+          success: true,
+          data: {
+              ...order.returnRequest,
+              orderStatus: order.status,
+              items: order.orderItems.map((oi: any) => ({
+                  id: oi.product.id,
+                  name: oi.product.name,
+                  image: oi.product.attachments?.uploads?.[0]?.url || null
+              }))
+          }
+      }
   }
 }

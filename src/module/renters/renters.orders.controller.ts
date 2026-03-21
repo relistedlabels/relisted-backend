@@ -89,4 +89,10 @@ export class RentersOrdersController {
   ) {
     return this.rentersService.readyToReturn(req.user.id, orderId, files, body);
   }
+
+  @Get(':orderId/return')
+  @ApiOperation({ summary: 'Get return request details' })
+  async getReturn(@Request() req, @Param('orderId') orderId: string) {
+    return this.rentersService.getReturnRequest(req.user.id, orderId);
+  }
 }

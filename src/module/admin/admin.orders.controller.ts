@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Patch, Post, Body, Query, SetMetadata, UseGuards, Put } from '@nestjs/common';
+import { Controller, Get, Param, Patch, Post, Body, Query, UseGuards, Put } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
 
@@ -24,6 +24,18 @@ export class AdminOrdersController {
       page ? parseInt(page, 10) : 1,
       limit ? parseInt(limit, 10) : 10,
       status,
+    );
+  }
+
+  @Get('returns')
+  @ApiOperation({ summary: 'Get all return requests' })
+  async getReturnRequests(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.adminService.getReturnRequests(
+      page ? parseInt(page, 10) : 1,
+      limit ? parseInt(limit, 10) : 20,
     );
   }
 
@@ -63,4 +75,3 @@ export class AdminOrdersController {
     return this.adminService.getOrderActivity(orderId);
   }
 }
-

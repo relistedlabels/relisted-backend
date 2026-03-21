@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
@@ -233,6 +233,31 @@ export class ListersController {
     },
   ) {
     return this.listersService.updateOrderStatus(user, orderId, body);
+  }
+
+  @Auth([Role.LISTER, Role.ADMIN])
+  @Patch('orders/:orderId/return/confirm')
+  @ApiOperation({ summary: 'Confirm receipt of returned item' })
+  @ApiParam({ name: 'orderId', description: 'Order UUID' })
+  @ApiResponse({ status: 200, description: 'Return confirmed' })
+  confirmReturn(
+    @AuthUser() user: userEntity,
+    @Param('orderId') orderId: string,
+  ) {
+    return this.listersService.confirmReturn(user, orderId);
+  }
+
+  @Auth([Role.LISTER, Role.ADMIN])
+  @Patch('orders/:orderId/return/reject')
+  @ApiOperation({ summary: 'Reject return (item damaged or not received)' })
+  @ApiParam({ name: 'orderId', description: 'Order UUID' })
+  @ApiResponse({ status: 200, description: 'Return rejected' })
+  rejectReturn(
+    @AuthUser() user: userEntity,
+    @Param('orderId') orderId: string,
+    @Body('reason') reason: string,
+  ) {
+    return this.listersService.rejectReturn(user, orderId, reason);
   }
 
   // ---------------------------------------------------------------------------

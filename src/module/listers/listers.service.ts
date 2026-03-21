@@ -994,6 +994,108 @@ export class ListersService {
     }
   }
 
+  /** PATCH /api/listers/orders/:orderId/return/confirm */
+  async confirmReturn(user: userEntity, orderId: string) {
+    try {
+      await this.ensureOrderBelongsToLister(user.id, orderId);
+
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: { returnRequest: true, user: true },
+      });
+
+      if (!order || !order.returnRequest) {
+        throw new NotFoundException('Order or return request not found');
+      }
+
+      const updated = await this.prisma.$transaction([
+          this.prisma.returnRequest.update({
+              where: { id: order.returnRequest.id },
+              data: { status: 'APPROVED' }
+          }),
+          this.prisma.order.update({
+              where: { id: order.id },
+              data: { status: 'RETURNED' }
+          })
+      ]);
+
+      await this.notificationService.createNotification({
+          userId: order.userId,
+          title: 'Return Confirmed',
+          message: `The lister has confirmed receipt of your returned item for order ${order.orderId}.`,
+          type: 'RETURN_CONFIRMED',
+          metadata: { orderId: order.id },
+          sendEmail: true,
+          emailData: {
+              email: order.user?.email,
+              userName: order.user?.name,
+              orderId: order.orderId,
+              status: 'Returned'
+          }
+      });
+
+      return {
+          success: true,
+          message: 'Return confirmed successfully',
+          data: updated[1]
+      };
+    } catch (e) {
+      if (e instanceof NotFoundException || e instanceof BadRequestException) throw e;
+      console.error('confirmReturn error:', e);
+      throw new InternalServerErrorException('Failed to confirm return');
+    }
+  }
+
+  /** PATCH /api/listers/orders/:orderId/return/reject */
+  async rejectReturn(user: userEntity, orderId: string, reason: string) {
+    try {
+      await this.ensureOrderBelongsToLister(user.id, orderId);
+
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: { returnRequest: true, user: true },
+      });
+
+      if (!order || !order.returnRequest) {
+        throw new NotFoundException('Order or return request not found');
+      }
+
+      const updated = await this.prisma.returnRequest.update({
+          where: { id: order.returnRequest.id },
+          data: { 
+              status: 'REJECTED',
+              damageNotes: reason ? `Lister Rejection: ${reason}\nPrevious Notes: ${order.returnRequest.damageNotes || ''}` : order.returnRequest.damageNotes
+          }
+      });
+
+      await this.notificationService.createNotification({
+          userId: order.userId,
+          title: 'Return Rejected',
+          message: `The lister has rejected your return for order ${order.orderId}. Reason: ${reason || 'Not specified'}`,
+          type: 'RETURN_REJECTED',
+          metadata: { orderId: order.id },
+          sendEmail: true,
+          emailData: {
+              email: order.user?.email,
+              userName: order.user?.name,
+              orderId: order.orderId,
+              status: 'Return Rejected',
+              rejectionReason: reason
+          }
+      });
+
+      return {
+          success: true,
+          message: 'Return rejected. Dispute may be required.',
+          data: updated
+      };
+    } catch (e) {
+      if (e instanceof NotFoundException || e instanceof BadRequestException) throw e;
+      console.error('rejectReturn error:', e);
+      throw new InternalServerErrorException('Failed to reject return');
+    }
+  }
+
   private mapStatusToOrderStatuses(status: string | undefined): OrderStatus[] | undefined {
     if (!status || status.toLowerCase() === 'all') return undefined;
     switch (status.toLowerCase()) {

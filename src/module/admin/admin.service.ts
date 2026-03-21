@@ -1403,4 +1403,63 @@ export class AdminService {
   async getOrderActivity(orderId: string) {
     return { success: true, data: [] };
   }
+
+  async getReturnRequests(page: number = 1, limit: number = 20) {
+    const skip = (page - 1) * limit;
+
+    const [total, returns] = await this.prisma.$transaction([
+      this.prisma.returnRequest.count(),
+      this.prisma.returnRequest.findMany({
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          order: {
+            include: {
+              user: { include: { profile: true } },
+              orderItems: { include: { product: { include: { curator: { include: { profile: true } } } } } }
+            }
+          }
+        }
+      })
+    ]);
+
+    const formattedReturns = returns.map(r => {
+      const order = r.order as any;
+      const lister = order.orderItems[0]?.product?.curator;
+      return {
+        id: r.id,
+        orderId: order.orderId,
+        status: r.status,
+        itemCondition: r.itemCondition,
+        damageNotes: r.damageNotes,
+        imageUrls: r.imageUrls,
+        createdAt: r.createdAt,
+        renter: {
+          id: order.user?.id,
+          name: order.user?.name,
+          avatar: order.user?.profile?.avatarUpload?.url || null
+        },
+        lister: lister ? {
+          id: lister.id,
+          name: lister.name,
+          avatar: lister.profile?.avatarUpload?.url || null
+        } : null,
+        itemName: order.orderItems[0]?.product?.name || 'Multiple items'
+      };
+    });
+
+    return {
+      success: true,
+      data: {
+        returns: formattedReturns,
+        pagination: {
+          total,
+          page,
+          limit,
+          pages: Math.ceil(total / limit)
+        }
+      }
+    };
+  }
 }
