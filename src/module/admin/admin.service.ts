@@ -1152,6 +1152,7 @@ export class AdminService {
         include: {
           brand: true,
           category: true,
+          tags: true,
           curator: { select: { name: true, email: true } },
           attachments: true,
         },
@@ -1188,6 +1189,7 @@ export class AdminService {
       include: {
         brand: true,
         category: true,
+        tags: true,
         curator: true,
         attachments: { include: { uploads: true } },
       },

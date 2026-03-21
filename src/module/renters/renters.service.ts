@@ -905,7 +905,7 @@ export class RentersService {
       const order = await this.prisma.order.findUnique({
           where: { orderId },
           include: { 
-              orderItems: { include: { product: true } },
+              orderItems: { include: { product: { include: { attachments: { include: { uploads: true } }, tags: true, curator: { include: { profile: { include: { avatarUpload: true } } } } } } } },
               rentals: true,
               user: { include: { profile: { include: { address: true } } } }
           } as any      });
@@ -923,22 +923,27 @@ export class RentersService {
                   status: typedOrder.status,
                   createdAt: typedOrder.createdAt,
                   totalAmount: totalAmount,
+                  rentalStartDate: typedOrder.rentals?.[0]?.startDate || null,
+                  rentalEndDate: typedOrder.rentals?.[0]?.endDate || null,
                   deliveryFee: typedOrder.deliveryFee || 0, 
                   serviceFee: typedOrder.serviceFee || 0, 
                   lister: {
-                      userId: typedOrder.listerId,
-                      businessName: typedOrder.listerBusinessName,
-                      rating: typedOrder.listerRating,
-                      imageUrl: typedOrder.listerImage
+                      userId: typedOrder.listerId || typedOrder.orderItems?.[0]?.product?.curator?.id,
+                      businessName: typedOrder.listerBusinessName || typedOrder.orderItems?.[0]?.product?.curator?.name,
+                      rating: typedOrder.listerRating || 0,
+                      imageUrl: typedOrder.listerImage || typedOrder.orderItems?.[0]?.product?.curator?.profile?.avatarUpload?.url || null
                   },
                   items: typedOrder.orderItems.map((i: any) => ({
+                      id: i.product?.id || i.productId,
                       name: i.product?.name || 'Unknown',
                       price: i.pricePerDay,
                       quantity: i.days,
-                      imageUrl: i.imageUrl || (i.product as any)?.images?.[0] || null,
+                      imageUrl: i.imageUrl || i.product?.attachments?.uploads?.[0]?.url || (i.product as any)?.images?.[0] || null,
                       rentalFee: i.rentalFee || (i.pricePerDay * i.days),
                       cleaningFee: i.cleaningFee || 0,
-                      collateralFee: i.collateralFee || 0
+                      collateralFee: i.collateralFee || 0,
+                      rentalStartDate: typedOrder.rentals?.[0]?.startDate || null,
+                      rentalEndDate: typedOrder.rentals?.[0]?.endDate || null,
                   })),
                   shippingAddress: typedOrder.user.profile?.address || null, 
                   tracking: {
