@@ -14,6 +14,7 @@ import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { Auth, AuthUser } from '../auth/decorator/auth.decorator';
 import { userEntity } from '../auth/auth.types';
+import { Role } from '@prisma/client';
 import {
   ApiTags,
   ApiBearerAuth,
@@ -29,12 +30,12 @@ import { FileInterceptor } from '@nestjs/platform-express';
 
 @ApiTags('Categories')
 @ApiBearerAuth()
-@Auth()
 @Controller('categories')
 export class CategoriesController {
   constructor(private readonly categoriesService: CategoriesService) {}
 
 
+  @Auth([Role.ADMIN])
   @Post()
   @UseInterceptors(FileInterceptor('image'))
   @ApiConsumes('multipart/form-data')
@@ -76,6 +77,7 @@ export class CategoriesController {
   }
 
  
+  @Auth([Role.ADMIN, Role.LISTER])
   @Patch(':id')
   @UseInterceptors(FileInterceptor('image'))
   @ApiConsumes('multipart/form-data')
@@ -103,6 +105,7 @@ export class CategoriesController {
   }
 
  
+  @Auth([Role.ADMIN])
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a category' })
   remove(@Param('id') id: string) {

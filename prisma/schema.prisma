@@ -112,7 +112,7 @@ model User {
 model Profile {
   id     String  @id @default(uuid())
   userId String  @unique
-  user   User    @relation(fields: [userId], references: [id])
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   phoneNumber String
 
@@ -197,7 +197,7 @@ model AuthOtpToken {
   email   String
 
   userId String
-  user   User   @relation(fields: [userId], references: [id])
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -310,7 +310,7 @@ model Upload {
   profileAsNin    Profile?     @relation("NinUpload")
   profileAsIdDoc  Profile?     @relation("IdDocumentUpload")
   attachment      Attachments? @relation(fields: [attachmentId], references: [id])
-  user            User         @relation(fields: [userId], references: [id])
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId          String
   fullText        String       @default("")
   // dispute         Dispute?     @relation("DisputeUploads", fields: [disputeId], references: [id])
@@ -332,7 +332,7 @@ model Attachments {
 model Cart {
   id     String @id @default(uuid())
   userId String @unique
-  user   User   @relation(fields: [userId], references: [id])
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   items CartItem[]
 }
@@ -353,7 +353,7 @@ model Favourite {
   userId    String
   productId String
 
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   product   Product  @relation(fields: [productId], references: [id])
   createdAt DateTime @default(now())
   fullText  String   @default("")
@@ -728,7 +728,7 @@ model WithdrawalRequest {
 model NotificationSettings {
   id        String   @id @default(uuid())
   userId    String   @unique
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   emailAlertsEnabled Boolean @default(true)
   emailAlertsCategories String[] 
@@ -775,7 +775,7 @@ model AuditLog {
 model Notification {
   id        String   @id @default(uuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   title     String
   message   String

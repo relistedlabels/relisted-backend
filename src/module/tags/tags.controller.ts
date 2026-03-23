@@ -10,6 +10,7 @@ import {
 import { TagsService } from './tags.service';
 import { CreateTagDto } from './dto/create-tag.dto';
 import { UpdateTagDto } from './dto/update-tag.dto';
+import { Role } from '@prisma/client';
 import {
   ApiBearerAuth,
   ApiTags,
@@ -33,7 +34,7 @@ export class TagsController {
   /**
    * Create a new tag
    */
-  @Auth()
+  @Auth([Role.ADMIN])
   @Post()
   @ApiOperation({ summary: 'Create a new tag' })
   @ApiCreatedResponse({
@@ -54,7 +55,6 @@ export class TagsController {
   /**
    * Get all tags
    */
-  @Auth()
   @Get()
   @ApiOperation({ summary: 'Get all tags' })
   @ApiOkResponse({
@@ -74,7 +74,6 @@ export class TagsController {
    * Get a tag by ID
    */
 
-  @Auth()
   @Get(':id')
   @ApiOperation({ summary: 'Get a tag by ID' })
   @ApiOkResponse({
@@ -89,6 +88,7 @@ export class TagsController {
   /**
    * Update a tag
    */
+  @Auth([Role.ADMIN])
   @Patch(':id')
   @ApiOperation({ summary: 'Update a tag' })
   @ApiOkResponse({
@@ -104,6 +104,7 @@ export class TagsController {
   /**
    * Delete a tag
    */
+  @Auth([Role.ADMIN])
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a tag' })
   @ApiOkResponse({

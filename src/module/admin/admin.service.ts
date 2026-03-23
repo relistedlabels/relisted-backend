@@ -352,14 +352,13 @@ export class AdminService {
           await tx.wallet.delete({ where: { id: wallet.id } });
         }
 
-        // 14. Disputes and Notification Settings
+        // 14. Disputes, Notifications and Settings
         await tx.dispute.deleteMany({ where: { userId } });
+        await tx.notification.deleteMany({ where: { userId } });
         await tx.notificationSettings.deleteMany({ where: { userId } });
 
         // 15. User
         await tx.user.delete({ where: { id: userId } });
-        await tx.notification.deleteMany({ where: { userId } });
-        await tx.notificationSettings.delete({where:{userId}})
       },
       { timeout: 60_000 }
     );
