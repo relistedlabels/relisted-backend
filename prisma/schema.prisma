@@ -407,6 +407,8 @@ model Order {
   deliveredAt           DateTime?
   returnDueAt           DateTime?
   externalTrackingUrl   String?
+  shipmentId            String?
+  trackingId            String?
 
   userId String
   user   User   @relation(fields: [userId], references: [id])

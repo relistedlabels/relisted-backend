@@ -477,6 +477,8 @@ export class OrderService {
             }
         });
         
+        listerData.orderRef = order;
+        
         createdOrders.push(order);
       }
 
@@ -534,7 +536,7 @@ export class OrderService {
             pickupId: listerData.pickupId || `PICKUP-${Date.now()}`,
             pickupPartner: listerData.pickupPartner || 'Standard',
             pickupCharge: listerData.pickupChargeRaw || 0,
-            valueAddedTaxCharge: Math.ceil(((listerData.shipmentChargeRaw || 0) + (listerData.pickupChargeRaw || 0)) * 0.075),
+            valueAddedTaxCharge: Math.ceil((listerData.shipmentChargeRaw || 0) * 0.075),
             discount:0,
             deliveryLocation: listerData.deliveryLocation || renterProfile.address?.street || 'Lagos, Nigeria',
             items: [{
@@ -547,7 +549,29 @@ export class OrderService {
           }]
         };
 
-        await this.topshipService.bookShipmentAsDraft(payload);
+        const response = await this.topshipService.bookShipmentAsDraft(payload);
+        console.log(`[OrderService] Topship Draft Created:`, JSON.stringify(response, null, 2));
+
+        const shipmentData = response?.[0] || response?.data?.[0];
+        const shipmentId = shipmentData?.id || shipmentData?.shipmentId;
+        const trackingId = shipmentData?.trackingId || shipmentData?.trackingNumber;
+
+        if (shipmentId) {
+          // Update order with Topship IDs
+          await this.prisma.order.update({
+            where: { id: listerData.orderRef.id },
+            data: { shipmentId, trackingId }
+          });
+
+          // Trigger Payment
+          console.log(`[OrderService] Paying for shipment ${shipmentId}...`);
+          try {
+            await this.topshipService.payForShipment(shipmentId);
+            console.log(`[OrderService] Shipment ${shipmentId} paid successfully.`);
+          } catch (payErr: any) {
+            console.error(`[OrderService] Payment for shipment ${shipmentId} failed:`, payErr.message);
+          }
+        }
       } catch (err: any) {
         console.error(`Automatic Topship Draft Booking failed for lister ${listerData.listerId}. Order succeeded otherwise. Reason:`, err.message);
       }

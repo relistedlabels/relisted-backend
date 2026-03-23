@@ -283,6 +283,8 @@ Table Order {
   deliveredAt DateTime
   returnDueAt DateTime
   externalTrackingUrl String
+  shipmentId String
+  trackingId String
   userId String [not null]
   user User [not null]
   rentals Rental [not null]
@@ -704,7 +706,7 @@ Enum ItemCondition {
 
 Ref: User.adminRoleId > AdminRole.id
 
-Ref: Profile.userId - User.id
+Ref: Profile.userId - User.id [delete: Cascade]
 
 Ref: Profile.avatarUploadId - Upload.id
 
@@ -718,7 +720,7 @@ Ref: BusinessInfo.profileId - Profile.id
 
 Ref: Address.profileId - Profile.id
 
-Ref: AuthOtpToken.userId > User.id
+Ref: AuthOtpToken.userId > User.id [delete: Cascade]
 
 Ref: Product.brandId > Brand.id
 
@@ -734,19 +736,19 @@ Ref: ProductCategory.userId > User.id
 
 Ref: Upload.attachmentId > Attachments.id
 
-Ref: Upload.userId > User.id
+Ref: Upload.userId > User.id [delete: Cascade]
 
 Ref: Attachments.productId - Product.id
 
 Ref: Attachments.disputeId - Dispute.id
 
-Ref: Cart.userId - User.id
+Ref: Cart.userId - User.id [delete: Cascade]
 
 Ref: CartItem.cartId > Cart.id
 
 Ref: CartItem.productId > Product.id
 
-Ref: Favourite.userId > User.id
+Ref: Favourite.userId > User.id [delete: Cascade]
 
 Ref: Favourite.productId > Product.id
 
@@ -810,10 +812,10 @@ Ref: WithdrawalRequest.userId > User.id
 
 Ref: WithdrawalRequest.bankAccountId > BankAccount.id
 
-Ref: NotificationSettings.userId - User.id
+Ref: NotificationSettings.userId - User.id [delete: Cascade]
 
 Ref: AuditLog.performedBy > User.id
 
-Ref: Notification.userId > User.id
+Ref: Notification.userId > User.id [delete: Cascade]
 
 Ref: ReturnRequest.orderId - Order.id
