@@ -502,7 +502,7 @@ export class OrderService {
         const receiverCity = renterProfile.address?.city || 'Lagos';
         
         const description = listerData.items.map((i: any) => i.product.name).join(', ');
-
+        const value = listerData.items.reduce((acc: number, i: any) => acc + i.product.originalValue, 0);
         const payload = { 
           shipment: [{
             senderDetail: {
@@ -514,7 +514,7 @@ export class OrderService {
               countryCode: "NG",
               addressLine1: curatorBusiness?.businessAddress || curatorAddress?.street || 'Lagos, Nigeria',
               country:"Nigeria",
-              postalCode:""
+              postalCode:curatorAddress?.zipCode
             },
             receiverDetail: {
               name: user.name || 'Renter',
@@ -525,7 +525,7 @@ export class OrderService {
               countryCode: "NG",
               addressLine1: renterProfile.address?.street || 'Lagos, Nigeria',
               country:"Nigeria",
-              postalCode:""
+              postalCode:renterProfile.address?.zipCode || "1111202"
             },
             pricingTier: listerData.usedPricingTier,
             insuranceType: 'None',
@@ -544,7 +544,7 @@ export class OrderService {
               description: description.substring(0, 50) || 'Clothing Rental Item',
               weight: 1,
               quantity: listerData.items.length,
-              value: Number(firstItem.product.dailyPrice) || 1000
+              value: Number(value) * 100 || 1000000
             }]
           }]
         };

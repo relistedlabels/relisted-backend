@@ -9,77 +9,76 @@ Table User {
   name String [not null]
   provider String
   isVerified Boolean [not null, default: false]
-  isSuspended Boolean [not null, default: false]
   role Role [not null, default: 'RENTER']
-  tokenVersion Int [not null, default: 0]
-  curatorReviews Review [not null]
-  reviewsWritten Review [not null]
-  tokens AuthOtpToken [not null]
-  products Product [not null]
-  cart Cart
-  favourites Favourite [not null]
-  orders Order [not null]
-  wallet Wallet
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
-  profile Profile
-  uploads Upload [not null]
-  disputes Dispute [not null]
-  rentalsRented Rental [not null]
-  rentalsCurated Rental [not null]
-  virtualAccounts VirtualAccount [not null]
-  transactions Transaction [not null]
-  brands Brand [not null]
-  productCategory ProductCategory [not null]
-  tags Tag [not null]
-  bankAccounts BankAccount [not null]
-  withdrawalRequests WithdrawalRequest [not null]
-  notificationSettings NotificationSettings
-  notifications Notification [not null]
-  requestedAvailability AvailabilityRequest [not null]
-  listerRequests AvailabilityRequest [not null]
+  tokenVersion Int [not null, default: 0]
+  isSuspended Boolean [not null, default: false]
   adminRoleId String
-  adminRole AdminRole
   auditLogs AuditLog [not null]
+  tokens AuthOtpToken [not null]
+  listerRequests AvailabilityRequest [not null]
+  requestedAvailability AvailabilityRequest [not null]
+  bankAccounts BankAccount [not null]
+  brands Brand [not null]
+  cart Cart
+  disputes Dispute [not null]
+  favourites Favourite [not null]
+  notifications Notification [not null]
+  notificationSettings NotificationSettings
+  orders Order [not null]
+  products Product [not null]
+  productCategory ProductCategory [not null]
+  profile Profile
+  rentalsCurated Rental [not null]
+  rentalsRented Rental [not null]
+  curatorReviews Review [not null]
+  reviewsWritten Review [not null]
+  tags Tag [not null]
+  transactions Transaction [not null]
+  uploads Upload [not null]
+  adminRole AdminRole
+  virtualAccounts VirtualAccount [not null]
+  wallet Wallet
+  withdrawalRequests WithdrawalRequest [not null]
 }
 
 Table Profile {
   id String [pk]
   userId String [unique, not null]
-  user User [not null]
   phoneNumber String [not null]
   bvn String
-  nin String
   isApproved Boolean [not null, default: false]
-  emergencyContact EmergencyContact
-  businessInfo BusinessInfo
-  address Address
-  avatarUpload Upload
   avatarUploadId String [unique]
-  ninUpload Upload
   ninUploadId String [unique]
-  idDocumentType String
-  idDocumentStatus String [not null, default: 'NOT_UPLOADED']
-  idDocumentUpload Upload
-  idDocumentUploadId String [unique]
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
+  idDocumentStatus String [not null, default: 'NOT_UPLOADED']
+  idDocumentType String
+  idDocumentUploadId String [unique]
+  nin String
+  address Address
+  businessInfo BusinessInfo
+  emergencyContact EmergencyContact
+  avatarUpload Upload
+  idDocumentUpload Upload
+  ninUpload Upload
+  user User [not null]
 }
 
 Table EmergencyContact {
   id String [pk]
-  profile Profile [not null]
   profileId String [unique, not null]
   name String [not null]
   relationship String [not null]
   phoneNumber String [not null]
   city String [not null]
   state String [not null]
+  profile Profile [not null]
 }
 
 Table BusinessInfo {
   id String [pk]
-  profile Profile [not null]
   profileId String [unique, not null]
   businessName String [not null]
   businessEmail String [not null]
@@ -91,11 +90,11 @@ Table BusinessInfo {
   businessDescription String
   businessCategory String
   website String
+  profile Profile [not null]
 }
 
 Table Address {
   id String [pk]
-  profile Profile [not null]
   profileId String [unique, not null]
   street String [not null]
   city String [not null]
@@ -105,6 +104,7 @@ Table Address {
   isDefault Boolean [not null, default: false]
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
+  profile Profile [not null]
 }
 
 Table AuthOtpToken {
@@ -115,9 +115,9 @@ Table AuthOtpToken {
   expiry DateTime [not null]
   email String [not null]
   userId String [not null]
-  user User [not null]
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
+  user User [not null]
 }
 
 Table Product {
@@ -126,69 +126,69 @@ Table Product {
   subText String [not null]
   description String [not null]
   condition String [not null]
-  productVerified Boolean [not null, default: false]
   dailyPrice Int [not null]
   isActive Boolean [not null, default: true]
-  quantity Int
-  status ProductStatus [not null, default: 'PENDING']
-  rejectionComment String
   composition String
   measurement String [not null]
   originalValue Int [not null]
-  collateralPrice Int
-  material String
   warning String
   color String [not null]
   brandId String
-  brand Brand
   categoryId String
-  category ProductCategory
-  tags Tag [not null]
   curatorId String [not null]
-  curator User [not null]
-  attachments Attachments
   receiveSmsNotifications Boolean [default: false]
   receiveEmailNotifications Boolean [default: true]
   receiveProductRecommendations Boolean [default: false]
-  rentals Rental [not null]
-  cartItems CartItem [not null]
-  favourites Favourite [not null]
-  reviews Review [not null]
   careInstruction String [not null]
   careSteps String [not null]
-  items OrderItem [not null]
   stylingTip String [not null]
-  AvailabilityRequests AvailabilityRequest [not null]
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
+  productVerified Boolean [not null, default: false]
+  quantity Int
+  status ProductStatus [not null, default: 'PENDING']
+  rejectionComment String
+  material String
+  collateralPrice Int
+  attachments Attachments
+  AvailabilityRequests AvailabilityRequest [not null]
+  cartItems CartItem [not null]
+  favourites Favourite [not null]
+  items OrderItem [not null]
+  brand Brand
+  category ProductCategory
+  curator User [not null]
+  rentals Rental [not null]
+  reviews Review [not null]
+  tags Tag [not null]
 }
 
 Table Brand {
   id String [pk]
   name String [not null]
-  products Product [not null]
-  user User
-  userId String
   createdAt DateTime [default: `now()`, not null]
+  userId String
+  user User
+  products Product [not null]
 }
 
 Table Tag {
   id String [pk]
   name String [not null]
-  products Product [not null]
-  user User
   userId String
   createdAt DateTime [default: `now()`, not null]
+  user User
+  products Product [not null]
 }
 
 Table ProductCategory {
   id String [pk]
   name String [not null]
+  createdAt DateTime [default: `now()`, not null]
+  userId String
   imageUrl String
   products Product [not null]
   user User
-  userId String
-  createdAt DateTime [default: `now()`, not null]
 }
 
 Table Upload {
@@ -202,22 +202,22 @@ Table Upload {
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [default: `now()`, not null]
   attachmentId String
-  profileAsAvatar Profile
-  profileAsNin Profile
-  profileAsIdDoc Profile
-  attachment Attachments
-  user User [not null]
   userId String [not null]
   fullText String [not null, default: '']
+  profileAsAvatar Profile
+  profileAsIdDoc Profile
+  profileAsNin Profile
+  attachment Attachments
+  user User [not null]
 }
 
 Table Attachments {
   id String [pk]
-  uploads Upload [not null]
-  product Product
   productId String [unique]
-  dispute Dispute
   disputeId String [unique]
+  dispute Dispute
+  product Product
+  uploads Upload [not null]
 }
 
 Table Cart {
@@ -232,19 +232,19 @@ Table CartItem {
   cartId String [not null]
   productId String [not null]
   days Int [not null]
+  createdAt DateTime [default: `now()`, not null]
   cart Cart [not null]
   product Product [not null]
-  createdAt DateTime [default: `now()`, not null]
 }
 
 Table Favourite {
   id String [pk]
   userId String [not null]
   productId String [not null]
-  user User [not null]
-  product Product [not null]
   createdAt DateTime [default: `now()`, not null]
   fullText String [not null, default: '']
+  product Product [not null]
+  user User [not null]
 
   indexes {
     (userId, productId) [unique]
@@ -260,23 +260,26 @@ Table AvailabilityRequest {
   status AvailabilityStatus [not null, default: 'PENDING']
   expiresAt DateTime [not null]
   createdAt DateTime [default: `now()`, not null]
-  product Product [not null]
-  requester User [not null]
-  lister User [not null]
-  startDate DateTime
+  autoPay Boolean [not null, default: false]
+  deliveryAddressId String
   endDate DateTime
   rentalDays Int
+  startDate DateTime
   totalPrice Int
-  deliveryAddressId String
-  autoPay Boolean [not null, default: false]
+  lister User [not null]
+  product Product [not null]
+  requester User [not null]
 }
 
 Table Order {
   id String [pk]
   orderId String [unique, not null]
   status OrderStatus [not null, default: 'PROCESSING']
+  userId String [not null]
+  createdAt DateTime [default: `now()`, not null]
   expiresAt DateTime
   approvedAt DateTime
+  updatedAt DateTime [not null]
   trackingNumber String
   estimatedDeliveryDate DateTime
   dispatchedAt DateTime
@@ -285,26 +288,23 @@ Table Order {
   externalTrackingUrl String
   shipmentId String
   trackingId String
-  userId String [not null]
-  user User [not null]
-  rentals Rental [not null]
-  payments Transaction [not null]
-  disputes Dispute [not null]
-  walletTransactions WalletTransaction [not null]
-  orderItems OrderItem [not null]
-  escrows Escrow
-  virtualAccount VirtualAccount
-  totalAmountPaid Int
   deliveryFee Int
-  serviceFee Int
-  vatAmount Int
-  returnRequest ReturnRequest
-  listerId String
   listerBusinessName String
+  listerId String
   listerImage String
   listerRating Float
-  createdAt DateTime [default: `now()`, not null]
-  updatedAt DateTime [not null]
+  serviceFee Int
+  totalAmountPaid Int
+  vatAmount Int
+  disputes Dispute [not null]
+  escrows Escrow
+  user User [not null]
+  orderItems OrderItem [not null]
+  rentals Rental [not null]
+  returnRequest ReturnRequest
+  payments Transaction [not null]
+  virtualAccount VirtualAccount
+  walletTransactions WalletTransaction [not null]
 }
 
 Table OrderItem {
@@ -313,10 +313,10 @@ Table OrderItem {
   productId String [not null]
   days Int [not null]
   pricePerDay Int [not null]
-  imageUrl String
-  rentalFee Int
   cleaningFee Int
   collateralFee Int
+  imageUrl String
+  rentalFee Int
   order Order [not null]
   product Product [not null]
 }
@@ -324,38 +324,38 @@ Table OrderItem {
 Table Rental {
   id String [pk]
   orderId String [not null]
-  order Order [not null]
   productId String [not null]
-  product Product [not null]
   curatorId String [not null]
-  curator User [not null]
   userId String [not null]
-  user User [not null]
   days Int [not null]
   totalAmount Int [not null]
   startDate DateTime [not null]
   endDate DateTime [not null]
   returnedAt DateTime
-  review Review
   isReturned Boolean [not null, default: false]
   isOverdue Boolean [not null, default: false]
   createdAt DateTime [default: `now()`, not null]
+  curator User [not null]
+  order Order [not null]
+  product Product [not null]
+  user User [not null]
+  review Review
 }
 
 Table Review {
   id String [pk]
   userId String [not null]
-  user User [not null]
   productId String [not null]
-  product Product [not null]
   curatorId String [not null]
-  curator User [not null]
   rating Int [not null]
   comment String
   rentalId String [unique, not null]
-  rental Rental [not null]
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
+  curator User [not null]
+  product Product [not null]
+  rental Rental [not null]
+  user User [not null]
 
   indexes {
     (userId, productId) [unique]
@@ -366,22 +366,22 @@ Table Dispute {
   id String [pk]
   disputeId String [unique, not null]
   orderId String [not null]
-  order Order [not null]
   userId String [not null]
-  user User [not null]
   issueCategory String [not null]
   description String [not null]
   status DisputeStatus [not null, default: 'PENDING']
-  attachment Attachments
-  chatRooms ChatRoom
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
+  attachment Attachments
+  chatRooms ChatRoom
+  order Order [not null]
+  user User [not null]
 }
 
 Table ChatRoom {
   id String [pk]
-  dispute Dispute
   disputeId String [unique]
+  dispute Dispute
   message Message [not null]
 }
 
@@ -394,44 +394,44 @@ Table Message {
   isRead Boolean [not null, default: false]
   readAt DateTime
   createdAt DateTime [default: `now()`, not null]
-  chatRoom ChatRoom [not null]
   chatRoomId String [not null]
+  chatRoom ChatRoom [not null]
 }
 
 Table Transaction {
   id String [pk]
-  referenceId String [unique, not null]
   amount Int [not null]
   method String
   status TransactionStatus [not null, default: 'PENDING']
   orderId String
+  virtualAccountId String
+  createdAt DateTime [default: `now()`, not null]
+  referenceId String [unique, not null]
+  userId String [not null]
+  bankCode String
+  bankName String
+  crAccount String
+  crAccountName String
+  narration String
+  originatorAccountNumber String
+  originatorName String
+  paymentReference String
+  sessionId String [unique]
   order Order
   user User [not null]
-  userId String [not null]
-  virtualAccountId String
   virtualAccount VirtualAccount
-  sessionId String [unique]
-  paymentReference String
-  originatorName String
-  originatorAccountNumber String
-  bankName String
-  narration String
-  crAccountName String
-  crAccount String
-  bankCode String
-  createdAt DateTime [default: `now()`, not null]
 }
 
 Table Wallet {
   id String [pk]
   userId String [unique, not null]
-  user User [not null]
-  transactions WalletTransaction [not null]
   mainBalance Int [not null, default: 0]
   availableBalance Int [not null, default: 0]
   collateralBalance Int [not null, default: 0]
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
+  user User [not null]
+  transactions WalletTransaction [not null]
 }
 
 Table WaitList {
@@ -442,21 +442,20 @@ Table WaitList {
 Table WalletTransaction {
   id String [pk]
   walletId String [not null]
-  wallet Wallet [not null]
   amount Int [not null]
   type WalletTransactionType [not null, default: 'MAIN']
   status WalletTransactionStatus [not null, default: 'PENDING']
   note String
   orderId String
-  order Order
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
+  order Order
+  wallet Wallet [not null]
 }
 
 Table Escrow {
   id String [pk]
   orderId String [unique, not null]
-  order Order [not null]
   renterId String [not null]
   curatorId String [not null]
   rentalAmount Int [not null]
@@ -465,6 +464,7 @@ Table Escrow {
   status EscrowStatus [not null, default: 'LOCKED']
   releasedAt DateTime
   createdAt DateTime [default: `now()`, not null]
+  order Order [not null]
 }
 
 Table VirtualAccount {
@@ -474,16 +474,16 @@ Table VirtualAccount {
   orderId String [unique]
   nin String
   bvn String
-  order Order
   userId String [not null]
-  user User [not null]
   amount Int
   status VirtualAccountStatus [not null, default: 'PENDING']
-  blockReason String
   expiresAt DateTime [not null]
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
+  blockReason String
   transactions Transaction [not null]
+  order Order
+  user User [not null]
 }
 
 Table ContactSubmission {
@@ -500,7 +500,6 @@ Table ContactSubmission {
 Table BankAccount {
   id String [pk]
   userId String [not null]
-  user User [not null]
   bankName String [not null]
   bankCode String
   accountNumber String [not null]
@@ -509,34 +508,34 @@ Table BankAccount {
   isDefault Boolean [not null, default: false]
   verificationStatus String [not null, default: 'PENDING']
   verifiedAt DateTime
-  withdrawals WithdrawalRequest [not null]
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
+  user User [not null]
+  withdrawals WithdrawalRequest [not null]
 }
 
 Table WithdrawalRequest {
   id String [pk]
   userId String [not null]
-  user User [not null]
   amount Int [not null]
   currency String [not null, default: 'NGN']
   bankAccountId String [not null]
-  bankAccount BankAccount [not null]
   status String [not null, default: 'PENDING']
   reference String [unique, not null]
   fee Int [not null, default: 0]
   netAmount Int [not null]
-  trackingId String
-  paidDate DateTime
   processedAt DateTime
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
+  paidDate DateTime
+  trackingId String
+  bankAccount BankAccount [not null]
+  user User [not null]
 }
 
 Table NotificationSettings {
   id String [pk]
   userId String [unique, not null]
-  user User [not null]
   emailAlertsEnabled Boolean [not null, default: true]
   emailAlertsCategories String[] [not null]
   smsUpdatesEnabled Boolean [not null, default: false]
@@ -544,6 +543,7 @@ Table NotificationSettings {
   marketingEmailsEnabled Boolean [not null, default: true]
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
+  user User [not null]
 }
 
 Table AdminRole {
@@ -566,7 +566,6 @@ Table AuditLog {
   action String [not null]
   actionType String [not null]
   performedBy String [not null]
-  admin User [not null]
   targetType String [not null]
   targetId String [not null]
   targetName String [not null]
@@ -574,12 +573,12 @@ Table AuditLog {
   ipAddress String
   status String [not null, default: 'Success']
   createdAt DateTime [default: `now()`, not null]
+  admin User [not null]
 }
 
 Table Notification {
   id String [pk]
   userId String [not null]
-  user User [not null]
   title String [not null]
   message String [not null]
   type String [not null]
@@ -587,6 +586,7 @@ Table Notification {
   isRead Boolean [not null, default: false]
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
+  user User [not null]
 }
 
 Table Newsletter {
@@ -600,13 +600,13 @@ Table Newsletter {
 Table ReturnRequest {
   id String [pk]
   orderId String [unique, not null]
-  order Order [not null]
   itemCondition ItemCondition [not null]
   damageNotes String
   imageUrls String[] [not null]
   status String [not null, default: 'PENDING']
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
+  order Order [not null]
 }
 
 Table ProductToTag {
@@ -626,14 +626,14 @@ Enum AuthOtpTokenType {
 }
 
 Enum ProductStatus {
-  PENDING
-  APPROVED
-  REJECTED
   AVAILABLE
-  UNAVAILABLE
   RENTED
   MAINTENANCE
   RESERVED
+  PENDING
+  APPROVED
+  REJECTED
+  UNAVAILABLE
 }
 
 Enum WalletTransactionStatus {
@@ -706,13 +706,13 @@ Enum ItemCondition {
 
 Ref: User.adminRoleId > AdminRole.id
 
-Ref: Profile.userId - User.id [delete: Cascade]
-
 Ref: Profile.avatarUploadId - Upload.id
+
+Ref: Profile.idDocumentUploadId - Upload.id
 
 Ref: Profile.ninUploadId - Upload.id
 
-Ref: Profile.idDocumentUploadId - Upload.id
+Ref: Profile.userId - User.id
 
 Ref: EmergencyContact.profileId - Profile.id
 
@@ -720,7 +720,7 @@ Ref: BusinessInfo.profileId - Profile.id
 
 Ref: Address.profileId - Profile.id
 
-Ref: AuthOtpToken.userId > User.id [delete: Cascade]
+Ref: AuthOtpToken.userId > User.id
 
 Ref: Product.brandId > Brand.id
 
@@ -736,27 +736,27 @@ Ref: ProductCategory.userId > User.id
 
 Ref: Upload.attachmentId > Attachments.id
 
-Ref: Upload.userId > User.id [delete: Cascade]
-
-Ref: Attachments.productId - Product.id
+Ref: Upload.userId > User.id
 
 Ref: Attachments.disputeId - Dispute.id
 
-Ref: Cart.userId - User.id [delete: Cascade]
+Ref: Attachments.productId - Product.id
+
+Ref: Cart.userId - User.id
 
 Ref: CartItem.cartId > Cart.id
 
 Ref: CartItem.productId > Product.id
 
-Ref: Favourite.userId > User.id [delete: Cascade]
-
 Ref: Favourite.productId > Product.id
+
+Ref: Favourite.userId > User.id
+
+Ref: AvailabilityRequest.listerId > User.id
 
 Ref: AvailabilityRequest.productId > Product.id
 
 Ref: AvailabilityRequest.requesterId > User.id
-
-Ref: AvailabilityRequest.listerId > User.id
 
 Ref: Order.userId > User.id
 
@@ -764,21 +764,21 @@ Ref: OrderItem.orderId > Order.id
 
 Ref: OrderItem.productId > Product.id
 
+Ref: Rental.curatorId > User.id
+
 Ref: Rental.orderId > Order.id
 
 Ref: Rental.productId > Product.id
 
-Ref: Rental.curatorId > User.id
-
 Ref: Rental.userId > User.id
-
-Ref: Review.userId > User.id
-
-Ref: Review.productId > Product.id
 
 Ref: Review.curatorId > User.id
 
+Ref: Review.productId > Product.id
+
 Ref: Review.rentalId - Rental.id
+
+Ref: Review.userId > User.id
 
 Ref: Dispute.orderId > Order.id
 
@@ -796,9 +796,9 @@ Ref: Transaction.virtualAccountId > VirtualAccount.id
 
 Ref: Wallet.userId - User.id
 
-Ref: WalletTransaction.walletId > Wallet.id
-
 Ref: WalletTransaction.orderId > Order.id
+
+Ref: WalletTransaction.walletId > Wallet.id
 
 Ref: Escrow.orderId - Order.id
 
@@ -808,14 +808,14 @@ Ref: VirtualAccount.userId > User.id
 
 Ref: BankAccount.userId > User.id
 
-Ref: WithdrawalRequest.userId > User.id
-
 Ref: WithdrawalRequest.bankAccountId > BankAccount.id
 
-Ref: NotificationSettings.userId - User.id [delete: Cascade]
+Ref: WithdrawalRequest.userId > User.id
+
+Ref: NotificationSettings.userId - User.id
 
 Ref: AuditLog.performedBy > User.id
 
-Ref: Notification.userId > User.id [delete: Cascade]
+Ref: Notification.userId > User.id
 
 Ref: ReturnRequest.orderId - Order.id

@@ -8,7 +8,7 @@ import { TopshipModule } from 'src/services/topship/topship.module';
 @Module({
   imports: [TopshipModule],
   controllers: [OrderController],
-  providers: [OrderService,PrismaService],
-  exports:[OrderModule]
+  providers: [OrderService],
+  exports: [OrderService]
 })
 export class OrderModule {}

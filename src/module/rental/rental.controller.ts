@@ -1,34 +1,27 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { Controller, Get, Param } from '@nestjs/common';
 import { RentalService } from './rental.service';
-import { CreateRentalDto } from './dto/create-rental.dto';
-import { UpdateRentalDto } from './dto/update-rental.dto';
+import { ApiBearerAuth, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Auth, AuthUser } from '../auth/decorator/auth.decorator';
+import { userEntity } from '../auth/auth.types';
 
+@ApiTags('rental')
+@ApiBearerAuth('bearer')
 @Controller('rental')
 export class RentalController {
   constructor(private readonly rentalService: RentalService) {}
 
-  @Post()
-  create(@Body() createRentalDto: CreateRentalDto) {
-    return this.rentalService.create(createRentalDto);
-  }
-
+  @Auth()
   @Get()
-  findAll() {
-    return this.rentalService.findAll();
+  @ApiResponse({ status: 200, description: 'Rentals retrieved successfully' })
+  findAll(@AuthUser() user: userEntity) {
+    return this.rentalService.findAll(user);
   }
 
+  @Auth()
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.rentalService.findOne(+id);
-  }
-
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateRentalDto: UpdateRentalDto) {
-    return this.rentalService.update(+id, updateRentalDto);
-  }
-
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.rentalService.remove(+id);
+  @ApiResponse({ status: 200, description: 'Rental retrieved successfully' })
+  @ApiResponse({ status: 404, description: 'Rental not found' })
+  findOne(@Param('id') id: string, @AuthUser() user: userEntity) {
+    return this.rentalService.findOne(id, user);
   }
 }

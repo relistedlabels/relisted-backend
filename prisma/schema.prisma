@@ -1,298 +1,205 @@
 generator client {
   provider = "prisma-client-js"
-  // output ="/dbml"
+  output   = "../node_modules/.prisma/client"
 }
 
 generator dbml {
   provider   = "prisma-dbml-generator"
   output     = "./dbml"
   outputName = "schema.dbml"
-  // projectName=""
 }
 
 datasource db {
   provider = "postgresql"
-  // url      = env("DATABASE_URL")
-}
-
-enum Role {
-  ADMIN
-  LISTER
-  RENTER
-}
-
-enum AuthOtpTokenType {
-  TOKEN
-  OTP
-}
-
-enum ProductStatus {
-  PENDING
-  APPROVED
-  REJECTED
-  AVAILABLE
-  UNAVAILABLE
-  RENTED
-  MAINTENANCE
-  RESERVED
-}
-
-enum WalletTransactionStatus {
-  PENDING
-  SUCCESS
-  FAILED
-}
-
-enum OrderStatus {
-  PROCESSING
-  CONFIRMED
-  IN_TRANSIT
-  DELIVERED
-  ACTIVE
-  RETURN_DUE
-  RETURNED
-  COMPLETED
-  CANCELLED
-  ACCEPTED
-  //  PENDING
-  REJECTED
-}
-
-enum TransactionStatus {
-  PENDING
-  SUCCESS
-  FAILED
-  REVERSED
 }
 
 model User {
-  id              String            @id @default(uuid())
-  email           String            @unique
-  password        String
-  name            String
-  provider        String?
-  isVerified      Boolean           @default(false)
-  isSuspended     Boolean           @default(false)
-  role            Role              @default(RENTER)
-  tokenVersion    Int               @default(0)
-  curatorReviews  Review[]          @relation("CuratorReviews")
-  reviewsWritten  Review[]
-  tokens          AuthOtpToken[]
-  products        Product[]         @relation("CuratedProducts")
-  cart            Cart?
-  favourites      Favourite[]
-  orders          Order[]
-  wallet          Wallet?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  profile         Profile?
-  uploads         Upload[]
-  disputes        Dispute[]
-  rentalsRented   Rental[]          @relation("Rentee")
-  rentalsCurated  Rental[]          @relation("Curator")
-  virtualAccounts VirtualAccount[]
-  transactions    Transaction[]
-  brands          Brand[]
-  productCategory ProductCategory[]
-  // fullText        String            @default("")
-  tags            Tag[]
-  
-  bankAccounts       BankAccount[]
-  withdrawalRequests WithdrawalRequest[]
-  notificationSettings NotificationSettings?
-  notifications      Notification[]
+  id                    String                @id @default(uuid())
+  email                 String                @unique
+  password              String
+  name                  String
+  provider              String?
+  isVerified            Boolean               @default(false)
+  role                  Role                  @default(RENTER)
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  tokenVersion          Int                   @default(0)
+  isSuspended           Boolean               @default(false)
+  adminRoleId           String?
+  auditLogs             AuditLog[]            @relation("AdminAuditLogs")
+  tokens                AuthOtpToken[]
+  listerRequests        AvailabilityRequest[] @relation("ListerAvailability")
   requestedAvailability AvailabilityRequest[] @relation("RequestedAvailability")
-  listerRequests       AvailabilityRequest[] @relation("ListerAvailability")
-
-  adminRoleId String?
-  adminRole   AdminRole? @relation(fields: [adminRoleId], references: [id])
-  auditLogs   AuditLog[] @relation("AdminAuditLogs")
+  bankAccounts          BankAccount[]
+  brands                Brand[]
+  cart                  Cart?
+  disputes              Dispute[]
+  favourites            Favourite[]
+  notifications         Notification[]
+  notificationSettings  NotificationSettings?
+  orders                Order[]
+  products              Product[]             @relation("CuratedProducts")
+  productCategory       ProductCategory[]
+  profile               Profile?
+  rentalsCurated        Rental[]              @relation("Curator")
+  rentalsRented         Rental[]              @relation("Rentee")
+  curatorReviews        Review[]              @relation("CuratorReviews")
+  reviewsWritten        Review[]
+  tags                  Tag[]
+  transactions          Transaction[]
+  uploads               Upload[]
+  adminRole             AdminRole?            @relation(fields: [adminRoleId], references: [id])
+  virtualAccounts       VirtualAccount[]
+  wallet                Wallet?
+  withdrawalRequests    WithdrawalRequest[]
 }
 
 model Profile {
-  id     String  @id @default(uuid())
-  userId String  @unique
-  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  phoneNumber String
-
-  bvn        String?
-  nin        String?
-
-  isApproved Boolean @default(false)
-
-  // One-to-one relations
-  emergencyContact EmergencyContact?  // optional
-  businessInfo     BusinessInfo?      // optional
-  address          Address?           // optional
-
-  avatarUpload   Upload? @relation("AvatarUpload", fields: [avatarUploadId], references: [id])
-  avatarUploadId String? @unique
-
-  ninUpload   Upload? @relation("NinUpload", fields: [ninUploadId], references: [id])
-  ninUploadId String? @unique
-
-  idDocumentType    String?
-  idDocumentStatus  String @default("NOT_UPLOADED")
-  idDocumentUpload  Upload? @relation("IdDocumentUpload", fields: [idDocumentUploadId], references: [id])
-  idDocumentUploadId String? @unique
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                 String            @id @default(uuid())
+  userId             String            @unique
+  phoneNumber        String
+  bvn                String?
+  isApproved         Boolean           @default(false)
+  avatarUploadId     String?           @unique
+  ninUploadId        String?           @unique
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  idDocumentStatus   String            @default("NOT_UPLOADED")
+  idDocumentType     String?
+  idDocumentUploadId String?           @unique
+  nin                String?
+  address            Address?
+  businessInfo       BusinessInfo?
+  emergencyContact   EmergencyContact?
+  avatarUpload       Upload?           @relation("AvatarUpload", fields: [avatarUploadId], references: [id])
+  idDocumentUpload   Upload?           @relation("IdDocumentUpload", fields: [idDocumentUploadId], references: [id])
+  ninUpload          Upload?           @relation("NinUpload", fields: [ninUploadId], references: [id])
+  user               User              @relation(fields: [userId], references: [id])
 }
 
 model EmergencyContact {
-  id        String  @id @default(uuid())
-  profile   Profile @relation(fields: [profileId], references: [id])
-  profileId String  @unique  // one-to-one
-
+  id           String  @id @default(uuid())
+  profileId    String  @unique
   name         String
   relationship String
   phoneNumber  String
   city         String
   state        String
+  profile      Profile @relation(fields: [profileId], references: [id])
 }
 
 model BusinessInfo {
-  id        String  @id @default(uuid())
-  profile   Profile @relation(fields: [profileId], references: [id])
-  profileId String  @unique  // one-to-one
-
+  id                         String  @id @default(uuid())
+  profileId                  String  @unique
   businessName               String
   businessEmail              String
   businessRegistrationNumber String
   businessAddress            String
   businessCity               String
   businessState              String
-  // Optional extended business metadata for lister dashboards
-  businessPhone        String?
-  businessDescription  String?
-  businessCategory     String?
-  website              String?
+  businessPhone              String?
+  businessDescription        String?
+  businessCategory           String?
+  website                    String?
+  profile                    Profile @relation(fields: [profileId], references: [id])
 }
 
 model Address {
-  id        String  @id @default(uuid())
-  profile   Profile @relation(fields: [profileId], references: [id])
-  profileId String  @unique  // one-to-one
-
+  id        String   @id @default(uuid())
+  profileId String   @unique
   street    String
   city      String
   state     String
   country   String
   zipCode   String?
-  isDefault Boolean @default(false)
-
+  isDefault Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  profile   Profile  @relation(fields: [profileId], references: [id])
 }
 
-
 model AuthOtpToken {
-  id      String           @id @default(uuid())
-  subject String
-  type    AuthOtpTokenType @default(OTP)
-  code    String           @unique
-  expiry  DateTime
-  email   String
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id        String           @id @default(uuid())
+  subject   String
+  type      AuthOtpTokenType @default(OTP)
+  code      String           @unique
+  expiry    DateTime
+  email     String
+  userId    String
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  user      User             @relation(fields: [userId], references: [id])
 }
 
 model Product {
-  id              String        @id @default(uuid())
-  name            String
-  subText         String
-  description     String
-  condition       String
-  productVerified Boolean       @default(false)
-  dailyPrice      Int
-  isActive        Boolean       @default(true)
-  quantity        Int?
-  status          ProductStatus @default(PENDING)
-  rejectionComment String?
-  composition     String?
-  measurement     String
-  originalValue   Int
-  collateralPrice Int?
-  material        String?
-  
-  warning         String?
-  color           String
-
-  brandId String?
-  brand   Brand?  @relation(fields: [brandId], references: [id])
-
-  categoryId String?
-  category   ProductCategory? @relation(fields: [categoryId], references: [id])
-
-  tags Tag[]
-
-  curatorId String
-  curator   User   @relation("CuratedProducts", fields: [curatorId], references: [id])
-
-  attachments Attachments?
- 
-  receiveSmsNotifications       Boolean? @default(false)
-  receiveEmailNotifications     Boolean? @default(true)
-  receiveProductRecommendations Boolean? @default(false)
-
-  rentals    Rental[]
-  cartItems  CartItem[]
-  favourites Favourite[]
-  reviews    Review[]
-
-  careInstruction String
-  careSteps       String
-  items           OrderItem[]
-  stylingTip      String
-   AvailabilityRequests AvailabilityRequest[] 
-  createdAt DateTime @default(now())
-  // fullText  String   @default("")
-  updatedAt DateTime @updatedAt
+  id                            String                @id @default(uuid())
+  name                          String
+  subText                       String
+  description                   String
+  condition                     String
+  dailyPrice                    Int
+  isActive                      Boolean               @default(true)
+  composition                   String?
+  measurement                   String
+  originalValue                 Int
+  warning                       String?
+  color                         String
+  brandId                       String?
+  categoryId                    String?
+  curatorId                     String
+  receiveSmsNotifications       Boolean?              @default(false)
+  receiveEmailNotifications     Boolean?              @default(true)
+  receiveProductRecommendations Boolean?              @default(false)
+  careInstruction               String
+  careSteps                     String
+  stylingTip                    String
+  createdAt                     DateTime              @default(now())
+  updatedAt                     DateTime              @updatedAt
+  productVerified               Boolean               @default(false)
+  quantity                      Int?
+  status                        ProductStatus         @default(PENDING)
+  rejectionComment              String?
+  material                      String?
+  collateralPrice               Int?
+  attachments                   Attachments?
+  AvailabilityRequests          AvailabilityRequest[]
+  cartItems                     CartItem[]
+  favourites                    Favourite[]
+  items                         OrderItem[]
+  brand                         Brand?                @relation(fields: [brandId], references: [id])
+  category                      ProductCategory?      @relation(fields: [categoryId], references: [id])
+  curator                       User                  @relation("CuratedProducts", fields: [curatorId], references: [id])
+  rentals                       Rental[]
+  reviews                       Review[]
+  tags                          Tag[]                 @relation("ProductToTag")
 }
 
 model Brand {
   id        String    @id @default(uuid())
   name      String
-  products  Product[]
-  user      User?     @relation(fields: [userId], references: [id])
-  userId    String?
-  // fullText  String    @default("")
   createdAt DateTime  @default(now())
+  userId    String?
+  user      User?     @relation(fields: [userId], references: [id])
+  products  Product[]
 }
 
 model Tag {
   id        String    @id @default(uuid())
   name      String
-  products  Product[]
-  user      User?     @relation(fields: [userId], references: [id])
   userId    String?
-  // fullText  String    @default("")
   createdAt DateTime  @default(now())
+  user      User?     @relation(fields: [userId], references: [id])
+  products  Product[] @relation("ProductToTag")
 }
 
 model ProductCategory {
   id        String    @id @default(uuid())
   name      String
+  createdAt DateTime  @default(now())
+  userId    String?
   imageUrl  String?
   products  Product[]
   user      User?     @relation(fields: [userId], references: [id])
-  userId    String?
-  // fullText  String    @default("")
-  createdAt DateTime  @default(now())
-}
-
-enum DisputeStatus {
-  IN_REVIEW
-  PENDING
-  WITHDRAW
-  RESELOVED
-  REJECTED
 }
 
 model Upload {
@@ -306,101 +213,82 @@ model Upload {
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @default(now())
   attachmentId    String?
-  profileAsAvatar Profile?     @relation("AvatarUpload")
-  profileAsNin    Profile?     @relation("NinUpload")
-  profileAsIdDoc  Profile?     @relation("IdDocumentUpload")
-  attachment      Attachments? @relation(fields: [attachmentId], references: [id])
-  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId          String
   fullText        String       @default("")
-  // dispute         Dispute?     @relation("DisputeUploads", fields: [disputeId], references: [id])
-  // disputeId       String?
+  profileAsAvatar Profile?     @relation("AvatarUpload")
+  profileAsIdDoc  Profile?     @relation("IdDocumentUpload")
+  profileAsNin    Profile?     @relation("NinUpload")
+  attachment      Attachments? @relation(fields: [attachmentId], references: [id])
+  user            User         @relation(fields: [userId], references: [id])
 }
 
-
-
 model Attachments {
-  id      String   @id @default(uuid())
-  uploads Upload[]
-
-  product   Product? @relation(fields: [productId], references: [id])
+  id        String   @id @default(uuid())
   productId String?  @unique
-  dispute   Dispute? @relation(fields: [disputeId], references: [id])
   disputeId String?  @unique
+  dispute   Dispute? @relation(fields: [disputeId], references: [id])
+  product   Product? @relation(fields: [productId], references: [id])
+  uploads   Upload[]
 }
 
 model Cart {
-  id     String @id @default(uuid())
-  userId String @unique
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  items CartItem[]
+  id     String     @id @default(uuid())
+  userId String     @unique
+  user   User       @relation(fields: [userId], references: [id])
+  items  CartItem[]
 }
 
 model CartItem {
-  id        String @id @default(uuid())
+  id        String   @id @default(uuid())
   cartId    String
   productId String
   days      Int
-
+  createdAt DateTime @default(now())
   cart      Cart     @relation(fields: [cartId], references: [id])
   product   Product  @relation(fields: [productId], references: [id])
-  createdAt DateTime @default(now())
 }
 
 model Favourite {
-  id        String @id @default(uuid())
+  id        String   @id @default(uuid())
   userId    String
   productId String
-
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  product   Product  @relation(fields: [productId], references: [id])
   createdAt DateTime @default(now())
   fullText  String   @default("")
+  product   Product  @relation(fields: [productId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
 
   @@unique([userId, productId])
 }
 
-
-
 model AvailabilityRequest {
-  id          String   @id @default(uuid())
-  productId   String
-  cartItemId String
-  requesterId String   
-  listerId    String   
-  status      AvailabilityStatus @default(PENDING)
-  expiresAt   DateTime
-  createdAt   DateTime @default(now())
-
-  product     Product  @relation(fields: [productId], references: [id])
-  requester   User     @relation("RequestedAvailability", fields: [requesterId], references: [id])
-  lister      User     @relation("ListerAvailability", fields: [listerId], references: [id])
-
-  // Rental Request Fields
-  startDate         DateTime?
+  id                String             @id @default(uuid())
+  productId         String
+  cartItemId        String
+  requesterId       String
+  listerId          String
+  status            AvailabilityStatus @default(PENDING)
+  expiresAt         DateTime
+  createdAt         DateTime           @default(now())
+  autoPay           Boolean            @default(false)
+  deliveryAddressId String?
   endDate           DateTime?
   rentalDays        Int?
+  startDate         DateTime?
   totalPrice        Int?
-  deliveryAddressId String?
-  autoPay           Boolean  @default(false)
-}
-
-enum AvailabilityStatus {
-  PENDING
-  ACCEPTED
-  REJECTED
-  EXPIRED
+  lister            User               @relation("ListerAvailability", fields: [listerId], references: [id])
+  product           Product            @relation(fields: [productId], references: [id])
+  requester         User               @relation("RequestedAvailability", fields: [requesterId], references: [id])
 }
 
 model Order {
-  id         String      @id @default(uuid())
-  orderId    String      @unique
-  status     OrderStatus @default(PROCESSING)
-  expiresAt  DateTime?   // 15-min approval window; null once approved/expired
-  approvedAt DateTime?
-
-  // Shipping / tracking metadata (for lister dashboards & dispatch workflow)
+  id                    String              @id @default(uuid())
+  orderId               String              @unique
+  status                OrderStatus         @default(PROCESSING)
+  userId                String
+  createdAt             DateTime            @default(now())
+  expiresAt             DateTime?
+  approvedAt            DateTime?
+  updatedAt             DateTime            @updatedAt
   trackingNumber        String?
   estimatedDeliveryDate DateTime?
   dispatchedAt          DateTime?
@@ -409,132 +297,98 @@ model Order {
   externalTrackingUrl   String?
   shipmentId            String?
   trackingId            String?
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  rentals            Rental[]
-  payments           Transaction[]
-  disputes           Dispute[]
-  walletTransactions WalletTransaction[]
-  orderItems         OrderItem[]
-  escrows            Escrow?
-  virtualAccount     VirtualAccount?
-
-  // Financial Totals at checkout
-  totalAmountPaid Int?
-  deliveryFee     Int?
-  serviceFee      Int?
-  vatAmount       Int?
-
-  returnRequest   ReturnRequest?
-
-  // Lister Summary at checkout
-  listerId           String?
-  listerBusinessName String?
-  listerImage        String?
-  listerRating       Float?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  deliveryFee           Int?
+  listerBusinessName    String?
+  listerId              String?
+  listerImage           String?
+  listerRating          Float?
+  serviceFee            Int?
+  totalAmountPaid       Int?
+  vatAmount             Int?
+  disputes              Dispute[]
+  escrows               Escrow?
+  user                  User                @relation(fields: [userId], references: [id])
+  orderItems            OrderItem[]
+  rentals               Rental[]
+  returnRequest         ReturnRequest?
+  payments              Transaction[]
+  virtualAccount        VirtualAccount?
+  walletTransactions    WalletTransaction[]
 }
 
 model OrderItem {
-  id      String @id @default(uuid())
-  orderId String
-
-  productId   String
-  days        Int
-  pricePerDay Int
-  
-  imageUrl      String?
-  rentalFee     Int?
+  id            String  @id @default(uuid())
+  orderId       String
+  productId     String
+  days          Int
+  pricePerDay   Int
   cleaningFee   Int?
   collateralFee Int?
-
-  order Order @relation(fields: [orderId], references: [id])
-
-  product Product @relation(fields: [productId], references: [id])
+  imageUrl      String?
+  rentalFee     Int?
+  order         Order   @relation(fields: [orderId], references: [id])
+  product       Product @relation(fields: [productId], references: [id])
 }
 
 model Rental {
-  id String @id @default(uuid())
-
-  orderId String
-  order   Order  @relation(fields: [orderId], references: [id])
-
-  productId String
-  product   Product @relation(fields: [productId], references: [id])
-  curatorId String
-  curator   User    @relation("Curator", fields: [curatorId], references: [id])
-  userId    String
-  user      User    @relation("Rentee", fields: [userId], references: [id])
-
-  days Int
-
+  id          String    @id @default(uuid())
+  orderId     String
+  productId   String
+  curatorId   String
+  userId      String
+  days        Int
   totalAmount Int
-
-  startDate  DateTime
-  endDate    DateTime
-  returnedAt DateTime?
-  review     Review?
-
-  isReturned Boolean @default(false)
-  isOverdue  Boolean @default(false)
-
-  createdAt DateTime @default(now())
+  startDate   DateTime
+  endDate     DateTime
+  returnedAt  DateTime?
+  isReturned  Boolean   @default(false)
+  isOverdue   Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  curator     User      @relation("Curator", fields: [curatorId], references: [id])
+  order       Order     @relation(fields: [orderId], references: [id])
+  product     Product   @relation(fields: [productId], references: [id])
+  user        User      @relation("Rentee", fields: [userId], references: [id])
+  review      Review?
 }
 
-
-
 model Review {
-  id String @id @default(uuid())
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
+  id        String   @id @default(uuid())
+  userId    String
   productId String
-  product   Product @relation(fields: [productId], references: [id])
-
   curatorId String
-  curator   User   @relation("CuratorReviews", fields: [curatorId], references: [id])
-
-  rating   Int
-  comment  String?
-  rentalId String  @unique
-  rental   Rental  @relation(fields: [rentalId], references: [id])
-
+  rating    Int
+  comment   String?
+  rentalId  String   @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  curator   User     @relation("CuratorReviews", fields: [curatorId], references: [id])
+  product   Product  @relation(fields: [productId], references: [id])
+  rental    Rental   @relation(fields: [rentalId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
 
   @@unique([userId, productId])
 }
 
 model Dispute {
-  id        String @id @default(uuid())
-  disputeId String @unique
-
-  orderId String
-  order   Order  @relation(fields: [orderId], references: [id])
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
+  id            String        @id @default(uuid())
+  disputeId     String        @unique
+  orderId       String
+  userId        String
   issueCategory String
   description   String
   status        DisputeStatus @default(PENDING)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
   attachment    Attachments?
-
-  chatRooms ChatRoom?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  chatRooms     ChatRoom?
+  order         Order         @relation(fields: [orderId], references: [id])
+  user          User          @relation(fields: [userId], references: [id])
 }
 
 model ChatRoom {
   id        String    @id @default(uuid())
-  dispute   Dispute?  @relation(fields: [disputeId], references: [id])
   disputeId String?   @unique
+  dispute   Dispute?  @relation(fields: [disputeId], references: [id])
   message   Message[]
 }
 
@@ -547,51 +401,44 @@ model Message {
   isRead     Boolean   @default(false)
   readAt     DateTime?
   createdAt  DateTime  @default(now())
-  chatRoom   ChatRoom  @relation(fields: [chatRoomId], references: [id])
   chatRoomId String
+  chatRoom   ChatRoom  @relation(fields: [chatRoomId], references: [id])
 }
 
 model Transaction {
-  id          String            @id @default(uuid())
-  referenceId String            @unique
-  amount      Int
-  method      String?
-  status      TransactionStatus @default(PENDING)
-  orderId     String?
-  order       Order?            @relation(fields: [orderId], references: [id])
-
-  user             User            @relation(fields: [userId], references: [id])
-  userId           String
-  virtualAccountId String?
-  virtualAccount   VirtualAccount? @relation(fields: [virtualAccountId], references: [id])
-
-  // Wema Bank Webhook Fields
-  sessionId                 String? @unique
-  paymentReference          String?
-  originatorName            String?
-  originatorAccountNumber   String?
-  bankName                  String?
-  narration                 String?
-  crAccountName             String?
-  crAccount                 String?
-  bankCode                  String?
-
-  createdAt        DateTime        @default(now())
+  id                      String            @id @default(uuid())
+  amount                  Int
+  method                  String?
+  status                  TransactionStatus @default(PENDING)
+  orderId                 String?
+  virtualAccountId        String?
+  createdAt               DateTime          @default(now())
+  referenceId             String            @unique
+  userId                  String
+  bankCode                String?
+  bankName                String?
+  crAccount               String?
+  crAccountName           String?
+  narration               String?
+  originatorAccountNumber String?
+  originatorName          String?
+  paymentReference        String?
+  sessionId               String?           @unique
+  order                   Order?            @relation(fields: [orderId], references: [id])
+  user                    User              @relation(fields: [userId], references: [id])
+  virtualAccount          VirtualAccount?   @relation(fields: [virtualAccountId], references: [id])
 }
 
 model Wallet {
-  id String @id @default(uuid())
-
+  id                String              @id @default(uuid())
   userId            String              @unique
-  user              User                @relation(fields: [userId], references: [id])
-  transactions      WalletTransaction[]
-  // Three balances
   mainBalance       Int                 @default(0)
   availableBalance  Int                 @default(0)
   collateralBalance Int                 @default(0)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  user              User                @relation(fields: [userId], references: [id])
+  transactions      WalletTransaction[]
 }
 
 model WaitList {
@@ -599,60 +446,32 @@ model WaitList {
   email String @unique
 }
 
-enum WalletTransactionType {
-  MAIN
-  AVAILABLE
-  COLLATERAL
-}
-
 model WalletTransaction {
-  id       String @id @default(uuid())
-  walletId String
-  wallet   Wallet @relation(fields: [walletId], references: [id])
-
-  amount Int
-  type   WalletTransactionType   @default(MAIN)
-  status WalletTransactionStatus @default(PENDING)
-  note   String?
-
-  orderId String?
-  order   Order?  @relation(fields: [orderId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id        String                  @id @default(uuid())
+  walletId  String
+  amount    Int
+  type      WalletTransactionType   @default(MAIN)
+  status    WalletTransactionStatus @default(PENDING)
+  note      String?
+  orderId   String?
+  createdAt DateTime                @default(now())
+  updatedAt DateTime                @updatedAt
+  order     Order?                  @relation(fields: [orderId], references: [id])
+  wallet    Wallet                  @relation(fields: [walletId], references: [id])
 }
 
 model Escrow {
-  id String @id @default(uuid())
-
-  orderId String @unique
-  order   Order  @relation(fields: [orderId], references: [id])
-
-  renterId  String
-  curatorId String
-
+  id               String       @id @default(uuid())
+  orderId          String       @unique
+  renterId         String
+  curatorId        String
   rentalAmount     Int
   collateralAmount Int
   cleaningFee      Int
-
-  status EscrowStatus @default(LOCKED)
-
-  releasedAt DateTime?
-  createdAt  DateTime  @default(now())
-}
-
-enum EscrowStatus {
-  LOCKED
-  RELEASED
-  PARTIALLY_RELEASED
-  REFUNDED
-}
-
-enum VirtualAccountStatus {
-  PENDING
-  PAID
-  EXPIRED
-  INACTIVE
+  status           EscrowStatus @default(LOCKED)
+  releasedAt       DateTime?
+  createdAt        DateTime     @default(now())
+  order            Order        @relation(fields: [orderId], references: [id])
 }
 
 model VirtualAccount {
@@ -662,16 +481,16 @@ model VirtualAccount {
   orderId      String?              @unique
   nin          String?
   bvn          String?
-  order        Order?               @relation(fields: [orderId], references: [id])
   userId       String
-  user         User                 @relation(fields: [userId], references: [id])
   amount       Int?
   status       VirtualAccountStatus @default(PENDING)
-  blockReason  String?
   expiresAt    DateTime
   createdAt    DateTime             @default(now())
   updatedAt    DateTime             @updatedAt
+  blockReason  String?
   transactions Transaction[]
+  order        Order?               @relation(fields: [orderId], references: [id])
+  user         User                 @relation(fields: [userId], references: [id])
 }
 
 model ContactSubmission {
@@ -680,68 +499,58 @@ model ContactSubmission {
   lastName  String
   email     String
   message   String
-  status    String   @default("RECEIVED") // RECEIVED, IN_REVIEW, RESOLVED
+  status    String   @default("RECEIVED")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model BankAccount {
-  id                String   @id @default(uuid())
-  userId            String
-  user              User     @relation(fields: [userId], references: [id])
-  bankName          String
-  bankCode          String?
-  accountNumber     String
-  accountName       String
-  accountType       String?
-  isDefault         Boolean  @default(false)
-  verificationStatus String   @default("PENDING")
-  verifiedAt        DateTime?
-  
-  withdrawals       WithdrawalRequest[]
-
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id                 String              @id @default(uuid())
+  userId             String
+  bankName           String
+  bankCode           String?
+  accountNumber      String
+  accountName        String
+  accountType        String?
+  isDefault          Boolean             @default(false)
+  verificationStatus String              @default("PENDING")
+  verifiedAt         DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  user               User                @relation(fields: [userId], references: [id])
+  withdrawals        WithdrawalRequest[]
 }
 
 model WithdrawalRequest {
-  id            String   @id @default(uuid())
+  id            String      @id @default(uuid())
   userId        String
-  user          User     @relation(fields: [userId], references: [id])
   amount        Int
-  currency      String   @default("NGN")
-  
+  currency      String      @default("NGN")
   bankAccountId String
-  bankAccount   BankAccount @relation(fields: [bankAccountId], references: [id])
-
-  status        String   @default("PENDING")
-  reference     String   @unique
-  fee           Int      @default(0)
+  status        String      @default("PENDING")
+  reference     String      @unique
+  fee           Int         @default(0)
   netAmount     Int
-
-  trackingId    String?
-  paidDate      DateTime?
-
   processedAt   DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  paidDate      DateTime?
+  trackingId    String?
+  bankAccount   BankAccount @relation(fields: [bankAccountId], references: [id])
+  user          User        @relation(fields: [userId], references: [id])
 }
 
 model NotificationSettings {
-  id        String   @id @default(uuid())
-  userId    String   @unique
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  emailAlertsEnabled Boolean @default(true)
-  emailAlertsCategories String[] 
-  
-  smsUpdatesEnabled Boolean @default(false)
-  smsUpdatesCategories String[]
-  
-  marketingEmailsEnabled Boolean @default(true)
-  
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                     String   @id @default(uuid())
+  userId                 String   @unique
+  emailAlertsEnabled     Boolean  @default(true)
+  emailAlertsCategories  String[]
+  smsUpdatesEnabled      Boolean  @default(false)
+  smsUpdatesCategories   String[]
+  marketingEmailsEnabled Boolean  @default(true)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  user                   User     @relation(fields: [userId], references: [id])
 }
 
 model AdminRole {
@@ -764,7 +573,6 @@ model AuditLog {
   action      String
   actionType  String
   performedBy String
-  admin       User     @relation("AdminAuditLogs", fields: [performedBy], references: [id])
   targetType  String
   targetId    String
   targetName  String
@@ -772,21 +580,20 @@ model AuditLog {
   ipAddress   String?
   status      String   @default("Success")
   createdAt   DateTime @default(now())
+  admin       User     @relation("AdminAuditLogs", fields: [performedBy], references: [id])
 }
 
 model Notification {
   id        String   @id @default(uuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
   title     String
   message   String
-  type      String   // e.g., 'RENTAL_REQUEST', 'ORDER_ACCEPTED', 'WITHDRAWAL_STATUS', etc.
-  metadata  Json?    // Store related IDs (orderId, requestId, etc.)
-  
+  type      String
+  metadata  Json?
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id])
 }
 
 model Newsletter {
@@ -800,13 +607,97 @@ model Newsletter {
 model ReturnRequest {
   id            String        @id @default(uuid())
   orderId       String        @unique
-  order         Order         @relation(fields: [orderId], references: [id])
   itemCondition ItemCondition
   damageNotes   String?
   imageUrls     String[]
-  status        String        @default("PENDING") // PENDING, APPROVED, REJECTED
+  status        String        @default("PENDING")
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
+  order         Order         @relation(fields: [orderId], references: [id])
+}
+
+enum Role {
+  ADMIN
+  LISTER
+  RENTER
+}
+
+enum AuthOtpTokenType {
+  TOKEN
+  OTP
+}
+
+enum ProductStatus {
+  AVAILABLE
+  RENTED
+  MAINTENANCE
+  RESERVED
+  PENDING
+  APPROVED
+  REJECTED
+  UNAVAILABLE
+}
+
+enum WalletTransactionStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+enum OrderStatus {
+  PROCESSING
+  CONFIRMED
+  IN_TRANSIT
+  DELIVERED
+  ACTIVE
+  RETURN_DUE
+  RETURNED
+  COMPLETED
+  CANCELLED
+  ACCEPTED
+  REJECTED
+}
+
+enum TransactionStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REVERSED
+}
+
+enum DisputeStatus {
+  IN_REVIEW
+  PENDING
+  WITHDRAW
+  RESELOVED
+  REJECTED
+}
+
+enum AvailabilityStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+enum WalletTransactionType {
+  MAIN
+  AVAILABLE
+  COLLATERAL
+}
+
+enum EscrowStatus {
+  LOCKED
+  RELEASED
+  PARTIALLY_RELEASED
+  REFUNDED
+}
+
+enum VirtualAccountStatus {
+  PENDING
+  PAID
+  EXPIRED
+  INACTIVE
 }
 
 enum ItemCondition {

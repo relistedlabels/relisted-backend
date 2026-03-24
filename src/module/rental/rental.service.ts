@@ -1,26 +1,85 @@
-import { Injectable } from '@nestjs/common';
-import { CreateRentalDto } from './dto/create-rental.dto';
-import { UpdateRentalDto } from './dto/update-rental.dto';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../../services/prisma/prisma.service';
+import { userEntity } from '../auth/auth.types';
 
 @Injectable()
 export class RentalService {
-  create(createRentalDto: CreateRentalDto) {
-    return 'This action adds a new rental';
+  constructor(private readonly prisma: PrismaService) {}
+
+  async findAll(user: userEntity) {
+    return this.prisma.rental.findMany({
+      where: {
+        userId: user.id,
+      },
+      include: {
+        product: {
+          include: {
+            attachments: {
+              include: {
+                uploads: true,
+              },
+            },
+          },
+        },
+        review: true,
+        curator: {
+          select: {
+            name: true,
+            email: true,
+            profile: {
+              include: {
+                avatarUpload: true,
+                businessInfo: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
   }
 
-  findAll() {
-    return `This action returns all rental`;
-  }
+  async findOne(id: string, user: userEntity) {
+    const rental = await this.prisma.rental.findUnique({
+      where: { id },
+      include: {
+        product: {
+          include: {
+            attachments: {
+              include: {
+                uploads: true,
+              },
+            },
+          },
+        },
+        review: true,
+        curator: {
+          select: {
+            name: true,
+            email: true,
+            profile: {
+              include: {
+                avatarUpload: true,
+                businessInfo: true,
+              },
+            },
+          },
+        },
+        order: true,
+      },
+    });
 
-  findOne(id: number) {
-    return `This action returns a #${id} rental`;
-  }
+    if (!rental) {
+      throw new NotFoundException(`Rental with ID ${id} not found`);
+    }
 
-  update(id: number, updateRentalDto: UpdateRentalDto) {
-    return `This action updates a #${id} rental`;
-  }
+    // Allow both rentee and curator to view the rental
+    if (rental.userId !== user.id && rental.curatorId !== user.id) {
+      throw new NotFoundException(`Rental with ID ${id} not found`);
+    }
 
-  remove(id: number) {
-    return `This action removes a #${id} rental`;
+    return rental;
   }
 }
