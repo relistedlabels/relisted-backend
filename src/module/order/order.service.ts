@@ -7,6 +7,7 @@ import { TopshipService } from 'src/services/topship/topship.service';
 import { bad } from 'src/utils/error';
 import { userEntity } from '../auth/auth.types';
 import { addMinutes, isAfter } from 'date-fns';
+import { NotificationService } from 'src/services/notification/notification.service';
 
 const APPROVAL_WINDOW_MINUTES = 15;
 
@@ -16,6 +17,7 @@ export class OrderService {
     private readonly prisma: PrismaService,
     private eventEmitter: EventEmitter2,
     private topshipService: TopshipService,
+    private notificationService: NotificationService,
   ) {}
 
   async getCheckoutSummary(user: userEntity) {
@@ -64,7 +66,8 @@ export class OrderService {
     let globalCollateralTotal = 0;
     let globalCleaningTotal = 0;
     let globalPickupTotal = 0;
-
+    let globalVatTotal = 0;
+    let globalServiceChargeTotal = 0;
     const listerBreakdowns: any[] = [];
     const shippingTiersMap = new Map<string, { name: string; totalShippingCost: number }>();
 
@@ -73,6 +76,8 @@ export class OrderService {
       let listerRentalTotal = 0;
       let listerCollateralTotal = 0;
       let listerCleaningTotal = 0;
+      let listerVatTotal = 0;
+      let listerServiceChargeTotal = 0;
       let curatorAddress: any = null;
 
       for (const item of items) {
@@ -84,12 +89,20 @@ export class OrderService {
         const rentalAmount = item.product.dailyPrice * item.days;
         const collateralAmount = Number(item.product.collateralPrice || item.product.originalValue) || 0;
         const cleaningFee = 2000;
+        const vatAmount = Math.round(rentalAmount * 0.20);
+        const serviceCharge = Math.round(rentalAmount * 0.10);
         
         listerRentalTotal += rentalAmount;
         listerCollateralTotal += collateralAmount;
         listerCleaningTotal += cleaningFee;
+        listerVatTotal += vatAmount;
+        listerServiceChargeTotal += serviceCharge;
       }
-
+      globalRentalTotal += listerRentalTotal;
+      globalCollateralTotal += listerCollateralTotal;
+      globalCleaningTotal += listerCleaningTotal;
+      globalVatTotal += listerVatTotal;
+      globalServiceChargeTotal += listerServiceChargeTotal;
       const senderCity = curatorAddress?.city || 'Lagos';
       const receiverCity = renterProfile.address.city || 'Lagos';
       
@@ -152,13 +165,14 @@ export class OrderService {
       // Inside lister Breakdown we assume baseline fallback for backwards compatibility UI, 
       // actual final costs will be calculated fully via checkout payload
       const baselineShipping = Math.ceil((rateData[0]?.cost || 300000) / 100);
-      const listerGrandTotal = listerRentalTotal + listerCollateralTotal + listerCleaningTotal + baselineShipping + pickupChargeNGN;
+      const listerGrandTotal = listerRentalTotal + listerCollateralTotal + listerCleaningTotal + baselineShipping + pickupChargeNGN + listerVatTotal + listerServiceChargeTotal;
       
       globalRentalTotal += listerRentalTotal;
       globalCollateralTotal += listerCollateralTotal;
       globalCleaningTotal += listerCleaningTotal;
       globalPickupTotal += pickupChargeNGN;
-      
+      globalVatTotal += listerVatTotal;
+      globalServiceChargeTotal += listerServiceChargeTotal;
       listerBreakdowns.push({
          listerId,
          listerName: items[0]?.product?.curator?.name || 'Unknown',
@@ -168,6 +182,8 @@ export class OrderService {
          cleaningTotal: listerCleaningTotal,
          shippingCost: baselineShipping,
          pickupCost: pickupChargeNGN,
+         serviceCharge: listerServiceChargeTotal,
+         vatAmount: listerVatTotal,
          listerGrandTotal
       });
     }
@@ -195,6 +211,8 @@ export class OrderService {
            cleaningTotal: globalCleaningTotal,
            pickupTotal: globalPickupTotal,
            shippingTotal: baselineShippingTotal,
+           serviceCharge: globalServiceChargeTotal,
+           vatAmount: globalVatTotal,
            grandTotal: baselineGrandTotal,
          },
          shippingTiers,
@@ -264,6 +282,7 @@ export class OrderService {
       let listerRentalAndCleaning = 0;
       let listerCollateralTotal = 0;
       let listerVatTotal = 0;
+      let listerServiceChargeTotal = 0;
       let curatorAddress: any = null;
       
       for (const item of items) {
@@ -276,11 +295,13 @@ export class OrderService {
         const collateralAmount = Number(item.product.collateralPrice || item.product.originalValue) || 0;
         const cleaningFee = 2000;
         const vatAmount = Math.round(rentalAmount * 0.20);
+        const serviceCharge = Math.round(rentalAmount * 0.10);
 
-        listerItemsTotal += rentalAmount + collateralAmount + cleaningFee + vatAmount;
+        listerItemsTotal += rentalAmount + collateralAmount + cleaningFee + vatAmount + serviceCharge;
         listerRentalAndCleaning += rentalAmount + cleaningFee;
         listerCollateralTotal += collateralAmount;
         listerVatTotal += vatAmount;
+        listerServiceChargeTotal += serviceCharge;
       }
       totalCollateral += listerCollateralTotal;
 
@@ -458,7 +479,7 @@ export class OrderService {
         }
         
         // 3b. Credit Lister Wallet (90% of Rental and Cleaning fee)
-        const payoutAmount = Math.floor(listerData.listerRentalAndCleaning * 0.9);
+        const payoutAmount = Math.floor(listerData.listerRentalAndCleaning * 1);
         const listerWallet = await tx.wallet.upsert({
             where: { userId: listerData.listerId },
             create: { userId: listerData.listerId, mainBalance: payoutAmount, availableBalance: payoutAmount },
@@ -474,8 +495,32 @@ export class OrderService {
                 amount: payoutAmount,
                 type: 'MAIN',
                 status: 'SUCCESS',
-                note: `Earning from order ${order.orderId} (90% of rental/cleaning)`,
+                note: `Earning from order ${order.orderId} (100% of rental/cleaning)`,
                 orderId: order.id
+            }
+        });
+
+        // 3c. Notify Lister of new order
+        await this.notificationService.createNotification({
+            userId: listerData.listerId,
+            title: "New Order Received",
+            message: `You have a new paid order (${order.orderId}) from ${user.name || 'a renter'}.`,
+            type: "ORDER_CONFIRMATION",
+            metadata: { orderId: order.id, orderNumber: order.orderId },
+            sendEmail: true,
+            emailData: {
+                email: lister?.email,
+                curatorName: listerBusinessName,
+                renterName: user.name || 'A Renter',
+                orderId: order.orderId,
+                totalAmount: listerData.listerGrandTotal,
+                platformName: "Relisted",
+                approvalLink: `${process.env.CLIENT_URL}/lister/orders/${order.id}`,
+                items: listerData.items.map((item: any) => ({
+                    productName: item.product.name,
+                    days: item.days,
+                    pricePerDay: item.product.dailyPrice
+                }))
             }
         });
         

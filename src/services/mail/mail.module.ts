@@ -25,7 +25,9 @@ import { HandlebarsAdapter } from '@nestjs-modules/mailer/dist/adapters/handleba
       },
       template:{
         dir:join(process.cwd(),"./src/services/mail/templates"),
-        adapter:new HandlebarsAdapter(),
+        adapter:new HandlebarsAdapter({
+          eq: (v1, v2) => v1 === v2,
+        }),
         options:{
           strict:true
         }

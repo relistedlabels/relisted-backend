@@ -704,9 +704,10 @@ export class ListersService {
               email: (request as any).requester?.email,
               userName: (request as any).requester?.name,
               productName: (request as any).product?.name,
-              status: "ACCEPTED",
+              status: "accepted",
               requestId: request.id,
-              notes: notes || "No additional notes provided.",
+              reason: notes || "No additional notes provided.",
+              checkoutLink: `${process.env.CLIENT_URL}/checkout?requestId=${request.id}`,
           }
       });
 
@@ -788,9 +789,9 @@ export class ListersService {
               email: (request as any).requester?.email,
               userName: (request as any).requester?.name,
               productName: (request as any).product?.name,
-              status: "REJECTED",
+              status: "rejected",
               requestId: request.id,
-              notes: body.notes || body.reason,
+              reason: body.notes || body.reason,
           }
       });
 

@@ -46,6 +46,9 @@ export class VerifyOrderDto {
   days: string;
   @IsNumber()
   price: number;
+
+  @IsOptional()
+  items?: any[];
 }
 
 export class ResetPasswordDto {

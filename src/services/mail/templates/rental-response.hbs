@@ -66,7 +66,7 @@
             <p>The lister has responded to your rental request for <strong>{{productName}}</strong>.</p>
             <p>Status: <span class="status-{{status}}">{{status}}</span></p>
 
-            {{#if (eq status "ACCEPTED")}}
+            {{#if (eq status "accepted")}}
             <p>Great! Your request has been approved. Please complete your payment to secure the rental.</p>
             <p><a href="{{checkoutLink}}" class="button">Proceed to Checkout</a></p>
             {{else}}

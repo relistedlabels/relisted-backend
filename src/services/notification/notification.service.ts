@@ -57,6 +57,9 @@ export class NotificationService {
         case 'RENTAL_RESPONSE':
           await this.mailService.SendRentalResponseMail(data);
           break;
+        case 'ORDER_CONFIRMATION':
+          await this.mailService.SendVerificationOrderMail(data);
+          break;
         case 'WITHDRAWAL_REQUEST':
         case 'WITHDRAWAL_APPROVED':
         case 'WITHDRAWAL_REJECTED':
