@@ -2751,7 +2751,7 @@ export class ListersService {
   async getBusinessProfile(user: userEntity) {
     const profile = await this.prisma.profile.findUnique({
       where: { userId: user.id },
-      include: { businessInfo: true },
+      include: { businessInfo: true, address: true },
     });
     if (!profile || !profile.businessInfo) {
       throw new NotFoundException('Business profile not found');
@@ -2776,12 +2776,25 @@ export class ListersService {
           businessCategory: b.businessCategory ?? 'Fashion & Accessories',
           businessDescription:
             b.businessDescription ??
-            'Premium fashion rental service',
+            'fashion rental service',
           businessEmail: b.businessEmail,
           businessPhone: b.businessPhone ?? null,
           businessAddress: b.businessAddress,
+          businessCity: b.businessCity,
+          businessState: b.businessState,
           website: b.website ?? null,
           taxId: null,
+          address: profile.address
+            ? {
+                addressId: profile.address.id,
+                street: profile.address.street,
+                city: profile.address.city,
+                state: profile.address.state,
+                postalCode: profile.address.zipCode,
+                country: profile.address.country,
+                isDefault: profile.address.isDefault,
+              }
+            : null,
           businessRegistration: b.businessRegistrationNumber,
           verificationStatus: profile.isApproved ? 'verified' : 'pending',
           verificationBadge: profile.isApproved ? 'blue' : 'yellow',

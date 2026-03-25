@@ -1350,15 +1350,15 @@ export class ProductService {
 
       // Users can only edit pending or rejected products (to resubmit)
       // Admins can edit any product
-      if (!isAdmin && product.status !== ProductStatus.PENDING && product.status !== ProductStatus.REJECTED) {
-        throw new BadRequestException(
-          'You can only edit products that are pending or rejected. Current status: ' + product.status
-        );
-      }
+      // if (!isAdmin && product.status !== ProductStatus.PENDING && product.status !== ProductStatus.REJECTED) {
+      //   throw new BadRequestException(
+      //     'You can only edit products that are pending or rejected. Current status: ' + product.status
+      //   );
+      // }
 
       // If editing a rejected product, reset to pending
       const updateData: any = { ...dto };
-      if (product.status === ProductStatus.REJECTED && !isAdmin) {
+      if (!isAdmin) {
         updateData.status = ProductStatus.PENDING;
         updateData.rejectionComment = null;
       }

@@ -225,7 +225,9 @@ export class OrderService {
                   include: { 
                     profile: { include: { address: true, businessInfo: true } } 
                   } 
-                } 
+                },
+                brand: true,
+                category: true,
               },
             },
           },
@@ -501,7 +503,10 @@ export class OrderService {
         const senderCity = curatorBusiness?.city || curatorAddress?.city || 'Lagos';
         const receiverCity = renterProfile.address?.city || 'Lagos';
         
-        const description = listerData.items.map((i: any) => i.product.name).join(', ');
+        const description = listerData.items.map((i: any) => {
+          const p = i.product;
+          return `${p.brand?.name || ''} ${p.name} (${p.color}, ${p.material || ''}, ${p.measurement}, ${p.category?.name || ''})`.trim();
+        }).join(', ');
         const value = listerData.items.reduce((acc: number, i: any) => acc + i.product.originalValue, 0);
         const payload = { 
           shipment: [{
@@ -541,7 +546,7 @@ export class OrderService {
             deliveryLocation: listerData.deliveryLocation || renterProfile.address?.street || 'Lagos, Nigeria',
             items: [{
               category: 'ClothingAndTextile',
-              description: description.substring(0, 50) || 'Clothing Rental Item',
+              description: description.substring(0, 200) || 'Clothing Rental Item',
               weight: 1,
               quantity: listerData.items.length,
               value: Number(value) * 100 || 1000000
