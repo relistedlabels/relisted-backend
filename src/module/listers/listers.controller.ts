@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Param,
   Patch,
   Post,
@@ -661,6 +662,9 @@ export class ListersController {
   // 38. GET /api/listers/verifications/status
   @Auth([Role.LISTER, Role.ADMIN])
   @Get('verifications/status')
+  @Header('Cache-Control', 'no-cache, no-store, must-revalidate')
+  @Header('Pragma', 'no-cache')
+  @Header('Expires', '0')
   @ApiOperation({ summary: 'Get lister verification status' })
   getVerificationStatus(@AuthUser() user: userEntity) {
     return this.listersService.getVerificationStatus(user);
