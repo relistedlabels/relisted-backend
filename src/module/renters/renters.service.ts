@@ -671,7 +671,7 @@ export class RentersService {
         totalPrice: request.totalPrice,
         startDate: request.startDate ? request.startDate.toDateString() : 'N/A',
         endDate: request.endDate ? request.endDate.toDateString() : 'N/A',
-        viewLink: `${process.env.CLIENT_URL}/lister/requests/${request.id}`,
+        viewLink: `${process.env.CLIENT_URL}/lister/orders/${request.id}`,
       },
     });
 
