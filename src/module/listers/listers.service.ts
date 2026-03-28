@@ -3211,6 +3211,8 @@ export class ListersService {
           },
         });
 
+    const contactRow = contact as typeof contact & { email?: string | null };
+
     return {
       success: true,
       message: 'Emergency contact updated successfully',
@@ -3218,7 +3220,7 @@ export class ListersService {
         emergencyContact: {
           contactId: contact.id,
           fullName: contact.name,
-          email: contact.email ?? null,
+          email: contactRow.email ?? null,
           phone: contact.phoneNumber,
           relationship: contact.relationship,
           city: contact.city,
