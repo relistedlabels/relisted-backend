@@ -3146,26 +3146,26 @@ export class ListersService {
 
   /** 41b. POST /api/listers/verifications/bvn */
   async submitBvn(user: userEntity, body: { bvn: string }) {
-    let profile = await this.prisma.profile.findUnique({
+    const profile = await this.prisma.profile.findUnique({
       where: { userId: user.id },
     });
 
     if (!profile) {
-      profile = await this.prisma.profile.create({
-        data: { userId: user.id, bvn: body.bvn },
-      });
-    } else {
-      profile = await this.prisma.profile.update({
-        where: { userId: user.id },
-        data: { bvn: body.bvn },
-      });
+      throw new NotFoundException(
+        'Profile not found. Please complete your profile first.',
+      );
     }
+
+    const updated = await this.prisma.profile.update({
+      where: { userId: user.id },
+      data: { bvn: body.bvn },
+    });
 
     return {
       success: true,
       message: 'BVN submitted successfully',
       data: {
-        status: profile.bvn ? 'verified' : 'not_verified',
+        status: updated.bvn ? 'verified' : 'not_verified',
       },
     };
   }
