@@ -2962,13 +2962,24 @@ export class ListersService {
   async getVerificationStatus(user: userEntity) {
     const profile = await this.prisma.profile.findUnique({
       where: { userId: user.id },
-      include: { idDocumentUpload: true, businessInfo: true },
+      include: {
+        idDocumentUpload: true,
+        ninUpload: true,
+        businessInfo: true,
+      },
     });
     if (!profile) {
       throw new NotFoundException('Profile not found');
     }
 
-    const idStatus = profile.idDocumentUpload ? 'verified' : 'not_verified';
+    // ID may be linked via current flow (idDocumentUpload) or legacy (ninUpload)
+    const idUpload = profile.idDocumentUpload ?? profile.ninUpload;
+    const idStatus = idUpload ? 'verified' : 'not_verified';
+    const idDocumentLabel =
+      profile.idDocumentType ||
+      (profile.ninUpload && !profile.idDocumentUpload ? 'NIN' : 'ID Document');
+    const idVerifiedDate = idUpload ? idUpload.createdAt.toISOString() : null;
+
     const bvnStatus = profile.bvn ? 'verified' : 'not_verified';
     const businessStatus = profile.businessInfo
       ? profile.isApproved
@@ -2979,18 +2990,20 @@ export class ListersService {
     const maskBvn = (val?: string | null) =>
       val && val.length >= 4 ? `XXXXX${val.slice(-4)}` : null;
 
+    const idVerificationBlock = {
+      status: idStatus,
+      document: idDocumentLabel,
+      verifiedDate: idVerifiedDate,
+      expiresAt: null,
+    };
+
     return {
       success: true,
       data: {
         verifications: {
-          validId: {
-            status: idStatus,
-            document: profile.idDocumentType || 'ID Document',
-            verifiedDate: profile.idDocumentUpload
-              ? profile.idDocumentUpload.createdAt.toISOString()
-              : null,
-            expiresAt: null,
-          },
+          validId: idVerificationBlock,
+          // Alias for older clients that still read `verifications.nin`
+          nin: idVerificationBlock,
           bvn: {
             status: bvnStatus,
             document: 'Bank Verification Number',
@@ -3127,6 +3140,32 @@ export class ListersService {
           bankName: null,
           accountName: null,
         },
+      },
+    };
+  }
+
+  /** 41b. POST /api/listers/verifications/bvn */
+  async submitBvn(user: userEntity, body: { bvn: string }) {
+    let profile = await this.prisma.profile.findUnique({
+      where: { userId: user.id },
+    });
+
+    if (!profile) {
+      profile = await this.prisma.profile.create({
+        data: { userId: user.id, bvn: body.bvn },
+      });
+    } else {
+      profile = await this.prisma.profile.update({
+        where: { userId: user.id },
+        data: { bvn: body.bvn },
+      });
+    }
+
+    return {
+      success: true,
+      message: 'BVN submitted successfully',
+      data: {
+        status: profile.bvn ? 'verified' : 'not_verified',
       },
     };
   }
