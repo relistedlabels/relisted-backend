@@ -15,7 +15,6 @@
 // export class ProductService {
 //   constructor(private readonly prisma: PrismaService) {}
 
-
 // // async create(dto: CreateProductDto, user: userEntity) {
 // //   console.log('📦 CREATE PRODUCT DTO:', dto);
 // //   console.log('👤 USER:', user);
@@ -65,7 +64,6 @@
 // //   throw new BadRequestException('One or more attachments not found');
 // // }
 
-
 // //     const newProduct = await this.prisma.product.create({
 // //       data: {
 // //         name: dto.name ?? '',
@@ -105,7 +103,6 @@
 // //       },
 // //     });
 
-
 // //     console.log('✅ PRODUCT CREATED:', newProduct);
 
 // //     return {
@@ -121,7 +118,6 @@
 // //     );
 // //   }
 // // }
-
 
 //  private createAttachments(uploads?: string[]) {
 //     if (!uploads || uploads.length === 0) return undefined;
@@ -216,15 +212,15 @@
 //     };
 //   } catch (error) {
 //     console.error('❌ ERROR:', error);
-    
+
 //     if (error.code === 'P2002') {
 //       throw new BadRequestException('Product already exists');
 //     }
-    
+
 //     if (error.code === 'P2025') {
 //       throw new BadRequestException('Referenced record not found');
 //     }
-    
+
 //     throw new InternalServerErrorException('Failed to create product');
 //   }
 // }
@@ -479,9 +475,13 @@
 //   }
 // }
 
-
-
-import { BadRequestException, ForbiddenException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
 import { connectId } from 'prisma/prisma.utils'; // REMOVE createAttachments from import
 import { PrismaService } from 'src/services/prisma/prisma.service';
 import { bad } from 'src/utils/error';
@@ -500,16 +500,19 @@ import { ProductStatus } from '@prisma/client';
 export class ProductService {
   constructor(private readonly prisma: PrismaService) {}
 
-  
   async create(dto: CreateProductDto, user: userEntity) {
     try {
       const categoryId = dto.categoryId?.trim() || undefined;
       const brandId = dto.brandId?.trim() || undefined;
       let tagIdsToConnect: string[] = [];
       if (dto.tagids) {
-        const incomingTags = Array.isArray(dto.tagids) ? dto.tagids : [dto.tagids];
-        tagIdsToConnect = incomingTags.map(id => typeof id === 'string' ? id.trim() : '').filter(id => id.length > 0);
-        
+        const incomingTags = Array.isArray(dto.tagids)
+          ? dto.tagids
+          : [dto.tagids];
+        tagIdsToConnect = incomingTags
+          .map((id) => (typeof id === 'string' ? id.trim() : ''))
+          .filter((id) => id.length > 0);
+
         if (tagIdsToConnect.length > 0) {
           const existingTags = await this.prisma.tag.findMany({
             where: { id: { in: tagIdsToConnect } },
@@ -591,47 +594,45 @@ export class ProductService {
           ...(categoryId && { categoryId }),
           ...(tagIdsToConnect.length > 0 && {
             tags: {
-              connect: tagIdsToConnect.map(id => ({ id }))
-            }
+              connect: tagIdsToConnect.map((id) => ({ id })),
+            },
           }),
-        
-        // Only create attachments if there are valid uploads
-        ...(dto.attachments?.length && {
-          attachments: {
-            create: {
-              uploads: {
-                connect: dto.attachments.map(id => ({ id }))
-              }
-            }
-          }
-        })
-      },
-      include: {
-        attachments: {
-          include: {
-            uploads: true
-          }
-        },
-        brand: true,
-        category: true,
-        tags: true
-      }
-    });
 
-    return {
-      success: true, 
-      message: 'Product created successfully',
-      product: newProduct,
-    };
-  } catch (error) {
-    console.error('ERROR creating product:', error);
-     throw error;
-   
-  
+          // Only create attachments if there are valid uploads
+          ...(dto.attachments?.length && {
+            attachments: {
+              create: {
+                uploads: {
+                  connect: dto.attachments.map((id) => ({ id })),
+                },
+              },
+            },
+          }),
+        },
+        include: {
+          attachments: {
+            include: {
+              uploads: true,
+            },
+          },
+          brand: true,
+          category: true,
+          tags: true,
+        },
+      });
+
+      return {
+        success: true,
+        message: 'Product created successfully',
+        product: newProduct,
+      };
+    } catch (error) {
+      console.error('ERROR creating product:', error);
+      throw error;
+    }
   }
-}
- 
-// only show approved and available products
+
+  // only show approved and available products
   async list(query: ListProductQuery) {
     try {
       const page = Number(query.page) || 1;
@@ -663,41 +664,59 @@ export class ProductService {
           { description: { contains: query.search, mode: 'insensitive' } },
           { subText: { contains: query.search, mode: 'insensitive' } },
           { brand: { name: { contains: query.search, mode: 'insensitive' } } },
-          { category: { name: { contains: query.search, mode: 'insensitive' } } },
-          { tags: { some: { name: { contains: query.search, mode: 'insensitive' } } } },
+          {
+            category: { name: { contains: query.search, mode: 'insensitive' } },
+          },
+          {
+            tags: {
+              some: { name: { contains: query.search, mode: 'insensitive' } },
+            },
+          },
           { color: { contains: query.search, mode: 'insensitive' } },
           { composition: { contains: query.search, mode: 'insensitive' } },
         ];
       }
 
       if (query.color) {
-        const colors = query.color.split(',').map(s => s.trim());
+        const colors = query.color.split(',').map((s) => s.trim());
         where.color = { in: colors, mode: 'insensitive' };
       }
 
       if (query.size) {
-        const sizes = query.size.split(',').map(s => s.trim());
+        const sizes = query.size.split(',').map((s) => s.trim());
         where.measurement = { in: sizes, mode: 'insensitive' };
       }
 
       if (query.condition) {
-        const conditions = query.condition.split(',').map(s => s.trim());
-        where.condition = { in: conditions, mode: 'insensitive' };
+        const conditionMap: Record<string, string[]> = {
+          new: ['brand new', 'new', 'brand_new'],
+          'like new': ['like new', 'like_new', 'like new'],
+          good: ['good', 'great'],
+          fair: ['fair', 'okay'],
+          poor: ['poor', 'worn'],
+        };
+        const inputConditions = query.condition
+          .split(',')
+          .map((s) => s.trim().toLowerCase());
+        const mappedConditions = inputConditions.flatMap(
+          (c) => conditionMap[c] || [c],
+        );
+        where.condition = { in: mappedConditions, mode: 'insensitive' };
       }
 
       if (query.material) {
-        const materials = query.material.split(',').map(s => s.trim());
+        const materials = query.material.split(',').map((s) => s.trim());
         where.material = { in: materials, mode: 'insensitive' };
       }
 
       if (query.tags) {
-        const tags = query.tags.split(',').map(s => s.trim());
+        const tags = query.tags.split(',').map((s) => s.trim());
         where.tags = {
           some: {
-            OR: tags.map(tag => ({
-              name: { contains: tag, mode: 'insensitive' }
-            }))
-          }
+            OR: tags.map((tag) => ({
+              name: { contains: tag, mode: 'insensitive' },
+            })),
+          },
         };
       }
 
@@ -715,9 +734,9 @@ export class ProductService {
             orderBy = { dailyPrice: 'desc' };
             break;
           case 'popular':
-            // If we have a viewCount or similar, we can sort by it. 
+            // If we have a viewCount or similar, we can sort by it.
             // For now fallback to newest if not available.
-            orderBy = { favourites: { _count: 'desc' } }; 
+            orderBy = { favourites: { _count: 'desc' } };
             break;
           case 'rating':
             orderBy = { reviews: { _avg: { rating: 'desc' } } };
@@ -744,8 +763,8 @@ export class ProductService {
               },
             },
             _count: {
-               select: { favourites: true, reviews: true }
-            }
+              select: { favourites: true, reviews: true },
+            },
           },
         }),
         this.prisma.product.count({
@@ -779,7 +798,6 @@ export class ProductService {
     }
   }
 
-
   // Get pending products for admin review
   async getPendingProducts(query: ListProductQuery) {
     try {
@@ -796,7 +814,10 @@ export class ProductService {
             OR: [
               { status: ProductStatus.PENDING },
               // Fallback: include unverified products (created before status system)
-              { productVerified: false, status: { not: ProductStatus.APPROVED } },
+              {
+                productVerified: false,
+                status: { not: ProductStatus.APPROVED },
+              },
             ],
           },
           skip,
@@ -827,7 +848,10 @@ export class ProductService {
             OR: [
               { status: ProductStatus.PENDING },
               // Fallback: include unverified products (created before status system)
-              { productVerified: false, status: { not: ProductStatus.APPROVED } },
+              {
+                productVerified: false,
+                status: { not: ProductStatus.APPROVED },
+              },
             ],
           },
         }),
@@ -854,7 +878,9 @@ export class ProductService {
       };
     } catch (error) {
       console.error('Get pending products error:', error);
-      throw new InternalServerErrorException('Failed to retrieve pending products');
+      throw new InternalServerErrorException(
+        'Failed to retrieve pending products',
+      );
     }
   }
 
@@ -906,7 +932,9 @@ export class ProductService {
       };
     } catch (error) {
       console.error('Get user products error:', error);
-      throw new InternalServerErrorException('Failed to retrieve user products');
+      throw new InternalServerErrorException(
+        'Failed to retrieve user products',
+      );
     }
   }
 
@@ -1085,13 +1113,14 @@ export class ProductService {
       };
     } catch (error) {
       console.error('Get product statistics error:', error);
-      throw new InternalServerErrorException('Failed to retrieve product statistics');
+      throw new InternalServerErrorException(
+        'Failed to retrieve product statistics',
+      );
     }
   }
 
-    
   //  Get product by ID with detailed information
-   
+
   async findOne(id: string) {
     try {
       const product = await this.prisma.product.findUnique({
@@ -1123,18 +1152,17 @@ export class ProductService {
       };
     } catch (error) {
       console.error('Find one product error:', error);
-      
-      if (error instanceof NotFoundException || 
-          error instanceof BadRequestException) {
+
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException
+      ) {
         throw error;
       }
-      
+
       throw new InternalServerErrorException('Failed to retrieve product');
     }
   }
-  
-
-
 
   // Approve product (Admin only) - replaces verifyProduct
   async approveProduct(id: string, user: userEntity) {
@@ -1152,7 +1180,9 @@ export class ProductService {
       }
 
       if (product.status === ProductStatus.REJECTED) {
-        throw new BadRequestException('Cannot approve a rejected product. Please contact support.');
+        throw new BadRequestException(
+          'Cannot approve a rejected product. Please contact support.',
+        );
       }
 
       const approvedProduct = await this.prisma.product.update({
@@ -1181,13 +1211,15 @@ export class ProductService {
       };
     } catch (error) {
       console.error('Approve product error:', error);
-      
-      if (error instanceof ForbiddenException || 
-          error instanceof NotFoundException || 
-          error instanceof BadRequestException) {
+
+      if (
+        error instanceof ForbiddenException ||
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException
+      ) {
         throw error;
       }
-      
+
       throw new InternalServerErrorException('Failed to approve product');
     }
   }
@@ -1208,7 +1240,9 @@ export class ProductService {
       }
 
       if (product.status === ProductStatus.APPROVED) {
-        throw new BadRequestException('Cannot reject an approved product. Use delete instead.');
+        throw new BadRequestException(
+          'Cannot reject an approved product. Use delete instead.',
+        );
       }
 
       const rejectedProduct = await this.prisma.product.update({
@@ -1237,17 +1271,18 @@ export class ProductService {
       };
     } catch (error) {
       console.error('Reject product error:', error);
-      
-      if (error instanceof ForbiddenException || 
-          error instanceof NotFoundException || 
-          error instanceof BadRequestException) {
+
+      if (
+        error instanceof ForbiddenException ||
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException
+      ) {
         throw error;
       }
-      
+
       throw new InternalServerErrorException('Failed to reject product');
     }
   }
-
 
   // Toggle product availability (only for approved products)
   // Users can deactivate their approved products manually
@@ -1276,7 +1311,9 @@ export class ProductService {
       const isAdmin = userRecord?.role === 'ADMIN';
 
       if (!isOwner && !isAdmin) {
-        throw new ForbiddenException('You can only toggle availability of your own products');
+        throw new ForbiddenException(
+          'You can only toggle availability of your own products',
+        );
       }
 
       // Only AVAILABLE/UNAVAILABLE products can have availability toggled
@@ -1294,28 +1331,34 @@ export class ProductService {
       const updatedProduct = await this.prisma.product.update({
         where: { id },
         data: {
-          status: isAvailable ? ProductStatus.AVAILABLE : ProductStatus.UNAVAILABLE,
+          status: isAvailable
+            ? ProductStatus.AVAILABLE
+            : ProductStatus.UNAVAILABLE,
           isActive: isAvailable,
         },
       });
 
       return {
         success: true,
-        message: isAvailable 
-          ? 'Product marked as available' 
+        message: isAvailable
+          ? 'Product marked as available'
           : 'Product marked as unavailable',
         data: updatedProduct,
       };
     } catch (error) {
       console.error('Toggle availability error:', error);
-      
-      if (error instanceof NotFoundException || 
-          error instanceof ForbiddenException ||
-          error instanceof BadRequestException) {
+
+      if (
+        error instanceof NotFoundException ||
+        error instanceof ForbiddenException ||
+        error instanceof BadRequestException
+      ) {
         throw error;
       }
-      
-      throw new InternalServerErrorException('Failed to toggle product availability');
+
+      throw new InternalServerErrorException(
+        'Failed to toggle product availability',
+      );
     }
   }
 
@@ -1367,7 +1410,11 @@ export class ProductService {
       // try to set an empty string as a FK value (causes constraint violations).
       const optionalFkFields = ['brandId', 'categoryId'];
       for (const field of optionalFkFields) {
-        if (updateData[field] === '' || updateData[field] === null || updateData[field] === undefined) {
+        if (
+          updateData[field] === '' ||
+          updateData[field] === null ||
+          updateData[field] === undefined
+        ) {
           delete updateData[field];
         }
       }
@@ -1375,17 +1422,27 @@ export class ProductService {
       if (dto.attachments) {
         updateData.attachments = {
           upsert: {
-            create: { uploads: { connect: dto.attachments.map((id: string) => ({ id })) } },
-            update: { uploads: { set: dto.attachments.map((id: string) => ({ id })) } },
-          }
+            create: {
+              uploads: {
+                connect: dto.attachments.map((id: string) => ({ id })),
+              },
+            },
+            update: {
+              uploads: { set: dto.attachments.map((id: string) => ({ id })) },
+            },
+          },
         };
       }
 
       if (dto.tagids) {
-        const incomingTags = Array.isArray(dto.tagids) ? dto.tagids : [dto.tagids];
-        const tagsToSet = incomingTags.map((id: string) => typeof id === 'string' ? id.trim() : '').filter((id: string) => id.length > 0);
+        const incomingTags = Array.isArray(dto.tagids)
+          ? dto.tagids
+          : [dto.tagids];
+        const tagsToSet = incomingTags
+          .map((id: string) => (typeof id === 'string' ? id.trim() : ''))
+          .filter((id: string) => id.length > 0);
         updateData.tags = {
-          set: tagsToSet.map((id: string) => ({ id }))
+          set: tagsToSet.map((id: string) => ({ id })),
         };
         delete updateData.tagids;
       }
@@ -1412,17 +1469,18 @@ export class ProductService {
       };
     } catch (error) {
       console.error('Update product error:', error);
-      
-      if (error instanceof NotFoundException || 
-          error instanceof ForbiddenException ||
-          error instanceof BadRequestException) {
+
+      if (
+        error instanceof NotFoundException ||
+        error instanceof ForbiddenException ||
+        error instanceof BadRequestException
+      ) {
         throw error;
       }
-      
+
       throw new InternalServerErrorException('Failed to update product');
     }
   }
-  
 
   // product favourite
   async createProductFavourite(dto: CreateFavouriteDto, user: userEntity) {
@@ -1433,11 +1491,15 @@ export class ProductService {
       });
 
       if (!product) {
-        throw new NotFoundException(`Product with ID ${dto.productId} not found`);
+        throw new NotFoundException(
+          `Product with ID ${dto.productId} not found`,
+        );
       }
 
       if (!product.isActive) {
-        throw new BadRequestException('Cannot add inactive product to favourites');
+        throw new BadRequestException(
+          'Cannot add inactive product to favourites',
+        );
       }
 
       // Check if already in favourites
@@ -1460,9 +1522,7 @@ export class ProductService {
           productId: dto.productId,
         },
         include: {
-          product: {
-          
-          },
+          product: {},
         },
       });
 
@@ -1473,16 +1533,20 @@ export class ProductService {
       };
     } catch (error) {
       console.error('Create favourite error:', error);
-      
-      if (error instanceof NotFoundException || 
-          error instanceof BadRequestException) {
+
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException
+      ) {
         throw error;
       }
-      
-      throw new InternalServerErrorException('Failed to add product to favourites');
+
+      throw new InternalServerErrorException(
+        'Failed to add product to favourites',
+      );
     }
   }
-    // Get all favourite products for a user
+  // Get all favourite products for a user
   async findAllFavourite(user: userEntity) {
     try {
       const favourites = await this.prisma.favourite.findMany({
@@ -1490,9 +1554,7 @@ export class ProductService {
           userId: user.id,
         },
         include: {
-          product: {
-         
-          },
+          product: {},
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -1508,7 +1570,7 @@ export class ProductService {
       throw new InternalServerErrorException('Failed to retrieve favourites');
     }
   }
-  
+
   // Delete product: users can delete own, admins can delete any
   async remove(id: string, user: userEntity) {
     try {
@@ -1548,13 +1610,15 @@ export class ProductService {
       };
     } catch (error) {
       console.error('Delete product error:', error);
-      
-      if (error instanceof NotFoundException || 
-          error instanceof ForbiddenException || 
-          error instanceof BadRequestException) {
+
+      if (
+        error instanceof NotFoundException ||
+        error instanceof ForbiddenException ||
+        error instanceof BadRequestException
+      ) {
         throw error;
       }
-      
+
       throw new InternalServerErrorException('Failed to delete product');
     }
   }
@@ -1601,16 +1665,18 @@ export class ProductService {
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       const dateStr = d.toISOString().split('T')[0];
       const isBooked = rentals.some(
-        (r) =>
-          new Date(r.startDate) <= d &&
-          new Date(r.endDate) >= d,
+        (r) => new Date(r.startDate) <= d && new Date(r.endDate) >= d,
       );
 
       const dayOfWeek = d.toLocaleDateString('en-US', { weekday: 'long' });
       const monthKey = dateStr.slice(0, 7); // YYYY-MM
 
       if (!monthAvailability[monthKey]) {
-        monthAvailability[monthKey] = { total: 0, available: 0, unavailable: 0 };
+        monthAvailability[monthKey] = {
+          total: 0,
+          available: 0,
+          unavailable: 0,
+        };
       }
       monthAvailability[monthKey].total++;
 
@@ -1657,4 +1723,3 @@ export class ProductService {
     };
   }
 }
-

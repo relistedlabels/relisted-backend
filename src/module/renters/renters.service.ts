@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../../services/prisma/prisma.service';
 import { UploadService } from '../upload/upload.service';
 import { WemaServiceService } from '../../services/wema-service/wema-service.service';
@@ -14,7 +18,7 @@ export class RentersService {
     private prisma: PrismaService,
     private uploadService: UploadService,
     private wemaService: WemaServiceService,
-    private notificationService: NotificationService
+    private notificationService: NotificationService,
   ) {}
 
   async getDashboardSummary(userId: string, timeframe: string = 'month') {
@@ -28,11 +32,11 @@ export class RentersService {
     });
 
     const pendingReturnsCount = await this.prisma.rental.count({
-      where: { 
-        userId, 
+      where: {
+        userId,
         isReturned: false,
-        endDate: { lte: new Date() }
-      }
+        endDate: { lte: new Date() },
+      },
     });
 
     // Cast to any to avoid strict type checks on partial returns if needed
@@ -41,51 +45,61 @@ export class RentersService {
     });
 
     const favoriteItemsCount = await this.prisma.favourite.count({
-        where: { userId }
+      where: { userId },
     });
 
     return {
       success: true,
       data: {
         dashboard: {
-          activeRentals: { 
+          activeRentals: {
             count: activeRentals.length,
-            items: activeRentals.map(r => ({
-                orderId: r.order?.orderId || r.orderId,
-                itemName: r.product.name,
-                listerName: (r as any).curator?.name || 'Unknown',
-                rentalStartDate: r.startDate,
-                rentalEndDate: r.endDate,
-                daysRemaining: Math.ceil((new Date(r.endDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)),
-                status: 'active'
-            }))
+            items: activeRentals.map((r) => ({
+              orderId: r.order?.orderId || r.orderId,
+              itemName: r.product.name,
+              listerName: (r as any).curator?.name || 'Unknown',
+              rentalStartDate: r.startDate,
+              rentalEndDate: r.endDate,
+              daysRemaining: Math.ceil(
+                (new Date(r.endDate).getTime() - new Date().getTime()) /
+                  (1000 * 60 * 60 * 24),
+              ),
+              status: 'active',
+            })),
           },
           pendingReturns: {
             count: pendingReturnsCount,
-            dueDate: new Date().toISOString()
+            dueDate: new Date().toISOString(),
           },
           walletBalance: {
             amount: wallet?.availableBalance || 0,
-            currency: 'NGN'
+            currency: 'NGN',
           },
           totalSpent: {
-            amount: 0, 
-            currency: 'NGN'
+            amount: 0,
+            currency: 'NGN',
           },
           favoriteItems: favoriteItemsCount,
-          recentOrders: 5 
-        }
-      }
+          recentOrders: 5,
+        },
+      },
     };
   }
 
   async getProfile(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      include: { 
-        profile: { include: { address: true, avatarUpload: true, emergencyContact: true } },
-        virtualAccounts: true, bankAccounts:true
-      }
+      include: {
+        profile: {
+          include: {
+            address: true,
+            avatarUpload: true,
+            emergencyContact: true,
+          },
+        },
+        virtualAccounts: true,
+        bankAccounts: true,
+      },
     });
 
     if (!user) throw new NotFoundException('User not found');
@@ -101,59 +115,72 @@ export class RentersService {
           phone: user.profile?.phoneNumber,
           bvn: user.profile?.bvn,
           nin: user.profile?.nin,
-          virtualAccount: user.virtualAccounts?.[0] ? {
-            vaNumber: user.virtualAccounts[0].vaNumber,
-            bankName: "Wema Bank",
-            status: user.virtualAccounts[0].status
-          } : null,
+          virtualAccount: user.virtualAccounts?.[0]
+            ? {
+                vaNumber: user.virtualAccounts[0].vaNumber,
+                bankName: 'Wema Bank',
+                status: user.virtualAccounts[0].status,
+              }
+            : null,
           profileImage: user.profile?.avatarUpload?.url || null, // ensure it defaults to null
           dateJoined: user.createdAt,
           emergencyContact: user.profile?.emergencyContact || null,
           addresses: user.profile?.address ? [user.profile.address] : [],
-          bankAccountInfo: user.bankAccounts || [] 
-        }
-      }
+          bankAccountInfo: user.bankAccounts || [],
+        },
+      },
     };
   }
 
   async updateProfile(userId: string, updateData: any) {
-    const phoneToSet = updateData.phone !== undefined ? updateData.phone : updateData.phoneNumber;
-    const emergencyContactData = updateData.emergencyContact || updateData.emergencyContacts;
+    const phoneToSet =
+      updateData.phone !== undefined
+        ? updateData.phone
+        : updateData.phoneNumber;
+    const emergencyContactData =
+      updateData.emergencyContact || updateData.emergencyContacts;
 
     const profileUpdate: any = {};
     if (phoneToSet !== undefined) profileUpdate.phoneNumber = phoneToSet;
     if (updateData.bvn !== undefined) profileUpdate.bvn = updateData.bvn;
     if (updateData.nin !== undefined) profileUpdate.nin = updateData.nin;
-    
+
     if (emergencyContactData) {
       profileUpdate.emergencyContact = {
         upsert: {
           create: emergencyContactData,
-          update: emergencyContactData
-        }
+          update: emergencyContactData,
+        },
       };
     }
     if (updateData.businessInfo) {
       profileUpdate.businessInfo = {
         upsert: {
           create: updateData.businessInfo,
-          update: updateData.businessInfo
-        }
+          update: updateData.businessInfo,
+        },
       };
     }
     if (updateData.address) {
       profileUpdate.address = {
         upsert: {
           create: updateData.address,
-          update: updateData.address
-        }
+          update: updateData.address,
+        },
       };
     }
     if (updateData.avatarUploadId) {
-      profileUpdate.avatarUpload = { connect: { id: updateData.avatarUploadId } };
+      profileUpdate.avatarUpload = {
+        connect: { id: updateData.avatarUploadId },
+      };
     }
     if (updateData.bankAccountInfo) {
-      profileUpdate.bankAccounts = { upsert: { create: updateData.bankAccountInfo, update: updateData.bankAccountInfo } };
+      profileUpdate.bankAccounts = {
+        upsert: {
+          create: updateData.bankAccountInfo,
+          update: updateData.bankAccountInfo,
+        },
+      };
     }
 
     const profileCreate: any = {
@@ -162,22 +189,22 @@ export class RentersService {
       ...(updateData.nin && { nin: updateData.nin }),
       ...(emergencyContactData && {
         emergencyContact: {
-          create: emergencyContactData
-        }
+          create: emergencyContactData,
+        },
       }),
       ...(updateData.businessInfo && {
         businessInfo: {
-          create: updateData.businessInfo
-        }
+          create: updateData.businessInfo,
+        },
       }),
       ...(updateData.address && {
         address: {
-          create: updateData.address
-        }
+          create: updateData.address,
+        },
       }),
       ...(updateData.avatarUploadId && {
-        avatarUpload: { connect: { id: updateData.avatarUploadId } }
-      })
+        avatarUpload: { connect: { id: updateData.avatarUploadId } },
+      }),
     };
 
     const userDataUpdate: any = {};
@@ -185,30 +212,45 @@ export class RentersService {
       userDataUpdate.name = updateData.fullName || updateData.name;
     }
 
-    if (Object.keys(profileUpdate).length > 0 || Object.keys(profileCreate).length > 0) {
+    if (
+      Object.keys(profileUpdate).length > 0 ||
+      Object.keys(profileCreate).length > 0
+    ) {
       userDataUpdate.profile = {
         upsert: {
           create: profileCreate,
-          update: profileUpdate
-        }
+          update: profileUpdate,
+        },
       };
     }
 
     const user = await this.prisma.user.update({
       where: { id: userId },
       data: userDataUpdate,
-      include: { 
-        profile: { include: { emergencyContact: true, address: true, avatarUpload: true } },
-        virtualAccounts: true
-      }
+      include: {
+        profile: {
+          include: {
+            emergencyContact: true,
+            address: true,
+            avatarUpload: true,
+          },
+        },
+        virtualAccounts: true,
+      },
     });
 
-    if ((updateData.bvn || updateData.nin) && user.virtualAccounts?.length === 0) {
-        try {
-            await this.wemaService.createAccount(user as any, 0);
-        } catch (err: any) {
-            console.warn(`Failed to generate Virtual Account for ${userId}:`, err.message);
-        }
+    if (
+      (updateData.bvn || updateData.nin) &&
+      user.virtualAccounts?.length === 0
+    ) {
+      try {
+        await this.wemaService.createAccount(user as any, 0);
+      } catch (err: any) {
+        console.warn(
+          `Failed to generate Virtual Account for ${userId}:`,
+          err.message,
+        );
+      }
     }
 
     const bankInfo = updateData.bankAccountInfo || updateData.bankAccounts;
@@ -242,106 +284,116 @@ export class RentersService {
 
     // Refetch in case it was created
     const finalUser = await this.prisma.user.findUnique({
-        where: { id: userId },
-        include: { 
-            profile: { include: { emergencyContact: true, address: true, avatarUpload: true } },
-            virtualAccounts: true,
-            bankAccounts: true
-        }
+      where: { id: userId },
+      include: {
+        profile: {
+          include: {
+            emergencyContact: true,
+            address: true,
+            avatarUpload: true,
+          },
+        },
+        virtualAccounts: true,
+        bankAccounts: true,
+      },
     });
 
     return {
-        success: true,
-        message: "Profile updated successfully",
-        data: {
-            profile: {
-                userId: finalUser?.id,
-                fullName: finalUser?.name,
-                email: finalUser?.email,
-                phone: finalUser?.profile?.phoneNumber,
-                bvn: finalUser?.profile?.bvn,
-                nin: finalUser?.profile?.nin,
-                virtualAccount: finalUser?.virtualAccounts?.[0] ? {
-                  vaNumber: finalUser?.virtualAccounts[0].vaNumber,
-                  bankName: "Wema Bank",
-                  status: finalUser?.virtualAccounts[0].status
-                } : null,
-                profileImage: finalUser?.profile?.avatarUpload?.url || null,
-                emergencyContact: finalUser?.profile?.emergencyContact || null,
-                addresses: finalUser?.profile?.address ? [finalUser?.profile.address] : [],
-                bankAccountInfo: finalUser?.bankAccounts || [],
-                updatedAt: new Date(),
-            }
-        }
-    }
+      success: true,
+      message: 'Profile updated successfully',
+      data: {
+        profile: {
+          userId: finalUser?.id,
+          fullName: finalUser?.name,
+          email: finalUser?.email,
+          phone: finalUser?.profile?.phoneNumber,
+          bvn: finalUser?.profile?.bvn,
+          nin: finalUser?.profile?.nin,
+          virtualAccount: finalUser?.virtualAccounts?.[0]
+            ? {
+                vaNumber: finalUser?.virtualAccounts[0].vaNumber,
+                bankName: 'Wema Bank',
+                status: finalUser?.virtualAccounts[0].status,
+              }
+            : null,
+          profileImage: finalUser?.profile?.avatarUpload?.url || null,
+          emergencyContact: finalUser?.profile?.emergencyContact || null,
+          addresses: finalUser?.profile?.address
+            ? [finalUser?.profile.address]
+            : [],
+          bankAccountInfo: finalUser?.bankAccounts || [],
+          updatedAt: new Date(),
+        },
+      },
+    };
   }
 
   async getAddresses(userId: string) {
     const profile = await this.prisma.profile.findUnique({
       where: { userId },
-      include: { address: true }
+      include: { address: true },
     });
 
     return {
       success: true,
       data: {
         addresses: profile?.address ? [profile.address] : [],
-        total: profile?.address ? 1 : 0
-      }
+        total: profile?.address ? 1 : 0,
+      },
     };
   }
 
   async addAddress(userId: string, addressData: any) {
-     const profile = await this.prisma.profile.findUnique({where: {userId}});
-     if(!profile) throw new NotFoundException("Profile not found");
-     
-     const address = await this.prisma.address.upsert({
-         where: { profileId: profile.id },
-         create: {
-             profileId: profile.id,
-             street: addressData.street,
-             city: addressData.city,
-             state: addressData.state,
-             country: addressData.country,
-             zipCode: addressData.postalCode,
-             isDefault: addressData.isDefault
-         },
-         update: {
-             street: addressData.street,
-             city: addressData.city,
-             state: addressData.state,
-             country: addressData.country,
-             zipCode: addressData.postalCode,
-             isDefault: addressData.isDefault
-         }
-     });
+    const profile = await this.prisma.profile.findUnique({ where: { userId } });
+    if (!profile) throw new NotFoundException('Profile not found');
 
-     return {
-         success: true,
-         message: "Address added successfully",
-         data: { address }
-     };
+    const address = await this.prisma.address.upsert({
+      where: { profileId: profile.id },
+      create: {
+        profileId: profile.id,
+        street: addressData.street,
+        city: addressData.city,
+        state: addressData.state,
+        country: addressData.country,
+        zipCode: addressData.postalCode,
+        isDefault: addressData.isDefault,
+      },
+      update: {
+        street: addressData.street,
+        city: addressData.city,
+        state: addressData.state,
+        country: addressData.country,
+        zipCode: addressData.postalCode,
+        isDefault: addressData.isDefault,
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Address added successfully',
+      data: { address },
+    };
   }
 
   async getWallet(userId: string) {
     let wallet: any = await this.prisma.wallet.findUnique({
       where: { userId },
-      include: { transactions: { take: 1, orderBy: { createdAt: 'desc' } } }
+      include: { transactions: { take: 1, orderBy: { createdAt: 'desc' } } },
     });
 
     if (!wallet) {
-        wallet = await this.prisma.wallet.create({ data: { userId } });
-        wallet.transactions = [];
+      wallet = await this.prisma.wallet.create({ data: { userId } });
+      wallet.transactions = [];
     }
-    
+
     // Explicit casting to allow access to transactions if inferred type is incomplete due to include
     const safeWallet = wallet as any;
 
     const activeRentals = await this.prisma.rental.findMany({
-        where: { userId, isReturned: false },
-        include: { order: true }
+      where: { userId, isReturned: false },
+      include: { order: true },
     });
-    
+
     return {
       success: true,
       data: {
@@ -350,35 +402,40 @@ export class RentersService {
           userId: safeWallet.userId,
           balance: {
             availableBalance: safeWallet.availableBalance,
-            lockedBalance: safeWallet.collateralBalance, 
+            lockedBalance: safeWallet.collateralBalance,
             totalBalance: safeWallet.mainBalance,
             currency: 'NGN',
-            lastUpdated: safeWallet.updatedAt
+            lastUpdated: safeWallet.updatedAt,
           },
           lockedBreakdown: {
-              activeRentals: [], 
-              disputeHolds: [],
-              totalLockedAmount: 0
+            activeRentals: [],
+            disputeHolds: [],
+            totalLockedAmount: 0,
           },
           statistics: {
-              totalDeposits: 0,
-              totalSpent: 0,
-              totalRefunds: 0,
-              lifetimeTransactions: 0,
-              activeRentalOrders: activeRentals.length,
-              activeDisputes: 0
+            totalDeposits: 0,
+            totalSpent: 0,
+            totalRefunds: 0,
+            lifetimeTransactions: 0,
+            activeRentalOrders: activeRentals.length,
+            activeDisputes: 0,
           },
-          lastTransaction: safeWallet.transactions?.[0] ? {
-              type: safeWallet.transactions[0].amount < 0 ? 'debit' : 'credit', 
-              amount: Math.abs(safeWallet.transactions[0].amount),
-              description: safeWallet.transactions[0].note,
-              date: safeWallet.transactions[0].createdAt
-          } : null,
-          linkedBankAccounts: await (this.prisma as any).bankAccount.count({ where: { userId } }),
+          lastTransaction: safeWallet.transactions?.[0]
+            ? {
+                type:
+                  safeWallet.transactions[0].amount < 0 ? 'debit' : 'credit',
+                amount: Math.abs(safeWallet.transactions[0].amount),
+                description: safeWallet.transactions[0].note,
+                date: safeWallet.transactions[0].createdAt,
+              }
+            : null,
+          linkedBankAccounts: await (this.prisma as any).bankAccount.count({
+            where: { userId },
+          }),
           canWithdraw: true,
-          minimumFundsForTransaction: 1000
-        }
-      }
+          minimumFundsForTransaction: 1000,
+        },
+      },
     };
   }
 
@@ -388,171 +445,184 @@ export class RentersService {
     const skip = (page - 1) * limit;
 
     const [total, transactions] = await this.prisma.$transaction([
-        this.prisma.walletTransaction.count({ where: { wallet: { userId } } }),
-        this.prisma.walletTransaction.findMany({
-            where: { wallet: { userId } },
-            skip,
-            take: limit,
-            orderBy: { createdAt: 'desc' },
-            include: { order: { include: { orderItems: { include: { product: true }, take: 1 } } } }
-        })
+      this.prisma.walletTransaction.count({ where: { wallet: { userId } } }),
+      this.prisma.walletTransaction.findMany({
+        where: { wallet: { userId } },
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          order: {
+            include: { orderItems: { include: { product: true }, take: 1 } },
+          },
+        },
+      }),
     ]);
 
     return {
-        success: true,
-        data: {
-            transactions: transactions.map(t => ({
-                transactionId: t.id,
-                type: t.amount < 0 ? 'debit' : 'credit', 
-                amount: Math.abs(t.amount),
-                currency: 'NGN',
-                description: t.note,
-                orderId: t.orderId,
-                status: t.status,
-                timestamp: t.createdAt,
-                relatedOrder: t.order ? {
-                    orderId: t.order.orderId,
-                    itemName: t.order.orderItems[0]?.product.name || 'Unknown Item',
-                    listerName: 'Unknown' 
-                } : null
-            })),
-            totalTransactions: total,
-            page,
-            totalPages: Math.ceil(total / limit)
-        }
-    }
+      success: true,
+      data: {
+        transactions: transactions.map((t) => ({
+          transactionId: t.id,
+          type: t.amount < 0 ? 'debit' : 'credit',
+          amount: Math.abs(t.amount),
+          currency: 'NGN',
+          description: t.note,
+          orderId: t.orderId,
+          status: t.status,
+          timestamp: t.createdAt,
+          relatedOrder: t.order
+            ? {
+                orderId: t.order.orderId,
+                itemName: t.order.orderItems[0]?.product.name || 'Unknown Item',
+                listerName: 'Unknown',
+              }
+            : null,
+        })),
+        totalTransactions: total,
+        page,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   async getBankAccounts(userId: string) {
-      const accounts = await (this.prisma as any).bankAccount.findMany({ where: { userId } });
-      return {
-          success: true,
-          data: {
-              bankAccounts: accounts,
-              totalAccounts: accounts.length
-          }
-      }
+    const accounts = await (this.prisma as any).bankAccount.findMany({
+      where: { userId },
+    });
+    return {
+      success: true,
+      data: {
+        bankAccounts: accounts,
+        totalAccounts: accounts.length,
+      },
+    };
   }
 
   async getLockedBalances(userId: string) {
-      return {
-          success: true,
-          data: {
-              lockedBalances: {
-                  totalLocked: 0,
-                  currency: 'NGN',
-                  activeRentals: [],
-                  disputeHolds: [],
-                  lockReleaseSchedule: {
-                      nextReleaseDate: null,
-                      nextReleaseAmount: 0,
-                      upcomingReleases: []
-                  }
-              }
-          }
-      }
+    return {
+      success: true,
+      data: {
+        lockedBalances: {
+          totalLocked: 0,
+          currency: 'NGN',
+          activeRentals: [],
+          disputeHolds: [],
+          lockReleaseSchedule: {
+            nextReleaseDate: null,
+            nextReleaseAmount: 0,
+            upcomingReleases: [],
+          },
+        },
+      },
+    };
   }
-  
+
   async getWithdrawal(userId: string, withdrawalId: string) {
-      const withdrawal = await (this.prisma as any).withdrawalRequest.findFirst({
-          where: { id: withdrawalId, userId },
-          include: { bankAccount: true }
-      });
-      
-      if (!withdrawal) throw new NotFoundException('Withdrawal not found');
-      
-      return {
-          success: true,
-          data: {
-              withdrawal: {
-                  withdrawalId: withdrawal.id,
-                  amount: withdrawal.amount,
-                  currency: withdrawal.currency,
-                  bankAccount: {
-                      bankName: withdrawal.bankAccount.bankName,
-                      accountNumber: withdrawal.bankAccount.accountNumber,
-                      accountName: withdrawal.bankAccount.accountName
-                  },
-                  fee: withdrawal.fee,
-                  netAmount: withdrawal.netAmount,
-                  status: withdrawal.status, 
-                  estimatedDelivery: null,
-                  reference: withdrawal.reference,
-                  initiatedAt: withdrawal.createdAt,
-                  timeline: []
-              }
-          }
-      }
+    const withdrawal = await (this.prisma as any).withdrawalRequest.findFirst({
+      where: { id: withdrawalId, userId },
+      include: { bankAccount: true },
+    });
+
+    if (!withdrawal) throw new NotFoundException('Withdrawal not found');
+
+    return {
+      success: true,
+      data: {
+        withdrawal: {
+          withdrawalId: withdrawal.id,
+          amount: withdrawal.amount,
+          currency: withdrawal.currency,
+          bankAccount: {
+            bankName: withdrawal.bankAccount.bankName,
+            accountNumber: withdrawal.bankAccount.accountNumber,
+            accountName: withdrawal.bankAccount.accountName,
+          },
+          fee: withdrawal.fee,
+          netAmount: withdrawal.netAmount,
+          status: withdrawal.status,
+          estimatedDelivery: null,
+          reference: withdrawal.reference,
+          initiatedAt: withdrawal.createdAt,
+          timeline: [],
+        },
+      },
+    };
   }
 
-  async requestWithdrawal(userId: string, data: { amount: number, bankAccountId: string }) {
-      if (!data.amount || data.amount <= 0) {
-          throw new BadRequestException("Invalid withdrawal amount");
-      }
+  async requestWithdrawal(
+    userId: string,
+    data: { amount: number; bankAccountId: string },
+  ) {
+    if (!data.amount || data.amount <= 0) {
+      throw new BadRequestException('Invalid withdrawal amount');
+    }
 
-      const bankAccount = await (this.prisma as any).bankAccount.findFirst({
-          where: { id: data.bankAccountId, userId }
+    const bankAccount = await (this.prisma as any).bankAccount.findFirst({
+      where: { id: data.bankAccountId, userId },
+    });
+
+    if (!bankAccount) {
+      throw new BadRequestException('Invalid bank account linked to user');
+    }
+
+    const wallet = await (this.prisma as any).wallet.findUnique({
+      where: { userId },
+    });
+
+    if (!wallet || wallet.mainBalance < data.amount) {
+      throw new BadRequestException('Insufficient wallet balance');
+    }
+
+    const reference = `WD-${randomUUID().split('-')[0].toUpperCase()}`;
+
+    const withdrawal = await this.prisma.$transaction(async (tx) => {
+      // Deduct from wallet
+      await (tx as any).wallet.update({
+        where: { id: wallet.id },
+        data: {
+          mainBalance: { decrement: data.amount },
+        },
       });
 
-      if (!bankAccount) {
-          throw new BadRequestException("Invalid bank account linked to user");
-      }
-
-      const wallet = await (this.prisma as any).wallet.findUnique({ where: { userId } });
-      
-      if (!wallet || wallet.mainBalance < data.amount) {
-          throw new BadRequestException("Insufficient wallet balance");
-      }
-
-      const reference = `WD-${randomUUID().split("-")[0].toUpperCase()}`;
-
-      const withdrawal = await this.prisma.$transaction(async (tx) => {
-          // Deduct from wallet
-          await (tx as any).wallet.update({
-              where: { id: wallet.id },
-              data: {
-                  mainBalance: { decrement: data.amount }
-              }
-          });
-
-          // Create transaction record
-          await (tx as any).walletTransaction.create({
-              data: {
-                  walletId: wallet.id,
-                  type: "MAIN",
-                  amount: -data.amount,
-                  status: "SUCCESS",
-                  note: `Withdrawal request to ${bankAccount.bankName} (Ref: ${reference})`
-              }
-          });
-
-          // Create withdrawal request
-          return await (tx as any).withdrawalRequest.create({
-              data: {
-                  userId,
-                  amount: data.amount,
-                  netAmount: data.amount,
-                  currency: "NGN",
-                  bankAccountId: data.bankAccountId,
-                  status: "PENDING",
-                  reference
-              }
-          });
+      // Create transaction record
+      await (tx as any).walletTransaction.create({
+        data: {
+          walletId: wallet.id,
+          type: 'MAIN',
+          amount: -data.amount,
+          status: 'SUCCESS',
+          note: `Withdrawal request to ${bankAccount.bankName} (Ref: ${reference})`,
+        },
       });
 
-      return {
-          success: true,
-          message: "Withdrawal request submitted successfully",
-          data: {
-              withdrawal: {
-                  withdrawalId: withdrawal.id,
-                  amount: withdrawal.amount,
-                  status: withdrawal.status,
-                  reference: withdrawal.reference,
-                  initiatedAt: withdrawal.createdAt
-              }
-          }
-      }
+      // Create withdrawal request
+      return await (tx as any).withdrawalRequest.create({
+        data: {
+          userId,
+          amount: data.amount,
+          netAmount: data.amount,
+          currency: 'NGN',
+          bankAccountId: data.bankAccountId,
+          status: 'PENDING',
+          reference,
+        },
+      });
+    });
+
+    return {
+      success: true,
+      message: 'Withdrawal request submitted successfully',
+      data: {
+        withdrawal: {
+          withdrawalId: withdrawal.id,
+          amount: withdrawal.amount,
+          status: withdrawal.status,
+          reference: withdrawal.reference,
+          initiatedAt: withdrawal.createdAt,
+        },
+      },
+    };
   }
 
   /* rental requests support */
@@ -574,43 +644,45 @@ export class RentersService {
         deliveryAddressId: data.deliveryAddressId,
         autoPay: data.autoPay || false,
       },
-      include: { 
-        product: { include: { curator: true } }
+      include: {
+        product: { include: { curator: true } },
       },
     });
 
-    const userObj = await this.prisma.user.findUnique({ where: { id: userId } });
+    const userObj = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
 
     // Notify Lister
     await this.notificationService.createNotification({
-        userId: request.listerId,
-        title: "New Rental Request",
-        message: `You have a new rental request for ${request.product?.name} from ${userObj?.name || 'a user'}.`,
-        type: "RENTAL_REQUEST",
-        metadata: { requestId: request.id, productId: request.productId },
-        sendEmail: true,
-        emailData: {
-            email: request.product?.curator?.email,
-            listerName: request.product?.curator?.name,
-            renterName: userObj?.name || 'A user',
-            productName: request.product?.name,
-            requestId: request.id,
-            rentalDays: request.rentalDays,
-            totalPrice: request.totalPrice,
-            startDate: request.startDate ? request.startDate.toDateString() : 'N/A',
-            endDate: request.endDate ? request.endDate.toDateString() : 'N/A',
-            viewLink: `${process.env.CLIENT_URL}/lister/requests/${request.id}`,
-        }
+      userId: request.listerId,
+      title: 'New Rental Request',
+      message: `You have a new rental request for ${request.product?.name} from ${userObj?.name || 'a user'}.`,
+      type: 'RENTAL_REQUEST',
+      metadata: { requestId: request.id, productId: request.productId },
+      sendEmail: true,
+      emailData: {
+        email: request.product?.curator?.email,
+        listerName: request.product?.curator?.name,
+        renterName: userObj?.name || 'A user',
+        productName: request.product?.name,
+        requestId: request.id,
+        rentalDays: request.rentalDays,
+        totalPrice: request.totalPrice,
+        startDate: request.startDate ? request.startDate.toDateString() : 'N/A',
+        endDate: request.endDate ? request.endDate.toDateString() : 'N/A',
+        viewLink: `${process.env.CLIENT_URL}/lister/requests/${request.id}`,
+      },
     });
 
     // Notify Renter
     await this.notificationService.createNotification({
-        userId: userId,
-        title: "Rental Request Sent",
-        message: `Your rental request for ${request.product?.name} has been sent to the lister.`,
-        type: "RENTAL_REQUEST_SENT",
-        metadata: { requestId: request.id, productId: request.productId },
-        sendEmail: true 
+      userId: userId,
+      title: 'Rental Request Sent',
+      message: `Your rental request for ${request.product?.name} has been sent to the lister.`,
+      type: 'RENTAL_REQUEST_SENT',
+      metadata: { requestId: request.id, productId: request.productId },
+      sendEmail: true,
     });
 
     // build response similar to spec sample
@@ -705,9 +777,18 @@ export class RentersService {
     });
 
     // summary hack - simple totals
-    const subtotal = items.reduce((sum: number, i: any) => sum + i.rentalPrice, 0);
-    const totalDeliveryFee = items.reduce((sum: number, i: any) => sum + i.deliveryFee, 0);
-    const totalCleaningFee = items.reduce((sum: number, i: any) => sum + i.cleaningFee, 0);
+    const subtotal = items.reduce(
+      (sum: number, i: any) => sum + i.rentalPrice,
+      0,
+    );
+    const totalDeliveryFee = items.reduce(
+      (sum: number, i: any) => sum + i.deliveryFee,
+      0,
+    );
+    const totalCleaningFee = items.reduce(
+      (sum: number, i: any) => sum + i.cleaningFee,
+      0,
+    );
     const cartTotal = subtotal + totalDeliveryFee + totalCleaningFee;
 
     return {
@@ -733,7 +814,8 @@ export class RentersService {
       where: { id: requestId },
       include: { product: { include: { curator: true } } },
     });
-    if (!r || r.requesterId !== userId) throw new NotFoundException('Request not found');
+    if (!r || r.requesterId !== userId)
+      throw new NotFoundException('Request not found');
     const diff = Math.max(
       0,
       Math.floor((new Date(r.expiresAt).getTime() - Date.now()) / 1000),
@@ -754,7 +836,10 @@ export class RentersService {
           totalPrice: r.totalPrice || 0,
           currency: 'NGN',
           autoPay: r.autoPay,
-          status: r.status === 'PENDING' ? 'pending_lister_approval' : r.status.toLowerCase(),
+          status:
+            r.status === 'PENDING'
+              ? 'pending_lister_approval'
+              : r.status.toLowerCase(),
           requestCreatedAt: r.createdAt,
           expiresAt: r.expiresAt,
           timeRemainingSeconds: diff,
@@ -768,10 +853,15 @@ export class RentersService {
   }
 
   async deleteRentalRequest(userId: string, requestId: string) {
-    const r: any = await this.prisma.availabilityRequest.findUnique({ where: { id: requestId } });
-    if (!r || r.requesterId !== userId) throw new NotFoundException('Request not found');
+    const r: any = await this.prisma.availabilityRequest.findUnique({
+      where: { id: requestId },
+    });
+    if (!r || r.requesterId !== userId)
+      throw new NotFoundException('Request not found');
     await this.prisma.availabilityRequest.delete({ where: { id: requestId } });
-    const remaining = await this.prisma.availabilityRequest.count({ where: { requesterId: userId, status: 'PENDING' } });
+    const remaining = await this.prisma.availabilityRequest.count({
+      where: { requesterId: userId, status: 'PENDING' },
+    });
     return {
       success: true,
       message: 'Request removed from cart successfully',
@@ -785,9 +875,15 @@ export class RentersService {
   }
 
   async confirmRentalRequest(userId: string, requestId: string, body: any) {
-    const r: any = await this.prisma.availabilityRequest.findUnique({ where: { id: requestId } });
-    if (!r || r.requesterId !== userId) throw new NotFoundException('Request not found');
-    if (r.status !== 'ACCEPTED') throw new BadRequestException('Lister has not approved or request expired');
+    const r: any = await this.prisma.availabilityRequest.findUnique({
+      where: { id: requestId },
+    });
+    if (!r || r.requesterId !== userId)
+      throw new NotFoundException('Request not found');
+    if (r.status !== 'ACCEPTED')
+      throw new BadRequestException(
+        'Lister has not approved or request expired',
+      );
     // create a basic order record
     const order = await this.prisma.order.create({
       data: {
@@ -801,11 +897,17 @@ export class RentersService {
         orderId: order.id,
         productId: r.productId,
         days: r.rentalDays || 0,
-        pricePerDay: r.totalPrice && r.rentalDays ? Math.round(r.totalPrice / r.rentalDays) : 0,
+        pricePerDay:
+          r.totalPrice && r.rentalDays
+            ? Math.round(r.totalPrice / r.rentalDays)
+            : 0,
       },
     });
     // update request record to avoid reuse
-    await this.prisma.availabilityRequest.update({ where: { id: requestId }, data: { status: 'EXPIRED' } });
+    await this.prisma.availabilityRequest.update({
+      where: { id: requestId },
+      data: { status: 'EXPIRED' },
+    });
 
     return {
       success: true,
@@ -829,193 +931,247 @@ export class RentersService {
   }
 
   async uploadAvatar(userId: string, file: Express.Multer.File) {
-      if (!file) throw new BadRequestException('No file provided');
+    if (!file) throw new BadRequestException('No file provided');
 
-      const profile = await this.prisma.profile.findUnique({ where: { userId } });
-      if (!profile) throw new NotFoundException('Profile not found');
+    const profile = await this.prisma.profile.findUnique({ where: { userId } });
+    if (!profile) throw new NotFoundException('Profile not found');
 
-      const uploadId = randomUUID();
-      const mockUser = { id: userId, email: '', sub: userId } as any; 
-      
-      const uploadedFile = await this.uploadService.uploadFile(uploadId, file, mockUser);
+    const uploadId = randomUUID();
+    const mockUser = { id: userId, email: '', sub: userId } as any;
 
-      await this.prisma.profile.update({
-          where: { id: profile.id },
-          data: { avatarUploadId: uploadedFile.id }
-      });
+    const uploadedFile = await this.uploadService.uploadFile(
+      uploadId,
+      file,
+      mockUser,
+    );
 
-      return {
-          success: true,
-          message: "Profile avatar updated successfully",
-          data: {
-              profileImage: uploadedFile.url,
-              uploadedAt: uploadedFile.createdAt
-          }
-      }
+    await this.prisma.profile.update({
+      where: { id: profile.id },
+      data: { avatarUploadId: uploadedFile.id },
+    });
+
+    return {
+      success: true,
+      message: 'Profile avatar updated successfully',
+      data: {
+        profileImage: uploadedFile.url,
+        uploadedAt: uploadedFile.createdAt,
+      },
+    };
   }
 
   async getOrders(userId: string, query: any) {
-      const page = Number(query.page) || 1;
-      const limit = Number(query.limit) || 10;
-      const skip = (page - 1) * limit;
-      const status = query.status; 
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 10;
+    const skip = (page - 1) * limit;
+    const status = query.status;
 
-      const where: any = { userId };
-      if (status === 'active') where.status = { in: ['CONFIRMED', 'IN_TRANSIT', 'DELIVERED', 'ACTIVE', 'PROCESSING', 'ACCEPTED', 'RETURN_DUE'] };
-      if (status === 'completed') where.status = 'COMPLETED';
-      if (status === 'cancelled') where.status = 'CANCELLED';
+    const where: any = { userId };
+    if (status === 'active')
+      where.status = {
+        in: [
+          'CONFIRMED',
+          'IN_TRANSIT',
+          'DELIVERED',
+          'ACTIVE',
+          'PROCESSING',
+          'ACCEPTED',
+          'RETURN_DUE',
+        ],
+      };
+    if (status === 'completed') where.status = 'COMPLETED';
+    if (status === 'cancelled') where.status = 'CANCELLED';
 
-      const [total, orders] = await this.prisma.$transaction([
-          this.prisma.order.count({ where }),
-          this.prisma.order.findMany({
-              where,
-              skip,
-              take: limit,
-              orderBy: { createdAt: 'desc' },
-              include: { orderItems: true, rentals: true } as any          })
-      ]);
+    const [total, orders] = await this.prisma.$transaction([
+      this.prisma.order.count({ where }),
+      this.prisma.order.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: { orderItems: true, rentals: true } as any,
+      }),
+    ]);
 
-      const typedOrders = orders as any[];
+    const typedOrders = orders as any[];
 
-      return {
-          success: true,
-          data: {
-              orders: typedOrders.map(o => {
-                  const totalAmount = o.totalAmountPaid || o.rentals?.[0]?.totalAmount || o.orderItems.reduce((sum: number, item: any) => sum + (item.pricePerDay * item.days), 0);
-                  const firstItem = o.orderItems[0];
-                  const image = firstItem?.imageUrl || null;
-                  
-                  return {
-                      orderId: o.orderId,
-                      items: o.orderItems.map((i: any) => i.product?.name || 'Item'), // Note: product name might not be persisted in OrderItem yet, but OrderItem should have it via relation or we should have saved it.
-                      totalAmount: totalAmount,
-                      status: o.status,
-                      date: o.createdAt,
-                      image: image,
-                      listerName: o.listerBusinessName || 'Unknown'
-                  };
-              }),
-              totalOrders: total,
-              page,
-              totalPages: Math.ceil(total / limit)
-          }
-      }
+    return {
+      success: true,
+      data: {
+        orders: typedOrders.map((o) => {
+          const totalAmount =
+            o.totalAmountPaid ||
+            o.rentals?.[0]?.totalAmount ||
+            o.orderItems.reduce(
+              (sum: number, item: any) => sum + item.pricePerDay * item.days,
+              0,
+            );
+          const firstItem = o.orderItems[0];
+          const image = firstItem?.imageUrl || null;
+
+          return {
+            orderId: o.orderId,
+            items: o.orderItems.map((i: any) => i.product?.name || 'Item'), // Note: product name might not be persisted in OrderItem yet, but OrderItem should have it via relation or we should have saved it.
+            totalAmount: totalAmount,
+            status: o.status,
+            date: o.createdAt,
+            image: image,
+            listerName: o.listerBusinessName || 'Unknown',
+          };
+        }),
+        totalOrders: total,
+        page,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   async getOrder(userId: string, orderId: string) {
-      const order = await this.prisma.order.findUnique({
-          where: { orderId },
-          include: { 
-              orderItems: { include: { product: { include: { attachments: { include: { uploads: true } }, tags: true, curator: { include: { profile: { include: { avatarUpload: true } } } } } } } },
-              rentals: true,
-              user: { include: { profile: { include: { address: true } } } }
-          } as any      });
+    const order = await this.prisma.order.findUnique({
+      where: { orderId },
+      include: {
+        orderItems: {
+          include: {
+            product: {
+              include: {
+                attachments: { include: { uploads: true } },
+                tags: true,
+                curator: {
+                  include: { profile: { include: { avatarUpload: true } } },
+                },
+              },
+            },
+          },
+        },
+        rentals: true,
+        user: { include: { profile: { include: { address: true } } } },
+      } as any,
+    });
 
-      if (!order || order.userId !== userId) throw new NotFoundException('Order not found');
-      
-      const typedOrder = order as any;
-      const totalAmount = typedOrder.totalAmountPaid || typedOrder.rentals?.[0]?.totalAmount || typedOrder.orderItems.reduce((sum: number, item: any) => sum + (item.pricePerDay * item.days), 0);
+    if (!order || order.userId !== userId)
+      throw new NotFoundException('Order not found');
 
-      return {
-          success: true,
-          data: {
-              order: {
-                  orderId: typedOrder.orderId,
-                  status: typedOrder.status,
-                  createdAt: typedOrder.createdAt,
-                  totalAmount: totalAmount,
-                  rentalStartDate: typedOrder.rentals?.[0]?.startDate || null,
-                  rentalEndDate: typedOrder.rentals?.[0]?.endDate || null,
-                  deliveryFee: typedOrder.deliveryFee || 0, 
-                  serviceFee: typedOrder.serviceFee || 0, 
-                  lister: {
-                      userId: typedOrder.listerId || typedOrder.orderItems?.[0]?.product?.curator?.id,
-                      businessName: typedOrder.listerBusinessName || typedOrder.orderItems?.[0]?.product?.curator?.name,
-                      rating: typedOrder.listerRating || 0,
-                      imageUrl: typedOrder.listerImage || typedOrder.orderItems?.[0]?.product?.curator?.profile?.avatarUpload?.url || null
-                  },
-                  items: typedOrder.orderItems.map((i: any) => ({
-                      id: i.product?.id || i.productId,
-                      name: i.product?.name || 'Unknown',
-                      price: i.pricePerDay,
-                      quantity: i.days,
-                      imageUrl: i.imageUrl || i.product?.attachments?.uploads?.[0]?.url || (i.product as any)?.images?.[0] || null,
-                      rentalFee: i.rentalFee || (i.pricePerDay * i.days),
-                      cleaningFee: i.cleaningFee || 0,
-                      collateralFee: i.collateralFee || 0,
-                      rentalStartDate: typedOrder.rentals?.[0]?.startDate || null,
-                      rentalEndDate: typedOrder.rentals?.[0]?.endDate || null,
-                  })),
-                  shippingAddress: typedOrder.user.profile?.address || null, 
-                  tracking: {
-                      status: typedOrder.status,
-                      updates: [] 
-                  }
-              }
-          }
-      }
+    const typedOrder = order as any;
+    const totalAmount =
+      typedOrder.totalAmountPaid ||
+      typedOrder.rentals?.[0]?.totalAmount ||
+      typedOrder.orderItems.reduce(
+        (sum: number, item: any) => sum + item.pricePerDay * item.days,
+        0,
+      );
+
+    return {
+      success: true,
+      data: {
+        order: {
+          orderId: typedOrder.orderId,
+          status: typedOrder.status,
+          createdAt: typedOrder.createdAt,
+          totalAmount: totalAmount,
+          rentalStartDate: typedOrder.rentals?.[0]?.startDate || null,
+          rentalEndDate: typedOrder.rentals?.[0]?.endDate || null,
+          deliveryFee: typedOrder.deliveryFee || 0,
+          serviceFee: typedOrder.serviceFee || 0,
+          lister: {
+            userId:
+              typedOrder.listerId ||
+              typedOrder.orderItems?.[0]?.product?.curator?.id,
+            businessName:
+              typedOrder.listerBusinessName ||
+              typedOrder.orderItems?.[0]?.product?.curator?.name,
+            rating: typedOrder.listerRating || 0,
+            imageUrl:
+              typedOrder.listerImage ||
+              typedOrder.orderItems?.[0]?.product?.curator?.profile
+                ?.avatarUpload?.url ||
+              null,
+          },
+          items: typedOrder.orderItems.map((i: any) => ({
+            id: i.product?.id || i.productId,
+            name: i.product?.name || 'Unknown',
+            price: i.pricePerDay,
+            quantity: i.days,
+            imageUrl:
+              i.imageUrl ||
+              i.product?.attachments?.uploads?.[0]?.url ||
+              (i.product as any)?.images?.[0] ||
+              null,
+            rentalFee: i.rentalFee || i.pricePerDay * i.days,
+            cleaningFee: i.cleaningFee || 0,
+            collateralFee: i.collateralFee || 0,
+            rentalStartDate: typedOrder.rentals?.[0]?.startDate || null,
+            rentalEndDate: typedOrder.rentals?.[0]?.endDate || null,
+          })),
+          shippingAddress: typedOrder.user.profile?.address || null,
+          tracking: {
+            status: typedOrder.status,
+            updates: [],
+          },
+        },
+      },
+    };
   }
 
   async updateOrderTracking(userId: string, orderId: string, data: any) {
-      return {
-          success: true,
-          message: "Order updated"
-      }
+    return {
+      success: true,
+      message: 'Order updated',
+    };
   }
 
   async getFavorites(userId: string, query: any) {
-      const page = Number(query.page) || 1;
-      const limit = Number(query.limit) || 20;
-      const skip = (page - 1) * limit;
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 20;
+    const skip = (page - 1) * limit;
 
-      const [total, favorites] = await this.prisma.$transaction([
-          this.prisma.favourite.count({ where: { userId } }),
-          this.prisma.favourite.findMany({
-              where: { userId },
-              skip,
-              take: limit,
-              orderBy: { createdAt: 'desc' },
-              include: { product: true } 
-          })
-      ]);
+    const [total, favorites] = await this.prisma.$transaction([
+      this.prisma.favourite.count({ where: { userId } }),
+      this.prisma.favourite.findMany({
+        where: { userId },
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: { product: true },
+      }),
+    ]);
 
-      const typedFavorites = favorites as any[];
+    const typedFavorites = favorites as any[];
 
-      return {
-          success: true,
-          data: {
-              favorites: typedFavorites.map(f => ({
-                  favoriteId: f.id,
-                  productId: f.product.id,
-                  productName: f.product.name,
-                  productImage: f.product.images?.[0] || null,
-                  addedAt: f.createdAt
-              })),
-              totalFavorites: total,
-              page,
-              totalPages: Math.ceil(total / limit)
-          }
-      }
+    return {
+      success: true,
+      data: {
+        favorites: typedFavorites.map((f) => ({
+          favoriteId: f.id,
+          productId: f.product.id,
+          productName: f.product.name,
+          productImage: f.product.images?.[0] || null,
+          addedAt: f.createdAt,
+        })),
+        totalFavorites: total,
+        page,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   async addFavorite(userId: string, productId: string) {
-      return this.prisma.favourite.create({
-          data: {
-              userId,
-              productId
-          }
-      })
+    return this.prisma.favourite.create({
+      data: {
+        userId,
+        productId,
+      },
+    });
   }
 
   async removeFavorite(userId: string, productId: string) {
-      return this.prisma.favourite.delete({
-          where: {
-              userId_productId: {
-                  userId,
-                  productId
-              }
-          }
-      })
+    return this.prisma.favourite.delete({
+      where: {
+        userId_productId: {
+          userId,
+          productId,
+        },
+      },
+    });
   }
 
   /* account & settings */
@@ -1164,8 +1320,10 @@ export class RentersService {
     const updated = await this.prisma.notificationSettings.update({
       where: { userId },
       data: {
-        emailAlertsEnabled: data.emailAlerts ?? notifSettings.emailAlertsEnabled,
-        marketingEmailsEnabled: data.marketingEmails ?? notifSettings.marketingEmailsEnabled,
+        emailAlertsEnabled:
+          data.emailAlerts ?? notifSettings.emailAlertsEnabled,
+        marketingEmailsEnabled:
+          data.marketingEmails ?? notifSettings.marketingEmailsEnabled,
         smsUpdatesEnabled: data.smsUpdates ?? notifSettings.smsUpdatesEnabled,
       },
     });
@@ -1209,7 +1367,8 @@ export class RentersService {
           inReviewDisputes: inReview,
           resolvedDisputes: resolved,
           averageResolutionTime: '3 days',
-          resolutionRate: total > 0 ? `${Math.round((resolved / total) * 100)}%` : '0%',
+          resolutionRate:
+            total > 0 ? `${Math.round((resolved / total) * 100)}%` : '0%',
         },
       },
     };
@@ -1238,7 +1397,11 @@ export class RentersService {
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
-        include: { order: { include: { orderItems: { include: { product: true }, take: 1 } } } },
+        include: {
+          order: {
+            include: { orderItems: { include: { product: true }, take: 1 } },
+          },
+        },
       }),
     ]);
 
@@ -1278,7 +1441,8 @@ export class RentersService {
     const order = await this.prisma.order.findUnique({
       where: { orderId: data.orderId },
     });
-    if (!order || order.userId !== userId) throw new NotFoundException('Order not found');
+    if (!order || order.userId !== userId)
+      throw new NotFoundException('Order not found');
 
     const dispute = await this.prisma.dispute.create({
       data: {
@@ -1317,7 +1481,8 @@ export class RentersService {
       },
     });
 
-    if (!dispute || dispute.userId !== userId) throw new NotFoundException('Dispute not found');
+    if (!dispute || dispute.userId !== userId)
+      throw new NotFoundException('Dispute not found');
 
     return {
       success: true,
@@ -1347,10 +1512,13 @@ export class RentersService {
   async getDisputeOverview(userId: string, disputeId: string) {
     const dispute = await this.prisma.dispute.findUnique({
       where: { disputeId },
-      include: { order: { include: { orderItems: { include: { product: true } } } } },
+      include: {
+        order: { include: { orderItems: { include: { product: true } } } },
+      },
     });
 
-    if (!dispute || dispute.userId !== userId) throw new NotFoundException('Dispute not found');
+    if (!dispute || dispute.userId !== userId)
+      throw new NotFoundException('Dispute not found');
 
     return {
       success: true,
@@ -1374,10 +1542,11 @@ export class RentersService {
       include: { attachment: { include: { uploads: true } } },
     });
 
-    if (!dispute || dispute.userId !== userId) throw new NotFoundException('Dispute not found');
+    if (!dispute || dispute.userId !== userId)
+      throw new NotFoundException('Dispute not found');
 
     const files = dispute.attachment?.uploads
-      ? dispute.attachment.uploads.map(upload => ({
+      ? dispute.attachment.uploads.map((upload) => ({
           fileId: upload.id,
           fileName: upload.name,
           fileType: upload.type, // Could map to 'image' if needed
@@ -1397,7 +1566,8 @@ export class RentersService {
       where: { disputeId },
     });
 
-    if (!dispute || dispute.userId !== userId) throw new NotFoundException('Dispute not found');
+    if (!dispute || dispute.userId !== userId)
+      throw new NotFoundException('Dispute not found');
 
     return {
       success: true,
@@ -1421,9 +1591,12 @@ export class RentersService {
   }
 
   async getDisputeResolution(userId: string, disputeId: string) {
-    const dispute = await this.prisma.dispute.findUnique({ where: { disputeId } });
+    const dispute = await this.prisma.dispute.findUnique({
+      where: { disputeId },
+    });
 
-    if (!dispute || dispute.userId !== userId) throw new NotFoundException('Dispute not found');
+    if (!dispute || dispute.userId !== userId)
+      throw new NotFoundException('Dispute not found');
 
     return {
       success: true,
@@ -1440,7 +1613,8 @@ export class RentersService {
               ? 'Dispute resolved in favor of renter. Full refund approved.'
               : 'Your dispute is currently being reviewed by our team',
           refundAmount: dispute.status === 'RESELOVED' ? 8500 : null,
-          refundDate: dispute.status === 'RESELOVED' ? new Date().toISOString() : null,
+          refundDate:
+            dispute.status === 'RESELOVED' ? new Date().toISOString() : null,
         },
       },
     };
@@ -1449,10 +1623,13 @@ export class RentersService {
   async getDisputeMessages(userId: string, disputeId: string) {
     const dispute = await this.prisma.dispute.findUnique({
       where: { disputeId },
-      include: { chatRooms: { include: { message: { orderBy: { createdAt: 'asc' } } } } },
+      include: {
+        chatRooms: { include: { message: { orderBy: { createdAt: 'asc' } } } },
+      },
     });
 
-    if (!dispute || dispute.userId !== userId) throw new NotFoundException('Dispute not found');
+    if (!dispute || dispute.userId !== userId)
+      throw new NotFoundException('Dispute not found');
 
     const messages: any[] = dispute.chatRooms
       ? dispute.chatRooms.message.map((m: any) => ({
@@ -1479,9 +1656,11 @@ export class RentersService {
       include: { chatRooms: true },
     });
 
-    if (!dispute || dispute.userId !== userId) throw new NotFoundException('Dispute not found');
+    if (!dispute || dispute.userId !== userId)
+      throw new NotFoundException('Dispute not found');
 
-    if (!dispute.chatRooms) throw new BadRequestException('Chat room not initialized');
+    if (!dispute.chatRooms)
+      throw new BadRequestException('Chat room not initialized');
 
     const msg = await this.prisma.message.create({
       data: {
@@ -1511,7 +1690,8 @@ export class RentersService {
       include: { rentals: true } as any,
     });
 
-    if (!order || order.userId !== userId) throw new NotFoundException('Order not found');
+    if (!order || order.userId !== userId)
+      throw new NotFoundException('Order not found');
 
     return {
       success: true,
@@ -1550,7 +1730,8 @@ export class RentersService {
       where: { orderId },
     });
 
-    if (!order || order.userId !== userId) throw new NotFoundException('Order not found');
+    if (!order || order.userId !== userId)
+      throw new NotFoundException('Order not found');
 
     return {
       success: true,
@@ -1573,7 +1754,12 @@ export class RentersService {
     };
   }
 
-  async readyToReturn(userId: string, orderId: string, files: Express.Multer.File[], data: any) {
+  async readyToReturn(
+    userId: string,
+    orderId: string,
+    files: Express.Multer.File[],
+    data: any,
+  ) {
     const order = await this.prisma.order.findUnique({
       where: { orderId }, // Use orderId mapping
       include: { returnRequest: true },
@@ -1588,7 +1774,9 @@ export class RentersService {
     }
 
     if (order.returnRequest) {
-        throw new BadRequestException('Return request already exists for this order');
+      throw new BadRequestException(
+        'Return request already exists for this order',
+      );
     }
 
     const imageUrls: string[] = [];
@@ -1598,28 +1786,28 @@ export class RentersService {
         const upload = await this.uploadService.uploadFile(
           randomUUID(),
           file,
-          user as any
+          user as any,
         );
         imageUrls.push(upload.url);
       }
     }
 
     const [returnRequest] = await this.prisma.$transaction([
-        this.prisma.returnRequest.create({
-            data: {
-              orderId: order.id,
-              itemCondition: (data.itemCondition || 'GOOD').toUpperCase() as any,
-              damageNotes: data.damageNotes,
-              imageUrls,
-            },
-        }),
-        this.prisma.order.update({
-            where: { id: order.id },
-            data: { 
-                status: 'RETURN_DUE',
-                returnDueAt: new Date()
-            }
-        })
+      this.prisma.returnRequest.create({
+        data: {
+          orderId: order.id,
+          itemCondition: (data.itemCondition || 'GOOD').toUpperCase() as any,
+          damageNotes: data.damageNotes,
+          imageUrls,
+        },
+      }),
+      this.prisma.order.update({
+        where: { id: order.id },
+        data: {
+          status: 'RETURN_DUE',
+          returnDueAt: new Date(),
+        },
+      }),
     ]);
 
     return {
@@ -1630,33 +1818,39 @@ export class RentersService {
   }
 
   async getReturnRequest(userId: string, orderId: string) {
-      const order = await this.prisma.order.findUnique({
-          where: { orderId },
-          include: { 
-              returnRequest: true,
-              orderItems: { include: { product: { include: { attachments: { include: { uploads: true } } } } } }
-          }
-      });
+    const order = await this.prisma.order.findUnique({
+      where: { orderId },
+      include: {
+        returnRequest: true,
+        orderItems: {
+          include: {
+            product: {
+              include: { attachments: { include: { uploads: true } } },
+            },
+          },
+        },
+      },
+    });
 
-      if (!order || order.userId !== userId) {
-          throw new NotFoundException('Order not found or access denied');
-      }
+    if (!order || order.userId !== userId) {
+      throw new NotFoundException('Order not found or access denied');
+    }
 
-      if (!order.returnRequest) {
-          throw new NotFoundException('No return request found for this order');
-      }
+    if (!order.returnRequest) {
+      throw new NotFoundException('No return request found for this order');
+    }
 
-      return {
-          success: true,
-          data: {
-              ...order.returnRequest,
-              orderStatus: order.status,
-              items: order.orderItems.map((oi: any) => ({
-                  id: oi.product.id,
-                  name: oi.product.name,
-                  image: oi.product.attachments?.uploads?.[0]?.url || null
-              }))
-          }
-      }
+    return {
+      success: true,
+      data: {
+        ...order.returnRequest,
+        orderStatus: order.status,
+        items: order.orderItems.map((oi: any) => ({
+          id: oi.product.id,
+          name: oi.product.name,
+          image: oi.product.attachments?.uploads?.[0]?.url || null,
+        })),
+      },
+    };
   }
 }
