@@ -6,11 +6,43 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 
 import cookieParser from 'cookie-parser';
 import { AllExceptionsFilter } from './utils/all-exceptions.filter';
+
+function loggingMiddleware(req: any, res: any, next: () => void) {
+  const start = Date.now();
+  const { method, originalUrl, headers, body, query } = req;
+
+  console.log(`📥 ${method} ${originalUrl}`, {
+    query: Object.keys(query).length ? query : undefined,
+    headers: {
+      authorization: headers.authorization ? 'Bearer [HIDDEN]' : undefined,
+      'content-type': headers['content-type'],
+      'user-agent': headers['user-agent'],
+    },
+    body: Object.keys(body).length ? body : undefined,
+  });
+
+  const originalSend = res.send;
+  res.send = function (data: any) {
+    const duration = Date.now() - start;
+    console.log(
+      `📤 ${method} ${originalUrl} ${res.statusCode} (${duration}ms)`,
+      {
+        response: typeof data === 'string' ? data.substring(0, 500) : data,
+      },
+    );
+    return originalSend.call(this, data);
+  };
+
+  next();
+}
+
 async function bootstrap() {
   console.log('DB URL:', process.env.DATABASE_URL);
-  const app = await NestFactory.create(AppModule);
-  
+  const app = await NestFactory.create(AppModule, {
+    logger: ['error', 'warn', 'log', 'debug', 'verbose'],
+  });
 
+  app.use(loggingMiddleware);
 
   app.enableCors({
     origin: (origin, callback) => {
@@ -44,7 +76,6 @@ async function bootstrap() {
     .setDescription('Api documentation for ecommerce application')
     .setVersion('1.0')
 
-
     .addBearerAuth(
       {
         type: 'http',
@@ -58,15 +89,15 @@ async function bootstrap() {
   const document = () => SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, document);
 
-  
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  );
 
-  app.useGlobalPipes(new ValidationPipe({
-    whitelist: true,
-    forbidNonWhitelisted: true,
-    transform: true,}))
-
-
- app.useGlobalFilters(new AllExceptionsFilter());
+  app.useGlobalFilters(new AllExceptionsFilter());
   await app.listen(process.env.PORT ?? 4000);
 }
 bootstrap();
