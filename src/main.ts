@@ -12,13 +12,13 @@ function loggingMiddleware(req: any, res: any, next: () => void) {
   const { method, originalUrl, headers, body, query } = req;
 
   console.log(`📥 ${method} ${originalUrl}`, {
-    query: Object.keys(query).length ? query : undefined,
+    query: query && Object.keys(query).length ? query : undefined,
     headers: {
       authorization: headers.authorization ? 'Bearer [HIDDEN]' : undefined,
       'content-type': headers['content-type'],
       'user-agent': headers['user-agent'],
     },
-    body: Object.keys(body).length ? body : undefined,
+    body: body && Object.keys(body).length ? body : undefined,
   });
 
   const originalSend = res.send;
