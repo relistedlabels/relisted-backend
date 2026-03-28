@@ -29,64 +29,58 @@ export class AuthService {
     private eventEmitter: EventEmitter2,
     private jwtService: JwtService,
   ) {}
-  
 
-async register(dto: registerDto) {
-  const { name, email, password, role } = dto;
+  async register(dto: registerDto) {
+    const { name, email, password, role } = dto;
 
-  
-  let newUser;
-  try {
-    newUser = await this.prisma.user.create({
-      data: {
-        name,
+    let newUser;
+    try {
+      newUser = await this.prisma.user.create({
+        data: {
+          name,
+          email,
+          password: await argon2.hash(password),
+          role,
+        },
+      });
+    } catch (error) {
+      if (error.code === 'P2002') bad('email already exists');
+      throw error;
+    }
+
+    const expiryMinutes = 60;
+    const expiry = addMinutes(Date.now(), expiryMinutes);
+
+    await this.prisma.authOtpToken.deleteMany({
+      where: {
         email,
-        password: await argon2.hash(password),
-        role,
-        
+        subject: Auth_Otp_Token_Subject.Verify_Email,
       },
     });
 
-  } catch (error) {
-    if (error.code === 'P2002') bad('email already exists');
-    throw error;
-  }
-
-  const expiryMinutes = 60;
-  const expiry = addMinutes(Date.now(), expiryMinutes);
-
-  await this.prisma.authOtpToken.deleteMany({
-    where: {
+    const tokenRecord = await this.authOtpTokenService.createOtp({
       email,
       subject: Auth_Otp_Token_Subject.Verify_Email,
-    },
-  });
+      userId: newUser.id,
+      expiry,
+      type: 'TOKEN',
+    });
 
-  const tokenRecord = await this.authOtpTokenService.createOtp({
-    email,
-    subject: Auth_Otp_Token_Subject.Verify_Email,
-    userId: newUser.id,
-    expiry,
-    type: 'TOKEN',
-  });
+    const frontendUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+    const verificationLink = `${frontendUrl}/auth/verify-email?token=${tokenRecord.code}`;
 
-  const frontendUrl =
-    process.env.FRONTEND_URL || 'http://localhost:3000';
-  const verificationLink = `${frontendUrl}/auth/verify-email?token=${tokenRecord.code}`;
+    const mailPayload = {
+      email,
+      code: tokenRecord.code,
+      name,
+      year: new Date().getFullYear(),
+      verificationLink,
+      expiryMinutes,
+    };
+    this.eventEmitter.emit('verification_mail', mailPayload);
 
-  const mailPayload = {
-    email,
-    code: tokenRecord.code,
-    name,
-    year: new Date().getFullYear(),
-    verificationLink,
-    expiryMinutes,
-  };
-  this.eventEmitter.emit('verification_mail', mailPayload);
-
-  return { message: 'User successfully registered' };
-}
-
+    return { message: 'User successfully registered' };
+  }
 
   // login in user
   async login(dto: loginDto, res) {
@@ -96,7 +90,6 @@ async register(dto: registerDto) {
       where: {
         email,
       },
-      
     });
     mustHave(user, 'invalid credentials', 401);
 
@@ -115,8 +108,7 @@ async register(dto: registerDto) {
       const tokenStillValid =
         existingToken && !isAfter(new Date(), existingToken.expiry);
       const sentRecently =
-        existingToken &&
-        existingToken.createdAt >= subMinutes(new Date(), 1);
+        existingToken && existingToken.createdAt >= subMinutes(new Date(), 1);
 
       if (tokenStillValid) {
         bad(
@@ -149,8 +141,7 @@ async register(dto: registerDto) {
         expiry,
       });
 
-      const frontendUrl =
-        process.env.FRONTEND_URL || 'http://localhost:3000';
+      const frontendUrl = process.env.CLIENT_URL || 'http://localhost:3000';
       const verificationLink = `${frontendUrl}/auth/verify-email?token=${tokenRecord.code}`;
       const year = new Date().getFullYear();
 
@@ -229,13 +220,19 @@ async register(dto: registerDto) {
       return {
         requiresMfa: true,
         sessionToken: sessionToken,
-        message: 'MFA code sent to your email. Please verify to complete login.',
+        message:
+          'MFA code sent to your email. Please verify to complete login.',
       };
     }
 
     // Regular user login - no MFA required
     const tokenVersion = (user as { tokenVersion?: number }).tokenVersion ?? 0;
-    const payload = { sub: user.id, email: user.email, v: tokenVersion, role: user.role };
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      v: tokenVersion,
+      role: user.role,
+    };
     const token = await this.jwtService.signAsync(payload);
 
     return {
@@ -324,18 +321,19 @@ async register(dto: registerDto) {
   // forget password - send password reset OTP via email
   async forgotPassword(dto: forgotPasswordDto) {
     const { email } = dto;
-    
+
     // Find if the email exists
     const user = await this.prisma.user.findUnique({
       where: { email },
     });
-    
+
     // Don't reveal if email exists (security best practice)
     if (!user) {
       // Return success even if user doesn't exist to prevent email enumeration
       return {
         success: true,
-        message: 'If an account with that email exists, a password reset code has been sent.',
+        message:
+          'If an account with that email exists, a password reset code has been sent.',
       };
     }
 
@@ -379,20 +377,18 @@ async register(dto: registerDto) {
     const year = new Date().getFullYear();
 
     // Send password reset email via event emitter
-    this.eventEmitter.emit(
-      'password_reset_mail',
-      {
-        email: email,
-        code: otpCode.code,
-        name: user.name,
-        year: year,
-        expiryMinutes: expiryMinutes,
-      },
-    );
+    this.eventEmitter.emit('password_reset_mail', {
+      email: email,
+      code: otpCode.code,
+      name: user.name,
+      year: year,
+      expiryMinutes: expiryMinutes,
+    });
 
     return {
       success: true,
-      message: 'If an account with that email exists, a password reset code has been sent.',
+      message:
+        'If an account with that email exists, a password reset code has been sent.',
     };
   }
 
@@ -440,8 +436,7 @@ async register(dto: registerDto) {
       expiry,
     });
 
-    const frontendUrl =
-      process.env.FRONTEND_URL || 'http://localhost:3000';
+    const frontendUrl = process.env.CLIENT_URL || 'http://localhost:3000';
     const verificationLink = `${frontendUrl}/auth/verify-email?token=${tokenRecord.code}`;
     const year = new Date().getFullYear();
 

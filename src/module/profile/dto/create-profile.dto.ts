@@ -1,11 +1,16 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import { IsOptional, IsString, ValidateNested } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsEmail, IsOptional, IsString, ValidateNested } from 'class-validator';
 
 export class CreateEmergencyDto {
   @ApiProperty()
   @IsString()
   name: string;
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @Transform(({ value }) => (value === '' ? undefined : value))
+  @IsEmail()
+  email?: string;
   @ApiProperty()
   @IsString()
   relationship: string;

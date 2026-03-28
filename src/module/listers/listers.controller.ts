@@ -720,6 +720,8 @@ export class ListersController {
       email?: string;
       phone: string;
       relationship: string;
+      city?: string;
+      state?: string;
     },
   ) {
     return this.listersService.updateEmergencyContact(user, body);

@@ -3178,6 +3178,8 @@ export class ListersService {
       email?: string;
       phone: string;
       relationship: string;
+      city?: string;
+      state?: string;
     },
   ) {
     const profile = await this.prisma.profile.findUnique({
@@ -3190,11 +3192,11 @@ export class ListersService {
 
     const data = {
       name: body.fullName,
-      email: body.email ?? null,
+      email: body.email?.trim() || null,
       phoneNumber: body.phone,
       relationship: body.relationship,
-      city: '',
-      state: '',
+      city: (body.city ?? '').trim(),
+      state: (body.state ?? '').trim(),
     };
 
     const contact = profile.emergencyContact
@@ -3216,9 +3218,11 @@ export class ListersService {
         emergencyContact: {
           contactId: contact.id,
           fullName: contact.name,
-          email: (contact as any).email ?? null,
+          email: contact.email ?? null,
           phone: contact.phoneNumber,
           relationship: contact.relationship,
+          city: contact.city,
+          state: contact.state,
           updatedAt: new Date().toISOString(),
         },
       },
