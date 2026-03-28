@@ -81,6 +81,7 @@ model EmergencyContact {
   id           String  @id @default(uuid())
   profileId    String  @unique
   name         String
+  email        String?
   relationship String
   phoneNumber  String
   city         String

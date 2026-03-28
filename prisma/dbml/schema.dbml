@@ -70,6 +70,7 @@ Table EmergencyContact {
   id String [pk]
   profileId String [unique, not null]
   name String [not null]
+  email String
   relationship String [not null]
   phoneNumber String [not null]
   city String [not null]
