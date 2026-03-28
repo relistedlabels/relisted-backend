@@ -7,8 +7,22 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from 'src/services/prisma/prisma.service';
 import { userEntity } from '../auth/auth.types';
-import { DisputeStatus, Message, OrderStatus, ProductStatus, Role } from '@prisma/client';
-import { differenceInSeconds, subMonths, startOfMonth, endOfMonth, subYears, startOfYear, endOfYear } from 'date-fns';
+import {
+  DisputeStatus,
+  Message,
+  OrderStatus,
+  ProductStatus,
+  Role,
+} from '@prisma/client';
+import {
+  differenceInSeconds,
+  subMonths,
+  startOfMonth,
+  endOfMonth,
+  subYears,
+  startOfYear,
+  endOfYear,
+} from 'date-fns';
 import { randomUUID } from 'crypto';
 import { WemaServiceService } from 'src/services/wema-service/wema-service.service';
 import { NotificationService } from 'src/services/notification/notification.service';
@@ -63,12 +77,42 @@ const RENTAL_STATUS_TO_TYPE: Record<string, string> = {
 };
 
 const PROGRESS_STEPS = [
-  { id: 1, label: 'Approved', icon: 'check-circle', orderStatus: OrderStatus.ACCEPTED },
-  { id: 2, label: 'Dispatched', icon: 'truck', orderStatus: OrderStatus.CONFIRMED },
-  { id: 3, label: 'In Transit', icon: 'package', orderStatus: OrderStatus.IN_TRANSIT },
-  { id: 4, label: 'Delivered', icon: 'home', orderStatus: OrderStatus.DELIVERED },
-  { id: 5, label: 'Return Due', icon: 'reply', orderStatus: OrderStatus.RETURN_DUE },
-  { id: 6, label: 'Completed', icon: 'smile', orderStatus: OrderStatus.COMPLETED },
+  {
+    id: 1,
+    label: 'Approved',
+    icon: 'check-circle',
+    orderStatus: OrderStatus.ACCEPTED,
+  },
+  {
+    id: 2,
+    label: 'Dispatched',
+    icon: 'truck',
+    orderStatus: OrderStatus.CONFIRMED,
+  },
+  {
+    id: 3,
+    label: 'In Transit',
+    icon: 'package',
+    orderStatus: OrderStatus.IN_TRANSIT,
+  },
+  {
+    id: 4,
+    label: 'Delivered',
+    icon: 'home',
+    orderStatus: OrderStatus.DELIVERED,
+  },
+  {
+    id: 5,
+    label: 'Return Due',
+    icon: 'reply',
+    orderStatus: OrderStatus.RETURN_DUE,
+  },
+  {
+    id: 6,
+    label: 'Completed',
+    icon: 'smile',
+    orderStatus: OrderStatus.COMPLETED,
+  },
 ];
 
 @Injectable()
@@ -122,7 +166,9 @@ export class ListersService {
           price: p.originalValue ?? p.dailyPrice * 10,
           currency: CURRENCY,
           availability:
-            p.status === ProductStatus.AVAILABLE && p.isActive ? 'available' : 'unavailable',
+            p.status === ProductStatus.AVAILABLE && p.isActive
+              ? 'available'
+              : 'unavailable',
           category: p.category?.name ?? 'Uncategorized',
           condition: p.condition ?? 'Good',
           rating: Math.round(avgRating * 10) / 10 || 0,
@@ -227,7 +273,8 @@ export class ListersService {
           returnDue: r.endDate.toISOString().split('T')[0],
           returnDueDate: r.endDate.toISOString(),
           status: RENTAL_STATUS_TO_LABEL[orderStatus] ?? orderStatus,
-          statusType: RENTAL_STATUS_TO_TYPE[orderStatus] ?? orderStatus.toLowerCase(),
+          statusType:
+            RENTAL_STATUS_TO_TYPE[orderStatus] ?? orderStatus.toLowerCase(),
           rentalStartDate: r.startDate.toISOString().split('T')[0],
           rentalEndDate: r.endDate.toISOString().split('T')[0],
         };
@@ -258,7 +305,7 @@ export class ListersService {
     try {
       const skip = (page - 1) * limit;
       const targetStatus = status?.toLowerCase() || 'all';
-      
+
       let allItems: any[] = [];
       let total = 0;
 
@@ -279,25 +326,32 @@ export class ListersService {
                   color: true,
                   originalValue: true,
                   dailyPrice: true,
-                  attachments: { include: { uploads: { take: 1, select: { url: true } } } },
-                }
-              }
-            }
+                  attachments: {
+                    include: { uploads: { take: 1, select: { url: true } } },
+                  },
+                },
+              },
+            },
           }),
         ]);
-        
+
         // Fetch users for these requests (Prisma lacks requester relation in standard way, must fetch manually if relation isn't mapped, but here we can just join or map)
         // For simplicity, we fetch users separately
-        const userIds = [...new Set(pendingReqs.map(r => r.requesterId))];
+        const userIds = [...new Set(pendingReqs.map((r) => r.requesterId))];
         const users = await this.prisma.user.findMany({
           where: { id: { in: userIds } },
-          include: { profile: { select: { avatarUpload: { select: { url: true } } } } }
+          include: {
+            profile: { select: { avatarUpload: { select: { url: true } } } },
+          },
         });
-        const userMap = new Map(users.map(u => [u.id, u]));
+        const userMap = new Map(users.map((u) => [u.id, u]));
 
-        const formattedPending = pendingReqs.map(r => {
+        const formattedPending = pendingReqs.map((r) => {
           const u = userMap.get(r.requesterId);
-          const diff = Math.max(0, Math.floor((new Date(r.expiresAt).getTime() - Date.now()) / 1000));
+          const diff = Math.max(
+            0,
+            Math.floor((new Date(r.expiresAt).getTime() - Date.now()) / 1000),
+          );
           return {
             id: r.id, // Using request ID
             orderNumber: `REQ-${r.id.slice(0, 8)}`,
@@ -311,26 +365,36 @@ export class ListersService {
             itemCount: 1,
             totalAmount: r.totalPrice || 0,
             currency: CURRENCY,
-            dresser: u ? {
-              id: u.id,
-              name: u.name,
-              avatar: u.profile?.avatarUpload?.url ?? 'https://via.placeholder.com/64?text=U',
-              rating: 0,
-              reviews: 0,
-              memberSince: u.createdAt.toISOString().split('T')[0],
-            } : null,
-            items: [{
-              id: r.productId,
-              name: r.product.name,
-              image: r.product.attachments?.uploads?.[0]?.url ?? 'https://via.placeholder.com/300?text=No+Image',
-              size: r.product.measurement ?? 'N/A',
-              color: r.product.color ?? 'N/A',
-              rentalFee: r.totalPrice || 0,
-              itemValue: r.product.originalValue || 0,
-              returnDue: r.endDate ? new Date(r.endDate).toISOString().split('T')[0] : null,
-              status: 'pending_approval',
-              statusLabel: 'Pending Approval',
-            }],
+            dresser: u
+              ? {
+                  id: u.id,
+                  name: u.name,
+                  avatar:
+                    u.profile?.avatarUpload?.url ??
+                    'https://via.placeholder.com/64?text=U',
+                  rating: 0,
+                  reviews: 0,
+                  memberSince: u.createdAt.toISOString().split('T')[0],
+                }
+              : null,
+            items: [
+              {
+                id: r.productId,
+                name: r.product.name,
+                image:
+                  r.product.attachments?.uploads?.[0]?.url ??
+                  'https://via.placeholder.com/300?text=No+Image',
+                size: r.product.measurement ?? 'N/A',
+                color: r.product.color ?? 'N/A',
+                rentalFee: r.totalPrice || 0,
+                itemValue: r.product.originalValue || 0,
+                returnDue: r.endDate
+                  ? new Date(r.endDate).toISOString().split('T')[0]
+                  : null,
+                status: 'pending_approval',
+                statusLabel: 'Pending Approval',
+              },
+            ],
             canApprove: diff > 0,
             canReject: true,
             approvalRequired: true,
@@ -345,11 +409,11 @@ export class ListersService {
       // 2. Fetch active/completed orders
       if (['all', 'ongoing', 'completed', 'cancelled'].includes(targetStatus)) {
         const orderWhere: any = {
-           orderItems: { some: { product: { curatorId: user.id } } },
+          orderItems: { some: { product: { curatorId: user.id } } },
         };
         const statusFilter = this.mapStatusToOrderStatuses(status);
         if (statusFilter && statusFilter.length > 0) {
-           orderWhere.status = { in: statusFilter };
+          orderWhere.status = { in: statusFilter };
         }
 
         const [orderCount, orders] = await Promise.all([
@@ -362,7 +426,9 @@ export class ListersService {
                   id: true,
                   name: true,
                   createdAt: true,
-                  profile: { select: { avatarUpload: { select: { url: true } } } },
+                  profile: {
+                    select: { avatarUpload: { select: { url: true } } },
+                  },
                 },
               },
               orderItems: {
@@ -375,7 +441,11 @@ export class ListersService {
                       color: true,
                       originalValue: true,
                       dailyPrice: true,
-                      attachments: { include: { uploads: { take: 1, select: { url: true } } } },
+                      attachments: {
+                        include: {
+                          uploads: { take: 1, select: { url: true } },
+                        },
+                      },
                     },
                   },
                 },
@@ -384,7 +454,7 @@ export class ListersService {
           }),
         ]);
 
-        const formattedOrders = orders.map(o => this.formatOrderForList(o));
+        const formattedOrders = orders.map((o) => this.formatOrderForList(o));
         allItems = [...allItems, ...formattedOrders];
         total += orderCount;
       }
@@ -423,18 +493,24 @@ export class ListersService {
       const req = await this.prisma.availabilityRequest.findUnique({
         where: { id: orderId },
         include: {
-           product: {
-             include: {
-               attachments: { include: { uploads: true } }
-             }
-           }
-        }
+          product: {
+            include: {
+              attachments: { include: { uploads: true } },
+            },
+          },
+        },
       });
-      
+
       if (req && req.listerId === user.id) {
-         // return formatted request as order detail
-         const u = await this.prisma.user.findUnique({ where: { id: req.requesterId }, include: { profile: { include: { avatarUpload: true } } } });
-         return { success: true, data: { order: this.formatRequestDetail(req, u) } };
+        // return formatted request as order detail
+        const u = await this.prisma.user.findUnique({
+          where: { id: req.requesterId },
+          include: { profile: { include: { avatarUpload: true } } },
+        });
+        return {
+          success: true,
+          data: { order: this.formatRequestDetail(req, u) },
+        };
       }
 
       await this.ensureOrderBelongsToLister(user.id, orderId);
@@ -480,65 +556,77 @@ export class ListersService {
       const orderFormatted = this.formatOrderDetail(order, reviewsCount);
       return { success: true, data: { order: orderFormatted } };
     } catch (e) {
-      if (e instanceof NotFoundException || e instanceof ForbiddenException) throw e;
+      if (e instanceof NotFoundException || e instanceof ForbiddenException)
+        throw e;
       console.error('getOrderById error:', e);
       throw new InternalServerErrorException('Failed to fetch order');
     }
   }
 
   private formatRequestDetail(req: any, user: any) {
-     const diff = Math.max(0, Math.floor((new Date(req.expiresAt).getTime() - Date.now()) / 1000));
-     return {
-        id: req.id,
-        orderNumber: `REQ-${req.id.slice(0, 8)}`,
-        createdAt: req.createdAt.toISOString(),
-        expiresAt: req.expiresAt.toISOString(),
-        timeRemainingSeconds: diff,
-        status: 'pending_approval',
-        statusLabel: 'Pending Approval',
-        statusColor: '#FFF3E0',
-        statusTextColor: '#E65100',
-        itemCount: 1,
-        totalAmount: req.totalPrice || 0,
-        currency: CURRENCY,
-        dresser: {
-          id: user?.id,
-          name: user?.name,
-          avatar: user?.profile?.avatarUpload?.url ?? 'https://via.placeholder.com/64?text=U',
-          rating: 0,
-          reviews: 0,
-          memberSince: user?.createdAt?.toISOString().split('T')[0],
-        },
-        items: [{
+    const diff = Math.max(
+      0,
+      Math.floor((new Date(req.expiresAt).getTime() - Date.now()) / 1000),
+    );
+    return {
+      id: req.id,
+      orderNumber: `REQ-${req.id.slice(0, 8)}`,
+      createdAt: req.createdAt.toISOString(),
+      expiresAt: req.expiresAt.toISOString(),
+      timeRemainingSeconds: diff,
+      status: 'pending_approval',
+      statusLabel: 'Pending Approval',
+      statusColor: '#FFF3E0',
+      statusTextColor: '#E65100',
+      itemCount: 1,
+      totalAmount: req.totalPrice || 0,
+      currency: CURRENCY,
+      dresser: {
+        id: user?.id,
+        name: user?.name,
+        avatar:
+          user?.profile?.avatarUpload?.url ??
+          'https://via.placeholder.com/64?text=U',
+        rating: 0,
+        reviews: 0,
+        memberSince: user?.createdAt?.toISOString().split('T')[0],
+      },
+      items: [
+        {
           id: req.productId,
           name: req.product.name,
-          image: req.product.attachments?.uploads?.[0]?.url ?? 'https://via.placeholder.com/300?text=No+Image',
+          image:
+            req.product.attachments?.uploads?.[0]?.url ??
+            'https://via.placeholder.com/300?text=No+Image',
           size: req.product.measurement ?? 'N/A',
           color: req.product.color ?? 'N/A',
           rentalFee: req.totalPrice || 0,
           itemValue: req.product.originalValue || 0,
-          returnDue: req.endDate ? new Date(req.endDate).toISOString().split('T')[0] : null,
+          returnDue: req.endDate
+            ? new Date(req.endDate).toISOString().split('T')[0]
+            : null,
           status: 'pending_approval',
           statusLabel: 'Pending Approval',
-        }],
-        canApprove: diff > 0 && req.status === 'PENDING',
-        canReject: req.status === 'PENDING',
-        approvalRequired: req.status === 'PENDING',
-        approvalExpiredAt: req.expiresAt.toISOString(),
-        timeline: {
-           dateOrdered: req.createdAt.toISOString().split('T')[0],
-           itemsCount: 1,
-           itemsDelivered: 0,
-           currentStep: 'pending_approval'
         },
-        escrow: {
-           rentalFeeTotal: req.totalPrice || 0,
-           itemValueHeld: req.product.originalValue || 0,
-           totalHeld: (req.totalPrice || 0) + (req.product.originalValue || 0),
-           currency: CURRENCY,
-           releaseCondition: 'Upon successful return confirmation'
-        }
-     };
+      ],
+      canApprove: diff > 0 && req.status === 'PENDING',
+      canReject: req.status === 'PENDING',
+      approvalRequired: req.status === 'PENDING',
+      approvalExpiredAt: req.expiresAt.toISOString(),
+      timeline: {
+        dateOrdered: req.createdAt.toISOString().split('T')[0],
+        itemsCount: 1,
+        itemsDelivered: 0,
+        currentStep: 'pending_approval',
+      },
+      escrow: {
+        rentalFeeTotal: req.totalPrice || 0,
+        itemValueHeld: req.product.originalValue || 0,
+        totalHeld: (req.totalPrice || 0) + (req.product.originalValue || 0),
+        currency: CURRENCY,
+        releaseCondition: 'Upon successful return confirmation',
+      },
+    };
   }
 
   /** GET /api/listers/orders/:orderId/items */
@@ -585,7 +673,8 @@ export class ListersService {
         returnDue: rental
           ? rental.endDate.toISOString().split('T')[0]
           : new Date().toISOString().split('T')[0],
-        returnDueDate: rental?.endDate?.toISOString() ?? new Date().toISOString(),
+        returnDueDate:
+          rental?.endDate?.toISOString() ?? new Date().toISOString(),
         amount: (oi.pricePerDay ?? oi.product.dailyPrice) * oi.days,
         currency: CURRENCY,
         status: order.status.toLowerCase(),
@@ -605,7 +694,8 @@ export class ListersService {
         },
       };
     } catch (e) {
-      if (e instanceof NotFoundException || e instanceof ForbiddenException) throw e;
+      if (e instanceof NotFoundException || e instanceof ForbiddenException)
+        throw e;
       console.error('getOrderItems error:', e);
       throw new InternalServerErrorException('Failed to fetch order items');
     }
@@ -620,9 +710,12 @@ export class ListersService {
         select: { id: true, status: true, createdAt: true },
       });
       if (!order) throw new NotFoundException('Order not found');
-      const currentStep = ORDER_STATUS_TO_API[order.status] ?? order.status.toLowerCase();
+      const currentStep =
+        ORDER_STATUS_TO_API[order.status] ?? order.status.toLowerCase();
       const stepIndex = PROGRESS_STEPS.findIndex(
-        (s) => s.orderStatus === order.status || s.label.toLowerCase().replace(' ', '_') === currentStep,
+        (s) =>
+          s.orderStatus === order.status ||
+          s.label.toLowerCase().replace(' ', '_') === currentStep,
       );
       const currentStepIndex =
         order.status === OrderStatus.PROCESSING ? 0 : Math.max(0, stepIndex);
@@ -634,7 +727,9 @@ export class ListersService {
         current: i === currentStepIndex,
         timestamp: null,
       }));
-      const progressPercentage = Math.round((currentStepIndex / (PROGRESS_STEPS.length - 1)) * 100);
+      const progressPercentage = Math.round(
+        (currentStepIndex / (PROGRESS_STEPS.length - 1)) * 100,
+      );
       return {
         success: true,
         data: {
@@ -646,7 +741,8 @@ export class ListersService {
         },
       };
     } catch (e) {
-      if (e instanceof NotFoundException || e instanceof ForbiddenException) throw e;
+      if (e instanceof NotFoundException || e instanceof ForbiddenException)
+        throw e;
       console.error('getOrderProgress error:', e);
       throw new InternalServerErrorException('Failed to fetch order progress');
     }
@@ -655,23 +751,19 @@ export class ListersService {
   /** POST /api/listers/orders/:orderId/approve
    *  Approve an AvailabilityRequest (Pending order)
    */
-  async approveOrder(
-    user: userEntity,
-    orderId: string,
-    notes?: string,
-  ) {
+  async approveOrder(user: userEntity, orderId: string, notes?: string) {
     try {
       const request = await this.prisma.availabilityRequest.findUnique({
-         where: { id: orderId },
-         include: { product: true, requester: true }
+        where: { id: orderId },
+        include: { product: true, requester: true },
       });
 
       if (!request) {
         throw new NotFoundException('Order/Request not found');
       }
-      
+
       if (request.listerId !== user.id) {
-         throw new ForbiddenException('You do not have access to this request');
+        throw new ForbiddenException('You do not have access to this request');
       }
 
       const now = new Date();
@@ -694,21 +786,25 @@ export class ListersService {
 
       // Notify Renter
       await this.notificationService.createNotification({
-          userId: request.requesterId,
-          title: "Rental Request Approved",
-          message: `Good news! Your rental request for ${(request as any).product?.name} has been approved. Please proceed to payment.`,
-          type: "RENTAL_RESPONSE",
-          metadata: { requestId: request.id, productId: request.productId, status: "ACCEPTED" },
-          sendEmail: true,
-          emailData: {
-              email: (request as any).requester?.email,
-              userName: (request as any).requester?.name,
-              productName: (request as any).product?.name,
-              status: "accepted",
-              requestId: request.id,
-              reason: notes || "No additional notes provided.",
-              checkoutLink: `${process.env.CLIENT_URL}/checkout?requestId=${request.id}`,
-          }
+        userId: request.requesterId,
+        title: 'Rental Request Approved',
+        message: `Good news! Your rental request for ${(request as any).product?.name} has been approved. Please proceed to payment.`,
+        type: 'RENTAL_RESPONSE',
+        metadata: {
+          requestId: request.id,
+          productId: request.productId,
+          status: 'ACCEPTED',
+        },
+        sendEmail: true,
+        emailData: {
+          email: (request as any).requester?.email,
+          userName: (request as any).requester?.name,
+          productName: (request as any).product?.name,
+          status: 'accepted',
+          requestId: request.id,
+          reason: notes || 'No additional notes provided.',
+          checkoutLink: `${process.env.CLIENT_URL}/checkout?requestId=${request.id}`,
+        },
       });
 
       return {
@@ -716,20 +812,18 @@ export class ListersService {
         message: 'Order approved successfully',
         data: {
           orderId: updated.id,
-          orderNumber: `REQ-${updated.id.slice(0,8)}`,
+          orderNumber: `REQ-${updated.id.slice(0, 8)}`,
           status: 'approved',
           statusLabel: 'Approved',
           approvedAt: new Date().toISOString(),
           approvedBy: user.id,
-          nextSteps: 'Waiting for renter to complete payment and create the official Order',
+          nextSteps:
+            'Waiting for renter to complete payment and create the official Order',
           notes: notes ?? null,
         },
       };
     } catch (e) {
-      if (
-        e instanceof NotFoundException ||
-        e instanceof ForbiddenException
-      ) {
+      if (e instanceof NotFoundException || e instanceof ForbiddenException) {
         throw e;
       }
       console.error('approveOrder error:', e);
@@ -747,16 +841,16 @@ export class ListersService {
   ) {
     try {
       const request = await this.prisma.availabilityRequest.findUnique({
-         where: { id: orderId },
-         include: { product: true, requester: true }
+        where: { id: orderId },
+        include: { product: true, requester: true },
       });
 
       if (!request) {
         throw new NotFoundException('Order/Request not found');
       }
-      
+
       if (request.listerId !== user.id) {
-         throw new ForbiddenException('You do not have access to this request');
+        throw new ForbiddenException('You do not have access to this request');
       }
 
       const now = new Date();
@@ -779,20 +873,24 @@ export class ListersService {
 
       // Notify Renter
       await this.notificationService.createNotification({
-          userId: request.requesterId,
-          title: "Rental Request Declined",
-          message: `Unfortunately, your rental request for ${(request as any).product?.name} was declined. Reason: ${body.reason}`,
-          type: "RENTAL_RESPONSE",
-          metadata: { requestId: request.id, productId: request.productId, status: "REJECTED" },
-          sendEmail: true,
-          emailData: {
-              email: (request as any).requester?.email,
-              userName: (request as any).requester?.name,
-              productName: (request as any).product?.name,
-              status: "rejected",
-              requestId: request.id,
-              reason: body.notes || body.reason,
-          }
+        userId: request.requesterId,
+        title: 'Rental Request Declined',
+        message: `Unfortunately, your rental request for ${(request as any).product?.name} was declined. Reason: ${body.reason}`,
+        type: 'RENTAL_RESPONSE',
+        metadata: {
+          requestId: request.id,
+          productId: request.productId,
+          status: 'REJECTED',
+        },
+        sendEmail: true,
+        emailData: {
+          email: (request as any).requester?.email,
+          userName: (request as any).requester?.name,
+          productName: (request as any).product?.name,
+          status: 'rejected',
+          requestId: request.id,
+          reason: body.notes || body.reason,
+        },
       });
 
       return {
@@ -800,7 +898,7 @@ export class ListersService {
         message: 'Order rejected',
         data: {
           orderId: updated.id,
-          orderNumber: `REQ-${updated.id.slice(0,8)}`,
+          orderNumber: `REQ-${updated.id.slice(0, 8)}`,
           status: 'rejected',
           statusLabel: 'Rejected',
           rejectedAt: new Date().toISOString(),
@@ -810,10 +908,7 @@ export class ListersService {
         },
       };
     } catch (e) {
-      if (
-        e instanceof NotFoundException ||
-        e instanceof ForbiddenException
-      ) {
+      if (e instanceof NotFoundException || e instanceof ForbiddenException) {
         throw e;
       }
       console.error('rejectOrder error:', e);
@@ -894,18 +989,16 @@ export class ListersService {
 
       if (body.estimatedDeliveryDate) {
         // interpret as date string (YYYY-MM-DD) in local time; UI will format as needed
-        updateData.estimatedDeliveryDate = new Date(
-          body.estimatedDeliveryDate,
-        );
+        updateData.estimatedDeliveryDate = new Date(body.estimatedDeliveryDate);
       }
 
       const updated = await this.prisma.order.update({
         where: { id: orderId },
         data: updateData,
         include: {
-            user: true,
-            orderItems: { include: { product: true } }
-        }
+          user: true,
+          orderItems: { include: { product: true } },
+        },
       });
 
       const timeline = {
@@ -917,58 +1010,66 @@ export class ListersService {
       };
 
       // Create Rental records if order is ACTIVE or DELIVERED
-      if (updated.status === OrderStatus.ACTIVE || updated.status === OrderStatus.DELIVERED) {
+      if (
+        updated.status === OrderStatus.ACTIVE ||
+        updated.status === OrderStatus.DELIVERED
+      ) {
         for (const item of updated.orderItems as any[]) {
-            // Check if rental already exists for this order item
-            const existingRental = await this.prisma.rental.findFirst({
-                where: { 
-                    orderId: updated.id,
-                    productId: item.productId
-                }
+          // Check if rental already exists for this order item
+          const existingRental = await this.prisma.rental.findFirst({
+            where: {
+              orderId: updated.id,
+              productId: item.productId,
+            },
+          });
+
+          if (!existingRental) {
+            const startDate = updated.deliveredAt || now;
+            const endDate = new Date(startDate);
+            endDate.setDate(endDate.getDate() + item.days);
+
+            await this.prisma.rental.create({
+              data: {
+                orderId: updated.id,
+                userId: updated.userId,
+                productId: item.productId,
+                curatorId: item.product.curatorId,
+                days: item.days,
+                totalAmount: item.rentalFee || 0,
+                startDate,
+                endDate,
+              },
             });
-
-            if (!existingRental) {
-                const startDate = updated.deliveredAt || now;
-                const endDate = new Date(startDate);
-                endDate.setDate(endDate.getDate() + item.days);
-
-                await this.prisma.rental.create({
-                    data: {
-                        orderId: updated.id,
-                        userId: updated.userId,
-                        productId: item.productId,
-                        curatorId: item.product.curatorId,
-                        days: item.days,
-                        totalAmount: item.rentalFee || 0,
-                        startDate,
-                        endDate,
-                    }
-                });
-            }
+          }
         }
       }
 
       // If status changed to something related to shipping, notify renter
-      const shippingStatuses: OrderStatus[] = [OrderStatus.IN_TRANSIT, OrderStatus.DELIVERED, OrderStatus.RETURN_DUE];
+      const shippingStatuses: OrderStatus[] = [
+        OrderStatus.IN_TRANSIT,
+        OrderStatus.DELIVERED,
+        OrderStatus.RETURN_DUE,
+      ];
       if (shippingStatuses.includes(updated.status)) {
-          const firstProduct = updated.orderItems[0]?.product;
-          await this.notificationService.createNotification({
-              userId: updated.userId,
-              title: `Order Update: ${ORDER_STATUS_TO_LABEL[updated.status]}`,
-              message: `Your order for ${firstProduct?.name || 'an item'} is now ${ORDER_STATUS_TO_LABEL[updated.status]}.`,
-              type: "SHIPPING_UPDATE",
-              metadata: { orderId: updated.id, status: updated.status },
-              sendEmail: true,
-              emailData: {
-                  email: updated.user?.email,
-                  userName: updated.user?.name,
-                  orderId: updated.orderId,
-                  status: ORDER_STATUS_TO_LABEL[updated.status],
-                  productName: firstProduct?.name || 'Your Item',
-                  trackingNumber: updated.trackingNumber || 'N/A',
-                  estimatedDelivery: updated.estimatedDeliveryDate?.toDateString() || 'N/A',
-              }
-          });
+        const firstProduct = updated.orderItems[0]?.product;
+        await this.notificationService.createNotification({
+          userId: updated.userId,
+          title: `Order Update: ${ORDER_STATUS_TO_LABEL[updated.status]}`,
+          message: `Your order for ${firstProduct?.name || 'an item'} is now ${ORDER_STATUS_TO_LABEL[updated.status]}.`,
+          type: 'SHIPPING_UPDATE',
+          metadata: { orderId: updated.id, status: updated.status },
+          sendEmail: true,
+          emailData: {
+            email: updated.user?.email,
+            userName: updated.user?.name,
+            orderId: updated.orderId,
+            status: ORDER_STATUS_TO_LABEL[updated.status],
+            productName: firstProduct?.name || 'Your Item',
+            trackingNumber: updated.trackingNumber || 'N/A',
+            estimatedDelivery:
+              updated.estimatedDeliveryDate?.toDateString() || 'N/A',
+          },
+        });
       }
 
       return {
@@ -980,14 +1081,14 @@ export class ListersService {
           newStatus: ORDER_STATUS_TO_API[updated.status] ?? updated.status,
           updatedAt: updated.updatedAt.toISOString(),
           timeline,
-          notification: { sent: shippingStatuses.includes(updated.status), type: 'order_status_updated' },
+          notification: {
+            sent: shippingStatuses.includes(updated.status),
+            type: 'order_status_updated',
+          },
         },
       };
     } catch (e) {
-      if (
-        e instanceof NotFoundException ||
-        e instanceof ForbiddenException
-      ) {
+      if (e instanceof NotFoundException || e instanceof ForbiddenException) {
         throw e;
       }
       console.error('updateOrderStatus error:', e);
@@ -1010,38 +1111,39 @@ export class ListersService {
       }
 
       const updated = await this.prisma.$transaction([
-          this.prisma.returnRequest.update({
-              where: { id: order.returnRequest.id },
-              data: { status: 'APPROVED' }
-          }),
-          this.prisma.order.update({
-              where: { id: order.id },
-              data: { status: 'RETURNED' }
-          })
+        this.prisma.returnRequest.update({
+          where: { id: order.returnRequest.id },
+          data: { status: 'APPROVED' },
+        }),
+        this.prisma.order.update({
+          where: { id: order.id },
+          data: { status: 'RETURNED' },
+        }),
       ]);
 
       await this.notificationService.createNotification({
-          userId: order.userId,
-          title: 'Return Confirmed',
-          message: `The lister has confirmed receipt of your returned item for order ${order.orderId}.`,
-          type: 'RETURN_CONFIRMED',
-          metadata: { orderId: order.id },
-          sendEmail: true,
-          emailData: {
-              email: order.user?.email,
-              userName: order.user?.name,
-              orderId: order.orderId,
-              status: 'Returned'
-          }
+        userId: order.userId,
+        title: 'Return Confirmed',
+        message: `The lister has confirmed receipt of your returned item for order ${order.orderId}.`,
+        type: 'RETURN_CONFIRMED',
+        metadata: { orderId: order.id },
+        sendEmail: true,
+        emailData: {
+          email: order.user?.email,
+          userName: order.user?.name,
+          orderId: order.orderId,
+          status: 'Returned',
+        },
       });
 
       return {
-          success: true,
-          message: 'Return confirmed successfully',
-          data: updated[1]
+        success: true,
+        message: 'Return confirmed successfully',
+        data: updated[1],
       };
     } catch (e) {
-      if (e instanceof NotFoundException || e instanceof BadRequestException) throw e;
+      if (e instanceof NotFoundException || e instanceof BadRequestException)
+        throw e;
       console.error('confirmReturn error:', e);
       throw new InternalServerErrorException('Failed to confirm return');
     }
@@ -1062,42 +1164,47 @@ export class ListersService {
       }
 
       const updated = await this.prisma.returnRequest.update({
-          where: { id: order.returnRequest.id },
-          data: { 
-              status: 'REJECTED',
-              damageNotes: reason ? `Lister Rejection: ${reason}\nPrevious Notes: ${order.returnRequest.damageNotes || ''}` : order.returnRequest.damageNotes
-          }
+        where: { id: order.returnRequest.id },
+        data: {
+          status: 'REJECTED',
+          damageNotes: reason
+            ? `Lister Rejection: ${reason}\nPrevious Notes: ${order.returnRequest.damageNotes || ''}`
+            : order.returnRequest.damageNotes,
+        },
       });
 
       await this.notificationService.createNotification({
-          userId: order.userId,
-          title: 'Return Rejected',
-          message: `The lister has rejected your return for order ${order.orderId}. Reason: ${reason || 'Not specified'}`,
-          type: 'RETURN_REJECTED',
-          metadata: { orderId: order.id },
-          sendEmail: true,
-          emailData: {
-              email: order.user?.email,
-              userName: order.user?.name,
-              orderId: order.orderId,
-              status: 'Return Rejected',
-              rejectionReason: reason
-          }
+        userId: order.userId,
+        title: 'Return Rejected',
+        message: `The lister has rejected your return for order ${order.orderId}. Reason: ${reason || 'Not specified'}`,
+        type: 'RETURN_REJECTED',
+        metadata: { orderId: order.id },
+        sendEmail: true,
+        emailData: {
+          email: order.user?.email,
+          userName: order.user?.name,
+          orderId: order.orderId,
+          status: 'Return Rejected',
+          rejectionReason: reason,
+        },
       });
 
       return {
-          success: true,
-          message: 'Return rejected. Dispute may be required.',
-          data: updated
+        success: true,
+        message: 'Return rejected. Dispute may be required.',
+        data: updated,
       };
     } catch (e) {
-      if (e instanceof NotFoundException || e instanceof BadRequestException) throw e;
+      if (e instanceof NotFoundException || e instanceof BadRequestException)
+        throw e;
       console.error('rejectReturn error:', e);
       throw new InternalServerErrorException('Failed to reject return');
     }
   }
 
-  private mapStatusToOrderStatuses(status: string | undefined): OrderStatus[] | undefined {
+  private mapStatusToOrderStatuses(
+    status: string | undefined,
+  ): OrderStatus[] | undefined {
     if (!status || status.toLowerCase() === 'all') return undefined;
     switch (status.toLowerCase()) {
       case 'pending':
@@ -1122,9 +1229,7 @@ export class ListersService {
     }
   }
 
-  private mapApiStatusToOrderStatus(
-    apiStatus: string,
-  ): OrderStatus | null {
+  private mapApiStatusToOrderStatus(apiStatus: string): OrderStatus | null {
     switch (apiStatus) {
       case 'approved':
         return OrderStatus.ACCEPTED;
@@ -1168,9 +1273,11 @@ export class ListersService {
         OrderStatus.RETURN_DUE,
       ].reduce((a, s) => a + (map.get(s) ?? 0), 0),
       completedCount:
-        (map.get(OrderStatus.RETURNED) ?? 0) + (map.get(OrderStatus.COMPLETED) ?? 0),
+        (map.get(OrderStatus.RETURNED) ?? 0) +
+        (map.get(OrderStatus.COMPLETED) ?? 0),
       cancelledCount:
-        (map.get(OrderStatus.CANCELLED) ?? 0) + (map.get(OrderStatus.REJECTED) ?? 0),
+        (map.get(OrderStatus.CANCELLED) ?? 0) +
+        (map.get(OrderStatus.REJECTED) ?? 0),
     };
   }
 
@@ -1240,7 +1347,10 @@ export class ListersService {
       cancelled: { bg: '#FFEBEE', text: '#C62828' },
     };
     const apiStatus = ORDER_STATUS_TO_API[order.status] ?? order.status;
-    const colors = statusColors[apiStatus] ?? { bg: '#F5F5F5', text: '#616161' };
+    const colors = statusColors[apiStatus] ?? {
+      bg: '#F5F5F5',
+      text: '#616161',
+    };
     return {
       id: order.id,
       orderNumber: order.orderId,
@@ -1281,7 +1391,8 @@ export class ListersService {
       timeline: {
         dateOrdered: order.createdAt.toISOString().split('T')[0],
         itemsCount: order.orderItems.length,
-        itemsDelivered: order.status === OrderStatus.DELIVERED ? order.orderItems.length : 0,
+        itemsDelivered:
+          order.status === OrderStatus.DELIVERED ? order.orderItems.length : 0,
         currentStep: apiStatus,
       },
       escrow: {
@@ -1291,7 +1402,8 @@ export class ListersService {
         currency: CURRENCY,
         releaseCondition: 'Upon successful return confirmation',
       },
-      canApprove: order.status === OrderStatus.PROCESSING && timeRemainingSeconds > 0,
+      canApprove:
+        order.status === OrderStatus.PROCESSING && timeRemainingSeconds > 0,
       canReject: order.status === OrderStatus.PROCESSING,
       approvalRequired: order.status === OrderStatus.PROCESSING,
       approvalExpiredAt: expiresAt?.toISOString() ?? null,
@@ -1299,9 +1411,7 @@ export class ListersService {
   }
 
   /** Placeholder helper for future dispatch API / carrier integration */
-  private buildExternalTrackingUrl(
-    trackingNumber?: string,
-  ): string | null {
+  private buildExternalTrackingUrl(trackingNumber?: string): string | null {
     if (!trackingNumber) return null;
     // In future, this could switch based on carrier (FedEx/UPS/etc.)
     return `https://tracking.example.com/${trackingNumber}`;
@@ -1503,9 +1613,7 @@ export class ListersService {
         const curatorName = d.user.name;
         const amount = rental?.totalAmount ?? 0;
         const statusApi = this.mapDisputeStatusToApi(d.status);
-        const statusPresentation = this.mapDisputeStatusPresentation(
-          statusApi,
-        );
+        const statusPresentation = this.mapDisputeStatusPresentation(statusApi);
 
         const submitted = d.createdAt;
 
@@ -1601,9 +1709,7 @@ export class ListersService {
       });
       if (existing) {
         // 422-style semantics
-        throw new ForbiddenException(
-          'A dispute already exists for this order',
-        );
+        throw new ForbiddenException('A dispute already exists for this order');
       }
 
       // Generate a human-friendly disputeId (e.g. DQ-0234)
@@ -1654,10 +1760,7 @@ export class ListersService {
         },
       };
     } catch (e) {
-      if (
-        e instanceof NotFoundException ||
-        e instanceof ForbiddenException
-      ) {
+      if (e instanceof NotFoundException || e instanceof ForbiddenException) {
         throw e;
       }
       console.error('createDispute error:', e);
@@ -1665,10 +1768,7 @@ export class ListersService {
     }
   }
 
-  private async findListerDisputeOrThrow(
-    user: userEntity,
-    disputeId: string,
-  ) {
+  private async findListerDisputeOrThrow(user: userEntity, disputeId: string) {
     const dispute = await this.prisma.dispute.findUnique({
       where: { disputeId },
       include: {
@@ -1721,13 +1821,11 @@ export class ListersService {
       const dispute = await this.findListerDisputeOrThrow(user, disputeId);
 
       const statusApi = this.mapDisputeStatusToApi(dispute.status);
-      const statusPresentation =
-        this.mapDisputeStatusPresentation(statusApi);
+      const statusPresentation = this.mapDisputeStatusPresentation(statusApi);
 
       const order: any = (dispute as any).order;
       const orderNumber = order?.orderId;
-      const itemName =
-        order?.orderItems?.[0]?.product?.name ?? 'Unknown item';
+      const itemName = order?.orderItems?.[0]?.product?.name ?? 'Unknown item';
       const curatorName =
         order?.orderItems?.[0]?.product?.curator?.name ?? 'Unknown';
       const createdAtIso = dispute.createdAt.toISOString();
@@ -1765,8 +1863,7 @@ export class ListersService {
                 ? 'In Review'
                 : 'Pending Review',
             date: createdAtIso,
-            description:
-              'Our team is reviewing your case and evidence',
+            description: 'Our team is reviewing your case and evidence',
           },
         ],
       };
@@ -1793,15 +1890,12 @@ export class ListersService {
             statusColor: statusPresentation.bgColor,
             createdAt: createdAtIso,
             lastUpdatedAt: lastUpdatedAtIso,
-            estimatedResolutionDate:
-              estimatedResolutionDate.toISOString(),
+            estimatedResolutionDate: estimatedResolutionDate.toISOString(),
             overview: {
               itemName,
               curator: curatorName,
               category: dispute.issueCategory,
-              dateSubmitted: dispute.createdAt
-                .toISOString()
-                .split('T')[0],
+              dateSubmitted: dispute.createdAt.toISOString().split('T')[0],
               preferredResolution: null,
               description: dispute.description,
             },
@@ -1821,16 +1915,11 @@ export class ListersService {
         },
       };
     } catch (e) {
-      if (
-        e instanceof NotFoundException ||
-        e instanceof ForbiddenException
-      ) {
+      if (e instanceof NotFoundException || e instanceof ForbiddenException) {
         throw e;
       }
       console.error('getDisputeDetails error:', e);
-      throw new InternalServerErrorException(
-        'Failed to fetch dispute details',
-      );
+      throw new InternalServerErrorException('Failed to fetch dispute details');
     }
   }
 
@@ -1838,8 +1927,7 @@ export class ListersService {
   async getDisputeOverview(user: userEntity, disputeId: string) {
     const dispute = await this.findListerDisputeOrThrow(user, disputeId);
     const order: any = (dispute as any).order;
-    const itemName =
-      order?.orderItems?.[0]?.product?.name ?? 'Unknown item';
+    const itemName = order?.orderItems?.[0]?.product?.name ?? 'Unknown item';
     const curatorName =
       order?.orderItems?.[0]?.product?.curator?.name ?? 'Unknown';
     return {
@@ -1853,9 +1941,7 @@ export class ListersService {
           },
           disputeDetails: {
             category: dispute.issueCategory,
-            dateSubmitted: dispute.createdAt
-              .toISOString()
-              .split('T')[0],
+            dateSubmitted: dispute.createdAt.toISOString().split('T')[0],
             preferredResolution: null,
             description: dispute.description,
           },
@@ -1925,8 +2011,7 @@ export class ListersService {
           month: 'short',
           year: 'numeric',
         }),
-        description:
-          'Our team is reviewing your case and evidence',
+        description: 'Our team is reviewing your case and evidence',
         timestamp: updatedAt.toLocaleTimeString('en-GB', {
           hour: '2-digit',
           minute: '2-digit',
@@ -1979,8 +2064,7 @@ export class ListersService {
           resolution: {
             status: 'resolved',
             statusLabel: 'Resolved',
-            resolutionDetails:
-              'Full refund issued due to confirmed issue.',
+            resolutionDetails: 'Full refund issued due to confirmed issue.',
             refundAmount: 0,
             currency: CURRENCY,
             formattedAmount: `₦0`,
@@ -2050,9 +2134,7 @@ export class ListersService {
       this.prisma.message.count({ where: { chatRoomId: room.id } }),
     ]);
 
-    const mapped = messages.map((m) =>
-      this.mapMessageToConversationItem(m),
-    );
+    const mapped = messages.map((m) => this.mapMessageToConversationItem(m));
 
     const pages = Math.ceil(total / limit) || 1;
     return {
@@ -2285,8 +2367,8 @@ export class ListersService {
         m.type === 'status'
           ? 'status'
           : m.senderRole === Role.ADMIN
-          ? 'admin'
-          : 'user',
+            ? 'admin'
+            : 'user',
       content: m.content,
       timestamp: m.createdAt.toLocaleString('en-GB', {
         day: '2-digit',
@@ -2324,20 +2406,21 @@ export class ListersService {
       throw new NotFoundException('Profile not found');
     }
 
-    const addresses = includeAddresses && profile.address
-      ? [
-          {
-            addressId: profile.address.id,
-            type: 'residential',
-            street: profile.address.street,
-            city: profile.address.city,
-            state: profile.address.state,
-            postalCode: profile.address.zipCode,
-            country: profile.address.country,
-            isDefault: profile.address.isDefault,
-          },
-        ]
-      : [];
+    const addresses =
+      includeAddresses && profile.address
+        ? [
+            {
+              addressId: profile.address.id,
+              type: 'residential',
+              street: profile.address.street,
+              city: profile.address.city,
+              state: profile.address.state,
+              postalCode: profile.address.zipCode,
+              country: profile.address.country,
+              isDefault: profile.address.isDefault,
+            },
+          ]
+        : [];
 
     return {
       success: true,
@@ -2351,10 +2434,11 @@ export class ListersService {
           profileImage: profile.avatarUpload?.url ?? null,
           dateJoined: profile.user.createdAt.toISOString(),
           addresses,
-          vaNumber: (profile.user as any).virtualAccounts?.[0]?.vaNumber ?? null,
+          vaNumber:
+            (profile.user as any).virtualAccounts?.[0]?.vaNumber ?? null,
           bankAccounts: (profile.user as any).bankAccounts ?? [],
           nin: profile.nin,
-          bvn: profile.bvn, 
+          bvn: profile.bvn,
         },
       },
     };
@@ -2380,17 +2464,17 @@ export class ListersService {
     const userId = user.id;
     const currentUser = await this.prisma.user.findUnique({
       where: { id: userId },
-      include: { 
-        profile: { 
-          include: { 
-            emergencyContact: true, 
-            address: true, 
+      include: {
+        profile: {
+          include: {
+            emergencyContact: true,
+            address: true,
             avatarUpload: true,
-            businessInfo: true
-          } 
+            businessInfo: true,
+          },
         },
-        virtualAccounts: true
-      }
+        virtualAccounts: true,
+      },
     });
 
     if (!currentUser) {
@@ -2398,7 +2482,8 @@ export class ListersService {
     }
 
     const phoneToSet = body.phone !== undefined ? body.phone : body.phoneNumber;
-    const emergencyContactData = body.emergencyContact || body.emergencyContacts;
+    const emergencyContactData =
+      body.emergencyContact || body.emergencyContacts;
 
     const profileUpdate: any = {};
     if (phoneToSet !== undefined) profileUpdate.phoneNumber = phoneToSet;
@@ -2409,24 +2494,24 @@ export class ListersService {
       profileUpdate.emergencyContact = {
         upsert: {
           create: emergencyContactData,
-          update: emergencyContactData
-        }
+          update: emergencyContactData,
+        },
       };
     }
     if (body.businessInfo) {
       profileUpdate.businessInfo = {
         upsert: {
           create: body.businessInfo,
-          update: body.businessInfo
-        }
+          update: body.businessInfo,
+        },
       };
     }
     if (body.address) {
       profileUpdate.address = {
         upsert: {
           create: body.address,
-          update: body.address
-        }
+          update: body.address,
+        },
       };
     }
     if (body.avatarUploadId) {
@@ -2439,24 +2524,24 @@ export class ListersService {
       ...(body.nin && { nin: body.nin }),
       ...(emergencyContactData && {
         emergencyContact: {
-          create: emergencyContactData
-        }
+          create: emergencyContactData,
+        },
       }),
       ...(body.businessInfo && {
         businessInfo: {
-          create: body.businessInfo
-        }
+          create: body.businessInfo,
+        },
       }),
       ...(body.address && {
         address: {
-          create: body.address
-        }
+          create: body.address,
+        },
       }),
       ...(body.avatarUploadId && {
         avatarUpload: {
-          connect: { id: body.avatarUploadId }
-        }
-      })
+          connect: { id: body.avatarUploadId },
+        },
+      }),
     };
 
     const userDataUpdate: any = {};
@@ -2464,12 +2549,15 @@ export class ListersService {
       userDataUpdate.name = body.fullName;
     }
 
-    if (Object.keys(profileUpdate).length > 0 || Object.keys(profileCreate).length > 0) {
+    if (
+      Object.keys(profileUpdate).length > 0 ||
+      Object.keys(profileCreate).length > 0
+    ) {
       userDataUpdate.profile = {
         upsert: {
           create: profileCreate,
-          update: profileUpdate
-        }
+          update: profileUpdate,
+        },
       };
     }
 
@@ -2488,7 +2576,8 @@ export class ListersService {
           data: {
             bankName: body.bankAccounts.bankName,
             bankCode: body.bankAccounts.bankCode,
-            accountName: body.bankAccounts.nameOfAccount || body.bankAccounts.accountName,
+            accountName:
+              body.bankAccounts.nameOfAccount || body.bankAccounts.accountName,
           },
         });
       } else {
@@ -2498,7 +2587,8 @@ export class ListersService {
             bankName: body.bankAccounts.bankName,
             bankCode: body.bankAccounts.bankCode,
             accountNumber: body.bankAccounts.accountNumber,
-            accountName: body.bankAccounts.nameOfAccount || body.bankAccounts.accountName,
+            accountName:
+              body.bankAccounts.nameOfAccount || body.bankAccounts.accountName,
             isDefault: true,
           },
         });
@@ -2521,16 +2611,19 @@ export class ListersService {
             avatarUpload: true,
           },
         },
-        virtualAccounts: true
-      }
+        virtualAccounts: true,
+      },
     });
 
     if ((body.bvn || body.nin) && updatedUser.virtualAccounts?.length === 0) {
-        try {
-            await this.wemaService.createAccount(updatedUser as any, 0);
-        } catch (err: any) {
-            console.warn(`Failed to generate Virtual Account for ${userId}:`, err.message);
-        }
+      try {
+        await this.wemaService.createAccount(updatedUser as any, 0);
+      } catch (err: any) {
+        console.warn(
+          `Failed to generate Virtual Account for ${userId}:`,
+          err.message,
+        );
+      }
     }
 
     // Refetch in case it was created
@@ -2565,7 +2658,8 @@ export class ListersService {
           profileImage: finalProfile.avatarUpload?.url ?? null,
           dateJoined: finalProfile.user.createdAt.toISOString(),
           updatedAt: finalProfile.updatedAt.toISOString(),
-          vaNumber: (finalProfile.user as any).virtualAccounts?.[0]?.vaNumber ?? null,
+          vaNumber:
+            (finalProfile.user as any).virtualAccounts?.[0]?.vaNumber ?? null,
           bankAccounts: (finalProfile.user as any).bankAccounts ?? [],
         },
       },
@@ -2713,10 +2807,7 @@ export class ListersService {
    *  This endpoint expects an existing upload ID to be linked as avatar.
    *  File upload is handled by the /upload module.
    */
-  async updateProfileAvatar(
-    user: userEntity,
-    body: { uploadId: string },
-  ) {
+  async updateProfileAvatar(user: userEntity, body: { uploadId: string }) {
     if (!body.uploadId) {
       throw new ForbiddenException('uploadId is required');
     }
@@ -2776,8 +2867,7 @@ export class ListersService {
           businessName: b.businessName,
           businessCategory: b.businessCategory ?? 'Fashion & Accessories',
           businessDescription:
-            b.businessDescription ??
-            'fashion rental service',
+            b.businessDescription ?? 'fashion rental service',
           businessEmail: b.businessEmail,
           businessPhone: b.businessPhone ?? null,
           businessAddress: b.businessAddress,
@@ -2872,32 +2962,32 @@ export class ListersService {
   async getVerificationStatus(user: userEntity) {
     const profile = await this.prisma.profile.findUnique({
       where: { userId: user.id },
-      include: { ninUpload: true, businessInfo: true },
+      include: { idDocumentUpload: true, businessInfo: true },
     });
     if (!profile) {
       throw new NotFoundException('Profile not found');
     }
 
-    const ninStatus = profile.ninUpload ? 'verified' : 'not_verified';
+    const idStatus = profile.idDocumentUpload ? 'verified' : 'not_verified';
     const bvnStatus = profile.bvn ? 'verified' : 'not_verified';
     const businessStatus = profile.businessInfo
-      ? 'verified'
+      ? profile.isApproved
+        ? 'verified'
+        : 'pending'
       : 'not_verified';
 
     const maskBvn = (val?: string | null) =>
-      val && val.length >= 4
-        ? `XXXXX${val.slice(-4)}`
-        : null;
+      val && val.length >= 4 ? `XXXXX${val.slice(-4)}` : null;
 
     return {
       success: true,
       data: {
         verifications: {
-          nin: {
-            status: ninStatus,
-            document: 'National Identification Number',
-            verifiedDate: profile.ninUpload
-              ? profile.ninUpload.createdAt.toISOString()
+          validId: {
+            status: idStatus,
+            document: profile.idDocumentType || 'ID Document',
+            verifiedDate: profile.idDocumentUpload
+              ? profile.idDocumentUpload.createdAt.toISOString()
               : null,
             expiresAt: null,
           },
@@ -2912,8 +3002,7 @@ export class ListersService {
             document: 'Business Registration',
             verifiedDate: null,
             registrationNumber:
-              profile.businessInfo?.businessRegistrationNumber ??
-              null,
+              profile.businessInfo?.businessRegistrationNumber ?? null,
           },
         },
       },
@@ -2924,22 +3013,29 @@ export class ListersService {
   async getVerificationDocuments(user: userEntity) {
     const profile = await this.prisma.profile.findUnique({
       where: { userId: user.id },
-      include: { ninUpload: true },
+      include: { idDocumentUpload: true },
     });
     if (!profile) {
       throw new NotFoundException('Profile not found');
     }
 
     const documents: any[] = [];
-    if (profile.ninUpload) {
+    if (profile.idDocumentUpload) {
       documents.push({
-        documentId: profile.ninUpload.id,
-        type: 'NIN',
-        documentUrl: profile.ninUpload.url,
-        status: 'verified',
-        uploadedDate: profile.ninUpload.createdAt.toISOString(),
-        verifiedDate: profile.ninUpload.createdAt.toISOString(),
-        notes: 'Document verified successfully',
+        documentId: profile.idDocumentUpload.id,
+        type: profile.idDocumentType || 'ID',
+        documentUrl: profile.idDocumentUpload.url,
+        status:
+          profile.idDocumentStatus === 'APPROVED' ? 'verified' : 'pending',
+        uploadedDate: profile.idDocumentUpload.createdAt.toISOString(),
+        verifiedDate:
+          profile.idDocumentStatus === 'APPROVED'
+            ? profile.idDocumentUpload.createdAt.toISOString()
+            : null,
+        notes:
+          profile.idDocumentStatus === 'APPROVED'
+            ? 'Document verified successfully'
+            : 'Pending verification',
       });
     }
 
@@ -2952,12 +3048,25 @@ export class ListersService {
   /** 40. POST /api/listers/verifications/nin
    *  Links an existing upload as NIN document and records basic metadata.
    */
-  async uploadNinDocument(
+  async uploadIdDocument(
     user: userEntity,
-    body: { uploadId: string; ninNumber?: string },
+    body: { uploadId: string; idType: string },
   ) {
     if (!body.uploadId) {
       throw new ForbiddenException('uploadId is required');
+    }
+    if (!body.idType) {
+      throw new ForbiddenException(
+        'idType is required (NIN, PASSPORT, DRIVERS_LICENSE)',
+      );
+    }
+
+    const validIdTypes = ['NIN', 'PASSPORT', 'DRIVERS_LICENSE'];
+    const idType = body.idType.toUpperCase();
+    if (!validIdTypes.includes(idType)) {
+      throw new ForbiddenException(
+        'idType must be NIN, PASSPORT, or DRIVERS_LICENSE',
+      );
     }
 
     const profile = await this.prisma.profile.findUnique({
@@ -2970,24 +3079,25 @@ export class ListersService {
     const updated = await this.prisma.profile.update({
       where: { userId: user.id },
       data: {
-        ninUpload: {
+        idDocumentUpload: {
           connect: { id: body.uploadId },
         },
+        idDocumentType: idType,
       },
-      include: { ninUpload: true },
+      include: { idDocumentUpload: true },
     });
 
     return {
       success: true,
-      message: 'NIN document uploaded successfully',
+      message: 'ID document uploaded successfully',
       data: {
         document: {
-          documentId: updated.ninUpload?.id ?? body.uploadId,
-          type: 'NIN',
-          documentUrl: updated.ninUpload?.url ?? null,
+          documentId: updated.idDocumentUpload?.id ?? body.uploadId,
+          type: idType,
+          documentUrl: updated.idDocumentUpload?.url ?? null,
           status: 'pending_verification',
           uploadedDate:
-            updated.ninUpload?.createdAt.toISOString() ??
+            updated.idDocumentUpload?.createdAt.toISOString() ??
             new Date().toISOString(),
           estimatedVerificationTime: '24-48 hours',
         },
@@ -3083,7 +3193,8 @@ export class ListersService {
         product: { curatorId },
       },
     });
-    if (!hasItem) throw new ForbiddenException('Order not found or access denied');
+    if (!hasItem)
+      throw new ForbiddenException('Order not found or access denied');
   }
 
   // PUBLIC METHODS
@@ -3103,7 +3214,13 @@ export class ListersService {
     if (query.search) {
       where.OR = [
         { name: { contains: query.search, mode: 'insensitive' } },
-        { profile: { businessInfo: { businessName: { contains: query.search, mode: 'insensitive' } } } },
+        {
+          profile: {
+            businessInfo: {
+              businessName: { contains: query.search, mode: 'insensitive' },
+            },
+          },
+        },
       ];
     }
 
@@ -3158,7 +3275,8 @@ export class ListersService {
           role: 'lister',
           rating: Math.round((ratingAgg._avg.rating || 0) * 10) / 10,
           reviewCount: lister._count.curatorReviews,
-          shopDescription: lister.profile?.businessInfo?.businessDescription || '',
+          shopDescription:
+            lister.profile?.businessInfo?.businessDescription || '',
           itemCount: lister._count.products,
           joined: lister.createdAt,
           isVerified: lister.isVerified,
@@ -3250,7 +3368,8 @@ export class ListersService {
           avatar: lister.profile?.avatarUpload?.url || null,
           role: 'lister',
           bio: lister.profile?.businessInfo?.businessDescription || '', // Use description as bio
-          shopDescription: lister.profile?.businessInfo?.businessDescription || '',
+          shopDescription:
+            lister.profile?.businessInfo?.businessDescription || '',
           rating: Math.round((ratingAgg._avg.rating || 0) * 10) / 10,
           reviewCount: lister._count.curatorReviews,
           itemCount: lister._count.products,
@@ -3261,7 +3380,8 @@ export class ListersService {
           shopPolicies: {
             returnPolicy: 'Full refund within 30 days of rental', // placeholder
             deliveryTime: '2-3 business days',
-            cancellationPolicy: 'Free cancellation up to 48 hours before rental',
+            cancellationPolicy:
+              'Free cancellation up to 48 hours before rental',
           },
           featuredProducts: featuredProducts.map((p) => ({
             id: p.id,
@@ -3293,7 +3413,9 @@ export class ListersService {
     };
 
     if (query.category) {
-      where.category = { name: { equals: query.category, mode: 'insensitive' } };
+      where.category = {
+        name: { equals: query.category, mode: 'insensitive' },
+      };
     }
     if (query.search) {
       where.name = { contains: query.search, mode: 'insensitive' };
@@ -3308,8 +3430,8 @@ export class ListersService {
           query.sort === 'price_low'
             ? { dailyPrice: 'asc' }
             : query.sort === 'price_high'
-            ? { dailyPrice: 'desc' }
-            : { createdAt: 'desc' }, // default newest
+              ? { dailyPrice: 'desc' }
+              : { createdAt: 'desc' }, // default newest
         include: {
           brand: { select: { name: true } },
           category: { select: { name: true } },
@@ -3338,7 +3460,7 @@ export class ListersService {
           rating: Math.round((ratingAgg._avg.rating || 0) * 10) / 10,
           reviews: p._count.reviews,
           isInStock: p.status === ProductStatus.AVAILABLE,
-          originalValue: p.originalValue
+          originalValue: p.originalValue,
         };
       }),
     );
@@ -3377,10 +3499,10 @@ export class ListersService {
           query.sort === 'oldest'
             ? { createdAt: 'asc' }
             : query.sort === 'rating_high'
-            ? { rating: 'desc' }
-            : query.sort === 'rating_low'
-            ? { rating: 'asc' }
-            : { createdAt: 'desc' }, // default newest
+              ? { rating: 'desc' }
+              : query.sort === 'rating_low'
+                ? { rating: 'asc' }
+                : { createdAt: 'desc' }, // default newest
         include: {
           user: {
             select: {
@@ -3398,7 +3520,7 @@ export class ListersService {
       _avg: { rating: true },
       _count: { rating: true },
     });
-    
+
     // Count 5-star reviews
     const fiveStarCount = await this.prisma.review.count({
       where: { curatorId: userId, rating: 5 },
@@ -3453,29 +3575,41 @@ export class ListersService {
       }
 
       const getStatsForPeriod = async (start: Date, end: Date) => {
-        const [earnings, ordersCount, activeRentals, pendingPayouts] = await Promise.all([
-          // Total Earnings from rentals in period
-          this.prisma.rental.aggregate({
-            where: { curatorId: user.id, startDate: { gte: start, lte: end } },
-            _sum: { totalAmount: true },
-          }),
-          // Total Orders count
-          this.prisma.order.count({
-            where: {
-              orderItems: { some: { product: { curatorId: user.id } } },
-              createdAt: { gte: start, lte: end },
-            },
-          }),
-          // Active Rentals
-          this.prisma.rental.count({
-            where: { curatorId: user.id, isReturned: false, createdAt: { lte: end } },
-          }),
-          // Pending Payouts (Escrow LOCKED)
-          this.prisma.escrow.aggregate({
-            where: { curatorId: user.id, status: 'LOCKED', createdAt: { lte: end } },
-            _sum: { rentalAmount: true },
-          }),
-        ]);
+        const [earnings, ordersCount, activeRentals, pendingPayouts] =
+          await Promise.all([
+            // Total Earnings from rentals in period
+            this.prisma.rental.aggregate({
+              where: {
+                curatorId: user.id,
+                startDate: { gte: start, lte: end },
+              },
+              _sum: { totalAmount: true },
+            }),
+            // Total Orders count
+            this.prisma.order.count({
+              where: {
+                orderItems: { some: { product: { curatorId: user.id } } },
+                createdAt: { gte: start, lte: end },
+              },
+            }),
+            // Active Rentals
+            this.prisma.rental.count({
+              where: {
+                curatorId: user.id,
+                isReturned: false,
+                createdAt: { lte: end },
+              },
+            }),
+            // Pending Payouts (Escrow LOCKED)
+            this.prisma.escrow.aggregate({
+              where: {
+                curatorId: user.id,
+                status: 'LOCKED',
+                createdAt: { lte: end },
+              },
+              _sum: { rentalAmount: true },
+            }),
+          ]);
 
         return {
           earnings: earnings._sum.totalAmount || 0,
@@ -3489,18 +3623,32 @@ export class ListersService {
       const prevStats = await getStatsForPeriod(prevStart, prevEnd);
 
       const calculateChange = (current: number, previous: number) => {
-        if (previous === 0) return { percent: current > 0 ? 100 : 0, direction: 'up' };
-        const percent = Math.round(((current - previous) / previous) * 10000) / 100;
+        if (previous === 0)
+          return { percent: current > 0 ? 100 : 0, direction: 'up' };
+        const percent =
+          Math.round(((current - previous) / previous) * 10000) / 100;
         return {
           percent: Math.abs(percent),
           direction: percent >= 0 ? 'up' : 'down',
         };
       };
 
-      const earningsChange = calculateChange(currentStats.earnings, prevStats.earnings);
-      const ordersChange = calculateChange(currentStats.orders, prevStats.orders);
-      const activeChange = calculateChange(currentStats.activeRentals, prevStats.activeRentals);
-      const payoutsChange = calculateChange(currentStats.pendingPayouts, prevStats.pendingPayouts);
+      const earningsChange = calculateChange(
+        currentStats.earnings,
+        prevStats.earnings,
+      );
+      const ordersChange = calculateChange(
+        currentStats.orders,
+        prevStats.orders,
+      );
+      const activeChange = calculateChange(
+        currentStats.activeRentals,
+        prevStats.activeRentals,
+      );
+      const payoutsChange = calculateChange(
+        currentStats.pendingPayouts,
+        prevStats.pendingPayouts,
+      );
 
       return {
         success: true,
@@ -3538,7 +3686,11 @@ export class ListersService {
   }
 
   /** GET /api/listers/rentals/overtime */
-  async getRentalsOvertime(user: userEntity, timeframe: string = 'year', yearStr?: string) {
+  async getRentalsOvertime(
+    user: userEntity,
+    timeframe: string = 'year',
+    yearStr?: string,
+  ) {
     try {
       const year = yearStr ? parseInt(yearStr, 10) : new Date().getFullYear();
       const startOfYear = new Date(year, 0, 1);
@@ -3559,17 +3711,36 @@ export class ListersService {
       });
 
       const months = [
-        'January', 'February', 'March', 'April', 'May', 'June',
-        'July', 'August', 'September', 'October', 'November', 'December'
+        'January',
+        'February',
+        'March',
+        'April',
+        'May',
+        'June',
+        'July',
+        'August',
+        'September',
+        'October',
+        'November',
+        'December',
       ];
 
       const monthlyData = months.map((month, index) => {
-        const monthRentals = rentals.filter(r => r.startDate.getMonth() === index);
+        const monthRentals = rentals.filter(
+          (r) => r.startDate.getMonth() === index,
+        );
         const revenue = monthRentals.reduce((sum, r) => sum + r.totalAmount, 0);
         const orders = monthRentals.length;
-        
+
         // Use the last day of the month for the timestamp as a placeholder
-        const timestamp = new Date(year, index + 1, 0, 23, 59, 59).toISOString();
+        const timestamp = new Date(
+          year,
+          index + 1,
+          0,
+          23,
+          59,
+          59,
+        ).toISOString();
 
         return {
           month,
@@ -3581,7 +3752,7 @@ export class ListersService {
 
       const totalRevenue = monthlyData.reduce((sum, m) => sum + m.revenue, 0);
       const totalOrders = monthlyData.reduce((sum, m) => sum + m.orders, 0);
-      const activeMonths = monthlyData.filter(m => m.orders > 0).length || 1;
+      const activeMonths = monthlyData.filter((m) => m.orders > 0).length || 1;
 
       return {
         success: true,
@@ -3599,28 +3770,30 @@ export class ListersService {
       };
     } catch (e) {
       console.error('getRentalsOvertime error:', e);
-      throw new InternalServerErrorException('Failed to fetch rentals overtime data');
+      throw new InternalServerErrorException(
+        'Failed to fetch rentals overtime data',
+      );
     }
   }
 
   async getWallet(userId: string) {
     let wallet: any = await this.prisma.wallet.findUnique({
       where: { userId },
-      include: { transactions: { take: 1, orderBy: { createdAt: 'desc' } } }
+      include: { transactions: { take: 1, orderBy: { createdAt: 'desc' } } },
     });
 
     if (!wallet) {
-        wallet = await this.prisma.wallet.create({ data: { userId } });
-        wallet.transactions = [];
+      wallet = await this.prisma.wallet.create({ data: { userId } });
+      wallet.transactions = [];
     }
-    
+
     const safeWallet = wallet as any;
 
     const activeRentals = await this.prisma.rental.findMany({
-        where: { curatorId: userId, isReturned: false },
-        include: { order: true }
+      where: { curatorId: userId, isReturned: false },
+      include: { order: true },
     });
-    
+
     return {
       success: true,
       data: {
@@ -3629,35 +3802,40 @@ export class ListersService {
           userId: safeWallet.userId,
           balance: {
             availableBalance: safeWallet.availableBalance,
-            lockedBalance: safeWallet.collateralBalance, 
+            lockedBalance: safeWallet.collateralBalance,
             totalBalance: safeWallet.mainBalance,
             currency: CURRENCY,
-            lastUpdated: safeWallet.updatedAt
+            lastUpdated: safeWallet.updatedAt,
           },
           lockedBreakdown: {
-              activeRentals: [], 
-              disputeHolds: [],
-              totalLockedAmount: 0
+            activeRentals: [],
+            disputeHolds: [],
+            totalLockedAmount: 0,
           },
           statistics: {
-              totalDeposits: 0,
-              totalSpent: 0,
-              totalRefunds: 0,
-              lifetimeTransactions: 0,
-              activeRentalOrders: activeRentals.length,
-              activeDisputes: 0
+            totalDeposits: 0,
+            totalSpent: 0,
+            totalRefunds: 0,
+            lifetimeTransactions: 0,
+            activeRentalOrders: activeRentals.length,
+            activeDisputes: 0,
           },
-          lastTransaction: safeWallet.transactions?.[0] ? {
-              type: safeWallet.transactions[0].amount < 0 ? 'debit' : 'credit', 
-              amount: Math.abs(safeWallet.transactions[0].amount),
-              description: safeWallet.transactions[0].note,
-              date: safeWallet.transactions[0].createdAt
-          } : null,
-          linkedBankAccounts: await (this.prisma as any).bankAccount.count({ where: { userId } }),
+          lastTransaction: safeWallet.transactions?.[0]
+            ? {
+                type:
+                  safeWallet.transactions[0].amount < 0 ? 'debit' : 'credit',
+                amount: Math.abs(safeWallet.transactions[0].amount),
+                description: safeWallet.transactions[0].note,
+                date: safeWallet.transactions[0].createdAt,
+              }
+            : null,
+          linkedBankAccounts: await (this.prisma as any).bankAccount.count({
+            where: { userId },
+          }),
           canWithdraw: true,
-          minimumFundsForTransaction: 1000
-        }
-      }
+          minimumFundsForTransaction: 1000,
+        },
+      },
     };
   }
 
@@ -3667,170 +3845,183 @@ export class ListersService {
     const skip = (page - 1) * limit;
 
     const [total, transactions] = await this.prisma.$transaction([
-        this.prisma.walletTransaction.count({ where: { wallet: { userId } } }),
-        this.prisma.walletTransaction.findMany({
-            where: { wallet: { userId } },
-            skip,
-            take: limit,
-            orderBy: { createdAt: 'desc' },
-            include: { order: { include: { orderItems: { include: { product: true }, take: 1 } } } }
-        })
+      this.prisma.walletTransaction.count({ where: { wallet: { userId } } }),
+      this.prisma.walletTransaction.findMany({
+        where: { wallet: { userId } },
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          order: {
+            include: { orderItems: { include: { product: true }, take: 1 } },
+          },
+        },
+      }),
     ]);
 
     return {
-        success: true,
-        data: {
-            transactions: transactions.map(t => ({
-                transactionId: t.id,
-                type: t.amount < 0 ? 'debit' : 'credit', 
-                amount: Math.abs(t.amount),
-                currency: CURRENCY,
-                description: t.note,
-                orderId: t.orderId,
-                status: t.status,
-                timestamp: t.createdAt,
-                relatedOrder: t.order ? {
-                    orderId: t.order.orderId,
-                    itemName: t.order.orderItems[0]?.product.name || 'Unknown Item',
-                    listerName: 'Unknown' 
-                } : null
-            })),
-            totalTransactions: total,
-            page,
-            totalPages: Math.ceil(total / limit)
-        }
-    }
+      success: true,
+      data: {
+        transactions: transactions.map((t) => ({
+          transactionId: t.id,
+          type: t.amount < 0 ? 'debit' : 'credit',
+          amount: Math.abs(t.amount),
+          currency: CURRENCY,
+          description: t.note,
+          orderId: t.orderId,
+          status: t.status,
+          timestamp: t.createdAt,
+          relatedOrder: t.order
+            ? {
+                orderId: t.order.orderId,
+                itemName: t.order.orderItems[0]?.product.name || 'Unknown Item',
+                listerName: 'Unknown',
+              }
+            : null,
+        })),
+        totalTransactions: total,
+        page,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   async getBankAccounts(userId: string) {
-      const accounts = await (this.prisma as any).bankAccount.findMany({ where: { userId } });
-      return {
-          success: true,
-          data: {
-              bankAccounts: accounts,
-              totalAccounts: accounts.length
-          }
-      }
+    const accounts = await (this.prisma as any).bankAccount.findMany({
+      where: { userId },
+    });
+    return {
+      success: true,
+      data: {
+        bankAccounts: accounts,
+        totalAccounts: accounts.length,
+      },
+    };
   }
 
   async getLockedBalances(userId: string) {
-      return {
-          success: true,
-          data: {
-              lockedBalances: {
-                  totalLocked: 0,
-                  currency: CURRENCY,
-                  activeRentals: [],
-                  disputeHolds: [],
-                  lockReleaseSchedule: {
-                      nextReleaseDate: null,
-                      nextReleaseAmount: 0,
-                      upcomingReleases: []
-                  }
-              }
-          }
-      }
+    return {
+      success: true,
+      data: {
+        lockedBalances: {
+          totalLocked: 0,
+          currency: CURRENCY,
+          activeRentals: [],
+          disputeHolds: [],
+          lockReleaseSchedule: {
+            nextReleaseDate: null,
+            nextReleaseAmount: 0,
+            upcomingReleases: [],
+          },
+        },
+      },
+    };
   }
-  
+
   async getWithdrawal(userId: string, withdrawalId: string) {
-      const withdrawal = await (this.prisma as any).withdrawalRequest.findFirst({
-          where: { id: withdrawalId, userId },
-          include: { bankAccount: true }
-      });
-      
-      if (!withdrawal) throw new NotFoundException('Withdrawal not found');
-      
-      return {
-          success: true,
-          data: {
-              withdrawal: {
-                  withdrawalId: withdrawal.id,
-                  amount: withdrawal.amount,
-                  currency: withdrawal.currency,
-                  bankAccount: {
-                      bankName: withdrawal.bankAccount.bankName,
-                      accountNumber: withdrawal.bankAccount.accountNumber,
-                      accountName: withdrawal.bankAccount.accountName
-                  },
-                  fee: withdrawal.fee,
-                  netAmount: withdrawal.netAmount,
-                  status: withdrawal.status, 
-                  estimatedDelivery: null,
-                  reference: withdrawal.reference,
-                  initiatedAt: withdrawal.createdAt,
-                  timeline: []
-              }
-          }
-      }
+    const withdrawal = await (this.prisma as any).withdrawalRequest.findFirst({
+      where: { id: withdrawalId, userId },
+      include: { bankAccount: true },
+    });
+
+    if (!withdrawal) throw new NotFoundException('Withdrawal not found');
+
+    return {
+      success: true,
+      data: {
+        withdrawal: {
+          withdrawalId: withdrawal.id,
+          amount: withdrawal.amount,
+          currency: withdrawal.currency,
+          bankAccount: {
+            bankName: withdrawal.bankAccount.bankName,
+            accountNumber: withdrawal.bankAccount.accountNumber,
+            accountName: withdrawal.bankAccount.accountName,
+          },
+          fee: withdrawal.fee,
+          netAmount: withdrawal.netAmount,
+          status: withdrawal.status,
+          estimatedDelivery: null,
+          reference: withdrawal.reference,
+          initiatedAt: withdrawal.createdAt,
+          timeline: [],
+        },
+      },
+    };
   }
 
-  async requestWithdrawal(userId: string, data: { amount: number, bankAccountId: string }) {
-      if (!data.amount || data.amount <= 0) {
-          throw new BadRequestException("Invalid withdrawal amount");
-      }
+  async requestWithdrawal(
+    userId: string,
+    data: { amount: number; bankAccountId: string },
+  ) {
+    if (!data.amount || data.amount <= 0) {
+      throw new BadRequestException('Invalid withdrawal amount');
+    }
 
-      const bankAccount = await (this.prisma as any).bankAccount.findFirst({
-          where: { id: data.bankAccountId, userId }
+    const bankAccount = await (this.prisma as any).bankAccount.findFirst({
+      where: { id: data.bankAccountId, userId },
+    });
+
+    if (!bankAccount) {
+      throw new BadRequestException('Invalid bank account linked to user');
+    }
+
+    const wallet = await (this.prisma as any).wallet.findUnique({
+      where: { userId },
+    });
+
+    if (!wallet || wallet.mainBalance < data.amount) {
+      throw new BadRequestException('Insufficient wallet balance');
+    }
+
+    const reference = `WD-${randomUUID().split('-')[0].toUpperCase()}`;
+
+    const withdrawal = await this.prisma.$transaction(async (tx) => {
+      // Deduct from wallet
+      await (tx as any).wallet.update({
+        where: { id: wallet.id },
+        data: {
+          mainBalance: { decrement: data.amount },
+        },
       });
 
-      if (!bankAccount) {
-          throw new BadRequestException("Invalid bank account linked to user");
-      }
-
-      const wallet = await (this.prisma as any).wallet.findUnique({ where: { userId } });
-      
-      if (!wallet || wallet.mainBalance < data.amount) {
-          throw new BadRequestException("Insufficient wallet balance");
-      }
-
-      const reference = `WD-${randomUUID().split("-")[0].toUpperCase()}`;
-
-      const withdrawal = await this.prisma.$transaction(async (tx) => {
-          // Deduct from wallet
-          await (tx as any).wallet.update({
-              where: { id: wallet.id },
-              data: {
-                  mainBalance: { decrement: data.amount }
-              }
-          });
-
-          // Create transaction record
-          await (tx as any).walletTransaction.create({
-              data: {
-                  walletId: wallet.id,
-                  type: "MAIN",
-                  amount: -data.amount,
-                  status: "SUCCESS",
-                  note: `Withdrawal request to ${bankAccount.bankName} (Ref: ${reference})`
-              }
-          });
-
-          // Create withdrawal request
-          return await (tx as any).withdrawalRequest.create({
-              data: {
-                  userId,
-                  amount: data.amount,
-                  netAmount: data.amount,
-                  currency: CURRENCY,
-                  bankAccountId: data.bankAccountId,
-                  status: "PENDING",
-                  reference
-              }
-          });
+      // Create transaction record
+      await (tx as any).walletTransaction.create({
+        data: {
+          walletId: wallet.id,
+          type: 'MAIN',
+          amount: -data.amount,
+          status: 'SUCCESS',
+          note: `Withdrawal request to ${bankAccount.bankName} (Ref: ${reference})`,
+        },
       });
 
-      return {
-          success: true,
-          message: "Withdrawal request submitted successfully",
-          data: {
-              withdrawal: {
-                  withdrawalId: withdrawal.id,
-                  amount: withdrawal.amount,
-                  status: withdrawal.status,
-                  reference: withdrawal.reference,
-                  initiatedAt: withdrawal.createdAt
-              }
-          }
-      }
+      // Create withdrawal request
+      return await (tx as any).withdrawalRequest.create({
+        data: {
+          userId,
+          amount: data.amount,
+          netAmount: data.amount,
+          currency: CURRENCY,
+          bankAccountId: data.bankAccountId,
+          status: 'PENDING',
+          reference,
+        },
+      });
+    });
+
+    return {
+      success: true,
+      message: 'Withdrawal request submitted successfully',
+      data: {
+        withdrawal: {
+          withdrawalId: withdrawal.id,
+          amount: withdrawal.amount,
+          status: withdrawal.status,
+          reference: withdrawal.reference,
+          initiatedAt: withdrawal.createdAt,
+        },
+      },
+    };
   }
 }

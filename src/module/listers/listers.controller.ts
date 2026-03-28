@@ -1,4 +1,15 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
@@ -28,13 +39,13 @@ export class ListersController {
   @Get('inventory/top-items')
   @ApiOperation({ summary: 'Top performing items by rental count' })
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 5 })
-  @ApiResponse({ status: 200, description: 'Top items with rentals count, price, availability' })
+  @ApiResponse({
+    status: 200,
+    description: 'Top items with rentals count, price, availability',
+  })
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
   @ApiForbiddenResponse({ description: 'Forbidden: Lister or Admin only' })
-  getTopItems(
-    @AuthUser() user: userEntity,
-    @Query('limit') limit?: string,
-  ) {
+  getTopItems(@AuthUser() user: userEntity, @Query('limit') limit?: string) {
     const limitNum = limit ? parseInt(limit, 10) : 5;
     return this.listersService.getTopItems(user, limitNum);
   }
@@ -43,7 +54,10 @@ export class ListersController {
   @Get('stats')
   @ApiOperation({ summary: 'High-level performance metrics for listers' })
   @ApiQuery({ name: 'timeframe', required: false, enum: ['month', 'year'] })
-  @ApiResponse({ status: 200, description: 'Lister stats with period comparison' })
+  @ApiResponse({
+    status: 200,
+    description: 'Lister stats with period comparison',
+  })
   getListerStats(
     @AuthUser() user: userEntity,
     @Query('timeframe') timeframe?: string,
@@ -54,9 +68,16 @@ export class ListersController {
   @Auth([Role.LISTER, Role.ADMIN])
   @Get('rentals/overtime')
   @ApiOperation({ summary: 'Lister rental performance trends over time' })
-  @ApiQuery({ name: 'timeframe', required: false, enum: ['month', 'quarter', 'year'] })
+  @ApiQuery({
+    name: 'timeframe',
+    required: false,
+    enum: ['month', 'quarter', 'year'],
+  })
   @ApiQuery({ name: 'year', required: false, type: Number })
-  @ApiResponse({ status: 200, description: 'Revenue and orders trends over time' })
+  @ApiResponse({
+    status: 200,
+    description: 'Revenue and orders trends over time',
+  })
   getRentalsOvertime(
     @AuthUser() user: userEntity,
     @Query('timeframe') timeframe?: string,
@@ -70,8 +91,15 @@ export class ListersController {
   @ApiOperation({ summary: 'Recent rental activity for listers' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
-  @ApiQuery({ name: 'status', required: false, enum: ['all', 'delivered', 'return_due'] })
-  @ApiResponse({ status: 200, description: 'Recent rentals with item, dresser, return due' })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: ['all', 'delivered', 'return_due'],
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Recent rentals with item, dresser, return due',
+  })
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
   @ApiForbiddenResponse({ description: 'Forbidden: Lister or Admin only' })
   getRecentRentals(
@@ -82,17 +110,31 @@ export class ListersController {
   ) {
     const pageNum = page ? parseInt(page, 10) : 1;
     const limitNum = limit ? parseInt(limit, 10) : 10;
-    return this.listersService.getRecentRentals(user, pageNum, limitNum, status ?? 'all');
+    return this.listersService.getRecentRentals(
+      user,
+      pageNum,
+      limitNum,
+      status ?? 'all',
+    );
   }
 
   @Auth([Role.LISTER, Role.ADMIN])
   @Get('orders')
-  @ApiOperation({ summary: 'Paginated list of orders for listers with status filter' })
-  @ApiQuery({ name: 'status', required: false, enum: ['pending', 'ongoing', 'completed', 'cancelled'] })
+  @ApiOperation({
+    summary: 'Paginated list of orders for listers with status filter',
+  })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: ['pending', 'ongoing', 'completed', 'cancelled'],
+  })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'sort', required: false, example: '-createdAt' })
-  @ApiResponse({ status: 200, description: 'Orders with pagination and summary' })
+  @ApiResponse({
+    status: 200,
+    description: 'Orders with pagination and summary',
+  })
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
   @ApiForbiddenResponse({ description: 'Forbidden: Lister or Admin only' })
   getOrders(
@@ -117,7 +159,10 @@ export class ListersController {
   @Get('orders/:orderId/items')
   @ApiOperation({ summary: 'Items in an order' })
   @ApiParam({ name: 'orderId', description: 'Order UUID' })
-  @ApiResponse({ status: 200, description: 'Order items with return due, amount, status' })
+  @ApiResponse({
+    status: 200,
+    description: 'Order items with return due, amount, status',
+  })
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
   @ApiForbiddenResponse({ description: 'Forbidden' })
   @ApiNotFoundResponse({ description: 'Order not found' })
@@ -147,7 +192,10 @@ export class ListersController {
   @Get('orders/:orderId')
   @ApiOperation({ summary: 'Single order details' })
   @ApiParam({ name: 'orderId', description: 'Order UUID' })
-  @ApiResponse({ status: 200, description: 'Order with timeline, escrow, items' })
+  @ApiResponse({
+    status: 200,
+    description: 'Order with timeline, escrow, items',
+  })
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
   @ApiForbiddenResponse({ description: 'Forbidden' })
   @ApiNotFoundResponse({ description: 'Order not found' })
@@ -212,14 +260,18 @@ export class ListersController {
   // 11. Update order status through lifecycle
   @Auth([Role.LISTER, Role.ADMIN])
   @Put('orders/:orderId/status')
-  @ApiOperation({ summary: 'Update order status (dispatched, in_transit, delivered, etc.)' })
+  @ApiOperation({
+    summary: 'Update order status (dispatched, in_transit, delivered, etc.)',
+  })
   @ApiParam({ name: 'orderId', description: 'Order UUID' })
   @ApiResponse({
     status: 200,
     description: 'Order status updated',
   })
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
-  @ApiForbiddenResponse({ description: 'Forbidden or invalid status transition' })
+  @ApiForbiddenResponse({
+    description: 'Forbidden or invalid status transition',
+  })
   @ApiNotFoundResponse({ description: 'Order not found' })
   updateOrderStatus(
     @AuthUser() user: userEntity,
@@ -296,7 +348,14 @@ export class ListersController {
   @ApiQuery({
     name: 'sortBy',
     required: false,
-    enum: ['-dateSubmitted', 'dateSubmitted', 'status', '-status', 'amount', '-amount'],
+    enum: [
+      '-dateSubmitted',
+      'dateSubmitted',
+      'status',
+      '-status',
+      'amount',
+      '-amount',
+    ],
   })
   @ApiResponse({ status: 200, description: 'Disputes list with pagination' })
   getDisputes(
@@ -476,9 +535,7 @@ export class ListersController {
     @Query('includeAddresses') includeAddresses?: string,
   ) {
     const inc =
-      includeAddresses === undefined
-        ? true
-        : includeAddresses === 'true';
+      includeAddresses === undefined ? true : includeAddresses === 'true';
     return this.listersService.getListerProfile(user, inc);
   }
 
@@ -617,18 +674,18 @@ export class ListersController {
     return this.listersService.getVerificationDocuments(user);
   }
 
-  // 40. POST /api/listers/verifications/nin
+  // 40. POST /api/listers/verifications/id
   @Auth([Role.LISTER, Role.ADMIN])
-  @Post('verifications/nin')
+  @Post('verifications/id')
   @ApiOperation({
     summary:
-      'Attach existing upload as NIN verification document (upload handled by /upload)',
+      'Attach existing upload as ID verification document (NIN, Passport, Drivers License)',
   })
-  uploadNinDocument(
+  uploadIdDocument(
     @AuthUser() user: userEntity,
-    @Body() body: { uploadId: string; ninNumber?: string },
+    @Body() body: { uploadId: string; idType: string },
   ) {
-    return this.listersService.uploadNinDocument(user, body);
+    return this.listersService.uploadIdDocument(user, body);
   }
 
   // 41. GET /api/listers/verifications/bvn
