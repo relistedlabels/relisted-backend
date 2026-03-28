@@ -700,6 +700,14 @@ export class ListersController {
     return this.listersService.getBvnInfo(user);
   }
 
+  // 41b. POST /api/listers/verifications/bvn
+  @Auth([Role.LISTER, Role.ADMIN])
+  @Post('verifications/bvn')
+  @ApiOperation({ summary: 'Submit BVN' })
+  submitBvn(@AuthUser() user: userEntity, @Body() body: { bvn: string }) {
+    return this.listersService.submitBvn(user, body);
+  }
+
   // 42. PUT /api/listers/verifications/emergency-contact
   @Auth([Role.LISTER, Role.ADMIN])
   @Put('verifications/emergency-contact')
