@@ -1177,16 +1177,11 @@ export class RentersService {
   /* account & settings */
 
   async getVerificationStatus(userId: string) {
-    let profile = await this.prisma.profile.findUnique({
+    const profile = await this.prisma.profile.findUnique({
       where: { userId },
       include: { idDocumentUpload: true },
     });
-    if (!profile) {
-      profile = await this.prisma.profile.create({
-        data: { userId, phoneNumber: '' },
-        include: { idDocumentUpload: true },
-      });
-    }
+    if (!profile) throw new NotFoundException('Profile not found');
 
     const maskBvn = (val?: string | null) =>
       val && val.length >= 4 ? `XXXXX${val.slice(-4)}` : null;

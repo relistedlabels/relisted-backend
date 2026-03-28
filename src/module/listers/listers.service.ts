@@ -2960,15 +2960,12 @@ export class ListersService {
 
   /** 38. GET /api/listers/verifications/status */
   async getVerificationStatus(user: userEntity) {
-    let profile = await this.prisma.profile.findUnique({
+    const profile = await this.prisma.profile.findUnique({
       where: { userId: user.id },
       include: { idDocumentUpload: true, businessInfo: true },
     });
     if (!profile) {
-      profile = await this.prisma.profile.create({
-        data: { userId: user.id, phoneNumber: '' },
-        include: { idDocumentUpload: true, businessInfo: true },
-      });
+      throw new NotFoundException('Profile not found');
     }
 
     const idStatus = profile.idDocumentUpload ? 'verified' : 'not_verified';
