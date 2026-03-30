@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { isAfter } from 'date-fns';
+import { v4 } from 'uuid';
 import { bad } from 'src/utils/error';
 import { generateOtp } from 'src/utils/generateOtp';
-import { v4 } from 'uuid';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateAuthOtpTokenDto,
