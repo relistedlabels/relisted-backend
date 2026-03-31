@@ -37,15 +37,45 @@ function loggingMiddleware(req: any, res: any, next: () => void) {
   const start = Date.now();
   const { method, originalUrl, headers, body, query } = req;
 
+  const contentType = headers['content-type'] || '';
+  const isMultipart = contentType.includes('multipart/form-data');
+
+  let logBody = undefined;
+  if (body && Object.keys(body).length) {
+    logBody = maskSensitiveFields({ ...body });
+  } else if (isMultipart) {
+    const formData: any = {};
+    if (req.body) {
+      Object.assign(formData, maskSensitiveFields({ ...req.body }));
+    }
+    if (req.file) {
+      formData.file = {
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size,
+        fieldname: req.file.fieldname,
+      };
+    }
+    if (req.files) {
+      formData.files = Array.isArray(req.files)
+        ? req.files.map((f: any) => ({
+            originalname: f.originalname,
+            mimetype: f.mimetype,
+            size: f.size,
+          }))
+        : '[files]';
+    }
+    logBody = formData;
+  }
+
   console.log(`📥 ${method} ${originalUrl}`, {
     query: query && Object.keys(query).length ? query : undefined,
     headers: {
       authorization: headers.authorization ? 'Bearer [HIDDEN]' : undefined,
-      'content-type': headers['content-type'],
+      'content-type': contentType || undefined,
       'user-agent': headers['user-agent'],
     },
-    body:
-      body && Object.keys(body).length ? maskSensitiveFields(body) : undefined,
+    body: logBody,
   });
 
   const originalSend = res.send;
