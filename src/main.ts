@@ -6,6 +6,32 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 
 import cookieParser from 'cookie-parser';
 import { AllExceptionsFilter } from './utils/all-exceptions.filter';
+import { applySwaggerBasicAuth } from './swagger/apply-swagger-basic-auth';
+
+function maskSensitiveFields(obj: any): any {
+  if (!obj || typeof obj !== 'object') return obj;
+
+  const sensitiveFields = [
+    'password',
+    'token',
+    'accessToken',
+    'refreshToken',
+    'authorization',
+    'secret',
+    'apiKey',
+    'bearerToken',
+  ];
+  const masked = { ...obj };
+
+  for (const key of Object.keys(masked)) {
+    if (sensitiveFields.some((field) => key.toLowerCase().includes(field))) {
+      masked[key] = '[HIDDEN]';
+    } else if (typeof masked[key] === 'object') {
+      masked[key] = maskSensitiveFields(masked[key]);
+    }
+  }
+  return masked;
+}
 
 function loggingMiddleware(req: any, res: any, next: () => void) {
   const start = Date.now();
@@ -18,16 +44,24 @@ function loggingMiddleware(req: any, res: any, next: () => void) {
       'content-type': headers['content-type'],
       'user-agent': headers['user-agent'],
     },
-    body: body && Object.keys(body).length ? body : undefined,
+    body:
+      body && Object.keys(body).length ? maskSensitiveFields(body) : undefined,
   });
 
   const originalSend = res.send;
   res.send = function (data: any) {
     const duration = Date.now() - start;
+    let parsedData = data;
+    try {
+      parsedData = typeof data === 'string' ? JSON.parse(data) : data;
+    } catch {}
     console.log(
       `📤 ${method} ${originalUrl} ${res.statusCode} (${duration}ms)`,
       {
-        response: typeof data === 'string' ? data.substring(0, 500) : data,
+        response:
+          typeof data === 'string'
+            ? data.substring(0, 500)
+            : maskSensitiveFields(parsedData),
       },
     );
     return originalSend.call(this, data);
@@ -91,38 +125,22 @@ async function bootstrap() {
   const hasSwaggerCreds =
     process.env.SWAGGER_USERNAME && process.env.SWAGGER_PASSWORD;
 
+  const swaggerPath = 'swagger';
+
   // Only mount Swagger in dev OR if credentials are provided
   if (!isProduction || hasSwaggerCreds) {
-    // Add basic auth middleware in production only (before Swagger setup)
-    if (isProduction && hasSwaggerCreds) {
-      const swaggerAuthMiddleware = (req: any, res: any, next: () => void) => {
-        const authHeader = req.headers.authorization;
-        if (!authHeader || !authHeader.startsWith('Basic ')) {
-          res.setHeader('WWW-Authenticate', 'Basic realm="Swagger API"');
-          return res.status(401).send('Unauthorized');
-        }
-
-        const base64Credentials = authHeader.split(' ')[1];
-        const credentials = Buffer.from(base64Credentials, 'base64').toString(
-          'utf-8',
-        );
-        const [username, password] = credentials.split(':');
-
-        if (
-          username === process.env.SWAGGER_USERNAME &&
-          password === process.env.SWAGGER_PASSWORD
-        ) {
-          next();
-        } else {
-          res.setHeader('WWW-Authenticate', 'Basic realm="Swagger API"');
-          return res.status(401).send('Unauthorized');
-        }
-      };
-      app.use('/api', swaggerAuthMiddleware);
+    // Basic auth on /swagger whenever creds are set (dev or prod) so local testing matches prod
+    if (hasSwaggerCreds) {
+      applySwaggerBasicAuth(
+        app,
+        swaggerPath,
+        process.env.SWAGGER_USERNAME!,
+        process.env.SWAGGER_PASSWORD!,
+      );
     }
 
     const document = () => SwaggerModule.createDocument(app, config);
-    SwaggerModule.setup('api', app, document);
+    SwaggerModule.setup(swaggerPath, app, document);
   }
 
   app.useGlobalPipes(
