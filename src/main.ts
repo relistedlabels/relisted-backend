@@ -8,6 +8,31 @@ import cookieParser from 'cookie-parser';
 import { AllExceptionsFilter } from './utils/all-exceptions.filter';
 import { applySwaggerBasicAuth } from './swagger/apply-swagger-basic-auth';
 
+function maskSensitiveFields(obj: any): any {
+  if (!obj || typeof obj !== 'object') return obj;
+
+  const sensitiveFields = [
+    'password',
+    'token',
+    'accessToken',
+    'refreshToken',
+    'authorization',
+    'secret',
+    'apiKey',
+    'bearerToken',
+  ];
+  const masked = { ...obj };
+
+  for (const key of Object.keys(masked)) {
+    if (sensitiveFields.some((field) => key.toLowerCase().includes(field))) {
+      masked[key] = '[HIDDEN]';
+    } else if (typeof masked[key] === 'object') {
+      masked[key] = maskSensitiveFields(masked[key]);
+    }
+  }
+  return masked;
+}
+
 function loggingMiddleware(req: any, res: any, next: () => void) {
   const start = Date.now();
   const { method, originalUrl, headers, body, query } = req;
@@ -19,16 +44,24 @@ function loggingMiddleware(req: any, res: any, next: () => void) {
       'content-type': headers['content-type'],
       'user-agent': headers['user-agent'],
     },
-    body: body && Object.keys(body).length ? body : undefined,
+    body:
+      body && Object.keys(body).length ? maskSensitiveFields(body) : undefined,
   });
 
   const originalSend = res.send;
   res.send = function (data: any) {
     const duration = Date.now() - start;
+    let parsedData = data;
+    try {
+      parsedData = typeof data === 'string' ? JSON.parse(data) : data;
+    } catch {}
     console.log(
       `📤 ${method} ${originalUrl} ${res.statusCode} (${duration}ms)`,
       {
-        response: typeof data === 'string' ? data.substring(0, 500) : data,
+        response:
+          typeof data === 'string'
+            ? data.substring(0, 500)
+            : maskSensitiveFields(parsedData),
       },
     );
     return originalSend.call(this, data);
