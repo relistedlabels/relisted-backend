@@ -1216,16 +1216,52 @@ export class RentersService {
     const profile = await this.prisma.profile.findUnique({ where: { userId } });
     if (!profile) throw new NotFoundException('Profile not found');
 
-    // In real implementation, upload to Cloudinary via UploadService
-    // For now, return sample response
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const uploadId = `id_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    const userForUpload = {
+      sub: user.id,
+      id: user.id,
+      email: user.email,
+      isVerified: user.isVerified,
+      name: user.name,
+      role: user.role,
+    };
+    const uploaded = await this.uploadService.uploadFile(
+      uploadId,
+      data.idDocument,
+      userForUpload as any,
+    );
+
+    const validIdTypes = ['NIN', 'PASSPORT', 'DRIVERS_LICENSE'];
+    const idType = data.idType?.toUpperCase() || 'NIN';
+    if (!validIdTypes.includes(idType)) {
+      throw new BadRequestException(
+        'idType must be NIN, PASSPORT, or DRIVERS_LICENSE',
+      );
+    }
+
+    const updated = await this.prisma.profile.update({
+      where: { userId },
+      data: {
+        idDocumentUpload: { connect: { id: uploaded.id } },
+        idDocumentType: idType,
+      },
+      include: { idDocumentUpload: true },
+    });
+
     return {
       success: true,
       message: 'ID document uploaded successfully',
       data: {
-        documentId: `doc_${Date.now()}`,
-        idType: data.idType,
+        documentId: updated.idDocumentUpload?.id ?? uploaded.id,
+        idType: idType,
+        documentUrl: updated.idDocumentUpload?.url ?? null,
         status: 'pending_verification',
-        uploadedDate: new Date().toISOString(),
+        uploadedDate:
+          updated.idDocumentUpload?.createdAt.toISOString() ??
+          new Date().toISOString(),
         estimatedVerificationTime: '24-48 hours',
       },
     };
