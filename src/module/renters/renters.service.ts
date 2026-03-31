@@ -146,10 +146,17 @@ export class RentersService {
     if (updateData.nin !== undefined) profileUpdate.nin = updateData.nin;
 
     if (emergencyContactData) {
+      const mappedEmergencyContact = {
+        ...emergencyContactData,
+        phoneNumber:
+          emergencyContactData.phone || emergencyContactData.phoneNumber,
+      };
+      delete mappedEmergencyContact.phone;
+
       profileUpdate.emergencyContact = {
         upsert: {
-          create: emergencyContactData,
-          update: emergencyContactData,
+          create: mappedEmergencyContact,
+          update: mappedEmergencyContact,
         },
       };
     }
@@ -189,7 +196,11 @@ export class RentersService {
       ...(updateData.nin && { nin: updateData.nin }),
       ...(emergencyContactData && {
         emergencyContact: {
-          create: emergencyContactData,
+          create: {
+            ...emergencyContactData,
+            phoneNumber:
+              emergencyContactData.phone || emergencyContactData.phoneNumber,
+          },
         },
       }),
       ...(updateData.businessInfo && {
