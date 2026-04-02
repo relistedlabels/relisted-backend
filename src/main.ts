@@ -81,18 +81,25 @@ function loggingMiddleware(req: any, res: any, next: () => void) {
   const originalSend = res.send;
   res.send = function (data: any) {
     const duration = Date.now() - start;
-    let parsedData = data;
-    try {
-      parsedData = typeof data === 'string' ? JSON.parse(data) : data;
-    } catch {}
+    let responseForLog: unknown;
+    if (data === undefined || data === null) {
+      responseForLog = data;
+    } else if (Buffer.isBuffer(data)) {
+      responseForLog = `[Buffer ${data.length} bytes]`;
+    } else if (typeof data === 'string') {
+      try {
+        responseForLog = maskSensitiveFields(JSON.parse(data));
+      } catch {
+        responseForLog = `[non-JSON body, ${data.length} chars]`;
+      }
+    } else if (typeof data === 'object') {
+      responseForLog = maskSensitiveFields(data);
+    } else {
+      responseForLog = data;
+    }
     console.log(
       `📤 ${method} ${originalUrl} ${res.statusCode} (${duration}ms)`,
-      {
-        response:
-          typeof data === 'string'
-            ? data.substring(0, 500)
-            : maskSensitiveFields(parsedData),
-      },
+      { response: responseForLog },
     );
     return originalSend.call(this, data);
   };

@@ -10,13 +10,14 @@ import { connectId } from 'prisma/prisma.utils';
 @Injectable()
 export class WemaServiceService {
   constructor(private readonly prisma:PrismaService){}
+
 async createAccount(user:userEntity,amount:number) {
-const userExist =await this.prisma.user.findUnique({
-  where:{id:user.id},
-  include:{
-    profile:true
-  }
-})
+    const userExist =await this.prisma.user.findUnique({
+      where:{id:user.id},
+      include:{
+        profile:true
+      }
+  })
 
 
 
@@ -29,7 +30,6 @@ const userExist =await this.prisma.user.findUnique({
       vaNumber,
       status: 'PENDING',
       expiresAt: addMinutes(new Date(), 30),
-     
       bvn:userExist?.profile?.bvn
       
     },
@@ -129,7 +129,7 @@ async transactionNotify(dto: any) {
     }
   });
 
-  await this.fundWallet(account.userId, parseFloat(dto.amount) || 0);
+  await this.fundWallet(account.userId, Number(dto.amount) || 0);
 
   return {
     transactionreference: referenceId,
@@ -139,6 +139,11 @@ async transactionNotify(dto: any) {
 }
 
  async fundWallet(userId: string, amount: number) {
+  const delta = Math.max(0, Math.round(Number(amount)));
+  if (delta === 0) {
+    return;
+  }
+
   let wallet = await this.prisma.wallet.findUnique({ where: { userId } });
   if (!wallet) {
     wallet = await this.prisma.wallet.create({
@@ -150,15 +155,19 @@ async transactionNotify(dto: any) {
       }
     });
   }
+
   await this.prisma.wallet.update({
     where: { id: wallet.id },
-    data: { mainBalance: wallet.mainBalance + amount }
+    data: {
+      mainBalance: { increment: delta },
+      availableBalance: { increment: delta },
+    },
   });
 
   await this.prisma.walletTransaction.create({
     data: {
       walletId: wallet.id,
-      amount,
+      amount: delta,
       type: 'MAIN',
       status: 'SUCCESS',
       note: 'Wema Virtual Account Deposit'
