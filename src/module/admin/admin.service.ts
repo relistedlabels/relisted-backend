@@ -854,7 +854,10 @@ export class AdminService {
         if (wallet) {
           await (tx as any).wallet.update({
             where: { id: wallet.id },
-            data: { mainBalance: { increment: withdrawal.amount } }
+            data: {
+              mainBalance: { increment: withdrawal.amount },
+              availableBalance: { increment: withdrawal.amount },
+            },
           });
           
           await (tx as any).walletTransaction.create({
