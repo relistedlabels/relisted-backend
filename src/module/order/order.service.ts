@@ -105,11 +105,6 @@ export class OrderService {
         listerVatTotal += vatAmount;
         listerServiceChargeTotal += serviceCharge;
       }
-      globalRentalTotal += listerRentalTotal;
-      globalCollateralTotal += listerCollateralTotal;
-      globalCleaningTotal += listerCleaningTotal;
-      globalVatTotal += listerVatTotal;
-      globalServiceChargeTotal += listerServiceChargeTotal;
       const senderCity = curatorAddress?.city || 'Lagos';
       const receiverCity = renterProfile.address.city || 'Lagos';
 

@@ -23,40 +23,44 @@ const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
 async function main() {
-  // Seed Brands
-  await prisma.brand.createMany({
-    data: [
-      { name: 'Nike' },
-      { name: 'Adidas' },
-      { name: 'Zara' },
-      { name: 'H&M' },
-      { name: 'Gucci' },
-      { name: 'Louis Vuitton' },
-      { name: 'Puma' },
-      { name: 'Balenciaga' },
-      { name: 'Versace' },
-      { name: 'Uniqlo' },
-    ],
-    skipDuplicates: true,
-  });
+  // Seed Brands only on empty table
+  const brandCount = await prisma.brand.count();
+  if (brandCount === 0) {
+    await prisma.brand.createMany({
+      data: [
+        { name: 'Nike' },
+        { name: 'Adidas' },
+        { name: 'Zara' },
+        { name: 'H&M' },
+        { name: 'Gucci' },
+        { name: 'Louis Vuitton' },
+        { name: 'Puma' },
+        { name: 'Balenciaga' },
+        { name: 'Versace' },
+        { name: 'Uniqlo' },
+      ],
+    });
+  }
 
-  // Seed Categories
-  await prisma.productCategory.createMany({
-    data: [
-      { name: 'Tops' },
-      { name: 'Bottoms' },
-      { name: 'Dresses' },
-      { name: 'Outerwear' },
-      { name: 'Footwear' },
-      { name: 'Accessories' },
-      { name: 'Activewear' },
-      { name: 'Formal Wear' },
-      { name: 'Casual Wear' },
-      { name: 'Traditional Wear' },
-    ],
-    skipDuplicates: true,
-  });
-  
+  // Seed Categories only on empty table
+  const categoryCount = await prisma.productCategory.count();
+  if (categoryCount === 0) {
+    await prisma.productCategory.createMany({
+      data: [
+        { name: 'Tops' },
+        { name: 'Bottoms' },
+        { name: 'Dresses' },
+        { name: 'Outerwear' },
+        { name: 'Footwear' },
+        { name: 'Accessories' },
+        { name: 'Activewear' },
+        { name: 'Formal Wear' },
+        { name: 'Casual Wear' },
+        { name: 'Traditional Wear' },
+      ],
+    });
+  }
+
   // Tags that show in the box (display order first), then other searchable tags
   const boxTags = [
     'New season',
@@ -97,11 +101,13 @@ async function main() {
     'Elevated basics',
   ];
   const allTagNames = [...boxTags, ...otherSearchableTags];
-  for (const name of allTagNames) {
-    const existing = await prisma.tag.findFirst({ where: { name } });
-    if (!existing) await prisma.tag.create({ data: { name } });
+  const tagCount = await prisma.tag.count();
+  if (tagCount === 0) {
+    await prisma.tag.createMany({
+      data: allTagNames.map((name) => ({ name })),
+    });
   }
-  console.log('Brands, tags & Categories seeded successfully');
+  console.log('Brands, categories, and tags seed check complete');
 }
 
 main()
