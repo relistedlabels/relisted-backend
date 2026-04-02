@@ -174,14 +174,6 @@ export class RentersService {
         connect: { id: updateData.avatarUploadId },
       };
     }
-    if (updateData.bankAccountInfo) {
-      profileUpdate.bankAccounts = {
-        upsert: {
-          create: updateData.bankAccountInfo,
-          update: updateData.bankAccountInfo,
-        },
-      };
-    }
 
     const profileCreate: any = {
       phoneNumber: phoneToSet || '',
