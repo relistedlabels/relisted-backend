@@ -786,24 +786,49 @@ export class AdminService {
       throw new NotFoundException('Withdrawal request not found');
     }
 
-    if (withdrawal.status.toLowerCase() === 'paid') {
-      throw new BadRequestException('Withdrawal is already marked as paid');
+    const tid = trackingId != null ? String(trackingId).trim() : '';
+    if (!tid) {
+      throw new BadRequestException('trackingId is required');
     }
 
-    // Usually withdrawal must be APPROVED before being PAID?
-    // But user request just says "Mark Withdrawal as Paid"
+    const statusNorm = withdrawal.status.trim().toLowerCase();
+    if (statusNorm === 'paid') {
+      throw new BadRequestException('Withdrawal is already marked as paid');
+    }
+    if (statusNorm === 'rejected') {
+      throw new BadRequestException(
+        'Cannot mark a rejected withdrawal as paid; the wallet was refunded.',
+      );
+    }
+    if (statusNorm !== 'pending' && statusNorm !== 'approved') {
+      throw new BadRequestException(
+        `Withdrawal cannot be marked paid from status "${withdrawal.status}". Only PENDING or APPROVED are allowed.`,
+      );
+    }
 
-    const updated = await this.prisma.withdrawalRequest.update({
-      where: { id: withdrawalId },
-      data: {
-        status: 'paid',
-        paidDate: new Date(),
-        trackingId: trackingId,
-        processedAt: new Date(),
-      } as any,
-      include: {
-        user: { select: { name: true, email: true } }
+    const paidAt = new Date();
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (statusNorm === 'pending') {
+        await tx.withdrawalRequest.update({
+          where: { id: withdrawalId },
+          data: {
+            status: 'APPROVED',
+            processedAt: paidAt,
+          },
+        });
       }
+      return tx.withdrawalRequest.update({
+        where: { id: withdrawalId },
+        data: {
+          status: 'paid',
+          paidDate: paidAt,
+          trackingId: tid,
+          processedAt: paidAt,
+        } as any,
+        include: {
+          user: { select: { name: true, email: true } },
+        },
+      });
     });
 
     return {
@@ -829,7 +854,10 @@ export class AdminService {
         if (wallet) {
           await (tx as any).wallet.update({
             where: { id: wallet.id },
-            data: { mainBalance: { increment: withdrawal.amount } }
+            data: {
+              mainBalance: { increment: withdrawal.amount },
+              availableBalance: { increment: withdrawal.amount },
+            },
           });
           
           await (tx as any).walletTransaction.create({

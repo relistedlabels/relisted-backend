@@ -4015,38 +4015,53 @@ export class ListersService {
       where: { userId },
     });
 
-    if (!wallet || wallet.mainBalance < data.amount) {
+    const amount = Math.round(Number(data.amount));
+    if (!wallet) {
       throw new BadRequestException('Insufficient wallet balance');
     }
 
     const reference = `WD-${randomUUID().split('-')[0].toUpperCase()}`;
 
     const withdrawal = await this.prisma.$transaction(async (tx) => {
-      // Deduct from wallet
+      const w = await (tx as any).wallet.findUnique({ where: { id: wallet.id } });
+      if (!w) throw new BadRequestException('Insufficient wallet balance');
+
+      if (w.availableBalance < amount) {
+        if (
+          w.collateralBalance === 0 &&
+          w.availableBalance < w.mainBalance &&
+          w.mainBalance >= amount
+        ) {
+          throw new BadRequestException(
+            'Wallet balances are inconsistent (availableBalance is below mainBalance with no collateral). Reconcile in the database before withdrawing.',
+          );
+        }
+        throw new BadRequestException('Insufficient wallet balance');
+      }
+
       await (tx as any).wallet.update({
-        where: { id: wallet.id },
+        where: { id: w.id },
         data: {
-          mainBalance: { decrement: data.amount },
+          mainBalance: { decrement: amount },
+          availableBalance: { decrement: amount },
         },
       });
 
-      // Create transaction record
       await (tx as any).walletTransaction.create({
         data: {
-          walletId: wallet.id,
+          walletId: w.id,
           type: 'MAIN',
-          amount: -data.amount,
+          amount: -amount,
           status: 'SUCCESS',
           note: `Withdrawal request to ${bankAccount.bankName} (Ref: ${reference})`,
         },
       });
 
-      // Create withdrawal request
       return await (tx as any).withdrawalRequest.create({
         data: {
           userId,
-          amount: data.amount,
-          netAmount: data.amount,
+          amount,
+          netAmount: amount,
           currency: CURRENCY,
           bankAccountId: data.bankAccountId,
           status: 'PENDING',
