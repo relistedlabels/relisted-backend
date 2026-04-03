@@ -184,7 +184,7 @@ Table Tag {
 
 Table ProductCategory {
   id String [pk]
-  name String [not null]
+  name String [unique, not null]
   createdAt DateTime [default: `now()`, not null]
   userId String
   imageUrl String
@@ -677,6 +677,7 @@ Enum AvailabilityStatus {
   ACCEPTED
   REJECTED
   EXPIRED
+  CANCELLED_BY_RENTER
 }
 
 Enum WalletTransactionType {

@@ -7,6 +7,7 @@ import { userEntity } from '../auth/auth.types';
 import { addMinutes, differenceInMinutes, isAfter } from 'date-fns';
 
 import { NotificationService } from 'src/services/notification/notification.service';
+import { withdrawAvailabilityRequestsForCartItem } from './withdraw-availability-for-cart-item';
 
 @Injectable()
 export class CartService {
@@ -102,6 +103,7 @@ export class CartService {
           totalPrice: (request.product?.dailyPrice || 0) * (cartItem.days || 0),
           startDate: 'TBD',
           endDate: 'TBD',
+          viewLink: `${process.env.CLIENT_URL}/listers/orders/${request.id}`,
       }
   });
 
@@ -190,7 +192,31 @@ async acceptAvailability(requestId: string) {
     });
     if (!item || item.cart.userId !== user.id) bad('Cart item not found');
 
-    await this.prisma.cartItem.delete({ where: { id: cartItemId } });
+    const listerNotifies = await this.prisma.$transaction(async (tx) => {
+      const notifies = await withdrawAvailabilityRequestsForCartItem(
+        tx,
+        cartItemId,
+        user.id,
+      );
+      await tx.cartItem.delete({ where: { id: cartItemId } });
+      return notifies;
+    });
+
+    for (const n of listerNotifies) {
+      await this.notificationService.createNotification({
+        userId: n.listerId,
+        title: 'Renter withdrew after approval',
+        message: `The renter removed this from their cart after you approved: ${n.productName}.`,
+        type: 'RENTAL_RESPONSE',
+        metadata: {
+          requestId: n.requestId,
+          productName: n.productName,
+          status: 'CANCELLED_BY_RENTER',
+        },
+        sendEmail: false,
+      });
+    }
+
     return { message: 'Item removed from cart' };
   }
 }

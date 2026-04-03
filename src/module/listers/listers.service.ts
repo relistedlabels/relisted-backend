@@ -568,16 +568,58 @@ export class ListersService {
       0,
       Math.floor((new Date(req.expiresAt).getTime() - Date.now()) / 1000),
     );
+    const statusMeta: Record<
+      string,
+      { status: string; label: string; color: string; textColor: string; step: string }
+    > = {
+      PENDING: {
+        status: 'pending_approval',
+        label: 'Pending Approval',
+        color: '#FFF3E0',
+        textColor: '#E65100',
+        step: 'pending_approval',
+      },
+      ACCEPTED: {
+        status: 'approved',
+        label: 'Approved — awaiting renter payment',
+        color: '#E8F5E9',
+        textColor: '#2E7D32',
+        step: 'awaiting_payment',
+      },
+      REJECTED: {
+        status: 'rejected',
+        label: 'Rejected',
+        color: '#FFEBEE',
+        textColor: '#C62828',
+        step: 'rejected',
+      },
+      EXPIRED: {
+        status: 'expired',
+        label: 'Expired',
+        color: '#ECEFF1',
+        textColor: '#546E7A',
+        step: 'expired',
+      },
+      CANCELLED_BY_RENTER: {
+        status: 'cancelled_by_renter',
+        label: 'Renter withdrew',
+        color: '#ECEFF1',
+        textColor: '#546E7A',
+        step: 'cancelled',
+      },
+    };
+    const meta = statusMeta[req.status] ?? statusMeta.PENDING;
     return {
       id: req.id,
       orderNumber: `REQ-${req.id.slice(0, 8)}`,
       createdAt: req.createdAt.toISOString(),
       expiresAt: req.expiresAt.toISOString(),
       timeRemainingSeconds: diff,
-      status: 'pending_approval',
-      statusLabel: 'Pending Approval',
-      statusColor: '#FFF3E0',
-      statusTextColor: '#E65100',
+      availabilityStatus: req.status,
+      status: meta.status,
+      statusLabel: meta.label,
+      statusColor: meta.color,
+      statusTextColor: meta.textColor,
       itemCount: 1,
       totalAmount: req.totalPrice || 0,
       currency: CURRENCY,
@@ -605,8 +647,8 @@ export class ListersService {
           returnDue: req.endDate
             ? new Date(req.endDate).toISOString().split('T')[0]
             : null,
-          status: 'pending_approval',
-          statusLabel: 'Pending Approval',
+          status: meta.status,
+          statusLabel: meta.label,
         },
       ],
       canApprove: diff > 0 && req.status === 'PENDING',
@@ -617,7 +659,7 @@ export class ListersService {
         dateOrdered: req.createdAt.toISOString().split('T')[0],
         itemsCount: 1,
         itemsDelivered: 0,
-        currentStep: 'pending_approval',
+        currentStep: meta.step,
       },
       escrow: {
         rentalFeeTotal: req.totalPrice || 0,

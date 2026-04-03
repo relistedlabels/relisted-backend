@@ -740,6 +740,8 @@ export class RentersService {
         approved: 'ACCEPTED',
         rejected: 'REJECTED',
         expired: 'EXPIRED',
+        cancelled: 'CANCELLED_BY_RENTER',
+        withdrawn: 'CANCELLED_BY_RENTER',
       };
       where.status = map[status] || undefined;
     }
@@ -862,12 +864,77 @@ export class RentersService {
   }
 
   async deleteRentalRequest(userId: string, requestId: string) {
-    const r: any = await this.prisma.availabilityRequest.findUnique({
+    const r = await this.prisma.availabilityRequest.findUnique({
       where: { id: requestId },
+      include: { product: { select: { name: true } } },
     });
     if (!r || r.requesterId !== userId)
       throw new NotFoundException('Request not found');
-    await this.prisma.availabilityRequest.delete({ where: { id: requestId } });
+    if (r.status === 'CANCELLED_BY_RENTER') {
+      const remaining = await this.prisma.availabilityRequest.count({
+        where: { requesterId: userId, status: 'PENDING' },
+      });
+      return {
+        success: true,
+        message: 'Request was already withdrawn',
+        data: {
+          requestId,
+          cartItemId: r.cartItemId,
+          removedAt: new Date(),
+          remainingCartItems: remaining,
+        },
+      };
+    }
+
+    const listerNotifies: {
+      listerId: string;
+      productName: string;
+      requestId: string;
+    }[] = [];
+
+    await this.prisma.$transaction(async (tx) => {
+      if (r.status === 'PENDING') {
+        await tx.availabilityRequest.delete({ where: { id: requestId } });
+      } else if (r.status === 'ACCEPTED') {
+        await tx.availabilityRequest.update({
+          where: { id: requestId },
+          data: { status: 'CANCELLED_BY_RENTER' },
+        });
+        listerNotifies.push({
+          listerId: r.listerId,
+          productName: r.product?.name ?? 'your item',
+          requestId: r.id,
+        });
+      } else {
+        await tx.availabilityRequest.delete({ where: { id: requestId } });
+      }
+
+      if (r.cartItemId) {
+        const cartItem = await tx.cartItem.findUnique({
+          where: { id: r.cartItemId },
+          include: { cart: true },
+        });
+        if (cartItem && cartItem.cart.userId === userId) {
+          await tx.cartItem.delete({ where: { id: r.cartItemId } });
+        }
+      }
+    });
+
+    for (const n of listerNotifies) {
+      await this.notificationService.createNotification({
+        userId: n.listerId,
+        title: 'Renter withdrew after approval',
+        message: `The renter removed this from their cart after you approved: ${n.productName}.`,
+        type: 'RENTAL_RESPONSE',
+        metadata: {
+          requestId: n.requestId,
+          productName: n.productName,
+          status: 'CANCELLED_BY_RENTER',
+        },
+        sendEmail: false,
+      });
+    }
+
     const remaining = await this.prisma.availabilityRequest.count({
       where: { requesterId: userId, status: 'PENDING' },
     });
@@ -889,6 +956,10 @@ export class RentersService {
     });
     if (!r || r.requesterId !== userId)
       throw new NotFoundException('Request not found');
+    if (r.status === 'CANCELLED_BY_RENTER')
+      throw new BadRequestException(
+        'This rental request was withdrawn. Start a new request if you still want the item.',
+      );
     if (r.status !== 'ACCEPTED')
       throw new BadRequestException(
         'Lister has not approved or request expired',
