@@ -637,11 +637,43 @@ export class RentersService {
   /* rental requests support */
 
   async createRentalRequest(userId: string, data: any) {
+    let cartItemId =
+      typeof data.cartItemId === 'string' && data.cartItemId.trim() !== ''
+        ? data.cartItemId.trim()
+        : '';
+
+    if (cartItemId) {
+      const line = await this.prisma.cartItem.findUnique({
+        where: { id: cartItemId },
+        include: { cart: true },
+      });
+      if (!line || line.cart.userId !== userId) {
+        throw new BadRequestException(
+          'cartItemId does not match your cart',
+        );
+      }
+      if (line.productId !== data.productId) {
+        throw new BadRequestException(
+          'cartItemId does not match productId for this request',
+        );
+      }
+    } else if (data.productId) {
+      const cart = await this.prisma.cart.findUnique({
+        where: { userId },
+        include: {
+          items: { where: { productId: data.productId }, take: 1 },
+        },
+      });
+      if (cart?.items?.[0]) {
+        cartItemId = cart.items[0].id;
+      }
+    }
+
     const expiresAt = addMinutes(new Date(), 15);
     const request = await this.prisma.availabilityRequest.create({
       data: {
         productId: data.productId,
-        cartItemId: data.cartItemId || '',
+        cartItemId,
         requesterId: userId,
         listerId: data.listerId,
         status: 'PENDING',
@@ -876,7 +908,7 @@ export class RentersService {
       });
       return {
         success: true,
-        message: 'Request was already withdrawn',
+        message: 'Request was already cancelled by the renter',
         data: {
           requestId,
           cartItemId: r.cartItemId,
@@ -923,8 +955,8 @@ export class RentersService {
     for (const n of listerNotifies) {
       await this.notificationService.createNotification({
         userId: n.listerId,
-        title: 'Renter withdrew after approval',
-        message: `The renter removed this from their cart after you approved: ${n.productName}.`,
+        title: 'Cancelled by renter (after approval)',
+        message: `The renter cancelled after you approved: ${n.productName}.`,
         type: 'RENTAL_RESPONSE',
         metadata: {
           requestId: n.requestId,
@@ -958,7 +990,7 @@ export class RentersService {
       throw new NotFoundException('Request not found');
     if (r.status === 'CANCELLED_BY_RENTER')
       throw new BadRequestException(
-        'This rental request was withdrawn. Start a new request if you still want the item.',
+        'This rental request was cancelled by the renter. Start a new request if you still want the item.',
       );
     if (r.status !== 'ACCEPTED')
       throw new BadRequestException(

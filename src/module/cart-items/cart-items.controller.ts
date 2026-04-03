@@ -105,6 +105,11 @@ export class CartItemsController {
             dailyPrice: 1000,
           },
           createdAt: '2026-01-28T12:00:00.000Z',
+          rentalRequest: {
+            requestId: 'uuid',
+            expiresAt: '2026-01-28T12:30:00.000Z',
+            status: 'PENDING',
+          },
         },
       ],
     },

@@ -176,12 +176,54 @@ async acceptAvailability(requestId: string) {
 
     if (!cart) return { items: [], total: 0 };
 
+    const itemIds = cart.items.map((i) => i.id);
+    const requests =
+      itemIds.length === 0
+        ? []
+        : await this.prisma.availabilityRequest.findMany({
+            where: {
+              requesterId: user.id,
+              cartItemId: { in: itemIds },
+            },
+            orderBy: { createdAt: 'desc' },
+            select: {
+              id: true,
+              cartItemId: true,
+              expiresAt: true,
+              status: true,
+            },
+          });
+
+    const latestRequestByCartItemId = new Map<
+      string,
+      { id: string; expiresAt: Date; status: string }
+    >();
+    for (const r of requests) {
+      if (!latestRequestByCartItemId.has(r.cartItemId)) {
+        latestRequestByCartItemId.set(r.cartItemId, r);
+      }
+    }
+
+    const items = cart.items.map((item) => {
+      const req = latestRequestByCartItemId.get(item.id);
+      return {
+        ...item,
+        rentalRequest: req
+          ? {
+              requestId: req.id,
+              expiresAt: req.expiresAt,
+              status: req.status,
+            }
+          : null,
+      };
+    });
+
     const total = cart.items.reduce(
       (sum, item) => sum + item.product.dailyPrice * item.days,
       0,
     );
 
-    return { cartId: cart.id, items: cart.items, total };
+    return { cartId: cart.id, items, total };
   }
 
   // Remove cart item
@@ -205,8 +247,8 @@ async acceptAvailability(requestId: string) {
     for (const n of listerNotifies) {
       await this.notificationService.createNotification({
         userId: n.listerId,
-        title: 'Renter withdrew after approval',
-        message: `The renter removed this from their cart after you approved: ${n.productName}.`,
+        title: 'Cancelled by renter (after approval)',
+        message: `The renter cancelled after you approved: ${n.productName}.`,
         type: 'RENTAL_RESPONSE',
         metadata: {
           requestId: n.requestId,

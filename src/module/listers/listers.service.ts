@@ -294,6 +294,18 @@ export class ListersService {
     }
   }
 
+  /** PENDING + past expiresAt should read as EXPIRED so lists and approve/reject stay honest. */
+  private async expireStalePendingAvailabilityRequests(listerId: string) {
+    await this.prisma.availabilityRequest.updateMany({
+      where: {
+        listerId,
+        status: 'PENDING',
+        expiresAt: { lte: new Date() },
+      },
+      data: { status: 'EXPIRED' },
+    });
+  }
+
   /** GET /api/listers/orders - returns AvailabilityRequests for pending, Orders for ongoing/completed */
   async getOrders(
     user: userEntity,
@@ -303,6 +315,8 @@ export class ListersService {
     sort: string = '-createdAt',
   ) {
     try {
+      await this.expireStalePendingAvailabilityRequests(user.id);
+
       const skip = (page - 1) * limit;
       const targetStatus = status?.toLowerCase() || 'all';
 
@@ -396,7 +410,7 @@ export class ListersService {
               },
             ],
             canApprove: diff > 0,
-            canReject: true,
+            canReject: diff > 0,
             approvalRequired: true,
             approvalExpiredAt: r.expiresAt.toISOString(),
           };
@@ -404,6 +418,237 @@ export class ListersService {
 
         allItems = [...allItems, ...formattedPending];
         total += pendingCount;
+      }
+
+      // 1b. ACCEPTED availability — lister approved; renter has not paid / no Order row yet
+      if (['all', 'ongoing'].includes(targetStatus)) {
+        const [acceptedCount, acceptedReqs] = await Promise.all([
+          this.prisma.availabilityRequest.count({
+            where: { listerId: user.id, status: 'ACCEPTED' },
+          }),
+          this.prisma.availabilityRequest.findMany({
+            where: { listerId: user.id, status: 'ACCEPTED' },
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  measurement: true,
+                  color: true,
+                  originalValue: true,
+                  dailyPrice: true,
+                  attachments: {
+                    include: { uploads: { take: 1, select: { url: true } } },
+                  },
+                },
+              },
+            },
+          }),
+        ]);
+
+        const accUserIds = [...new Set(acceptedReqs.map((r) => r.requesterId))];
+        const accUsers =
+          accUserIds.length === 0
+            ? []
+            : await this.prisma.user.findMany({
+                where: { id: { in: accUserIds } },
+                include: {
+                  profile: {
+                    select: { avatarUpload: { select: { url: true } } },
+                  },
+                },
+              });
+        const accUserMap = new Map(accUsers.map((u) => [u.id, u]));
+
+        const formattedAccepted = acceptedReqs.map((r) => {
+          const u = accUserMap.get(r.requesterId);
+          return {
+            id: r.id,
+            orderNumber: `REQ-${r.id.slice(0, 8)}`,
+            createdAt: r.createdAt.toISOString(),
+            expiresAt: r.expiresAt.toISOString(),
+            timeRemainingSeconds: 0,
+            status: 'awaiting_payment',
+            statusLabel: 'Awaiting renter payment',
+            statusColor: '#E8F5E9',
+            statusTextColor: '#2E7D32',
+            itemCount: 1,
+            totalAmount: r.totalPrice || 0,
+            currency: CURRENCY,
+            dresser: u
+              ? {
+                  id: u.id,
+                  name: u.name,
+                  avatar:
+                    u.profile?.avatarUpload?.url ??
+                    'https://via.placeholder.com/64?text=U',
+                  rating: 0,
+                  reviews: 0,
+                  memberSince: u.createdAt.toISOString().split('T')[0],
+                }
+              : null,
+            items: [
+              {
+                id: r.productId,
+                name: r.product.name,
+                image:
+                  r.product.attachments?.uploads?.[0]?.url ??
+                  'https://via.placeholder.com/300?text=No+Image',
+                size: r.product.measurement ?? 'N/A',
+                color: r.product.color ?? 'N/A',
+                rentalFee: r.totalPrice || 0,
+                itemValue: r.product.originalValue || 0,
+                returnDue: r.endDate
+                  ? new Date(r.endDate).toISOString().split('T')[0]
+                  : null,
+                status: 'awaiting_payment',
+                statusLabel: 'Awaiting renter payment',
+              },
+            ],
+            canApprove: false,
+            canReject: false,
+            approvalRequired: false,
+            approvalExpiredAt: r.expiresAt.toISOString(),
+            availabilityStatus: 'ACCEPTED',
+          };
+        });
+
+        allItems = [...allItems, ...formattedAccepted];
+        total += acceptedCount;
+      }
+
+      // 1c. Closed availability (declined, expired, renter withdrew) — same bucket as "cancelled" for listers
+      if (['all', 'cancelled'].includes(targetStatus)) {
+        const terminalStatuses = [
+          'REJECTED',
+          'EXPIRED',
+          'CANCELLED_BY_RENTER',
+        ] as const;
+        const terminalWhere = {
+          listerId: user.id,
+          status: { in: [...terminalStatuses] },
+        };
+        const [terminalCount, terminalReqs] = await Promise.all([
+          this.prisma.availabilityRequest.count({ where: terminalWhere }),
+          this.prisma.availabilityRequest.findMany({
+            where: terminalWhere,
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  measurement: true,
+                  color: true,
+                  originalValue: true,
+                  dailyPrice: true,
+                  attachments: {
+                    include: { uploads: { take: 1, select: { url: true } } },
+                  },
+                },
+              },
+            },
+          }),
+        ]);
+
+        const termUserIds = [...new Set(terminalReqs.map((r) => r.requesterId))];
+        const termUsers =
+          termUserIds.length === 0
+            ? []
+            : await this.prisma.user.findMany({
+                where: { id: { in: termUserIds } },
+                include: {
+                  profile: {
+                    select: { avatarUpload: { select: { url: true } } },
+                  },
+                },
+              });
+        const termUserMap = new Map(termUsers.map((u) => [u.id, u]));
+
+        const terminalLabels: Record<
+          string,
+          { status: string; label: string; color: string; text: string }
+        > = {
+          REJECTED: {
+            status: 'declined',
+            label: 'Declined',
+            color: '#FFEBEE',
+            text: '#C62828',
+          },
+          EXPIRED: {
+            status: 'expired',
+            label: 'Expired',
+            color: '#ECEFF1',
+            text: '#546E7A',
+          },
+          CANCELLED_BY_RENTER: {
+            status: 'cancelled_by_renter',
+            label: 'Cancelled by renter',
+            color: '#ECEFF1',
+            text: '#546E7A',
+          },
+        };
+
+        const formattedTerminal = terminalReqs.map((r) => {
+          const u = termUserMap.get(r.requesterId);
+          const meta = terminalLabels[r.status] ?? {
+            status: 'closed',
+            label: 'Closed',
+            color: '#ECEFF1',
+            text: '#546E7A',
+          };
+          return {
+            id: r.id,
+            orderNumber: `REQ-${r.id.slice(0, 8)}`,
+            createdAt: r.createdAt.toISOString(),
+            expiresAt: r.expiresAt.toISOString(),
+            timeRemainingSeconds: 0,
+            status: meta.status,
+            statusLabel: meta.label,
+            statusColor: meta.color,
+            statusTextColor: meta.text,
+            itemCount: 1,
+            totalAmount: r.totalPrice || 0,
+            currency: CURRENCY,
+            dresser: u
+              ? {
+                  id: u.id,
+                  name: u.name,
+                  avatar:
+                    u.profile?.avatarUpload?.url ??
+                    'https://via.placeholder.com/64?text=U',
+                  rating: 0,
+                  reviews: 0,
+                  memberSince: u.createdAt.toISOString().split('T')[0],
+                }
+              : null,
+            items: [
+              {
+                id: r.productId,
+                name: r.product.name,
+                image:
+                  r.product.attachments?.uploads?.[0]?.url ??
+                  'https://via.placeholder.com/300?text=No+Image',
+                size: r.product.measurement ?? 'N/A',
+                color: r.product.color ?? 'N/A',
+                rentalFee: r.totalPrice || 0,
+                itemValue: r.product.originalValue || 0,
+                returnDue: r.endDate
+                  ? new Date(r.endDate).toISOString().split('T')[0]
+                  : null,
+                status: meta.status,
+                statusLabel: meta.label,
+              },
+            ],
+            canApprove: false,
+            canReject: false,
+            approvalRequired: false,
+            approvalExpiredAt: r.expiresAt.toISOString(),
+            availabilityStatus: r.status,
+          };
+        });
+
+        allItems = [...allItems, ...formattedTerminal];
+        total += terminalCount;
       }
 
       // 2. Fetch active/completed orders
@@ -602,10 +847,10 @@ export class ListersService {
       },
       CANCELLED_BY_RENTER: {
         status: 'cancelled_by_renter',
-        label: 'Renter withdrew',
+        label: 'Cancelled by renter',
         color: '#ECEFF1',
         textColor: '#546E7A',
-        step: 'cancelled',
+        step: 'cancelled_by_renter',
       },
     };
     const meta = statusMeta[req.status] ?? statusMeta.PENDING;
@@ -1291,6 +1536,21 @@ export class ListersService {
   }
 
   private async getOrdersSummary(curatorId: string) {
+    await this.expireStalePendingAvailabilityRequests(curatorId);
+
+    const [pendingApprovalCount, awaitingPaymentCount] = await Promise.all([
+      this.prisma.availabilityRequest.count({
+        where: {
+          listerId: curatorId,
+          status: 'PENDING',
+          expiresAt: { gt: new Date() },
+        },
+      }),
+      this.prisma.availabilityRequest.count({
+        where: { listerId: curatorId, status: 'ACCEPTED' },
+      }),
+    ]);
+
     const orderIds = await this.prisma.orderItem
       .findMany({
         where: { product: { curatorId } },
@@ -1304,22 +1564,33 @@ export class ListersService {
       _count: true,
     });
     const map = new Map(counts.map((c) => [c.status, c._count]));
+    const orderOngoingCount = [
+      OrderStatus.ACCEPTED,
+      OrderStatus.CONFIRMED,
+      OrderStatus.IN_TRANSIT,
+      OrderStatus.DELIVERED,
+      OrderStatus.ACTIVE,
+      OrderStatus.RETURN_DUE,
+    ].reduce((a, s) => a + (map.get(s) ?? 0), 0);
+
+    const availabilityTerminalCount = await this.prisma.availabilityRequest.count({
+      where: {
+        listerId: curatorId,
+        status: { in: ['REJECTED', 'EXPIRED', 'CANCELLED_BY_RENTER'] },
+      },
+    });
+
     return {
-      pendingApprovalCount: map.get(OrderStatus.PROCESSING) ?? 0,
-      ongoingCount: [
-        OrderStatus.ACCEPTED,
-        OrderStatus.CONFIRMED,
-        OrderStatus.IN_TRANSIT,
-        OrderStatus.DELIVERED,
-        OrderStatus.ACTIVE,
-        OrderStatus.RETURN_DUE,
-      ].reduce((a, s) => a + (map.get(s) ?? 0), 0),
+      pendingApprovalCount,
+      awaitingPaymentCount,
+      ongoingCount: orderOngoingCount + awaitingPaymentCount,
       completedCount:
         (map.get(OrderStatus.RETURNED) ?? 0) +
         (map.get(OrderStatus.COMPLETED) ?? 0),
       cancelledCount:
         (map.get(OrderStatus.CANCELLED) ?? 0) +
-        (map.get(OrderStatus.REJECTED) ?? 0),
+        (map.get(OrderStatus.REJECTED) ?? 0) +
+        availabilityTerminalCount,
     };
   }
 
