@@ -9,7 +9,11 @@ import { AllExceptionsFilter } from './utils/all-exceptions.filter';
 import { applySwaggerBasicAuth } from './swagger/apply-swagger-basic-auth';
 
 function maskSensitiveFields(obj: any): any {
-  if (!obj || typeof obj !== 'object') return obj;
+  if (obj == null || typeof obj !== 'object') return obj;
+
+  if (Array.isArray(obj)) {
+    return obj.map((item) => maskSensitiveFields(item));
+  }
 
   const sensitiveFields = [
     'password',
@@ -26,7 +30,7 @@ function maskSensitiveFields(obj: any): any {
   for (const key of Object.keys(masked)) {
     if (sensitiveFields.some((field) => key.toLowerCase().includes(field))) {
       masked[key] = '[HIDDEN]';
-    } else if (typeof masked[key] === 'object') {
+    } else if (typeof masked[key] === 'object' && masked[key] !== null) {
       masked[key] = maskSensitiveFields(masked[key]);
     }
   }
