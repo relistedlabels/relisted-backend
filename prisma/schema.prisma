@@ -679,6 +679,7 @@ enum AvailabilityStatus {
   ACCEPTED
   REJECTED
   EXPIRED
+  CANCELLED_BY_RENTER
 }
 
 enum WalletTransactionType {
