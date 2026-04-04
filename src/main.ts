@@ -3,6 +3,7 @@ import { AppModule } from './app.module';
 import 'dotenv/config';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { inspect } from 'util';
 
 import cookieParser from 'cookie-parser';
 import { AllExceptionsFilter } from './utils/all-exceptions.filter';
@@ -35,6 +36,26 @@ function maskSensitiveFields(obj: any): any {
     }
   }
   return masked;
+}
+
+/** Single-line-safe logging for hosts that truncate multi-arg console.inspect depth (e.g. [Object]). */
+function formatForLog(data: unknown): string {
+  if (data === undefined || data === null) return String(data);
+  if (typeof data === 'string') return data;
+  try {
+    return JSON.stringify(
+      data,
+      (_key, value) => (typeof value === 'bigint' ? value.toString() : value),
+      2,
+    );
+  } catch {
+    return inspect(data, {
+      depth: null,
+      colors: false,
+      maxArrayLength: 200,
+      breakLength: 120,
+    });
+  }
 }
 
 function loggingMiddleware(req: any, res: any, next: () => void) {
@@ -72,15 +93,17 @@ function loggingMiddleware(req: any, res: any, next: () => void) {
     logBody = formData;
   }
 
-  console.log(`📥 ${method} ${originalUrl}`, {
-    query: query && Object.keys(query).length ? query : undefined,
-    headers: {
-      authorization: headers.authorization ? 'Bearer [HIDDEN]' : undefined,
-      'content-type': contentType || undefined,
-      'user-agent': headers['user-agent'],
-    },
-    body: logBody,
-  });
+  console.log(
+    `📥 ${method} ${originalUrl} ${formatForLog({
+      query: query && Object.keys(query).length ? query : undefined,
+      headers: {
+        authorization: headers.authorization ? 'Bearer [HIDDEN]' : undefined,
+        'content-type': contentType || undefined,
+        'user-agent': headers['user-agent'],
+      },
+      body: logBody,
+    })}`,
+  );
 
   const originalSend = res.send;
   res.send = function (data: any) {
@@ -102,8 +125,9 @@ function loggingMiddleware(req: any, res: any, next: () => void) {
       responseForLog = data;
     }
     console.log(
-      `📤 ${method} ${originalUrl} ${res.statusCode} (${duration}ms)`,
-      { response: responseForLog },
+      `📤 ${method} ${originalUrl} ${res.statusCode} (${duration}ms) ${formatForLog({
+        response: responseForLog,
+      })}`,
     );
     return originalSend.call(this, data);
   };
