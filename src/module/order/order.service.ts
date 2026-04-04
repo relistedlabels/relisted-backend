@@ -10,6 +10,7 @@ import { addMinutes, isAfter } from 'date-fns';
 import { NotificationService } from 'src/services/notification/notification.service';
 
 const APPROVAL_WINDOW_MINUTES = 15;
+const DEFAULT_CLEANING_FEE_NGN = 4000;
 
 @Injectable()
 export class OrderService {
@@ -95,7 +96,7 @@ export class OrderService {
         const collateralAmount =
           Number(item.product.collateralPrice || item.product.originalValue) ||
           0;
-        const cleaningFee = 2000;
+        const cleaningFee = DEFAULT_CLEANING_FEE_NGN;
         const vatAmount = Math.round(rentalAmount * 0.2);
         const serviceCharge = Math.round(rentalAmount * 0.1);
 
@@ -322,7 +323,7 @@ export class OrderService {
         const collateralAmount =
           Number(item.product.collateralPrice || item.product.originalValue) ||
           0;
-        const cleaningFee = 2000;
+        const cleaningFee = DEFAULT_CLEANING_FEE_NGN;
         const vatAmount = Math.round(rentalAmount * 0.2);
         const serviceCharge = Math.round(rentalAmount * 0.1);
 

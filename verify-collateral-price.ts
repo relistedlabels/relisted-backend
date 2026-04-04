@@ -126,7 +126,7 @@ async function bootstrap() {
     // but the task was to use it in calculation. 
     // Let's check the wallet deduction.
     const walletAfter = await prisma.wallet.findUnique({ where: { userId: renter.id } });
-    const expectedDeduction = (5000 * 2) + 50000 + 2000 + 3000 + (3000/100); // rental + collateral + cleaning + shipping + pickup(min 1)
+    const expectedDeduction = (5000 * 2) + 50000 + 4000 + 3000 + (3000/100); // rental + collateral + cleaning + shipping + pickup(min 1)
     // Actually pickup is separate. 
     console.log("Wallet Balance After:", walletAfter?.mainBalance);
 
