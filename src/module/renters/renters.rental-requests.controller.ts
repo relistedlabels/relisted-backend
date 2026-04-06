@@ -39,7 +39,10 @@ export class RentersRentalRequestsController {
   }
 
   @Post(':requestId/confirm')
-  @ApiOperation({ summary: 'Confirm rental request after approval' })
+  @ApiOperation({
+    summary:
+      'Acknowledge approved request (does not create an order; use cart checkout POST /order)',
+  })
   async confirmRentalRequest(
     @Request() req,
     @Param('requestId') requestId: string,

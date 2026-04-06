@@ -180,7 +180,7 @@ async acceptAvailability(requestId: string) {
               requesterId: user.id,
               cartItemId: { in: itemIds },
               // Cart shows active requests only; full history is on the renter rental-requests API.
-              status: { notIn: ['EXPIRED', 'CANCELLED_BY_RENTER'] },
+              status: { notIn: ['CANCELLED_BY_RENTER'] },
             },
             orderBy: { createdAt: 'desc' },
             select: {
