@@ -11,6 +11,8 @@ import { Role } from '@prisma/client';
 import { addMinutes } from 'date-fns';
 
 import { NotificationService } from '../../services/notification/notification.service';
+import { assertNoOpenAvailabilityRequestForProduct } from '../../utils/assert-no-open-availability-for-product';
+import { DEFAULT_CLEANING_FEE_NGN } from '../../constants/rental-pricing';
 
 @Injectable()
 export class RentersService {
@@ -33,6 +35,23 @@ export class RentersService {
       },
       data: { status: 'EXPIRED' },
     });
+  }
+
+  private mapAvailabilityStatusForRenterList(dbStatus: string): string {
+    switch (dbStatus) {
+      case 'PENDING':
+        return 'pending_lister_approval';
+      case 'ACCEPTED':
+        return 'approved';
+      case 'REJECTED':
+        return 'rejected';
+      case 'EXPIRED':
+        return 'expired';
+      case 'CANCELLED_BY_RENTER':
+        return 'cancelled';
+      default:
+        return dbStatus.toLowerCase();
+    }
   }
 
   async getDashboardSummary(userId: string, timeframe: string = 'month') {
@@ -683,6 +702,12 @@ export class RentersService {
       }
     }
 
+    await assertNoOpenAvailabilityRequestForProduct(
+      this.prisma,
+      userId,
+      data.productId,
+    );
+
     const expiresAt = addMinutes(new Date(), 15);
     const request = await this.prisma.availabilityRequest.create({
       data: {
@@ -827,7 +852,7 @@ export class RentersService {
         totalPrice: r.totalPrice || 0,
         currency: 'NGN',
         autoPay: r.autoPay,
-        status: status === 'pending' ? 'pending_lister_approval' : status,
+        status: this.mapAvailabilityStatusForRenterList(r.status),
         requestCreatedAt: r.createdAt,
         expiresAt: r.expiresAt,
         timeRemainingSeconds: diff,
@@ -958,12 +983,20 @@ export class RentersService {
       }
 
       if (r.cartItemId) {
-        const cartItem = await tx.cartItem.findUnique({
-          where: { id: r.cartItemId },
-          include: { cart: true },
+        const activeLeft = await tx.availabilityRequest.count({
+          where: {
+            cartItemId: r.cartItemId,
+            status: { in: ['PENDING', 'ACCEPTED'] },
+          },
         });
-        if (cartItem && cartItem.cart.userId === userId) {
-          await tx.cartItem.delete({ where: { id: r.cartItemId } });
+        if (activeLeft === 0) {
+          const cartItem = await tx.cartItem.findUnique({
+            where: { id: r.cartItemId },
+            include: { cart: true },
+          });
+          if (cartItem && cartItem.cart.userId === userId) {
+            await tx.cartItem.delete({ where: { id: r.cartItemId } });
+          }
         }
       }
     });
@@ -988,7 +1021,8 @@ export class RentersService {
     });
     return {
       success: true,
-      message: 'Request removed from cart successfully',
+      message:
+        'Rental request removed. Your cart line stays if other requests for that item are still active.',
       data: {
         requestId,
         cartItemId: r.cartItemId,
@@ -998,9 +1032,14 @@ export class RentersService {
     };
   }
 
-  async confirmRentalRequest(userId: string, requestId: string, body: any) {
-    const r: any = await this.prisma.availabilityRequest.findUnique({
+  async confirmRentalRequest(
+    userId: string,
+    requestId: string,
+    _body: unknown,
+  ) {
+    const r = await this.prisma.availabilityRequest.findUnique({
       where: { id: requestId },
+      include: { product: { include: { curator: true } } },
     });
     if (!r || r.requesterId !== userId)
       throw new NotFoundException('Request not found');
@@ -1012,48 +1051,22 @@ export class RentersService {
       throw new BadRequestException(
         'Lister has not approved or request expired',
       );
-    // create a basic order record
-    const order = await this.prisma.order.create({
-      data: {
-        orderId: `ORD-${Date.now()}`,
-        userId,
-        expiresAt: null,
-      },
-    });
-    await this.prisma.orderItem.create({
-      data: {
-        orderId: order.id,
-        productId: r.productId,
-        days: r.rentalDays || 0,
-        pricePerDay:
-          r.totalPrice && r.rentalDays
-            ? Math.round(r.totalPrice / r.rentalDays)
-            : 0,
-      },
-    });
-    // update request record to avoid reuse
-    await this.prisma.availabilityRequest.update({
-      where: { id: requestId },
-      data: { status: 'EXPIRED' },
-    });
 
     return {
       success: true,
-      message: 'Rental order created successfully',
+      message:
+        'Request is approved. Complete payment from the cart using checkout (POST /order).',
       data: {
-        orderId: order.orderId,
-        requestId: requestId,
-        productName: (r as any).product?.name || null,
-        listerName: (r as any).product?.curator?.name || null,
+        requestId,
+        productId: r.productId,
+        productName: r.product?.name ?? null,
+        listerName: (r.product as any)?.curator?.name ?? null,
         rentalStartDate: r.startDate,
         rentalEndDate: r.endDate,
-        totalAmount: r.totalPrice || 0,
+        rentalDays: r.rentalDays,
+        totalPrice: r.totalPrice ?? 0,
         currency: 'NGN',
-        walletBalance: 0,
-        status: 'order_created',
-        orderCreatedAt: order.createdAt,
-        nextStatus: 'item_packaging',
-        estimatedDeliveryDate: null,
+        status: 'approved_awaiting_checkout',
       },
     };
   }
@@ -1138,6 +1151,7 @@ export class RentersService {
           const image = firstItem?.imageUrl || null;
 
           return {
+            id: o.id,
             orderId: o.orderId,
             items: o.orderItems.map((i: any) => i.product?.name || 'Item'), // Note: product name might not be persisted in OrderItem yet, but OrderItem should have it via relation or we should have saved it.
             totalAmount: totalAmount,
@@ -1188,6 +1202,38 @@ export class RentersService {
         0,
       );
 
+    const productIds = [
+      ...new Set(
+        (typedOrder.orderItems as any[]).map((i) => i.productId).filter(Boolean),
+      ),
+    ] as string[];
+    const availRows =
+      productIds.length > 0
+        ? await this.prisma.availabilityRequest.findMany({
+            where: {
+              requesterId: userId,
+              productId: { in: productIds },
+              status: 'ACCEPTED',
+            },
+            orderBy: { createdAt: 'desc' },
+            select: { productId: true, startDate: true, endDate: true },
+          })
+        : [];
+    const availByProduct = new Map<
+      string,
+      { startDate: Date | null; endDate: Date | null }
+    >();
+    for (const row of availRows) {
+      if (!availByProduct.has(row.productId)) {
+        availByProduct.set(row.productId, {
+          startDate: row.startDate,
+          endDate: row.endDate,
+        });
+      }
+    }
+
+    const rentals: any[] = typedOrder.rentals ?? [];
+
     return {
       success: true,
       data: {
@@ -1196,8 +1242,8 @@ export class RentersService {
           status: typedOrder.status,
           createdAt: typedOrder.createdAt,
           totalAmount: totalAmount,
-          rentalStartDate: typedOrder.rentals?.[0]?.startDate || null,
-          rentalEndDate: typedOrder.rentals?.[0]?.endDate || null,
+          rentalStartDate: rentals[0]?.startDate || null,
+          rentalEndDate: rentals[0]?.endDate || null,
           deliveryFee: typedOrder.deliveryFee || 0,
           serviceFee: typedOrder.serviceFee || 0,
           lister: {
@@ -1214,22 +1260,40 @@ export class RentersService {
                 ?.avatarUpload?.url ||
               null,
           },
-          items: typedOrder.orderItems.map((i: any) => ({
-            id: i.product?.id || i.productId,
-            name: i.product?.name || 'Unknown',
-            price: i.pricePerDay,
-            quantity: i.days,
-            imageUrl:
-              i.imageUrl ||
-              i.product?.attachments?.uploads?.[0]?.url ||
-              (i.product as any)?.images?.[0] ||
-              null,
-            rentalFee: i.rentalFee || i.pricePerDay * i.days,
-            cleaningFee: i.cleaningFee || 0,
-            collateralFee: i.collateralFee || 0,
-            rentalStartDate: typedOrder.rentals?.[0]?.startDate || null,
-            rentalEndDate: typedOrder.rentals?.[0]?.endDate || null,
-          })),
+          items: typedOrder.orderItems.map((i: any) => {
+            const rentalRow = rentals.find((r: any) => r.productId === i.productId);
+            const avail = availByProduct.get(i.productId);
+            const rentalStartDate =
+              rentalRow?.startDate ?? avail?.startDate ?? null;
+            const rentalEndDate = rentalRow?.endDate ?? avail?.endDate ?? null;
+
+            const cleaningFee =
+              i.cleaningFee ?? DEFAULT_CLEANING_FEE_NGN;
+            const collateralFee =
+              i.collateralFee ??
+              (Number(
+                i.product?.collateralPrice ?? i.product?.originalValue ?? 0,
+              ) || 0);
+
+            return {
+              id: i.product?.id || i.productId,
+              name: i.product?.name || 'Unknown',
+              price: i.pricePerDay,
+              quantity: i.product?.quantity ?? 1,
+              rentalDays: i.days,
+              imageUrl:
+                i.imageUrl ||
+                i.product?.attachments?.uploads?.[0]?.url ||
+                (i.product as any)?.images?.[0] ||
+                null,
+              rentalFee: i.rentalFee || i.pricePerDay * i.days,
+              cleaningFee,
+              collateralFee,
+              collateral: collateralFee,
+              rentalStartDate,
+              rentalEndDate,
+            };
+          }),
           shippingAddress: typedOrder.user.profile?.address || null,
           tracking: {
             status: typedOrder.status,
