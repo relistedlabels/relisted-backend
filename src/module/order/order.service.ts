@@ -8,9 +8,9 @@ import { bad } from 'src/utils/error';
 import { userEntity } from '../auth/auth.types';
 import { addMinutes, isAfter } from 'date-fns';
 import { NotificationService } from 'src/services/notification/notification.service';
+import { DEFAULT_CLEANING_FEE_NGN } from 'src/constants/rental-pricing';
 
 const APPROVAL_WINDOW_MINUTES = 15;
-const DEFAULT_CLEANING_FEE_NGN = 4000;
 
 @Injectable()
 export class OrderService {
@@ -20,6 +20,24 @@ export class OrderService {
     private topshipService: TopshipService,
     private notificationService: NotificationService,
   ) {}
+
+  private async cartItemsApprovedForCheckout(
+    requesterId: string,
+    items: any[],
+  ): Promise<any[]> {
+    const ids = items.map((i) => i.id);
+    if (ids.length === 0) return [];
+    const accepted = await this.prisma.availabilityRequest.findMany({
+      where: {
+        requesterId,
+        cartItemId: { in: ids },
+        status: 'ACCEPTED',
+      },
+      select: { cartItemId: true },
+    });
+    const acceptedCartLineIds = new Set(accepted.map((r) => r.cartItemId));
+    return items.filter((i) => acceptedCartLineIds.has(i.id));
+  }
 
   async getCheckoutSummary(user: userEntity) {
     const renterProfile = await this.prisma.profile.findUnique({
@@ -54,8 +72,18 @@ export class OrderService {
       bad('Cart is empty');
     }
 
+    const eligibleItems = await this.cartItemsApprovedForCheckout(
+      user.id,
+      cart.items,
+    );
+    if (eligibleItems.length === 0) {
+      bad(
+        'No items are approved for checkout yet. Wait for lister approval before viewing the payment summary.',
+      );
+    }
+
     const itemsByLister = new Map<string, any[]>();
-    for (const item of cart.items) {
+    for (const item of eligibleItems) {
       const listerId = item.product.curatorId;
       if (!itemsByLister.has(listerId)) {
         itemsByLister.set(listerId, []);
@@ -281,6 +309,16 @@ export class OrderService {
       bad('Cart is empty');
     }
 
+    const eligibleItems = await this.cartItemsApprovedForCheckout(
+      user.id,
+      cart.items,
+    );
+    if (eligibleItems.length === 0) {
+      bad(
+        'No items are approved for checkout yet. Wait for lister approval before paying.',
+      );
+    }
+
     const wallet = await this.prisma.wallet.findUnique({
       where: { userId: user.id },
     });
@@ -290,7 +328,7 @@ export class OrderService {
 
     // Group items by lister
     const itemsByLister = new Map<string, any[]>();
-    for (const item of cart.items) {
+    for (const item of eligibleItems) {
       const listerId = item.product.curatorId;
       if (!itemsByLister.has(listerId)) {
         itemsByLister.set(listerId, []);
@@ -462,7 +500,7 @@ export class OrderService {
             status: 'SUCCESS',
             note:
               'Cart checkout payment for ' +
-              cart.items.length +
+              eligibleItems.length +
               ' items (Collateral locked: ' +
               totalCollateral +
               ')',
@@ -529,6 +567,10 @@ export class OrderService {
           });
 
           for (const item of listerData.items) {
+            const collateralFee =
+              Number(
+                item.product.collateralPrice || item.product.originalValue,
+              ) || 0;
             await tx.orderItem.create({
               data: {
                 orderId: order.id,
@@ -538,8 +580,8 @@ export class OrderService {
                 // New persisted fields
                 imageUrl: (item.product.images?.[0] || null) as any,
                 rentalFee: item.product.dailyPrice * item.days,
-                cleaningFee: item.product.cleaningFee || 0,
-                collateralFee: item.product.collateralValue || 0,
+                cleaningFee: DEFAULT_CLEANING_FEE_NGN,
+                collateralFee,
               } as any,
             });
           }
@@ -601,9 +643,9 @@ export class OrderService {
           createdOrders.push(order);
         }
 
-        // 4. Clear cart
+        // 4. Remove only lines that were paid (keep pending / unrequested items)
         await tx.cartItem.deleteMany({
-          where: { cartId: cart.id },
+          where: { id: { in: eligibleItems.map((i) => i.id) } },
         });
       },
       { timeout: 30000 },
@@ -740,6 +782,8 @@ export class OrderService {
       }
     }
 
+    const orderIds = createdOrders.map((o: { orderId: string }) => o.orderId);
+
     return {
       success: true,
       message:
@@ -748,6 +792,13 @@ export class OrderService {
         ordersCreated: createdOrders.length,
         totalPaid: grandTotal,
         orders: createdOrders,
+        /** All new public order numbers (one per lister). */
+        orderIds,
+        /**
+         * First order’s public id — useful when the UI expects a single `orderId`
+         * (multi-lister checkouts create several; use `orderIds` then).
+         */
+        orderId: orderIds[0],
       },
     };
   }
