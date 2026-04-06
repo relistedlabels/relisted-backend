@@ -8,6 +8,7 @@ import { addMinutes, differenceInMinutes, isAfter } from 'date-fns';
 
 import { NotificationService } from 'src/services/notification/notification.service';
 import { withdrawAvailabilityRequestsForCartItem } from './withdraw-availability-for-cart-item';
+import { assertNoOpenAvailabilityRequestForProduct } from 'src/utils/assert-no-open-availability-for-product';
 
 @Injectable()
 export class CartService {
@@ -57,17 +58,11 @@ export class CartService {
 
   if (!cartItem) bad('Cart item not found');
 
-  // prevent multiple requests
-  const existingRequest = await this.prisma.availabilityRequest.findFirst({
-    where: {
-      cartItemId,
-      status: 'PENDING',
-    },
-  });
-
-  if (existingRequest) {
-    bad('Availability request already sent');
-  }
+  await assertNoOpenAvailabilityRequestForProduct(
+    this.prisma,
+    user.id,
+    cartItem.productId,
+  );
 
   // start 30 minutes countdown NOW
   const expiresAt = addMinutes(new Date(), 30);
@@ -184,6 +179,8 @@ async acceptAvailability(requestId: string) {
             where: {
               requesterId: user.id,
               cartItemId: { in: itemIds },
+              // Cart shows active requests only; full history is on the renter rental-requests API.
+              status: { notIn: ['EXPIRED', 'CANCELLED_BY_RENTER'] },
             },
             orderBy: { createdAt: 'desc' },
             select: {
@@ -191,30 +188,37 @@ async acceptAvailability(requestId: string) {
               cartItemId: true,
               expiresAt: true,
               status: true,
+              startDate: true,
+              endDate: true,
+              rentalDays: true,
+              createdAt: true,
             },
           });
 
-    const latestRequestByCartItemId = new Map<
-      string,
-      { id: string; expiresAt: Date; status: string }
-    >();
+    const requestsByCartItemId = new Map<string, typeof requests>();
     for (const r of requests) {
-      if (!latestRequestByCartItemId.has(r.cartItemId)) {
-        latestRequestByCartItemId.set(r.cartItemId, r);
-      }
+      const list = requestsByCartItemId.get(r.cartItemId) ?? [];
+      list.push(r);
+      requestsByCartItemId.set(r.cartItemId, list);
     }
 
+    const toSnapshot = (r: (typeof requests)[number]) => ({
+      requestId: r.id,
+      expiresAt: r.expiresAt,
+      status: r.status,
+      startDate: r.startDate,
+      endDate: r.endDate,
+      rentalDays: r.rentalDays,
+      createdAt: r.createdAt,
+    });
+
     const items = cart.items.map((item) => {
-      const req = latestRequestByCartItemId.get(item.id);
+      const list = requestsByCartItemId.get(item.id) ?? [];
+      const snapshots = list.map(toSnapshot);
       return {
         ...item,
-        rentalRequest: req
-          ? {
-              requestId: req.id,
-              expiresAt: req.expiresAt,
-              status: req.status,
-            }
-          : null,
+        rentalRequests: snapshots,
+        rentalRequest: snapshots[0] ?? null,
       };
     });
 

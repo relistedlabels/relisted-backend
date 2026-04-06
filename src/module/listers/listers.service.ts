@@ -1090,7 +1090,7 @@ export class ListersService {
           status: 'accepted',
           requestId: request.id,
           reason: notes || 'No additional notes provided.',
-          checkoutLink: `${process.env.CLIENT_URL}/checkout?requestId=${request.id}`,
+          checkoutLink: `${process.env.CLIENT_URL}/shop/cart/checkout?requestId=${request.id}`,
         },
       });
 
