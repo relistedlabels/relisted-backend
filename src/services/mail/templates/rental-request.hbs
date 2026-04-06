@@ -34,15 +34,6 @@
             margin-top: 20px;
             text-align: center;
         }
-
-        .button {
-            background: #000;
-            color: #fff;
-            padding: 10px 20px;
-            text-decoration: none;
-            border-radius: 5px;
-            display: inline-block;
-        }
     </style>
 </head>
 
@@ -59,7 +50,20 @@
             <p><strong>Price:</strong> NGN {{totalPrice}}</p>
             <p><strong>Dates:</strong> {{startDate}} - {{endDate}}</p>
             <p>Please log in to your dashboard to approve or decline this request before it expires.</p>
-            <p><a href="{{viewLink}}" class="button">View Request</a></p>
+            {{#if viewLink}}
+            <p style="margin:24px 0;text-align:left;">
+              <a href="{{viewLink}}" target="_blank" rel="noopener noreferrer"
+                 style="background-color:#111111;color:#ffffff;padding:12px 24px;text-decoration:none;border-radius:6px;display:inline-block;font-family:Arial,sans-serif;font-size:15px;font-weight:bold;line-height:1.2;">
+                View Request
+              </a>
+            </p>
+            <p style="font-size:14px;color:#444444;line-height:1.5;word-break:break-all;">
+              If the button does not work, open this link:<br />
+              <a href="{{viewLink}}" style="color:#111111;text-decoration:underline;">{{viewLink}}</a>
+            </p>
+            {{else}}
+            <p style="font-size:14px;color:#444444;">Please open your lister dashboard to review pending rental requests.</p>
+            {{/if}}
         </div>
         <div class="footer">
             <p>&copy; 2024 Relisted. All rights reserved.</p>

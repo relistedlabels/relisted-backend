@@ -21,6 +21,20 @@ export class RentersService {
     private notificationService: NotificationService,
   ) {}
 
+  /** PENDING + past expiresAt should read as EXPIRED (same idea as lister order list). */
+  private async expireStalePendingAvailabilityRequestsForRequester(
+    requesterId: string,
+  ) {
+    await this.prisma.availabilityRequest.updateMany({
+      where: {
+        requesterId,
+        status: 'PENDING',
+        expiresAt: { lte: new Date() },
+      },
+      data: { status: 'EXPIRED' },
+    });
+  }
+
   async getDashboardSummary(userId: string, timeframe: string = 'month') {
     const activeRentals = await this.prisma.rental.findMany({
       where: { userId, isReturned: false },
@@ -760,6 +774,8 @@ export class RentersService {
   }
 
   async getRentalRequests(userId: string, query: any) {
+    await this.expireStalePendingAvailabilityRequestsForRequester(userId);
+
     const page = Number(query.page) || 1;
     const limit = Number(query.limit) || 20;
     const skip = (page - 1) * limit;
