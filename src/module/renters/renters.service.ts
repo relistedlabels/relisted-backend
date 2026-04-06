@@ -13,6 +13,7 @@ import { addMinutes } from 'date-fns';
 import { NotificationService } from '../../services/notification/notification.service';
 import { assertNoOpenAvailabilityRequestForProduct } from '../../utils/assert-no-open-availability-for-product';
 import { DEFAULT_CLEANING_FEE_NGN } from '../../constants/rental-pricing';
+import { bad } from '../../utils/error';
 
 @Injectable()
 export class RentersService {
@@ -22,6 +23,26 @@ export class RentersService {
     private wemaService: WemaServiceService,
     private notificationService: NotificationService,
   ) {}
+
+  /** Accepts ISO strings, timestamps, or Date; rejects invalid / missing values. */
+  private parseRentalBoundaryDate(value: unknown, fieldLabel: string): Date {
+    if (value === undefined || value === null || value === '') {
+      bad(`${fieldLabel} is required`);
+    }
+    if (value instanceof Date) {
+      if (Number.isNaN(value.getTime())) {
+        bad(`Invalid ${fieldLabel}`);
+      }
+      return value;
+    }
+    const d = new Date(value as string | number);
+    if (Number.isNaN(d.getTime())) {
+      bad(
+        `${fieldLabel} is invalid. Send an ISO 8601 string (e.g. 2026-04-16 or 2026-04-16T12:00:00.000Z).`,
+      );
+    }
+    return d;
+  }
 
   /** PENDING + past expiresAt should read as EXPIRED (same idea as lister order list). */
   private async expireStalePendingAvailabilityRequestsForRequester(
@@ -708,6 +729,21 @@ export class RentersService {
       data.productId,
     );
 
+    const startRaw =
+      data.rentalStartDate ??
+      data.startDate ??
+      data.rental_start_date;
+    const endRaw =
+      data.rentalEndDate ?? data.endDate ?? data.rental_end_date;
+    const startDate = this.parseRentalBoundaryDate(
+      startRaw,
+      'Rental start date',
+    );
+    const endDate = this.parseRentalBoundaryDate(endRaw, 'Rental end date');
+    if (endDate.getTime() < startDate.getTime()) {
+      bad('Rental end date must be on or after the start date');
+    }
+
     const expiresAt = addMinutes(new Date(), 15);
     const request = await this.prisma.availabilityRequest.create({
       data: {
@@ -717,8 +753,8 @@ export class RentersService {
         listerId: data.listerId,
         status: 'PENDING',
         expiresAt,
-        startDate: new Date(data.rentalStartDate),
-        endDate: new Date(data.rentalEndDate),
+        startDate,
+        endDate,
         rentalDays: data.rentalDays,
         totalPrice: data.estimatedRentalPrice,
         deliveryAddressId: data.deliveryAddressId,
