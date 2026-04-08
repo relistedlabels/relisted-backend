@@ -1,4 +1,10 @@
-import { IsEmail, IsNumber, IsOptional, IsString } from 'class-validator';
+import {
+  IsBoolean,
+  IsEmail,
+  IsNumber,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 
 export class VerificationDto {
   @IsEmail()
@@ -91,6 +97,14 @@ export class RentalRequestDto {
   @IsString()
   @IsOptional()
   viewLink?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  withdrawn?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  afterApproval?: boolean;
 }
 
 export class RentalResponseDto {

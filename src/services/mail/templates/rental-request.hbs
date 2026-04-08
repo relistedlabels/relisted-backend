@@ -40,9 +40,35 @@
 <body>
     <div class="container">
         <div class="header">
+            {{#if withdrawn}}
+            <h2>Rental request update</h2>
+            {{else}}
             <h2>New Rental Request</h2>
+            {{/if}}
         </div>
         <div class="content">
+            {{#if withdrawn}}
+            <p>Hello {{listerName}},</p>
+            {{#if afterApproval}}
+            <p>{{renterName}} has cancelled their rental for <strong>{{productName}}</strong> after you had approved it.</p>
+            {{else}}
+            <p>{{renterName}} has withdrawn their rental request for <strong>{{productName}}</strong>.</p>
+            {{/if}}
+            {{#if viewLink}}
+            <p style="margin:24px 0;text-align:left;">
+              <a href="{{viewLink}}" target="_blank" rel="noopener noreferrer"
+                 style="background-color:#111111;color:#ffffff;padding:12px 24px;text-decoration:none;border-radius:6px;display:inline-block;font-family:Arial,sans-serif;font-size:15px;font-weight:bold;line-height:1.2;">
+                View Request
+              </a>
+            </p>
+            <p style="font-size:14px;color:#444444;line-height:1.5;word-break:break-all;">
+            You can also view the request here:<br />
+              <a href="{{viewLink}}" style="color:#111111;text-decoration:underline;">{{viewLink}}</a>
+            </p>
+            {{else}}
+            <p style="font-size:14px;color:#444444;">Please open your lister dashboard to review this request.</p>
+            {{/if}}
+            {{else}}
             <p>Hello {{listerName}},</p>
             <p>You have a new rental request for your item: <strong>{{productName}}</strong>.</p>
             <p><strong>From:</strong> {{renterName}}</p>
@@ -63,6 +89,7 @@
             </p>
             {{else}}
             <p style="font-size:14px;color:#444444;">Please open your lister dashboard to review pending rental requests.</p>
+            {{/if}}
             {{/if}}
         </div>
         <div class="footer">

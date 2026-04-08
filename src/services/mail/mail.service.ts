@@ -10,7 +10,7 @@ export class MailService {
         const{email,...rest} =dto
      await this.mailerService.sendMail({
         to:email,
-        template:"./verify-email",     
+        template:"./verify-email",
         subject:Auth_Otp_Token_Subject.Verify_Email,
         context:rest
      })
@@ -40,10 +40,13 @@ export class MailService {
 
     async SendRentalRequestMail(dto: RentalRequestDto) {
         const { email, ...rest } = dto;
+        const subject = dto.withdrawn
+            ? Auth_Otp_Token_Subject.RENTAL_REQUEST_WITHDRAWN
+            : Auth_Otp_Token_Subject.RENTAL_REQUEST;
         await this.mailerService.sendMail({
             to: email,
             template: './rental-request',
-            subject: Auth_Otp_Token_Subject.RENTAL_REQUEST,
+            subject,
             context: rest,
         });
     }
