@@ -9,6 +9,7 @@ export const Auth_Otp_Token_Subject = {
   CONFIRM_ORDER: 'Verify Order ',
   Admin_MFA: 'admin mfa',
   RENTAL_REQUEST: 'New Rental Request',
+  RENTAL_REQUEST_WITHDRAWN: 'Rental request withdrawn',
   RENTAL_RESPONSE: 'Update on your Rental Request',
   WITHDRAWAL_STATUS: 'Withdrawal Request Status',
   SHIPPING_UPDATE: 'Shipping Status Update',

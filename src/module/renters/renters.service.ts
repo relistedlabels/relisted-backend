@@ -13,6 +13,11 @@ import { addMinutes } from 'date-fns';
 import { NotificationService } from '../../services/notification/notification.service';
 import { assertNoOpenAvailabilityRequestForProduct } from '../../utils/assert-no-open-availability-for-product';
 import { DEFAULT_CLEANING_FEE_NGN } from '../../constants/rental-pricing';
+import { bad } from '../../utils/error';
+import {
+  buildListerWithdrawRentalRequestEmailContext,
+  type ListerWithdrawNotify,
+} from '../cart-items/withdraw-availability-for-cart-item';
 
 @Injectable()
 export class RentersService {
@@ -22,6 +27,26 @@ export class RentersService {
     private wemaService: WemaServiceService,
     private notificationService: NotificationService,
   ) {}
+
+  /** Accepts ISO strings, timestamps, or Date; rejects invalid / missing values. */
+  private parseRentalBoundaryDate(value: unknown, fieldLabel: string): Date {
+    if (value === undefined || value === null || value === '') {
+      bad(`${fieldLabel} is required`);
+    }
+    if (value instanceof Date) {
+      if (Number.isNaN(value.getTime())) {
+        bad(`Invalid ${fieldLabel}`);
+      }
+      return value;
+    }
+    const d = new Date(value as string | number);
+    if (Number.isNaN(d.getTime())) {
+      bad(
+        `${fieldLabel} is invalid. Send an ISO 8601 string (e.g. 2026-04-16 or 2026-04-16T12:00:00.000Z).`,
+      );
+    }
+    return d;
+  }
 
   /** PENDING + past expiresAt should read as EXPIRED (same idea as lister order list). */
   private async expireStalePendingAvailabilityRequestsForRequester(
@@ -708,6 +733,21 @@ export class RentersService {
       data.productId,
     );
 
+    const startRaw =
+      data.rentalStartDate ??
+      data.startDate ??
+      data.rental_start_date;
+    const endRaw =
+      data.rentalEndDate ?? data.endDate ?? data.rental_end_date;
+    const startDate = this.parseRentalBoundaryDate(
+      startRaw,
+      'Rental start date',
+    );
+    const endDate = this.parseRentalBoundaryDate(endRaw, 'Rental end date');
+    if (endDate.getTime() < startDate.getTime()) {
+      bad('Rental end date must be on or after the start date');
+    }
+
     const expiresAt = addMinutes(new Date(), 15);
     const request = await this.prisma.availabilityRequest.create({
       data: {
@@ -717,8 +757,8 @@ export class RentersService {
         listerId: data.listerId,
         status: 'PENDING',
         expiresAt,
-        startDate: new Date(data.rentalStartDate),
-        endDate: new Date(data.rentalEndDate),
+        startDate,
+        endDate,
         rentalDays: data.rentalDays,
         totalPrice: data.estimatedRentalPrice,
         deliveryAddressId: data.deliveryAddressId,
@@ -939,7 +979,12 @@ export class RentersService {
   async deleteRentalRequest(userId: string, requestId: string) {
     const r = await this.prisma.availabilityRequest.findUnique({
       where: { id: requestId },
-      include: { product: { select: { name: true } } },
+      include: {
+        product: {
+          include: { curator: { select: { email: true, name: true } } },
+        },
+        requester: { select: { name: true } },
+      },
     });
     if (!r || r.requesterId !== userId)
       throw new NotFoundException('Request not found');
@@ -959,27 +1004,35 @@ export class RentersService {
       };
     }
 
-    const listerNotifies: {
-      listerId: string;
-      productName: string;
-      requestId: string;
-    }[] = [];
+    const listerNotifies: ListerWithdrawNotify[] = [];
 
     await this.prisma.$transaction(async (tx) => {
       if (r.status === 'PENDING') {
-        await tx.availabilityRequest.delete({ where: { id: requestId } });
+        await tx.availabilityRequest.update({
+          where: { id: requestId },
+          data: { status: 'CANCELLED_BY_RENTER' },
+        });
+        const emailData = buildListerWithdrawRentalRequestEmailContext(r, false);
+        listerNotifies.push({
+          listerId: r.listerId,
+          productName: emailData.productName,
+          requestId: r.id,
+          afterApproval: false,
+          emailData,
+        });
       } else if (r.status === 'ACCEPTED') {
         await tx.availabilityRequest.update({
           where: { id: requestId },
           data: { status: 'CANCELLED_BY_RENTER' },
         });
+        const emailData = buildListerWithdrawRentalRequestEmailContext(r, true);
         listerNotifies.push({
           listerId: r.listerId,
-          productName: r.product?.name ?? 'your item',
+          productName: emailData.productName,
           requestId: r.id,
+          afterApproval: true,
+          emailData,
         });
-      } else {
-        await tx.availabilityRequest.delete({ where: { id: requestId } });
       }
 
       if (r.cartItemId) {
@@ -1004,15 +1057,20 @@ export class RentersService {
     for (const n of listerNotifies) {
       await this.notificationService.createNotification({
         userId: n.listerId,
-        title: 'Cancelled by renter (after approval)',
-        message: `The renter cancelled after you approved: ${n.productName}.`,
-        type: 'RENTAL_RESPONSE',
+        title: n.afterApproval
+          ? 'Cancelled by renter (after approval)'
+          : 'Rental request withdrawn',
+        message: n.afterApproval
+          ? `The renter cancelled after you approved: ${n.productName}.`
+          : `${n.emailData.renterName} withdrew their rental request for ${n.productName}.`,
+        type: 'RENTAL_REQUEST',
         metadata: {
           requestId: n.requestId,
           productName: n.productName,
           status: 'CANCELLED_BY_RENTER',
         },
-        sendEmail: false,
+        sendEmail: Boolean(n.emailData.email),
+        emailData: n.emailData,
       });
     }
 
