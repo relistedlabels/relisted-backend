@@ -251,15 +251,20 @@ async acceptAvailability(requestId: string) {
     for (const n of listerNotifies) {
       await this.notificationService.createNotification({
         userId: n.listerId,
-        title: 'Cancelled by renter (after approval)',
-        message: `The renter cancelled after you approved: ${n.productName}.`,
-        type: 'RENTAL_RESPONSE',
+        title: n.afterApproval
+          ? 'Cancelled by renter (after approval)'
+          : 'Rental request withdrawn',
+        message: n.afterApproval
+          ? `The renter cancelled after you approved: ${n.productName}.`
+          : `${n.emailData.renterName} withdrew their rental request for ${n.productName}.`,
+        type: 'RENTAL_REQUEST',
         metadata: {
           requestId: n.requestId,
           productName: n.productName,
           status: 'CANCELLED_BY_RENTER',
         },
-        sendEmail: false,
+        sendEmail: Boolean(n.emailData.email),
+        emailData: n.emailData,
       });
     }
 
