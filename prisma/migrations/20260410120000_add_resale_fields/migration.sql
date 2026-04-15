@@ -3,6 +3,7 @@ CREATE TYPE "ListingType" AS ENUM ('RENTAL', 'RESALE', 'RENT_OR_RESALE');
 
 -- AlterEnum
 ALTER TYPE "AvailabilityStatus" ADD VALUE 'ORDERED';
+ALTER TYPE "ProductStatus" ADD VALUE 'SOLD';
 
 -- AlterTable
 ALTER TABLE "Order" ADD COLUMN "listingType" "ListingType" NOT NULL DEFAULT 'RENTAL';
