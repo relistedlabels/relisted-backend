@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
+  IsEnum,
   IsNumber,
   IsOptional,
   IsString,
@@ -11,6 +12,7 @@ import {
   IsNotEmpty,
 } from 'class-validator';
 import { PaginationQuery } from 'src/utils/paginate-query';
+import { ListingType } from '@prisma/client';
 
 export class CreateProductDto {
   @ApiProperty()
@@ -61,8 +63,8 @@ export class CreateProductDto {
   @Type(() => Number)
   @IsNumber()
   @Min(0, { message: 'Daily price must be 0 or greater' })
-  @IsNotEmpty({ message: 'Daily price is required' })
-  dailyPrice: number;
+  @IsOptional()
+  dailyPrice?: number;
 
   @ApiProperty()
   @Type(() => Number)
@@ -126,6 +128,25 @@ export class CreateProductDto {
   @IsString()
   @IsOptional()
   material?: string;
+
+  @ApiProperty({
+    enum: ListingType,
+    description: 'Type of listing for this product',
+    example: ListingType.RENTAL,
+  })
+  @IsEnum(ListingType, { message: 'Invalid listing type' })
+  @IsOptional()
+  listingType?: ListingType;
+
+  @ApiProperty({
+    description: 'Resale price for RESALE or BOTH listings (in NGN kobo)',
+    example: 50000,
+  })
+  @IsOptional()
+  @IsNumber({}, { message: 'Resale price must be a number' })
+  @Min(0, { message: 'Resale price must be 0 or greater' })
+  @Type(() => Number)
+  resalePrice?: number;
 }
 export class ListProductQuery extends PaginationQuery {
   @IsOptional()
@@ -137,8 +158,7 @@ export class ListProductQuery extends PaginationQuery {
   category?: string;
 
   @IsOptional()
-  @IsString()
-  brand?: string;
+  brand?: string | string[];
 
   @IsOptional()
   @Type(() => Number)
@@ -192,16 +212,16 @@ export class queryDto {
   @IsOptional()
   @IsString()
   tagId: string;
-   @IsOptional()
+  @IsOptional()
   @IsNumber()
-  minPrice:number
-   @IsOptional()
+  minPrice: number;
+  @IsOptional()
   @IsNumber()
-  maxPrice:number 
+  maxPrice: number;
 
   @IsOptional()
   @IsBoolean()
-  verified:boolean
+  verified: boolean;
   @IsOptional()
   @IsArray()
   @IsString({ each: true })

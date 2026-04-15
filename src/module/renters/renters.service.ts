@@ -727,6 +727,15 @@ export class RentersService {
       }
     }
 
+    // Validate product exists
+    const product = await this.prisma.product.findUnique({
+      where: { id: data.productId },
+    });
+
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
     await assertNoOpenAvailabilityRequestForProduct(
       this.prisma,
       userId,
@@ -739,13 +748,19 @@ export class RentersService {
       data.rental_start_date;
     const endRaw =
       data.rentalEndDate ?? data.endDate ?? data.rental_end_date;
-    const startDate = this.parseRentalBoundaryDate(
-      startRaw,
-      'Rental start date',
-    );
-    const endDate = this.parseRentalBoundaryDate(endRaw, 'Rental end date');
-    if (endDate.getTime() < startDate.getTime()) {
-      bad('Rental end date must be on or after the start date');
+
+    // For resale items (days = 0), startDate/endDate are not required
+    let startDate: Date | null = null;
+    let endDate: Date | null = null;
+    if (data.rentalDays && data.rentalDays > 0) {
+      startDate = this.parseRentalBoundaryDate(
+        startRaw,
+        'Rental start date',
+      );
+      endDate = this.parseRentalBoundaryDate(endRaw, 'Rental end date');
+      if (endDate.getTime() < startDate.getTime()) {
+        bad('Rental end date must be on or after the start date');
+      }
     }
 
     const expiresAt = addMinutes(new Date(), 15);
@@ -773,12 +788,17 @@ export class RentersService {
       where: { id: userId },
     });
 
+    // Determine if this is a resale request (days = 0)
+    const isResaleRequest = request.rentalDays === 0;
+    const requestType = isResaleRequest ? 'Purchase Request' : 'Rental Request';
+    const requestTypeLower = isResaleRequest ? 'purchase request' : 'rental request';
+
     // Notify Lister
     await this.notificationService.createNotification({
       userId: request.listerId,
-      title: 'New Rental Request',
-      message: `You have a new rental request for ${request.product?.name} from ${userObj?.name || 'a user'}.`,
-      type: 'RENTAL_REQUEST',
+      title: `New ${requestType}`,
+      message: `You have a new ${requestTypeLower} for ${request.product?.name} from ${userObj?.name || 'a user'}.`,
+      type: isResaleRequest ? 'PURCHASE_REQUEST' : 'RENTAL_REQUEST',
       metadata: { requestId: request.id, productId: request.productId },
       sendEmail: true,
       emailData: {
@@ -792,15 +812,16 @@ export class RentersService {
         startDate: request.startDate ? request.startDate.toDateString() : 'N/A',
         endDate: request.endDate ? request.endDate.toDateString() : 'N/A',
         viewLink: `${process.env.CLIENT_URL}/listers/orders/${request.id}`,
+        requestType: isResaleRequest ? 'purchase' : 'rental',
       },
     });
 
     // Notify Renter
     await this.notificationService.createNotification({
       userId: userId,
-      title: 'Rental Request Sent',
-      message: `Your rental request for ${request.product?.name} has been sent to the lister.`,
-      type: 'RENTAL_REQUEST_SENT',
+      title: `${requestType} Sent`,
+      message: `Your ${requestTypeLower} for ${request.product?.name} has been sent to the lister.`,
+      type: isResaleRequest ? 'PURCHASE_REQUEST_SENT' : 'RENTAL_REQUEST_SENT',
       metadata: { requestId: request.id, productId: request.productId },
       sendEmail: true,
     });
@@ -1178,7 +1199,9 @@ export class RentersService {
           'RETURN_DUE',
         ],
       };
-    if (status === 'completed') where.status = 'COMPLETED';
+    if (status === 'completed') {
+      where.status = 'COMPLETED';
+    }
     if (status === 'cancelled') where.status = 'CANCELLED';
 
     const [total, orders] = await this.prisma.$transaction([
@@ -1188,7 +1211,14 @@ export class RentersService {
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
-        include: { orderItems: true, rentals: true } as any,
+        include: {
+          orderItems: {
+            include: {
+              product: true,
+            },
+          },
+          rentals: true,
+        } as any,
       }),
     ]);
 
@@ -1211,7 +1241,14 @@ export class RentersService {
           return {
             id: o.id,
             orderId: o.orderId,
-            items: o.orderItems.map((i: any) => i.product?.name || 'Item'), // Note: product name might not be persisted in OrderItem yet, but OrderItem should have it via relation or we should have saved it.
+            items: o.orderItems.map((i: any) => ({
+              id: i.product?.id || i.productId,
+              name: i.product?.name || 'Item',
+              listingType: i.product?.listingType,
+              days: i.days,
+              rentalDays: i.days,
+              imageUrl: i.imageUrl || i.product?.attachments?.uploads?.[0]?.url || null,
+            })),
             totalAmount: totalAmount,
             status: o.status,
             date: o.createdAt,
@@ -1338,7 +1375,9 @@ export class RentersService {
               name: i.product?.name || 'Unknown',
               price: i.pricePerDay,
               quantity: i.product?.quantity ?? 1,
+              days: i.days,
               rentalDays: i.days,
+              listingType: i.product?.listingType,
               imageUrl:
                 i.imageUrl ||
                 i.product?.attachments?.uploads?.[0]?.url ||

@@ -138,8 +138,11 @@ model Product {
   subText                       String
   description                   String
   condition                     String
-  dailyPrice                    Int
+  dailyPrice                    Int?
   isActive                      Boolean               @default(true)
+  listingType                   ListingType           @default(RENTAL)
+  resalePrice                   Int?
+  rentalCount                   Int                   @default(0)
   composition                   String?
   measurement                   String
   originalValue                 Int
@@ -173,6 +176,10 @@ model Product {
   rentals                       Rental[]
   reviews                       Review[]
   tags                          Tag[]                 @relation("ProductToTag")
+
+  @@index([listingType])
+  @@index([resalePrice])
+  @@index([dailyPrice])
 }
 
 model Brand {
@@ -285,6 +292,7 @@ model Order {
   id                    String              @id @default(uuid())
   orderId               String              @unique
   status                OrderStatus         @default(PROCESSING)
+  listingType           ListingType         @default(RENTAL)
   userId                String
   createdAt             DateTime            @default(now())
   expiresAt             DateTime?
@@ -300,7 +308,7 @@ model Order {
   trackingId            String?
   deliveryFee           Int?
   listerBusinessName    String?
-  listerId              String?
+  listerId              String? // Nullable - some orders have items from multiple listers
   listerImage           String?
   listerRating          Float?
   serviceFee            Int?
@@ -315,6 +323,8 @@ model Order {
   payments              Transaction[]
   virtualAccount        VirtualAccount?
   walletTransactions    WalletTransaction[]
+
+  @@index([listingType])
 }
 
 model OrderItem {
@@ -467,6 +477,7 @@ model Escrow {
   renterId         String
   curatorId        String
   rentalAmount     Int
+  resaleAmount     Int?
   collateralAmount Int
   cleaningFee      Int
   status           EscrowStatus @default(LOCKED)
@@ -637,6 +648,7 @@ enum ProductStatus {
   APPROVED
   REJECTED
   UNAVAILABLE
+  SOLD
 }
 
 enum WalletTransactionStatus {
@@ -677,6 +689,7 @@ enum DisputeStatus {
 enum AvailabilityStatus {
   PENDING
   ACCEPTED
+  ORDERED
   REJECTED
   EXPIRED
   CANCELLED_BY_RENTER
@@ -706,4 +719,10 @@ enum ItemCondition {
   GOOD
   FAIR
   POOR
+}
+
+enum ListingType {
+  RENTAL
+  RESALE
+  RENT_OR_RESALE
 }
