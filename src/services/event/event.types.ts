@@ -52,6 +52,27 @@ export class Order_Verification {
   ){}
 }
 
+export class Order_Resale_Placed {
+  constructor(
+    public readonly orderId: string,
+    public readonly listerId: string,
+    public readonly listerName: string,
+    public readonly buyerName: string,
+    public readonly items: any[],
+  ) {}
+}
+
+export class Order_Escrow_Released {
+  constructor(
+    public readonly orderId: string,
+    public readonly buyerId: string,
+    public readonly buyerName: string,
+    public readonly buyerEmail: string,
+    public readonly listerId: string,
+    public readonly amount: number,
+  ) {}
+}
+
 export class Password_Reset_Mail {
   constructor(
     public readonly email: string,

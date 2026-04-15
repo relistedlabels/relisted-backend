@@ -21,4 +21,10 @@ export class OrderController {
     return this.orderService.checkout(user, pricingTier);
   }
 
+  @Auth()
+  @Post('resale/confirm')
+  confirmResaleOrder(@AuthUser() user: userEntity, @Body('orderId') orderId: string) {
+    return this.orderService.confirmResaleOrder(user, orderId);
+  }
+
 }

@@ -321,4 +321,17 @@ export class ProductController {
   remove(@Param('id') id: string, @AuthUser() user: userEntity) {
     return this.productService.remove(id, user);
   }
+
+  @Auth()
+  @Get(':id/resale-history')
+  @ApiOperation({ summary: 'Get resale history for a product' })
+  @ApiParam({ name: 'id', description: 'Product ID', example: 'uuid' })
+  @ApiResponse({
+    status: 200,
+    description: 'Resale history retrieved successfully',
+  })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  getResaleHistory(@Param('id') id: string, @AuthUser() user: userEntity) {
+    return this.productService.getResaleHistory(id, user);
+  }
 }
