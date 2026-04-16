@@ -59,15 +59,19 @@
 <body>
     <div class="container">
         <div class="header">
-            <h2>Rental Request Update</h2>
+            <h2>{{#if (eq requestType 'purchase')}}Purchase Request Update{{else}}Rental Request Update{{/if}}</h2>
         </div>
         <div class="content">
             <p>Hello {{userName}},</p>
-            <p>The lister has responded to your rental request for <strong>{{productName}}</strong>.</p>
+            <p>The lister has responded to your {{#if (eq requestType 'purchase')}}purchase{{else}}rental{{/if}} request for <strong>{{productName}}</strong>.</p>
             <p>Status: <span class="status-{{status}}">{{status}}</span></p>
 
             {{#if (eq status "accepted")}}
+            {{#if (eq requestType 'purchase')}}
+            <p>Great! Your purchase request has been approved. Please complete your payment to secure the purchase.</p>
+            {{else}}
             <p>Great! Your request has been approved. Please complete your payment to secure the rental.</p>
+            {{/if}}
             <p><a href="{{checkoutLink}}" class="button">Proceed to Checkout</a></p>
             {{else}}
             <p>Unfortunately, your request was not accepted at this time.</p>

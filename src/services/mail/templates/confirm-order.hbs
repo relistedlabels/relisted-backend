@@ -36,29 +36,35 @@
 <body>
   <div class="container">
     <h2>Hello {{curatorName}},</h2>
-    <p>You have a new order awaiting your approval.</p>
+    <p>You have a new {{#if (eq requestType 'purchase')}}purchase{{else}}order{{/if}} awaiting your approval.</p>
 
     <p><strong>Order ID:</strong> {{orderId}}</p>
     <p><strong>Renter Name:</strong> {{renterName}}</p>
     <p><strong>Total Amount:</strong> ₦{{totalAmount}}</p>
 
     <div class="order-summary">
-      <h3>Order Item:</h3>
+      <h3>{{#if (eq requestType 'purchase')}}Purchase Item{{else}}Order Item{{/if}}:</h3>
       <ul>
         {{#each items}}
+          {{#if (eq ../requestType 'purchase')}}
+          <li>
+            {{this.productName}} - ₦{{this.price}}
+          </li>
+          {{else}}
           <li>
             {{this.productName}} - {{this.days}} day(s) @ ₦{{this.pricePerDay}}/day
           </li>
+          {{/if}}
         {{/each}}
       </ul>
     </div>
 
-    <p>Please review the product and click the button below to approve the order:</p>
-    <a href="{{approvalLink}}" class="button">Accept Order</a>
+    <p>Please review the product and click the button below to approve the {{#if (eq requestType 'purchase')}}purchase{{else}}order{{/if}}:</p>
+    <a href="{{approvalLink}}" class="button">{{#if (eq requestType 'purchase')}}Accept Purchase{{else}}Accept Order{{/if}}</a>
 
-    <p>If you do not approve this order within 30 minutes, it will expire automatically.</p>
+    <p>If you do not approve this {{#if (eq requestType 'purchase')}}purchase{{else}}order{{/if}} within 30 minutes, it will expire automatically.</p>
 
-    <p>Thanks,<br>The Rental Platform Team</p>
+    <p>Thanks,<br>The Relisted Team</p>
   </div>
 </body>
 </html>

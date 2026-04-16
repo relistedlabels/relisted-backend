@@ -1115,10 +1115,11 @@ export class ListersService {
       });
 
       // Notify Renter
+      const isPurchaseRequest = request.rentalDays === 0;
       await this.notificationService.createNotification({
         userId: request.requesterId,
-        title: 'Rental Request Approved',
-        message: `Good news! Your rental request for ${(request as any).product?.name} has been approved. Please proceed to payment.`,
+        title: isPurchaseRequest ? 'Purchase Request Approved' : 'Rental Request Approved',
+        message: `Good news! Your ${isPurchaseRequest ? 'purchase' : 'rental'} request for ${(request as any).product?.name} has been approved. Please proceed to payment.`,
         type: 'RENTAL_RESPONSE',
         metadata: {
           requestId: request.id,
@@ -1134,6 +1135,7 @@ export class ListersService {
           requestId: request.id,
           reason: notes || 'No additional notes provided.',
           checkoutLink: `${process.env.CLIENT_URL}/shop/cart/checkout?requestId=${request.id}`,
+          requestType: isPurchaseRequest ? 'purchase' : 'rental',
         },
       });
 
@@ -1201,10 +1203,11 @@ export class ListersService {
       });
 
       // Notify Renter
+      const isPurchaseRequest = request.rentalDays === 0;
       await this.notificationService.createNotification({
         userId: request.requesterId,
-        title: 'Rental Request Declined',
-        message: `Unfortunately, your rental request for ${(request as any).product?.name} was declined. Reason: ${body.reason}`,
+        title: isPurchaseRequest ? 'Purchase Request Declined' : 'Rental Request Declined',
+        message: `Unfortunately, your ${isPurchaseRequest ? 'purchase' : 'rental'} request for ${(request as any).product?.name} was declined. Reason: ${body.reason}`,
         type: 'RENTAL_RESPONSE',
         metadata: {
           requestId: request.id,
@@ -1219,6 +1222,7 @@ export class ListersService {
           status: 'rejected',
           requestId: request.id,
           reason: body.notes || body.reason,
+          requestType: isPurchaseRequest ? 'purchase' : 'rental',
         },
       });
 

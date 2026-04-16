@@ -55,6 +55,10 @@ export class VerifyOrderDto {
 
   @IsOptional()
   items?: any[];
+
+  @IsString()
+  @IsOptional()
+  requestType?: string;
 }
 
 export class ResetPasswordDto {
@@ -105,6 +109,10 @@ export class RentalRequestDto {
   @IsBoolean()
   @IsOptional()
   afterApproval?: boolean;
+
+  @IsString()
+  @IsOptional()
+  requestType?: string;
 }
 
 export class RentalResponseDto {
@@ -124,6 +132,10 @@ export class RentalResponseDto {
   @IsString()
   @IsOptional()
   checkoutLink?: string;
+
+  @IsString()
+  @IsOptional()
+  requestType?: string;
 }
 
 export class WithdrawalDto {
