@@ -1235,6 +1235,7 @@ export class AdminService {
       data: {
         status: status as any,
         ...(reason ? { rejectionComment: reason } : {}),
+        ...(status === 'APPROVED' ? { productVerified: true } : {}),
       },
     });
 
