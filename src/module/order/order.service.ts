@@ -109,19 +109,22 @@ export class OrderService {
     let globalPickupTotal = 0;
     let globalVatTotal = 0;
     let globalServiceChargeTotal = 0;
+    let globalPurchaseTotal = 0;
     const listerBreakdowns: any[] = [];
     const shippingTiersMap = new Map<
       string,
       { name: string; totalShippingCost: number }
     >();
 
-    // Calculate totals and shipping for each lister
+    // Calculate item totals for each lister first (without external API calls)
+    const listerData: any[] = [];
     for (const [listerId, items] of itemsByLister.entries()) {
       let listerRentalTotal = 0;
       let listerCollateralTotal = 0;
       let listerCleaningTotal = 0;
       let listerVatTotal = 0;
       let listerServiceChargeTotal = 0;
+      let listerPurchaseTotal = 0;
       let curatorAddress: any = null;
 
       for (const item of items) {
@@ -163,6 +166,7 @@ export class OrderService {
           cleaningFee = 0;
           vatAmount = Math.round(item.product.resalePrice * 0.2);
           serviceCharge = Math.round(item.product.resalePrice * 0.1);
+          listerPurchaseTotal += item.product.resalePrice;
           listerRentalTotal += 0; // No rental fee for resale
         } else {
           // Rental calculation
@@ -177,7 +181,7 @@ export class OrderService {
           cleaningFee = DEFAULT_CLEANING_FEE_NGN;
           vatAmount = Math.round(rentalAmount * 0.2);
           serviceCharge = Math.round(rentalAmount * 0.1);
-          listerRentalTotal += rentalAmount + cleaningFee;
+          listerRentalTotal += rentalAmount;
         }
 
         listerCollateralTotal += collateralAmount;
@@ -185,18 +189,34 @@ export class OrderService {
         listerVatTotal += vatAmount;
         listerServiceChargeTotal += serviceCharge;
       }
-      const senderCity = curatorAddress?.city || 'Lagos';
-      const receiverCity = renterProfile.address.city || 'Lagos';
+
+      listerData.push({
+        listerId,
+        items,
+        listerRentalTotal,
+        listerCollateralTotal,
+        listerCleaningTotal,
+        listerVatTotal,
+        listerServiceChargeTotal,
+        listerPurchaseTotal,
+        curatorAddress,
+      });
+    }
+
+    // Batch external API calls for all listers in parallel
+    const shippingPromises = listerData.map(async (data) => {
+      const senderCity = data.curatorAddress?.city || 'Lagos';
+      const receiverCity = renterProfile.address!.city || 'Lagos';
 
       let pickupChargeRaw = 0;
       try {
         const pickupPayload = {
           senderDetail: {
-            addressLine1: curatorAddress?.street || 'Lagos',
+            addressLine1: data.curatorAddress?.street || 'Lagos',
             addressLine2: '',
             country: 'Nigeria',
             countryCode: 'NG',
-            state: curatorAddress?.state || 'Lagos',
+            state: data.curatorAddress?.state || 'Lagos',
             city: senderCity,
           },
           pickupDate: new Date().toISOString(),
@@ -230,11 +250,26 @@ export class OrderService {
       }
 
       if (!rateData || !rateData.length) {
-        // Fallback if Topship fails to return anything
         rateData = [
           { pricingTier: 'Budget', name: 'Standard (Fallback)', cost: 300000 },
-        ]; // 300000 kobo = NGN 3000
+        ];
       }
+
+      return {
+        listerId: data.listerId,
+        pickupChargeNGN,
+        rateData,
+      };
+    });
+
+    const shippingResults = await Promise.all(shippingPromises);
+
+    // Process shipping results and calculate final totals
+    for (const result of shippingResults) {
+      const lister = listerData.find((l) => l.listerId === result.listerId);
+      if (!lister) continue;
+
+      const { pickupChargeNGN, rateData } = result;
 
       // Aggregate shipping tiers globally
       for (const rate of rateData) {
@@ -253,35 +288,37 @@ export class OrderService {
         }
       }
 
-      // Inside lister Breakdown we assume baseline fallback for backwards compatibility UI,
-      // actual final costs will be calculated fully via checkout payload
       const baselineShipping = Math.ceil((rateData[0]?.cost || 300000) / 100);
       const listerGrandTotal =
-        listerRentalTotal +
-        listerCollateralTotal +
-        listerCleaningTotal +
+        lister.listerRentalTotal +
+        lister.listerCollateralTotal +
+        lister.listerCleaningTotal +
+        lister.listerPurchaseTotal +
         baselineShipping +
         pickupChargeNGN +
-        listerVatTotal +
-        listerServiceChargeTotal;
+        lister.listerVatTotal +
+        lister.listerServiceChargeTotal;
 
-      globalRentalTotal += listerRentalTotal;
-      globalCollateralTotal += listerCollateralTotal;
-      globalCleaningTotal += listerCleaningTotal;
+      globalRentalTotal += lister.listerRentalTotal;
+      globalCollateralTotal += lister.listerCollateralTotal;
+      globalCleaningTotal += lister.listerCleaningTotal;
       globalPickupTotal += pickupChargeNGN;
-      globalVatTotal += listerVatTotal;
-      globalServiceChargeTotal += listerServiceChargeTotal;
+      globalVatTotal += lister.listerVatTotal;
+      globalServiceChargeTotal += lister.listerServiceChargeTotal;
+      globalPurchaseTotal += lister.listerPurchaseTotal;
+
       listerBreakdowns.push({
-        listerId,
-        listerName: items[0]?.product?.curator?.name || 'Unknown',
-        itemsCount: items.length,
-        rentalTotal: listerRentalTotal,
-        collateralTotal: listerCollateralTotal,
-        cleaningTotal: listerCleaningTotal,
+        listerId: lister.listerId,
+        listerName: lister.items[0]?.product?.curator?.name || 'Unknown',
+        itemsCount: lister.items.length,
+        rentalTotal: lister.listerRentalTotal,
+        collateralTotal: lister.listerCollateralTotal,
+        cleaningTotal: lister.listerCleaningTotal,
+        purchaseTotal: lister.listerPurchaseTotal,
         shippingCost: baselineShipping,
         pickupCost: pickupChargeNGN,
-        serviceCharge: listerServiceChargeTotal,
-        vatAmount: listerVatTotal,
+        serviceCharge: lister.listerServiceChargeTotal,
+        vatAmount: lister.listerVatTotal,
         listerGrandTotal,
       });
     }
@@ -290,6 +327,7 @@ export class OrderService {
       globalRentalTotal +
       globalCollateralTotal +
       globalCleaningTotal +
+      globalPurchaseTotal +
       globalPickupTotal;
 
     // Map the aggregated shipping tiers into the response array
@@ -312,6 +350,7 @@ export class OrderService {
           rentalTotal: globalRentalTotal,
           collateralTotal: globalCollateralTotal,
           cleaningTotal: globalCleaningTotal,
+          purchaseTotal: globalPurchaseTotal,
           pickupTotal: globalPickupTotal,
           shippingTotal: baselineShippingTotal,
           serviceCharge: globalServiceChargeTotal,
