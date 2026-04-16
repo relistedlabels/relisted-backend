@@ -14,7 +14,7 @@ import { assertNoOpenAvailabilityRequestForProduct } from 'src/utils/assert-no-o
 export class CartService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly notificationService: NotificationService
+    private readonly notificationService: NotificationService,
   ) {}
 
   //  create cart for user
@@ -45,103 +45,194 @@ export class CartService {
     });
   }
 
-
- async requestAvailability(cartItemId: string, user: userEntity) {
-  const cartItem = await this.prisma.cartItem.findUnique({
-    where: { id: cartItemId },
-    include: {
-      product: {
-        include: { curator: true },
+  async requestAvailability(cartItemId: string, user: userEntity) {
+    // Check for an existing EXPIRED request that can be re-requested
+    const existingExpired = await this.prisma.availabilityRequest.findFirst({
+      where: {
+        cartItemId,
+        requesterId: user.id,
+        status: 'EXPIRED',
       },
-    },
-  });
+      orderBy: { createdAt: 'desc' },
+    });
 
-  if (!cartItem) bad('Cart item not found');
+    if (existingExpired) {
+      // Verify cart item still exists and belongs to user before reactivating
+      const cartItem = await this.prisma.cartItem.findUnique({
+        where: { id: cartItemId },
+        include: { cart: true },
+      });
+      if (!cartItem || cartItem.cart.userId !== user.id) {
+        bad('Cart item not found');
+      }
 
-  await assertNoOpenAvailabilityRequestForProduct(
-    this.prisma,
-    user.id,
-    cartItem.productId,
-  );
+      // Reactivate expired request - reset to PENDING with new timer
+      const expiresAt = addMinutes(new Date(), 15);
 
-  // start 30 minutes countdown NOW
-  const expiresAt = addMinutes(new Date(), 30);
+      const updated = await this.prisma.availabilityRequest.update({
+        where: { id: existingExpired.id },
+        data: {
+          status: 'PENDING',
+          expiresAt,
+        },
+        include: {
+          product: { include: { curator: true } },
+        },
+      });
 
-  const request = await this.prisma.availabilityRequest.create({
-    data: {
-      cartItemId,
-      productId: cartItem.productId,
-      requesterId: user.id,
-      listerId: cartItem.product.curatorId,
-      expiresAt,
-    },
-    include: {
-        product: { include: { curator: true } }
+      // Notify Lister
+      const isResale =
+        (updated.product as any)?.listingType === 'RESALE' ||
+        ((updated.product as any)?.listingType === 'RENT_OR_RESALE' &&
+          updated.rentalDays === 0);
+      await this.notificationService.createNotification({
+        userId: updated.listerId,
+        title: isResale
+          ? 'Purchase Request Reactivated'
+          : 'Rental Request Reactivated',
+        message: `Your ${isResale ? 'purchase' : 'rental'} request for ${updated.product?.name} has been reactivated by ${user.name || 'a user'}.`,
+        type: isResale ? 'PURCHASE_REQUEST' : 'RENTAL_REQUEST',
+        metadata: { requestId: updated.id, productId: updated.productId },
+        sendEmail: true,
+        emailData: {
+          email: updated.product?.curator?.email,
+          listerName: updated.product?.curator?.name,
+          renterName: user.name || 'A user',
+          productName: updated.product?.name,
+          requestId: updated.id,
+          rentalDays: existingExpired.rentalDays || 0,
+          totalPrice: existingExpired.totalPrice || 0,
+          startDate:
+            existingExpired.startDate?.toISOString().split('T')[0] || 'TBD',
+          endDate:
+            existingExpired.endDate?.toISOString().split('T')[0] || 'TBD',
+          viewLink: `${process.env.CLIENT_URL}/listers/orders/${updated.id}`,
+        },
+      });
+
+      return updated;
     }
-  });
 
-  // Notify Lister
-  await this.notificationService.createNotification({
+    // If no expired request, create new (original logic)
+    const cartItem = await this.prisma.cartItem.findUnique({
+      where: { id: cartItemId },
+      include: {
+        product: {
+          include: { curator: true },
+        },
+      },
+    });
+
+    if (!cartItem) bad('Cart item not found');
+
+    await assertNoOpenAvailabilityRequestForProduct(
+      this.prisma,
+      user.id,
+      cartItem.productId,
+    );
+
+    // Determine if this is a resale request
+    const isResaleRequest =
+      (cartItem.product as any)?.listingType === 'RESALE' ||
+      ((cartItem.product as any)?.listingType === 'RENT_OR_RESALE' &&
+        cartItem.days === 0);
+
+    // If this is a resale request, check if the product is actively rented
+    if (isResaleRequest) {
+      const activeRental = await this.prisma.rental.findFirst({
+        where: {
+          productId: cartItem.productId,
+          isReturned: false,
+          endDate: { gt: new Date() },
+        },
+      });
+
+      if (activeRental) {
+        bad(
+          `${cartItem.product.name} is currently rented out and unavailable for resale until ${activeRental.endDate.toISOString().split('T')[0]}`,
+        );
+      }
+    }
+
+    // start 15 minutes countdown NOW
+    const expiresAt = addMinutes(new Date(), 15);
+
+    const request = await this.prisma.availabilityRequest.create({
+      data: {
+        cartItemId,
+        productId: cartItem.productId,
+        requesterId: user.id,
+        listerId: cartItem.product.curatorId,
+        expiresAt,
+      },
+      include: {
+        product: { include: { curator: true } },
+      },
+    });
+
+    // Notify Lister
+    await this.notificationService.createNotification({
       userId: request.listerId,
-      title: "New Rental Request",
-      message: `You have a new rental request for ${request.product?.name} from ${user.name || 'a user'}.`,
-      type: "RENTAL_REQUEST",
+      title: isResaleRequest ? 'New Purchase Request' : 'New Rental Request',
+      message: `You have a new ${isResaleRequest ? 'purchase' : 'rental'} request for ${request.product?.name} from ${user.name || 'a user'}.`,
+      type: isResaleRequest ? 'PURCHASE_REQUEST' : 'RENTAL_REQUEST',
       metadata: { requestId: request.id, productId: request.productId },
       sendEmail: true,
       emailData: {
-          email: request.product?.curator?.email,
-          listerName: request.product?.curator?.name,
-          renterName: user.name || 'A user',
-          productName: request.product?.name,
-          requestId: request.id,
-          rentalDays: cartItem.days,
-          totalPrice: (request.product?.dailyPrice || 0) * (cartItem.days || 0),
-          startDate: 'TBD',
-          endDate: 'TBD',
-          viewLink: `${process.env.CLIENT_URL}/listers/orders/${request.id}`,
-      }
-  });
-
-  // Notify Renter
-  await this.notificationService.createNotification({
-      userId: user.id,
-      title: "Rental Request Sent",
-      message: `Your rental request for ${request.product?.name} has been sent to the lister.`,
-      type: "RENTAL_REQUEST_SENT",
-      metadata: { requestId: request.id, productId: request.productId },
-      sendEmail: false
-  });
-
-  
-  return {
-    message: 'Availability request sent. Awaiting curator response.',
-    expiresAt,
-  };
-}
-
-// accept request 
-
-async acceptAvailability(requestId: string) {
-  const request = await this.prisma.availabilityRequest.findUnique({
-    where: { id: requestId },
-  });
-
-  if (!request) bad('Request not found');
-
-  if (request.expiresAt < new Date()) {
-    await this.prisma.availabilityRequest.update({
-      where: { id: requestId },
-      data: { status: 'EXPIRED' },
+        email: request.product?.curator?.email,
+        listerName: request.product?.curator?.name,
+        renterName: user.name || 'A user',
+        productName: request.product?.name,
+        requestId: request.id,
+        rentalDays: cartItem.days,
+        totalPrice: isResaleRequest
+          ? (request.product as any)?.resalePrice || 0
+          : (request.product?.dailyPrice || 0) * (cartItem.days || 0),
+        startDate: 'TBD',
+        endDate: 'TBD',
+        viewLink: `${process.env.CLIENT_URL}/listers/orders/${request.id}`,
+        requestType: isResaleRequest ? 'purchase' : 'rental',
+      },
     });
-    bad('Request expired');
+
+    // Notify Renter
+    await this.notificationService.createNotification({
+      userId: user.id,
+      title: isResaleRequest ? 'Purchase Request Sent' : 'Rental Request Sent',
+      message: `Your ${isResaleRequest ? 'purchase' : 'rental'} request for ${request.product?.name} has been sent to the lister.`,
+      type: isResaleRequest ? 'PURCHASE_REQUEST_SENT' : 'RENTAL_REQUEST_SENT',
+      metadata: { requestId: request.id, productId: request.productId },
+      sendEmail: false,
+    });
+
+    return {
+      message: 'Availability request sent. Awaiting curator response.',
+      expiresAt,
+    };
   }
 
-  return this.prisma.availabilityRequest.update({
-    where: { id: requestId },
-    data: { status: 'ACCEPTED' },
-  });
-}
+  // accept request
 
+  async acceptAvailability(requestId: string) {
+    const request = await this.prisma.availabilityRequest.findUnique({
+      where: { id: requestId },
+    });
+
+    if (!request) bad('Request not found');
+
+    if (request.expiresAt < new Date()) {
+      await this.prisma.availabilityRequest.update({
+        where: { id: requestId },
+        data: { status: 'EXPIRED' },
+      });
+      bad('Request expired');
+    }
+
+    return this.prisma.availabilityRequest.update({
+      where: { id: requestId },
+      data: { status: 'ACCEPTED' },
+    });
+  }
 
   // Update cart item (rental days)
   async updateCartItem(
@@ -161,7 +252,6 @@ async acceptAvailability(requestId: string) {
     });
   }
 
-  
   // Fetch cart with totals
   async getCart(user: userEntity) {
     const cart = await this.prisma.cart.findUnique({
@@ -222,10 +312,17 @@ async acceptAvailability(requestId: string) {
       };
     });
 
-    const total = cart.items.reduce(
-      (sum, item) => sum + item.product.dailyPrice * item.days,
-      0,
-    );
+    const total = cart.items.reduce((sum, item) => {
+      // For resale items (days = 0 for RENT_OR_RESALE means resale), use resalePrice
+      const isResaleItem =
+        item.product.listingType === 'RESALE' ||
+        (item.product.listingType === 'RENT_OR_RESALE' && item.days === 0);
+      if (isResaleItem) {
+        return sum + (item.product.resalePrice || 0);
+      }
+      // For rental items, use dailyPrice
+      return sum + (item.product.dailyPrice || 0) * item.days;
+    }, 0);
 
     return { cartId: cart.id, items, total };
   }

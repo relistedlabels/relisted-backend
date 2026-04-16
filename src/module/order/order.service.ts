@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { OrderStatus } from '@prisma/client';
 import { Order_Verification } from 'src/services/event/event.types';
@@ -33,10 +37,18 @@ export class OrderService {
         cartItemId: { in: ids },
         status: 'ACCEPTED',
       },
-      select: { cartItemId: true },
+      select: { cartItemId: true, startDate: true, endDate: true },
     });
-    const acceptedCartLineIds = new Set(accepted.map((r) => r.cartItemId));
-    return items.filter((i) => acceptedCartLineIds.has(i.id));
+    const acceptedMap = new Map(
+      accepted.map((r) => [r.cartItemId, { startDate: r.startDate, endDate: r.endDate }]),
+    );
+    return items
+      .filter((i) => acceptedMap.has(i.id))
+      .map((i) => ({
+        ...i,
+        startDate: acceptedMap.get(i.id)?.startDate,
+        endDate: acceptedMap.get(i.id)?.endDate,
+      }));
   }
 
   async getCheckoutSummary(user: userEntity) {
@@ -97,55 +109,114 @@ export class OrderService {
     let globalPickupTotal = 0;
     let globalVatTotal = 0;
     let globalServiceChargeTotal = 0;
+    let globalPurchaseTotal = 0;
     const listerBreakdowns: any[] = [];
     const shippingTiersMap = new Map<
       string,
       { name: string; totalShippingCost: number }
     >();
 
-    // Calculate totals and shipping for each lister
+    // Calculate item totals for each lister first (without external API calls)
+    const listerData: any[] = [];
     for (const [listerId, items] of itemsByLister.entries()) {
       let listerRentalTotal = 0;
       let listerCollateralTotal = 0;
       let listerCleaningTotal = 0;
       let listerVatTotal = 0;
       let listerServiceChargeTotal = 0;
+      let listerPurchaseTotal = 0;
       let curatorAddress: any = null;
 
       for (const item of items) {
         if (!item.product.isActive) bad(`${item.product.name} is not active`);
-        if (item.days <= 0) bad('Invalid rental duration');
+        if (!item.product.productVerified)
+          bad(`${item.product.name} is not verified by admin`);
+        if (item.product.status === 'SOLD')
+          bad(`${item.product.name} is already sold`);
+
+        // Determine if this item is a resale purchase
+        const isResalePurchase =
+          item.product.listingType === 'RESALE' ||
+          (item.product.listingType === 'RENT_OR_RESALE' && item.days === 0);
+
+        // Validate rental duration only for rental items
+        if (!isResalePurchase && item.days <= 0) {
+          bad('Invalid rental duration');
+        }
 
         curatorAddress =
           item.product.curator.profile?.address ||
           item.product.curator.profile?.businessInfo;
 
-        const rentalAmount = item.product.dailyPrice * item.days;
-        const collateralAmount =
-          Number(item.product.collateralPrice || item.product.originalValue) ||
-          0;
-        const cleaningFee = DEFAULT_CLEANING_FEE_NGN;
-        const vatAmount = Math.round(rentalAmount * 0.2);
-        const serviceCharge = Math.round(rentalAmount * 0.1);
+        let rentalAmount = 0;
+        let collateralAmount = 0;
+        let cleaningFee = 0;
+        let vatAmount = 0;
+        let serviceCharge = 0;
 
-        listerRentalTotal += rentalAmount;
+        if (isResalePurchase) {
+          // Resale calculation
+          if (!item.product.resalePrice || item.product.resalePrice <= 0) {
+            bad(
+              `${item.product.name} has invalid resale price for RESALE listing`,
+            );
+          }
+          rentalAmount = 0;
+          collateralAmount = 0;
+          cleaningFee = 0;
+          vatAmount = Math.round(item.product.resalePrice * 0.2);
+          serviceCharge = Math.round(item.product.resalePrice * 0.1);
+          listerPurchaseTotal += item.product.resalePrice;
+          listerRentalTotal += 0; // No rental fee for resale
+        } else {
+          // Rental calculation
+          if (!item.product.dailyPrice) {
+            bad(`${item.product.name} is missing daily price for rental`);
+          }
+          rentalAmount = item.product.dailyPrice * item.days;
+          collateralAmount =
+            Number(
+              item.product.collateralPrice || item.product.originalValue,
+            ) || 0;
+          cleaningFee = DEFAULT_CLEANING_FEE_NGN;
+          vatAmount = Math.round(rentalAmount * 0.2);
+          serviceCharge = Math.round(rentalAmount * 0.1);
+          listerRentalTotal += rentalAmount;
+        }
+
         listerCollateralTotal += collateralAmount;
         listerCleaningTotal += cleaningFee;
         listerVatTotal += vatAmount;
         listerServiceChargeTotal += serviceCharge;
       }
-      const senderCity = curatorAddress?.city || 'Lagos';
-      const receiverCity = renterProfile.address.city || 'Lagos';
+
+      listerData.push({
+        listerId,
+        items,
+        listerRentalTotal,
+        listerCollateralTotal,
+        listerCleaningTotal,
+        listerVatTotal,
+        listerServiceChargeTotal,
+        listerPurchaseTotal,
+        curatorAddress,
+      });
+    }
+
+    // Batch external API calls for all listers in parallel
+    const shippingPromises = listerData.map(async (data) => {
+      const senderCity = data.curatorAddress?.city || 'Lagos';
+      const receiverCity = renterProfile.address!.city || 'Lagos';
 
       let pickupChargeRaw = 0;
       try {
         const pickupPayload = {
           senderDetail: {
-            addressLine1: curatorAddress?.street || 'Lagos',
+            addressLine1: data.curatorAddress?.street || 'Lagos',
             addressLine2: '',
             country: 'Nigeria',
             countryCode: 'NG',
-            state: curatorAddress?.state || 'Lagos',
+            state: data.curatorAddress?.state || 'Lagos',
             city: senderCity,
           },
           pickupDate: new Date().toISOString(),
@@ -179,11 +250,26 @@ export class OrderService {
       }
 
       if (!rateData || !rateData.length) {
-        // Fallback if Topship fails to return anything
         rateData = [
           { pricingTier: 'Budget', name: 'Standard (Fallback)', cost: 300000 },
-        ]; // 300000 kobo = NGN 3000
+        ];
       }
+
+      return {
+        listerId: data.listerId,
+        pickupChargeNGN,
+        rateData,
+      };
+    });
+
+    const shippingResults = await Promise.all(shippingPromises);
+
+    // Process shipping results and calculate final totals
+    for (const result of shippingResults) {
+      const lister = listerData.find((l) => l.listerId === result.listerId);
+      if (!lister) continue;
+
+      const { pickupChargeNGN, rateData } = result;
 
       // Aggregate shipping tiers globally
       for (const rate of rateData) {
@@ -202,35 +288,37 @@ export class OrderService {
         }
       }
 
-      // Inside lister Breakdown we assume baseline fallback for backwards compatibility UI,
-      // actual final costs will be calculated fully via checkout payload
       const baselineShipping = Math.ceil((rateData[0]?.cost || 300000) / 100);
       const listerGrandTotal =
-        listerRentalTotal +
-        listerCollateralTotal +
-        listerCleaningTotal +
+        lister.listerRentalTotal +
+        lister.listerCollateralTotal +
+        lister.listerCleaningTotal +
+        lister.listerPurchaseTotal +
         baselineShipping +
         pickupChargeNGN +
-        listerVatTotal +
-        listerServiceChargeTotal;
+        lister.listerVatTotal +
+        lister.listerServiceChargeTotal;
 
-      globalRentalTotal += listerRentalTotal;
-      globalCollateralTotal += listerCollateralTotal;
-      globalCleaningTotal += listerCleaningTotal;
+      globalRentalTotal += lister.listerRentalTotal;
+      globalCollateralTotal += lister.listerCollateralTotal;
+      globalCleaningTotal += lister.listerCleaningTotal;
       globalPickupTotal += pickupChargeNGN;
-      globalVatTotal += listerVatTotal;
-      globalServiceChargeTotal += listerServiceChargeTotal;
+      globalVatTotal += lister.listerVatTotal;
+      globalServiceChargeTotal += lister.listerServiceChargeTotal;
+      globalPurchaseTotal += lister.listerPurchaseTotal;
+
       listerBreakdowns.push({
-        listerId,
-        listerName: items[0]?.product?.curator?.name || 'Unknown',
-        itemsCount: items.length,
-        rentalTotal: listerRentalTotal,
-        collateralTotal: listerCollateralTotal,
-        cleaningTotal: listerCleaningTotal,
+        listerId: lister.listerId,
+        listerName: lister.items[0]?.product?.curator?.name || 'Unknown',
+        itemsCount: lister.items.length,
+        rentalTotal: lister.listerRentalTotal,
+        collateralTotal: lister.listerCollateralTotal,
+        cleaningTotal: lister.listerCleaningTotal,
+        purchaseTotal: lister.listerPurchaseTotal,
         shippingCost: baselineShipping,
         pickupCost: pickupChargeNGN,
-        serviceCharge: listerServiceChargeTotal,
-        vatAmount: listerVatTotal,
+        serviceCharge: lister.listerServiceChargeTotal,
+        vatAmount: lister.listerVatTotal,
         listerGrandTotal,
       });
     }
@@ -239,6 +327,7 @@ export class OrderService {
       globalRentalTotal +
       globalCollateralTotal +
       globalCleaningTotal +
+      globalPurchaseTotal +
       globalPickupTotal;
 
     // Map the aggregated shipping tiers into the response array
@@ -261,6 +350,7 @@ export class OrderService {
           rentalTotal: globalRentalTotal,
           collateralTotal: globalCollateralTotal,
           cleaningTotal: globalCleaningTotal,
+          purchaseTotal: globalPurchaseTotal,
           pickupTotal: globalPickupTotal,
           shippingTotal: baselineShippingTotal,
           serviceCharge: globalServiceChargeTotal,
@@ -350,28 +440,99 @@ export class OrderService {
       let curatorAddress: any = null;
 
       for (const item of items) {
+        // Check product is active, verified, and not sold
         if (!item.product.isActive) bad(`${item.product.name} is not active`);
-        if (item.days <= 0) bad('Invalid rental duration');
+        if (!item.product.productVerified)
+          bad(`${item.product.name} is not verified by admin`);
+        if (item.product.status === 'SOLD')
+          bad(`${item.product.name} is already sold`);
 
         curatorAddress =
           item.product.curator.profile?.address ||
           item.product.curator.profile?.businessInfo;
 
-        const rentalAmount = item.product.dailyPrice * item.days;
-        const collateralAmount =
-          Number(item.product.collateralPrice || item.product.originalValue) ||
-          0;
-        const cleaningFee = DEFAULT_CLEANING_FEE_NGN;
-        const vatAmount = Math.round(rentalAmount * 0.2);
-        const serviceCharge = Math.round(rentalAmount * 0.1);
+        let itemTotal = 0;
+        let rentalAmount = 0;
+        let collateralAmount = 0;
+        let cleaningFee = 0;
+        let vatAmount = 0;
+        let serviceCharge = 0;
 
-        listerItemsTotal +=
-          rentalAmount +
-          collateralAmount +
-          cleaningFee +
-          vatAmount +
-          serviceCharge;
-        listerRentalAndCleaning += rentalAmount + cleaningFee;
+        if (item.product.listingType === 'RESALE') {
+          // RESALE flow: only sale price, no collateral or cleaning
+          if (!item.product.resalePrice || item.product.resalePrice <= 0) {
+            bad(
+              `${item.product.name} has invalid resale price for RESALE listing`,
+            );
+          }
+          rentalAmount = 0;
+          collateralAmount = 0;
+          cleaningFee = 0;
+          vatAmount = Math.round(item.product.resalePrice * 0.2);
+          serviceCharge = Math.round(item.product.resalePrice * 0.1);
+          itemTotal = item.product.resalePrice + vatAmount + serviceCharge;
+        } else if (item.product.listingType === 'RENT_OR_RESALE') {
+          // RENT_OR_RESALE flow: can be either rental or resale based on context
+          if (item.days > 0) {
+            // Rental path
+            if (!item.product.dailyPrice) {
+              bad(`${item.product.name} is missing daily price for rental`);
+            }
+            rentalAmount = item.product.dailyPrice * item.days;
+            collateralAmount =
+              Number(
+                item.product.collateralPrice || item.product.originalValue,
+              ) || 0;
+            cleaningFee = DEFAULT_CLEANING_FEE_NGN;
+            vatAmount = Math.round(rentalAmount * 0.2);
+            serviceCharge = Math.round(rentalAmount * 0.1);
+            itemTotal =
+              rentalAmount +
+              collateralAmount +
+              cleaningFee +
+              vatAmount +
+              serviceCharge;
+            listerRentalAndCleaning += rentalAmount + cleaningFee;
+          } else {
+            // Resale path
+            if (!item.product.resalePrice || item.product.resalePrice <= 0) {
+              bad(
+                `${item.product.name} has invalid resale price for RESALE listing`,
+              );
+            }
+            rentalAmount = 0;
+            collateralAmount = 0;
+            cleaningFee = 0;
+            vatAmount = Math.round(item.product.resalePrice * 0.2);
+            serviceCharge = Math.round(item.product.resalePrice * 0.1);
+            itemTotal = item.product.resalePrice + vatAmount + serviceCharge;
+          }
+        } else {
+          // RENTAL flow: original logic
+          if (item.days <= 0) bad('Invalid rental duration');
+          if (!item.product.dailyPrice) {
+            bad(
+              `${item.product.name} is missing daily price for RENTAL listing`,
+            );
+          }
+          rentalAmount = item.product.dailyPrice * item.days;
+          collateralAmount =
+            Number(
+              item.product.collateralPrice || item.product.originalValue,
+            ) || 0;
+          cleaningFee = DEFAULT_CLEANING_FEE_NGN;
+          vatAmount = Math.round(rentalAmount * 0.2);
+          serviceCharge = Math.round(rentalAmount * 0.1);
+          itemTotal =
+            rentalAmount +
+            collateralAmount +
+            cleaningFee +
+            vatAmount +
+            serviceCharge;
+          listerRentalAndCleaning += rentalAmount + cleaningFee;
+        }
+
+        listerItemsTotal += itemTotal;
         listerCollateralTotal += collateralAmount;
         listerVatTotal += vatAmount;
         listerServiceChargeTotal += serviceCharge;
@@ -547,11 +708,148 @@ export class OrderService {
             listerData.listerRentalAndCleaning * 0.1,
           );
 
+          // Validate product availability inside transaction to prevent race conditions
+          for (const item of listerData.items) {
+            // Re-check product is active, verified, and not sold
+            const product = await tx.product.findUnique({
+              where: { id: item.product.id },
+            });
+            if (!product?.isActive) {
+              throw new BadRequestException(
+                `${item.product.name} is not active`,
+              );
+            }
+            if (!product?.productVerified) {
+              throw new BadRequestException(
+                `${item.product.name} is not verified by admin`,
+              );
+            }
+            if (product?.status === 'SOLD') {
+              throw new BadRequestException(
+                `${item.product.name} is already sold`,
+              );
+            }
+
+            // Check if product is actively rented or has overlapping rental period (inside transaction for race condition protection)
+            const newRentalStart = item.startDate ? new Date(item.startDate) : new Date();
+            const newRentalEnd = item.endDate ? new Date(item.endDate) : new Date();
+            const bufferDays = 1;
+            const bufferMs = bufferDays * 24 * 60 * 60 * 1000;
+
+            const activeRental = await tx.rental.findFirst({
+              where: {
+                productId: item.product.id,
+                isReturned: false,
+                OR: [
+                  // Current active rental (not yet ended)
+                  { endDate: { gt: new Date() } },
+                  // Overlapping rental: new start before existing end + buffer
+                  {
+                    endDate: {
+                      gte: new Date(newRentalStart.getTime() - bufferMs),
+                    },
+                  },
+                  // Overlapping rental: new end + buffer after existing start
+                  {
+                    startDate: {
+                      lte: new Date(newRentalEnd.getTime() + bufferMs),
+                    },
+                  },
+                ],
+              },
+            });
+            if (activeRental) {
+              throw new BadRequestException(
+                `${item.product.name} has an overlapping rental period. Please choose different dates.`,
+              );
+            }
+
+            // Check for concurrent resale orders (inside transaction for race condition protection)
+            const isResaleItem =
+              item.product.listingType === 'RESALE' ||
+              (item.product.listingType === 'RENT_OR_RESALE' &&
+                item.days === 0);
+
+            if (isResaleItem) {
+              const activeResaleOrder = await tx.order.findFirst({
+                where: {
+                  orderItems: {
+                    some: {
+                      productId: item.product.id,
+                    },
+                  },
+                  listingType: { in: ['RESALE', 'RENT_OR_RESALE'] },
+                  status: { in: ['PROCESSING', 'ACCEPTED', 'COMPLETED'] },
+                },
+              });
+              if (activeResaleOrder) {
+                throw new BadRequestException(
+                  `${item.product.name} already has a pending or completed resale order`,
+                );
+              }
+            }
+
+            // Check for concurrent rental orders to prevent double-renting
+            const isRentalItem =
+              item.product.listingType === 'RENTAL' ||
+              (item.product.listingType === 'RENT_OR_RESALE' &&
+                item.days > 0);
+
+            if (isRentalItem) {
+              const activeRentalOrder = await tx.order.findFirst({
+                where: {
+                  orderItems: {
+                    some: {
+                      productId: item.product.id,
+                    },
+                  },
+                  listingType: { in: ['RENTAL', 'RENT_OR_RESALE'] },
+                  status: {
+                    in: [
+                      'PROCESSING',
+                      'ACCEPTED',
+                      'ACTIVE',
+                      'DELIVERED',
+                      'RETURN_DUE',
+                    ],
+                  },
+                },
+              });
+              if (activeRentalOrder) {
+                throw new BadRequestException(
+                  `${item.product.name} already has an active rental order`,
+                );
+              }
+            }
+          }
+
+          // 3b. Handle payment based on listing type
+          const isResaleOrder = listerData.items.some(
+            (item) =>
+              item.product.listingType === 'RESALE' ||
+              (item.product.listingType === 'RENT_OR_RESALE' &&
+                item.days === 0),
+          );
+          const hasRentalItem = listerData.items.some(
+            (item) =>
+              item.product.listingType === 'RENTAL' ||
+              (item.product.listingType === 'RENT_OR_RESALE' && item.days > 0),
+          );
+
+          // Support mixed orders - use RENT_OR_RESALE for mixed orders
+          const isMixedOrder = isResaleOrder && hasRentalItem;
+
+          // Determine order listing type - use RENT_OR_RESALE for mixed orders
+          const orderListingType = isMixedOrder
+            ? 'RENT_OR_RESALE'
+            : listerData.items[0]?.product?.listingType || 'RENTAL';
+
           const order = await tx.order.create({
             data: {
               orderId: orderIdStr,
               userId: user.id,
               expiresAt,
+              listingType: orderListingType,
               // New persisted fields
               totalAmountPaid: listerData.listerGrandTotal as any,
               deliveryFee:
@@ -567,52 +865,150 @@ export class OrderService {
           });
 
           for (const item of listerData.items) {
-            const collateralFee =
-              Number(
-                item.product.collateralPrice || item.product.originalValue,
-              ) || 0;
+            // Determine if this item is a resale purchase (days = 0 for RENT_OR_RESALE means resale)
+            const isResalePurchase =
+              item.product.listingType === 'RESALE' ||
+              (item.product.listingType === 'RENT_OR_RESALE' &&
+                item.days === 0);
+            const collateralFee = isResalePurchase
+              ? 0
+              : Number(
+                  item.product.collateralPrice || item.product.originalValue,
+                ) || 0;
+
             await tx.orderItem.create({
               data: {
                 orderId: order.id,
                 productId: item.product.id,
-                days: item.days,
-                pricePerDay: item.product.dailyPrice,
+                days: isResalePurchase ? 0 : item.days,
+                pricePerDay: isResalePurchase
+                  ? 0
+                  : item.product.dailyPrice || 0,
                 // New persisted fields
-                imageUrl: (item.product.images?.[0] || null) as any,
-                rentalFee: item.product.dailyPrice * item.days,
-                cleaningFee: DEFAULT_CLEANING_FEE_NGN,
+                imageUrl: (item.product.attachments?.uploads?.[0]?.url ||
+                  null) as any,
+                rentalFee: isResalePurchase
+                  ? 0
+                  : (item.product.dailyPrice || 0) * item.days,
+                cleaningFee: isResalePurchase ? 0 : DEFAULT_CLEANING_FEE_NGN,
                 collateralFee,
               } as any,
             });
           }
 
-          // 3b. Credit Lister Wallet (90% of Rental and Cleaning fee)
-          const payoutAmount = Math.floor(
-            listerData.listerRentalAndCleaning * 1,
-          );
-          const listerWallet = await tx.wallet.upsert({
-            where: { userId: listerData.listerId },
-            create: {
-              userId: listerData.listerId,
-              mainBalance: payoutAmount,
-              availableBalance: payoutAmount,
-            },
-            update: {
-              mainBalance: { increment: payoutAmount },
-              availableBalance: { increment: payoutAmount },
-            },
-          });
+          // Set product status based on listing type when order is created (PROCESSING)
+          for (const item of listerData.items) {
+            const isRentalItem =
+              item.product.listingType === 'RENTAL' ||
+              (item.product.listingType === 'RENT_OR_RESALE' &&
+                item.days > 0);
+            const isResaleItem =
+              item.product.listingType === 'RESALE' ||
+              (item.product.listingType === 'RENT_OR_RESALE' &&
+                item.days === 0);
 
-          await tx.walletTransaction.create({
-            data: {
-              walletId: listerWallet.id,
-              amount: payoutAmount,
-              type: 'MAIN',
-              status: 'SUCCESS',
-              note: `Earning from order ${order.orderId} (100% of rental/cleaning)`,
-              orderId: order.id,
-            },
-          });
+            if (isRentalItem) {
+              await tx.product.update({
+                where: { id: item.product.id },
+                data: { status: 'RENTED' },
+              });
+            } else if (isResaleItem) {
+              await tx.product.update({
+                where: { id: item.product.id },
+                data: { status: 'SOLD' },
+              });
+            }
+          }
+
+          if (isMixedOrder) {
+            // For mixed orders: handle both rental and resale amounts
+            const totalRentalAmount = listerData.listerRentalAndCleaning;
+            const totalCollateralAmount = listerData.listerCollateralTotal;
+            const totalCleaningFee = listerData.items.reduce(
+              (sum, item) =>
+                sum + (item.days > 0 ? DEFAULT_CLEANING_FEE_NGN : 0),
+              0,
+            );
+            const totalSalePrice = listerData.items.reduce((sum, item) => {
+              if (
+                item.product.listingType === 'RESALE' ||
+                (item.product.listingType === 'RENT_OR_RESALE' &&
+                  item.days === 0)
+              ) {
+                return sum + (item.product.resalePrice || 0);
+              }
+              return sum;
+            }, 0);
+
+            // Create escrow record for mixed order with both amounts
+            await tx.escrow.create({
+              data: {
+                orderId: order.id,
+                renterId: user.id,
+                curatorId: listerData.listerId,
+                rentalAmount: totalRentalAmount,
+                resaleAmount: totalSalePrice,
+                collateralAmount: totalCollateralAmount,
+                cleaningFee: totalCleaningFee,
+                status: 'LOCKED',
+              },
+            });
+          } else if (isResaleOrder && !hasRentalItem) {
+            // For resale orders: hold payment in escrow until buyer confirms delivery
+            // Calculate total sale price for escrow
+            const totalSalePrice = listerData.items.reduce((sum, item) => {
+              const isResaleItem =
+                item.product.listingType === 'RESALE' ||
+                (item.product.listingType === 'RENT_OR_RESALE' &&
+                  item.days === 0);
+              if (isResaleItem) {
+                return sum + (item.product.resalePrice || 0);
+              }
+              return sum;
+            }, 0);
+
+            // Create escrow record (no funds moved yet - funds are locked from buyer at checkout)
+            await tx.escrow.create({
+              data: {
+                orderId: order.id,
+                renterId: user.id,
+                curatorId: listerData.listerId,
+                rentalAmount: 0, // No rental amount for pure resale orders
+                resaleAmount: totalSalePrice, // Use dedicated resaleAmount field
+                collateralAmount: 0,
+                cleaningFee: 0,
+                status: 'LOCKED',
+              },
+            });
+
+            // Do NOT credit lister wallet yet - payment released only after buyer confirms
+          } else {
+            // For rental orders: hold payment in escrow until delivery is confirmed
+            // This provides dispute protection - lister only paid after renter confirms receipt
+            const totalRentalAmount = listerData.listerRentalAndCleaning;
+            const totalCollateralAmount = listerData.listerCollateralTotal;
+            const totalCleaningFee = listerData.items.reduce(
+              (sum, item) =>
+                sum + (item.days > 0 ? DEFAULT_CLEANING_FEE_NGN : 0),
+              0,
+            );
+
+            // Create escrow record for rental order
+            await tx.escrow.create({
+              data: {
+                orderId: order.id,
+                renterId: user.id,
+                curatorId: listerData.listerId,
+                rentalAmount: totalRentalAmount,
+                resaleAmount: 0, // No resale amount for rental orders
+                collateralAmount: totalCollateralAmount,
+                cleaningFee: totalCleaningFee,
+                status: 'LOCKED',
+              },
+            });
+
+            // Do NOT credit lister wallet yet - payment released only after delivery confirmation
+          }
 
           // 3c. Notify Lister of new order
           await this.notificationService.createNotification({
@@ -629,7 +1025,6 @@ export class OrderService {
               orderId: order.orderId,
               totalAmount: listerData.listerGrandTotal,
               platformName: 'Relisted',
-              approvalLink: `${process.env.CLIENT_URL}/listers/orders/${order.id}`,
               items: listerData.items.map((item: any) => ({
                 productName: item.product.name,
                 days: item.days,
@@ -638,12 +1033,47 @@ export class OrderService {
             },
           });
 
+          // Emit notification event to lister for resale orders
+          const hasResaleItems = listerData.items.some(
+            (item) =>
+              item.product.listingType === 'RESALE' ||
+              (item.product.listingType === 'RENT_OR_RESALE' &&
+                item.days === 0),
+          );
+
+          if (hasResaleItems) {
+            await this.eventEmitter.emit('order.resale.placed', {
+              orderId: order.orderId,
+              listerId: listerData.listerId,
+              listerName: listerBusinessName,
+              buyerName: user.name,
+              items: listerData.items.filter(
+                (item) =>
+                  item.product.listingType === 'RESALE' ||
+                  (item.product.listingType === 'RENT_OR_RESALE' &&
+                    item.days === 0),
+              ),
+            });
+          }
+
           listerData.orderRef = order;
 
           createdOrders.push(order);
         }
 
-        // 4. Remove only lines that were paid (keep pending / unrequested items)
+        // 4. Mark ACCEPTED availability requests as ORDERED
+        const cartItemIds = eligibleItems.map((i) => i.id);
+        await tx.availabilityRequest.updateMany({
+          where: {
+            cartItemId: { in: cartItemIds },
+            status: 'ACCEPTED',
+          },
+          data: {
+            status: 'ORDERED',
+          },
+        });
+
+        // 5. Remove only lines that were paid (keep pending / unrequested items)
         await tx.cartItem.deleteMany({
           where: { id: { in: eligibleItems.map((i) => i.id) } },
         });
@@ -805,5 +1235,242 @@ export class OrderService {
 
   async generateOrderId() {
     return `ORD-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  }
+
+  /**
+   * Calculate the amount to release from escrow based on order type and escrow state
+   * - RESALE orders: always release resaleAmount
+   * - RENTAL orders: always release rentalAmount
+   * - RENT_OR_RESALE orders: depends on actual transaction type and escrow state
+   * - If escrow is PARTIALLY_RELEASED, rental was already released, so only release resale
+   */
+  private calculateEscrowReleaseAmount(order: any, escrow: any): number {
+    const isRentalTransaction = order.orderItems.some(
+      (item: any) => item.days > 0,
+    );
+    const isResaleTransaction = order.orderItems.some(
+      (item: any) => item.days === 0,
+    );
+    const isPartiallyReleased = escrow.status === 'PARTIALLY_RELEASED';
+
+    if (order.listingType === 'RESALE') {
+      return escrow.resaleAmount ?? 0;
+    }
+
+    if (order.listingType === 'RENTAL') {
+      return escrow.rentalAmount ?? 0;
+    }
+
+    if (order.listingType === 'RENT_OR_RESALE') {
+      if (isPartiallyReleased) {
+        // Rental already released on delivery, only release resale now
+        return escrow.resaleAmount ?? 0;
+      }
+
+      if (isRentalTransaction && isResaleTransaction) {
+        // Mixed order: release both amounts
+        return (escrow.rentalAmount ?? 0) + (escrow.resaleAmount ?? 0);
+      }
+
+      if (isRentalTransaction) {
+        // Pure rental (no resale items)
+        return escrow.rentalAmount ?? 0;
+      }
+
+      if (isResaleTransaction) {
+        // Pure resale (no rental items)
+        return escrow.resaleAmount ?? 0;
+      }
+    }
+
+    return 0;
+  }
+
+  async confirmResaleOrder(user: userEntity, orderId: string) {
+    try {
+      let order: any;
+      await this.prisma.$transaction(async (tx) => {
+        // Use pessimistic locking to prevent race conditions - lock the row during the initial query
+        const lockedOrder = await tx.$queryRaw<
+          Array<{
+            id: string;
+            orderId: string;
+            userId: string;
+            listingType: string;
+            status: string;
+            listerId: string | null;
+            totalAmountPaid: number | null;
+          }>
+        >`
+          SELECT * FROM "Order"
+          WHERE "orderId" = ${orderId}
+            AND "userId" = ${user.id}
+            AND "listingType" IN ('RESALE', 'RENT_OR_RESALE')
+            AND "status" = 'DELIVERED'
+          FOR UPDATE
+        `;
+
+        if (!lockedOrder || lockedOrder.length === 0) {
+          throw new BadRequestException(
+            'Order not found or cannot be confirmed',
+          );
+        }
+
+        // Fetch full order with relations after locking
+        order = await tx.order.findFirst({
+          where: { id: lockedOrder[0].id },
+          include: {
+            orderItems: {
+              include: {
+                product: true,
+              },
+            },
+          },
+        });
+
+        if (order.status === 'COMPLETED') {
+          throw new BadRequestException('Order is already completed');
+        }
+
+        // Validate listerId exists before making any state changes
+        const listerId = order.listerId;
+        if (!listerId) {
+          throw new BadRequestException('Order lister ID is missing');
+        }
+
+        // Update order status to COMPLETED
+        await tx.order.update({
+          where: { id: order.id },
+          data: { status: 'COMPLETED' },
+        });
+
+        // Update product status to SOLD and deactivate only for resale items
+        for (const orderItem of order.orderItems) {
+          // Check individual item's listingType to determine if it's a resale purchase
+          const itemListingType = (orderItem as any).product?.listingType;
+          const isResaleItem =
+            itemListingType === 'RESALE' ||
+            (itemListingType === 'RENT_OR_RESALE' &&
+              (orderItem as any).days === 0);
+
+          if (isResaleItem) {
+            await tx.product.update({
+              where: { id: orderItem.productId },
+              data: {
+                status: 'SOLD',
+                isActive: false,
+              },
+            });
+          }
+        }
+
+        // Release escrow to lister wallet
+        const escrow = await tx.escrow.findUnique({
+          where: { orderId: order.id },
+        });
+
+        // Defensive check: escrow should exist for resale orders
+        if (!escrow) {
+          throw new BadRequestException(
+            'Escrow record not found for this order',
+          );
+        }
+
+        // Calculate release amount using helper method
+        const releaseAmount = this.calculateEscrowReleaseAmount(order, escrow);
+
+        // Determine transaction type for wallet transaction note
+        const isRentalTransaction = order.orderItems.some(
+          (item: any) => item.days > 0,
+        );
+        const isResaleTransaction = order.orderItems.some(
+          (item: any) => item.days === 0,
+        );
+
+        if (releaseAmount > 0) {
+          // Credit lister wallet (listerId already validated above)
+          const listerWallet = await tx.wallet.upsert({
+            where: { userId: listerId },
+            create: {
+              userId: listerId,
+              mainBalance: releaseAmount,
+              availableBalance: releaseAmount,
+            },
+            update: {
+              mainBalance: { increment: releaseAmount },
+              availableBalance: { increment: releaseAmount },
+            },
+          });
+
+          // Create wallet transaction for lister
+          await tx.walletTransaction.create({
+            data: {
+              walletId: listerWallet.id,
+              amount: releaseAmount,
+              type: 'MAIN',
+              status: 'SUCCESS',
+              note:
+                isRentalTransaction && isResaleTransaction
+                  ? `Payment released for completed mixed order ${order.orderId} (rental + resale)`
+                  : order.listingType === 'RESALE' ||
+                      order.listingType === 'RENT_OR_RESALE'
+                    ? `Payment released for completed resale order ${order.orderId}`
+                    : `Escrow release for completed rental order ${order.orderId}`,
+              orderId: order.id,
+            },
+          });
+
+          // Update escrow status
+          await tx.escrow.update({
+            where: { id: escrow.id },
+            data: {
+              status: 'RELEASED',
+              releasedAt: new Date(),
+            },
+          });
+        }
+
+        // Send notification to buyer
+        await this.notificationService.createNotification({
+          userId: user.id,
+          title: 'Order Completed',
+          message: `Your order ${order.orderId} has been completed and payment has been released to the lister.`,
+          type: 'ORDER_COMPLETED',
+          metadata: { orderId: order.id, orderNumber: order.orderId },
+          sendEmail: true,
+          emailData: {
+            email: user.email,
+            buyerName: user.name || 'Customer',
+            orderId: order.orderId,
+            totalAmount: order.totalAmountPaid,
+            platformName: 'Relisted',
+          },
+        });
+
+        // Emit notification event to buyer when escrow is released
+        await this.eventEmitter.emit('order.escrow.released', {
+          orderId: order.orderId,
+          buyerId: user.id,
+          buyerName: user.name,
+          buyerEmail: user.email,
+          listerId: order.listerId,
+          amount: releaseAmount,
+        });
+      });
+
+      return {
+        success: true,
+        message: 'Order confirmed and completed successfully',
+        data: {
+          orderId: order.orderId,
+          status: 'COMPLETED',
+        },
+      };
+    } catch (error) {
+      console.error('Confirm order error:', error);
+      throw new BadRequestException(
+        error instanceof Error ? error.message : 'Failed to confirm order',
+      );
+    }
   }
 }

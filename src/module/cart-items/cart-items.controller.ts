@@ -154,4 +154,30 @@ export class CartItemsController {
   removeCartItem(@Param('id') id: string, @AuthUser() user: userEntity) {
     return this.cartItemsService.removeCartItem(id, user);
   }
+
+  /**
+   * Request/re-request availability for a cart item
+   */
+  @Auth()
+  @Post(':id/request')
+  @ApiOperation({ summary: 'Request availability for a cart item' })
+  @ApiParam({ name: 'id', description: 'Cart item ID', example: 'uuid' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Availability request created or reactivated (expired request set back to PENDING)',
+    schema: {
+      example: {
+        id: 'uuid',
+        cartItemId: 'uuid',
+        productId: 'uuid',
+        status: 'PENDING',
+        expiresAt: '2026-01-28T12:30:00.000Z',
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  requestAvailability(@Param('id') id: string, @AuthUser() user: userEntity) {
+    return this.cartItemsService.requestAvailability(id, user);
+  }
 }

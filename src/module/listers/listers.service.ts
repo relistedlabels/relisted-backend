@@ -163,7 +163,10 @@ export class ListersService {
             p.attachments?.uploads?.[0]?.url ??
             'https://via.placeholder.com/300x300?text=No+Image',
           rentalsCount: p._count?.rentals ?? 0,
-          price: p.originalValue ?? p.dailyPrice * 10,
+          price:
+            p.listingType === 'RESALE'
+              ? (p.resalePrice ?? p.originalValue)
+              : (p.originalValue ?? (p.dailyPrice ? p.dailyPrice * 10 : 0)),
           currency: CURRENCY,
           availability:
             p.status === ProductStatus.AVAILABLE && p.isActive
@@ -421,6 +424,7 @@ export class ListersService {
       }
 
       // 1b. ACCEPTED availability — lister approved; renter has not paid / no Order row yet
+      // ORDERED requests are excluded (they've been converted to actual orders)
       if (['all', 'ongoing'].includes(targetStatus)) {
         const [acceptedCount, acceptedReqs] = await Promise.all([
           this.prisma.availabilityRequest.count({
@@ -550,7 +554,9 @@ export class ListersService {
           }),
         ]);
 
-        const termUserIds = [...new Set(terminalReqs.map((r) => r.requesterId))];
+        const termUserIds = [
+          ...new Set(terminalReqs.map((r) => r.requesterId)),
+        ];
         const termUsers =
           termUserIds.length === 0
             ? []
@@ -639,9 +645,9 @@ export class ListersService {
                 statusLabel: meta.label,
               },
             ],
-            canApprove: false,
-            canReject: false,
-            approvalRequired: false,
+            canApprove: r.status === 'EXPIRED',
+            canReject: r.status === 'EXPIRED',
+            approvalRequired: r.status === 'EXPIRED',
             approvalExpiredAt: r.expiresAt.toISOString(),
             availabilityStatus: r.status,
           };
@@ -686,6 +692,8 @@ export class ListersService {
                       color: true,
                       originalValue: true,
                       dailyPrice: true,
+                      listingType: true,
+                      resalePrice: true,
                       attachments: {
                         include: {
                           uploads: { take: 1, select: { url: true } },
@@ -783,6 +791,8 @@ export class ListersService {
                   color: true,
                   originalValue: true,
                   dailyPrice: true,
+                  listingType: true,
+                  resalePrice: true,
                   attachments: {
                     include: {
                       uploads: { take: 1, select: { url: true } },
@@ -815,7 +825,13 @@ export class ListersService {
     );
     const statusMeta: Record<
       string,
-      { status: string; label: string; color: string; textColor: string; step: string }
+      {
+        status: string;
+        label: string;
+        color: string;
+        textColor: string;
+        step: string;
+      }
     > = {
       PENDING: {
         status: 'pending_approval',
@@ -887,6 +903,9 @@ export class ListersService {
             'https://via.placeholder.com/300?text=No+Image',
           size: req.product.measurement ?? 'N/A',
           color: req.product.color ?? 'N/A',
+          days: req.rentalDays,
+          listingType: req.product.listingType,
+          purchasePrice: req.product.resalePrice || 0,
           rentalFee: req.totalPrice || 0,
           itemValue: req.product.originalValue || 0,
           returnDue: req.endDate
@@ -896,9 +915,9 @@ export class ListersService {
           statusLabel: meta.label,
         },
       ],
-      canApprove: diff > 0 && req.status === 'PENDING',
-      canReject: req.status === 'PENDING',
-      approvalRequired: req.status === 'PENDING',
+      canApprove: req.status === 'PENDING' || req.status === 'EXPIRED',
+      canReject: req.status === 'PENDING' || req.status === 'EXPIRED',
+      approvalRequired: req.status === 'PENDING' || req.status === 'EXPIRED',
       approvalExpiredAt: req.expiresAt.toISOString(),
       timeline: {
         dateOrdered: req.createdAt.toISOString().split('T')[0],
@@ -906,12 +925,24 @@ export class ListersService {
         itemsDelivered: 0,
         currentStep: meta.step,
       },
+      // For resale requests (rentalDays === 0 for RESALE/RENT_OR_RESALE), escrow only holds purchase price
       escrow: {
-        rentalFeeTotal: req.totalPrice || 0,
-        itemValueHeld: req.product.originalValue || 0,
-        totalHeld: (req.totalPrice || 0) + (req.product.originalValue || 0),
+        rentalFeeTotal: req.rentalDays === 0 ? 0 : req.totalPrice || 0,
+        itemValueHeld:
+          req.rentalDays === 0 ? 0 : req.product.originalValue || 0,
+        purchasePrice:
+          req.rentalDays === 0
+            ? req.product.resalePrice || req.totalPrice || 0
+            : 0,
+        totalHeld:
+          req.rentalDays === 0
+            ? req.product.resalePrice || req.totalPrice || 0
+            : (req.totalPrice || 0) + (req.product.originalValue || 0),
         currency: CURRENCY,
-        releaseCondition: 'Upon successful return confirmation',
+        releaseCondition:
+          req.rentalDays === 0
+            ? 'Upon buyer confirmation of receipt'
+            : 'Upon successful return confirmation',
       },
     };
   }
@@ -935,6 +966,8 @@ export class ListersService {
                   condition: true,
                   originalValue: true,
                   dailyPrice: true,
+                  listingType: true,
+                  resalePrice: true,
                   attachments: {
                     include: {
                       uploads: { take: 1, select: { url: true } },
@@ -957,12 +990,23 @@ export class ListersService {
           'https://via.placeholder.com/300x300?text=No+Image',
         size: oi.product.measurement ?? 'N/A',
         color: oi.product.color ?? 'N/A',
-        returnDue: rental
-          ? rental.endDate.toISOString().split('T')[0]
-          : new Date().toISOString().split('T')[0],
+        days: oi.days,
+        listingType: oi.product.listingType,
+        purchasePrice: oi.product.resalePrice || 0,
+        returnDue:
+          oi.days === 0 && (oi.product.listingType === 'RESALE' || oi.product.listingType === 'RENT_OR_RESALE')
+            ? null
+            : rental
+              ? rental.endDate.toISOString().split('T')[0]
+              : new Date().toISOString().split('T')[0],
         returnDueDate:
-          rental?.endDate?.toISOString() ?? new Date().toISOString(),
-        amount: (oi.pricePerDay ?? oi.product.dailyPrice) * oi.days,
+          oi.days === 0 && (oi.product.listingType === 'RESALE' || oi.product.listingType === 'RENT_OR_RESALE')
+            ? null
+            : (rental?.endDate?.toISOString() ?? new Date().toISOString()),
+        rentalFee:
+          oi.days === 0 && (oi.product.listingType === 'RESALE' || oi.product.listingType === 'RENT_OR_RESALE')
+            ? oi.product.resalePrice || 0
+            : (oi.pricePerDay ?? oi.product.dailyPrice) * oi.days,
         currency: CURRENCY,
         status: order.status.toLowerCase(),
         statusLabel: ORDER_STATUS_TO_LABEL[order.status] ?? order.status,
@@ -1055,12 +1099,11 @@ export class ListersService {
 
       const now = new Date();
       if (
-        request.status !== 'PENDING' ||
-        !request.expiresAt ||
-        request.expiresAt <= now
+        !['PENDING', 'EXPIRED'].includes(request.status) ||
+        !request.expiresAt
       ) {
         throw new ForbiddenException(
-          'Request is not pending approval or approval window has expired',
+          'Request is not in a state that can be approved',
         );
       }
 
@@ -1142,12 +1185,11 @@ export class ListersService {
 
       const now = new Date();
       if (
-        request.status !== 'PENDING' ||
-        !request.expiresAt ||
-        request.expiresAt <= now
+        !['PENDING', 'EXPIRED'].includes(request.status) ||
+        !request.expiresAt
       ) {
         throw new ForbiddenException(
-          'Request is not pending approval or approval window has expired',
+          'Request is not in a state that can be rejected',
         );
       }
 
@@ -1222,7 +1264,7 @@ export class ListersService {
 
       const order = await this.prisma.order.findUnique({
         where: { id: orderId },
-        include: { user: true },
+        include: { user: true, orderItems: { include: { product: true } } },
       });
 
       if (!order) {
@@ -1262,9 +1304,72 @@ export class ListersService {
       }
       if (mapped === OrderStatus.DELIVERED) {
         updateData.deliveredAt = now;
+
+        // Release escrow for rental orders when delivered (but NOT resale amount)
+        const escrow = await this.prisma.escrow.findUnique({
+          where: { orderId: orderId },
+        });
+
+        if (
+          escrow &&
+          escrow.status === 'LOCKED' &&
+          (escrow.rentalAmount || 0) > 0
+        ) {
+          // Only release rental amount on delivery; resale amount stays locked until buyer confirms
+          const releaseAmount = escrow.rentalAmount;
+          const hasResaleAmount = (escrow.resaleAmount || 0) > 0;
+
+          await this.prisma.$transaction(async (tx) => {
+            // Credit lister wallet with rental amount only
+            const listerWallet = await tx.wallet.upsert({
+              where: { userId: escrow.curatorId },
+              create: {
+                userId: escrow.curatorId,
+                mainBalance: releaseAmount,
+                availableBalance: releaseAmount,
+              },
+              update: {
+                mainBalance: { increment: releaseAmount },
+                availableBalance: { increment: releaseAmount },
+              },
+            });
+
+            await tx.walletTransaction.create({
+              data: {
+                walletId: listerWallet.id,
+                amount: releaseAmount,
+                type: 'MAIN',
+                status: 'SUCCESS',
+                note: hasResaleAmount
+                  ? `Rental payment released for order ${orderId} (resale amount pending buyer confirmation)`
+                  : `Escrow release for order ${orderId}`,
+                orderId: orderId,
+              },
+            });
+
+            // Update escrow status: PARTIALLY_RELEASED if resale amount exists, otherwise RELEASED
+            await tx.escrow.update({
+              where: { id: escrow.id },
+              data: {
+                status: hasResaleAmount ? 'PARTIALLY_RELEASED' : 'RELEASED',
+                releasedAt: hasResaleAmount ? null : new Date(),
+                rentalAmount: 0, // Clear released rental amount
+              },
+            });
+          });
+        }
       }
       if (mapped === OrderStatus.RETURN_DUE) {
         updateData.returnDueAt = now;
+      }
+      if (mapped === OrderStatus.CANCELLED || mapped === OrderStatus.REJECTED) {
+        // Restore product status when order is cancelled or rejected
+        for (const item of order.orderItems as any[]) {
+          await this.prisma.product.update({
+            where: { id: item.productId },
+            data: { status: 'AVAILABLE' },
+          });
+        }
       }
 
       if (body.trackingNumber) {
@@ -1296,12 +1401,22 @@ export class ListersService {
         externalTrackingUrl: updated.externalTrackingUrl ?? null,
       };
 
-      // Create Rental records if order is ACTIVE or DELIVERED
+      // Create Rental records if order is ACTIVE or DELIVERED (only for rental items)
       if (
         updated.status === OrderStatus.ACTIVE ||
         updated.status === OrderStatus.DELIVERED
       ) {
         for (const item of updated.orderItems as any[]) {
+          // Only create rental records for actual rental items (days > 0)
+          const isRentalItem =
+            item.days > 0 &&
+            (item.product.listingType === 'RENTAL' ||
+              item.product.listingType === 'RENT_OR_RESALE');
+
+          if (!isRentalItem) {
+            continue; // Skip resale items and items with days = 0
+          }
+
           // Check if rental already exists for this order item
           const existingRental = await this.prisma.rental.findFirst({
             where: {
@@ -1390,12 +1505,18 @@ export class ListersService {
 
       const order = await this.prisma.order.findUnique({
         where: { id: orderId },
-        include: { returnRequest: true, user: true },
+        include: { returnRequest: true, user: true, orderItems: true },
       });
 
       if (!order || !order.returnRequest) {
         throw new NotFoundException('Order or return request not found');
       }
+
+      // Calculate total collateral to release
+      const totalCollateral = (order.orderItems as any[]).reduce(
+        (sum, item) => sum + (item.collateralFee || 0),
+        0,
+      );
 
       const updated = await this.prisma.$transaction([
         this.prisma.returnRequest.update({
@@ -1406,6 +1527,39 @@ export class ListersService {
           where: { id: order.id },
           data: { status: 'RETURNED' },
         }),
+        // Increment rentalCount only for actual rental transactions
+        ...(() => {
+          const isRentalTransaction = order.orderItems.some(
+            (item: any) => item.days > 0,
+          );
+          // Increment rentalCount for ALL rental items in the order
+          const rentalItems = order.orderItems.filter(
+            (item: any) => item.days > 0,
+          );
+          return rentalItems.length > 0
+            ? rentalItems.map((item: any) =>
+                this.prisma.product.update({
+                  where: { id: item.productId },
+                  data: { 
+                    rentalCount: { increment: 1 },
+                    status: 'AVAILABLE', // Set back to AVAILABLE when rental ends
+                  },
+                }),
+              )
+            : [];
+        })(),
+        // Release collateral back to renter
+        ...(totalCollateral > 0
+          ? [
+              this.prisma.wallet.update({
+                where: { userId: order.userId },
+                data: {
+                  collateralBalance: { decrement: totalCollateral },
+                  availableBalance: { increment: totalCollateral },
+                },
+              }),
+            ]
+          : []),
       ]);
 
       await this.notificationService.createNotification({
@@ -1546,6 +1700,7 @@ export class ListersService {
           expiresAt: { gt: new Date() },
         },
       }),
+      // Only count ACCEPTED requests (ORDERED requests are excluded - they've been converted to orders)
       this.prisma.availabilityRequest.count({
         where: { listerId: curatorId, status: 'ACCEPTED' },
       }),
@@ -1565,6 +1720,7 @@ export class ListersService {
     });
     const map = new Map(counts.map((c) => [c.status, c._count]));
     const orderOngoingCount = [
+      OrderStatus.PROCESSING,
       OrderStatus.ACCEPTED,
       OrderStatus.CONFIRMED,
       OrderStatus.IN_TRANSIT,
@@ -1573,12 +1729,13 @@ export class ListersService {
       OrderStatus.RETURN_DUE,
     ].reduce((a, s) => a + (map.get(s) ?? 0), 0);
 
-    const availabilityTerminalCount = await this.prisma.availabilityRequest.count({
-      where: {
-        listerId: curatorId,
-        status: { in: ['REJECTED', 'EXPIRED', 'CANCELLED_BY_RENTER'] },
-      },
-    });
+    const availabilityTerminalCount =
+      await this.prisma.availabilityRequest.count({
+        where: {
+          listerId: curatorId,
+          status: { in: ['REJECTED', 'EXPIRED', 'CANCELLED_BY_RENTER'] },
+        },
+      });
 
     return {
       pendingApprovalCount,
@@ -1601,10 +1758,18 @@ export class ListersService {
       order.status === OrderStatus.PROCESSING && expiresAt && expiresAt > now
         ? Math.max(0, differenceInSeconds(expiresAt, now))
         : 0;
-    const totalAmount = order.orderItems.reduce(
-      (sum: number, oi: any) => sum + (oi.pricePerDay ?? 0) * (oi.days ?? 0),
-      0,
-    );
+    const totalAmount = order.orderItems.reduce((sum: number, oi: any) => {
+      // For resale items (days === 0 for RESALE/RENT_OR_RESALE), use resalePrice
+      const isResaleItem =
+        oi.days === 0 &&
+        (oi.product?.listingType === 'RESALE' ||
+          oi.product?.listingType === 'RENT_OR_RESALE');
+      if (isResaleItem) {
+        return sum + (oi.product?.resalePrice || 0);
+      }
+      // For rental items, use pricePerDay * days
+      return sum + (oi.pricePerDay ?? 0) * (oi.days ?? 0);
+    }, 0);
     return {
       id: order.id,
       orderNumber: order.orderId,
@@ -1644,10 +1809,18 @@ export class ListersService {
       order.status === OrderStatus.PROCESSING && expiresAt && expiresAt > now
         ? Math.max(0, differenceInSeconds(expiresAt, now))
         : 0;
-    const totalAmount = order.orderItems.reduce(
-      (sum: number, oi: any) => sum + (oi.pricePerDay ?? 0) * (oi.days ?? 0),
-      0,
-    );
+    const totalAmount = order.orderItems.reduce((sum: number, oi: any) => {
+      // For resale items (days === 0 for RESALE/RENT_OR_RESALE), use resalePrice
+      const isResaleItem =
+        oi.days === 0 &&
+        (oi.product?.listingType === 'RESALE' ||
+          oi.product?.listingType === 'RENT_OR_RESALE');
+      if (isResaleItem) {
+        return sum + (oi.product?.resalePrice || 0);
+      }
+      // For rental items, use pricePerDay * days
+      return sum + (oi.pricePerDay ?? 0) * (oi.days ?? 0);
+    }, 0);
     const itemValueTotal = order.orderItems.reduce(
       (sum: number, oi: any) => sum + (oi.product?.originalValue ?? 0),
       0,
@@ -1667,6 +1840,7 @@ export class ListersService {
     return {
       id: order.id,
       orderNumber: order.orderId,
+      listingType: order.listingType,
       createdAt: order.createdAt.toISOString(),
       expiresAt: expiresAt?.toISOString() ?? null,
       timeRemainingSeconds,
@@ -1695,9 +1869,24 @@ export class ListersService {
           'https://via.placeholder.com/300?text=No+Image',
         size: oi.product.measurement ?? 'N/A',
         color: oi.product.color ?? 'N/A',
-        rentalFee: (oi.pricePerDay ?? oi.product.dailyPrice) * oi.days,
+        days: oi.days,
+        listingType: oi.product.listingType,
+        purchasePrice: oi.product.resalePrice || 0,
+        returnDue:
+          oi.days === 0 && (oi.product.listingType === 'RESALE' || oi.product.listingType === 'RENT_OR_RESALE')
+            ? null
+            : order.rental
+              ? order.rental.endDate.toISOString().split('T')[0]
+              : new Date().toISOString().split('T')[0],
+        rentalFee:
+          oi.days === 0 && (oi.product.listingType === 'RESALE' || oi.product.listingType === 'RENT_OR_RESALE')
+            ? oi.product.resalePrice || 0
+            : (oi.pricePerDay ?? oi.product.dailyPrice) * oi.days,
         itemValue: oi.product.originalValue ?? 0,
-        returnDue: order.rental?.endDate?.toISOString().split('T')[0] ?? null,
+        itemValueHeld:
+          oi.days === 0 && (oi.product.listingType === 'RESALE' || oi.product.listingType === 'RENT_OR_RESALE')
+            ? oi.product.resalePrice || 0
+            : oi.product.collateralPrice ?? oi.product.originalValue ?? 0,
         status: order.status.toLowerCase(),
         statusLabel: ORDER_STATUS_TO_LABEL[order.status] ?? order.status,
       })),
@@ -1709,11 +1898,40 @@ export class ListersService {
         currentStep: apiStatus,
       },
       escrow: {
-        rentalFeeTotal: totalAmount,
-        itemValueHeld: itemValueTotal,
-        totalHeld: totalAmount + itemValueTotal,
+        rentalFeeTotal: order.orderItems.reduce(
+          (sum: number, oi: any) =>
+            oi.days === 0 && (oi.product?.listingType === 'RESALE' || oi.product?.listingType === 'RENT_OR_RESALE')
+              ? sum
+              : sum + ((oi.pricePerDay ?? oi.product?.dailyPrice) * oi.days),
+          0,
+        ),
+        itemValueHeld: order.orderItems.reduce(
+          (sum: number, oi: any) =>
+            oi.days === 0 && (oi.product?.listingType === 'RESALE' || oi.product?.listingType === 'RENT_OR_RESALE')
+              ? sum + (oi.product?.resalePrice || 0)
+              : sum + (oi.product?.collateralPrice ?? oi.product?.originalValue ?? 0),
+          0,
+        ),
+        purchasePrice: order.orderItems.reduce(
+          (sum: number, oi: any) =>
+            oi.days === 0 && (oi.product?.listingType === 'RESALE' || oi.product?.listingType === 'RENT_OR_RESALE')
+              ? sum + (oi.product?.resalePrice || 0)
+              : sum,
+          0,
+        ),
+        totalHeld: order.orderItems.reduce(
+          (sum: number, oi: any) =>
+            oi.days === 0 && (oi.product?.listingType === 'RESALE' || oi.product?.listingType === 'RENT_OR_RESALE')
+              ? sum + (oi.product?.resalePrice || 0)
+              : sum + ((oi.pricePerDay ?? oi.product?.dailyPrice) * oi.days) + (oi.product?.collateralPrice ?? oi.product?.originalValue ?? 0),
+          0,
+        ),
         currency: CURRENCY,
-        releaseCondition: 'Upon successful return confirmation',
+        releaseCondition:
+          order.listingType === 'RESALE' ||
+          order.orderItems.some((oi: any) => oi.days === 0)
+            ? 'Upon buyer confirmation of receipt'
+            : 'Upon successful return confirmation',
       },
       canApprove:
         order.status === OrderStatus.PROCESSING && timeRemainingSeconds > 0,
@@ -4336,7 +4554,9 @@ export class ListersService {
     const reference = `WD-${randomUUID().split('-')[0].toUpperCase()}`;
 
     const withdrawal = await this.prisma.$transaction(async (tx) => {
-      const w = await (tx as any).wallet.findUnique({ where: { id: wallet.id } });
+      const w = await (tx as any).wallet.findUnique({
+        where: { id: wallet.id },
+      });
       if (!w) throw new BadRequestException('Insufficient wallet balance');
 
       if (w.availableBalance < amount) {

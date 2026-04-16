@@ -502,6 +502,74 @@ export class ProductService {
 
   async create(dto: CreateProductDto, user: userEntity) {
     try {
+      // Validation for resale listings
+      const listingType = dto.listingType || 'RENTAL';
+
+      if (listingType === 'RENTAL') {
+        if (!dto.dailyPrice) {
+          throw new BadRequestException(
+            'Daily price is required for RENTAL listings',
+          );
+        }
+        if (dto.dailyPrice <= 0) {
+          throw new BadRequestException('Daily price must be greater than 0');
+        }
+        if (!dto.originalValue || dto.originalValue <= 0) {
+          throw new BadRequestException(
+            'Original value must be greater than 0',
+          );
+        }
+        if (!dto.quantity || dto.quantity <= 0) {
+          throw new BadRequestException('Quantity must be greater than 0');
+        }
+      }
+
+      if (listingType === 'RESALE') {
+        if (!dto.resalePrice) {
+          throw new BadRequestException(
+            'Resale price is required for RESALE listings',
+          );
+        }
+        if (dto.resalePrice <= 0) {
+          throw new BadRequestException('Resale price must be greater than 0');
+        }
+        if (!dto.originalValue || dto.originalValue <= 0) {
+          throw new BadRequestException(
+            'Original value must be greater than 0',
+          );
+        }
+        if (!dto.quantity || dto.quantity <= 0) {
+          throw new BadRequestException('Quantity must be greater than 0');
+        }
+      }
+
+      if (listingType === 'RENT_OR_RESALE') {
+        if (!dto.dailyPrice) {
+          throw new BadRequestException(
+            'Daily price is required for RENT_OR_RESALE listings',
+          );
+        }
+        if (dto.dailyPrice <= 0) {
+          throw new BadRequestException('Daily price must be greater than 0');
+        }
+        if (!dto.resalePrice) {
+          throw new BadRequestException(
+            'Resale price is required for RENT_OR_RESALE listings',
+          );
+        }
+        if (dto.resalePrice <= 0) {
+          throw new BadRequestException('Resale price must be greater than 0');
+        }
+        if (!dto.originalValue || dto.originalValue <= 0) {
+          throw new BadRequestException(
+            'Original value must be greater than 0',
+          );
+        }
+        if (!dto.quantity || dto.quantity <= 0) {
+          throw new BadRequestException('Quantity must be greater than 0');
+        }
+      }
+
       const categoryId = dto.categoryId?.trim() || undefined;
       const brandId = dto.brandId?.trim() || undefined;
       let tagIdsToConnect: string[] = [];
@@ -580,7 +648,7 @@ export class ProductService {
           color: dto.color,
           originalValue: dto.originalValue || 0,
           collateralPrice: dto.collateralPrice,
-          dailyPrice: dto.dailyPrice,
+          dailyPrice: dto.dailyPrice || 0,
           careInstruction: dto.careInstruction,
           careSteps: dto.careSteps ?? '',
           stylingTip: dto.stylingTip,
@@ -590,6 +658,8 @@ export class ProductService {
           curatorId: user.id,
           status: ProductStatus.PENDING, // Products start in pending state
           productVerified: false,
+          listingType: listingType,
+          resalePrice: dto.resalePrice,
           ...(brandId && { brandId }),
           ...(categoryId && { categoryId }),
           ...(tagIdsToConnect.length > 0 && {
@@ -641,7 +711,8 @@ export class ProductService {
 
       // 1. Build where clause
       const where: any = {
-        status: ProductStatus.APPROVED,
+        status: { in: [ProductStatus.APPROVED, ProductStatus.RENTED] },
+        isActive: true, // Exclude sold/inactive products
       };
 
       if (query.category) {
@@ -649,32 +720,87 @@ export class ProductService {
       }
 
       if (query.brand) {
-        where.brandId = query.brand;
+        const brandNames = Array.isArray(query.brand)
+          ? query.brand
+          : query.brand.split(',').map((s) => s.trim());
+        where.brand = {
+          name: { in: brandNames, mode: 'insensitive' },
+        };
       }
 
       if (query.minPrice || query.maxPrice) {
-        where.dailyPrice = {};
-        if (query.minPrice) where.dailyPrice.gte = Number(query.minPrice);
-        if (query.maxPrice) where.dailyPrice.lte = Number(query.maxPrice);
+        // Filter by price based on listing type
+        // RENTAL: use dailyPrice, RESALE: use resalePrice, RENT_OR_RESALE: check both
+        const minPrice = query.minPrice ? Number(query.minPrice) : undefined;
+        const maxPrice = query.maxPrice ? Number(query.maxPrice) : undefined;
+
+        if (minPrice !== undefined || maxPrice !== undefined) {
+          const priceFilter = {
+            OR: [
+              // RENTAL products: filter by dailyPrice
+              {
+                listingType: 'RENTAL',
+                dailyPrice: {
+                  ...(minPrice !== undefined && { gte: minPrice }),
+                  ...(maxPrice !== undefined && { lte: maxPrice }),
+                },
+              },
+              // RESALE products: filter by resalePrice
+              {
+                listingType: 'RESALE',
+                resalePrice: {
+                  ...(minPrice !== undefined && { gte: minPrice }),
+                  ...(maxPrice !== undefined && { lte: maxPrice }),
+                },
+              },
+              // RENT_OR_RESALE products: filter by either dailyPrice or resalePrice
+              {
+                listingType: 'RENT_OR_RESALE',
+                OR: [
+                  {
+                    dailyPrice: {
+                      ...(minPrice !== undefined && { gte: minPrice }),
+                      ...(maxPrice !== undefined && { lte: maxPrice }),
+                    },
+                  },
+                  {
+                    resalePrice: {
+                      ...(minPrice !== undefined && { gte: minPrice }),
+                      ...(maxPrice !== undefined && { lte: maxPrice }),
+                    },
+                  },
+                ],
+              },
+            ],
+          };
+
+          if (!where.AND) where.AND = [];
+          where.AND.push(priceFilter);
+        }
       }
 
       if (query.search) {
-        where.OR = [
-          { name: { contains: query.search, mode: 'insensitive' } },
-          { description: { contains: query.search, mode: 'insensitive' } },
-          { subText: { contains: query.search, mode: 'insensitive' } },
-          { brand: { name: { contains: query.search, mode: 'insensitive' } } },
-          {
-            category: { name: { contains: query.search, mode: 'insensitive' } },
-          },
-          {
-            tags: {
-              some: { name: { contains: query.search, mode: 'insensitive' } },
+        const searchFilter = {
+          OR: [
+            { name: { contains: query.search, mode: 'insensitive' } },
+            { description: { contains: query.search, mode: 'insensitive' } },
+            { subText: { contains: query.search, mode: 'insensitive' } },
+            { brand: { name: { contains: query.search, mode: 'insensitive' } } },
+            {
+              category: { name: { contains: query.search, mode: 'insensitive' } },
             },
-          },
-          { color: { contains: query.search, mode: 'insensitive' } },
-          { composition: { contains: query.search, mode: 'insensitive' } },
-        ];
+            {
+              tags: {
+                some: { name: { contains: query.search, mode: 'insensitive' } },
+              },
+            },
+            { color: { contains: query.search, mode: 'insensitive' } },
+            { composition: { contains: query.search, mode: 'insensitive' } },
+          ],
+        };
+
+        if (!where.AND) where.AND = [];
+        where.AND.push(searchFilter);
       }
 
       if (query.color) {
@@ -728,10 +854,18 @@ export class ProductService {
             orderBy = { createdAt: 'asc' };
             break;
           case 'price_low':
-            orderBy = { dailyPrice: 'asc' };
+            // For RESALE products, sort by resalePrice; for RENTAL, sort by dailyPrice
+            orderBy = [
+              { dailyPrice: 'asc' as const },
+              { resalePrice: 'asc' as const },
+            ];
             break;
           case 'price_high':
-            orderBy = { dailyPrice: 'desc' };
+            // For RESALE products, sort by resalePrice; for RENTAL, sort by dailyPrice
+            orderBy = [
+              { dailyPrice: 'desc' as const },
+              { resalePrice: 'desc' as const },
+            ];
             break;
           case 'popular':
             // If we have a viewCount or similar, we can sort by it.
@@ -752,9 +886,15 @@ export class ProductService {
           take: limit,
           orderBy,
           include: {
-            brand: true,
-            category: true,
-            tags: true,
+            brand: {
+              select: { id: true, name: true },
+            },
+            category: {
+              select: { id: true, name: true },
+            },
+            tags: {
+              select: { id: true, name: true },
+            },
             attachments: {
               include: {
                 uploads: {
@@ -905,6 +1045,9 @@ export class ProductService {
           quantity: true,
           createdAt: true,
           updatedAt: true,
+          listingType: true,
+          resalePrice: true,
+          rentalCount: true,
           attachments: {
             include: {
               uploads: {
@@ -924,10 +1067,20 @@ export class ProductService {
         },
       });
 
+      // Add depreciationPrompt to each product
+      const productsWithPrompt = products.map((product) => ({
+        ...product,
+        depreciationPrompt:
+          product.rentalCount >= 5 &&
+          (product.listingType === 'RENTAL' ||
+            product.listingType === 'RENT_OR_RESALE') &&
+          product.resalePrice === null,
+      }));
+
       return {
         success: true,
         message: 'User products retrieved successfully',
-        data: products,
+        data: productsWithPrompt,
         count: products.length,
       };
     } catch (error) {
@@ -965,6 +1118,9 @@ export class ProductService {
         dailyPrice: true,
         originalValue: true,
         quantity: true,
+        listingType: true,
+        resalePrice: true,
+        rentalCount: true,
         createdAt: true,
         updatedAt: true,
         attachments: {
@@ -1721,5 +1877,112 @@ export class ProductService {
         },
       },
     };
+  }
+
+  async getResaleHistory(productId: string, user: userEntity) {
+    try {
+      // First verify user owns the product
+      const product = await this.prisma.product.findFirst({
+        where: {
+          id: productId,
+          curatorId: user.id,
+        },
+      });
+
+      if (!product) {
+        throw new BadRequestException('Product not found or access denied');
+      }
+
+      // Get completed resale orders for this product
+      const resaleOrders = (await this.prisma.order.findMany({
+        where: {
+          orderItems: {
+            some: {
+              productId: productId,
+            },
+          },
+          listingType: { in: ['RESALE', 'RENT_OR_RESALE'] },
+          status: 'COMPLETED',
+        },
+        include: {
+          orderItems: {
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  resalePrice: true,
+                },
+              },
+            },
+          },
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      })) as Array<{
+        orderItems: Array<{
+          product: {
+            id: string;
+            name: string;
+            resalePrice: number | null;
+          };
+          days: number;
+        }>;
+        user: {
+          id: string;
+          name: string | null;
+          email: string | null;
+        };
+        orderId: string;
+        updatedAt: Date;
+        listingType: string;
+      }>;
+
+      return {
+        success: true,
+        message: 'Resale history retrieved successfully',
+        data: resaleOrders
+          .filter((order) => {
+            // For RESALE orders, include all if items exist
+            if (order.listingType === 'RESALE') {
+              return order.orderItems && order.orderItems.length > 0;
+            }
+            // For RENT_OR_RESALE orders, only include if at least one item has days = 0 (resale)
+            if (order.listingType === 'RENT_OR_RESALE') {
+              return (
+                order.orderItems &&
+                order.orderItems.some((item) => item.days === 0)
+              );
+            }
+            return false;
+          })
+          .map((order) => ({
+            orderId: order.orderId,
+            resalePrice: order.orderItems[0]?.product?.resalePrice,
+            productName: order.orderItems[0]?.product?.name,
+            buyerName: order.user?.name,
+            buyerEmail: order.user?.email,
+            completedAt: order.updatedAt, // Using updatedAt as completion timestamp
+          })),
+        depreciationPrompt:
+          product.rentalCount >= 5 &&
+          (product.listingType === 'RENTAL' ||
+            product.listingType === 'RENT_OR_RESALE') &&
+          product.resalePrice === null,
+      };
+    } catch (error) {
+      console.error('Get resale history error:', error);
+      throw new InternalServerErrorException(
+        'Failed to retrieve resale history',
+      );
+    }
   }
 }
