@@ -8,6 +8,7 @@ export class MailService {
     constructor(private readonly mailerService:MailerService){}
     async SendVerficationMail(dto:VerificationDto){
         const{email,...rest} =dto
+        console.log(`[EMAIL] Sending verify-email to ${email}`);
      await this.mailerService.sendMail({
         to:email,
         template:"./verify-email",
@@ -18,6 +19,7 @@ export class MailService {
 
     async SendVerificationOrderMail(dto:VerifyOrderDto){
         const {email,...rest} =dto
+        console.log(`[EMAIL] Sending confirm-order to ${email}`);
         await this.mailerService.sendMail({
             to:email,
             template:"./confirm-order",
@@ -30,6 +32,7 @@ export class MailService {
 
     async SendPasswordResetMail(dto: ResetPasswordDto) {
         const { email, ...rest } = dto;
+        console.log(`[EMAIL] Sending reset-password to ${email}`);
         await this.mailerService.sendMail({
             to: email,
             template: './reset-password',
@@ -43,6 +46,7 @@ export class MailService {
         const subject = dto.withdrawn
             ? Auth_Otp_Token_Subject.RENTAL_REQUEST_WITHDRAWN
             : Auth_Otp_Token_Subject.RENTAL_REQUEST;
+        console.log(`[EMAIL] Sending rental-request to ${email}, withdrawn: ${dto.withdrawn}`);
         await this.mailerService.sendMail({
             to: email,
             template: './rental-request',
@@ -53,6 +57,7 @@ export class MailService {
 
     async SendRentalResponseMail(dto: RentalResponseDto) {
         const { email, ...rest } = dto;
+        console.log(`[EMAIL] Sending rental-response to ${email}, status: ${dto.status}`);
         await this.mailerService.sendMail({
             to: email,
             template: './rental-response',
@@ -63,6 +68,7 @@ export class MailService {
 
     async SendWithdrawalMail(dto: WithdrawalDto) {
         const { email, ...rest } = dto;
+        console.log(`[EMAIL] Sending withdrawal-status to ${email}, status: ${dto.status}`);
         await this.mailerService.sendMail({
             to: email,
             template: './withdrawal-status',
@@ -73,6 +79,7 @@ export class MailService {
 
     async SendShippingUpdateMail(dto: ShippingDto) {
         const { email, ...rest } = dto;
+        console.log(`[EMAIL] Sending shipping-update to ${email}`);
         await this.mailerService.sendMail({
             to: email,
             template: './shipping-update',

@@ -50,6 +50,7 @@ export class NotificationService {
     try {
       switch (type) {
         case 'RENTAL_REQUEST':
+        case 'PURCHASE_REQUEST':
           await this.mailService.SendRentalRequestMail(data);
           break;
         case 'RENTAL_ACCEPTED':
@@ -67,6 +68,7 @@ export class NotificationService {
           await this.mailService.SendWithdrawalMail(data);
           break;
         case 'RENTAL_REQUEST_SENT':
+        case 'PURCHASE_REQUEST_SENT':
           // No email for this one usually, but we check just in case
           break;
         case 'SHIPPING_UPDATE':
