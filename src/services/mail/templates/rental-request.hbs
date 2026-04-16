@@ -41,18 +41,18 @@
     <div class="container">
         <div class="header">
             {{#if withdrawn}}
-            <h2>Rental request update</h2>
+            <h2>{{#if (eq requestType 'purchase')}}Purchase request update{{else}}Rental request update{{/if}}</h2>
             {{else}}
-            <h2>New Rental Request</h2>
+            <h2>{{#if (eq requestType 'purchase')}}New Purchase Request{{else}}New Rental Request{{/if}}</h2>
             {{/if}}
         </div>
         <div class="content">
             {{#if withdrawn}}
             <p>Hello {{listerName}},</p>
             {{#if afterApproval}}
-            <p>{{renterName}} has cancelled their rental for <strong>{{productName}}</strong> after you had approved it.</p>
+            <p>{{renterName}} has cancelled their {{#if (eq requestType 'purchase')}}purchase{{else}}rental{{/if}} for <strong>{{productName}}</strong> after you had approved it.</p>
             {{else}}
-            <p>{{renterName}} has withdrawn their rental request for <strong>{{productName}}</strong>.</p>
+            <p>{{renterName}} has withdrawn their {{#if (eq requestType 'purchase')}}purchase{{else}}rental{{/if}} request for <strong>{{productName}}</strong>.</p>
             {{/if}}
             {{#if viewLink}}
             <p style="margin:24px 0;text-align:left;">
@@ -70,11 +70,17 @@
             {{/if}}
             {{else}}
             <p>Hello {{listerName}},</p>
+            {{#if (eq requestType 'purchase')}}
+            <p>You have a new purchase request for your item: <strong>{{productName}}</strong>.</p>
+            <p><strong>From:</strong> {{renterName}}</p>
+            <p><strong>Purchase Price:</strong> NGN {{totalPrice}}</p>
+            {{else}}
             <p>You have a new rental request for your item: <strong>{{productName}}</strong>.</p>
             <p><strong>From:</strong> {{renterName}}</p>
             <p><strong>Duration:</strong> {{rentalDays}} days</p>
             <p><strong>Price:</strong> NGN {{totalPrice}}</p>
             <p><strong>Dates:</strong> {{startDate}} - {{endDate}}</p>
+            {{/if}}
             <p>Please log in to your dashboard to approve or decline this request before it expires.</p>
             {{#if viewLink}}
             <p style="margin:24px 0;text-align:left;">

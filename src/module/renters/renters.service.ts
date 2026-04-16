@@ -81,7 +81,7 @@ export class RentersService {
 
   async getDashboardSummary(userId: string, timeframe: string = 'month') {
     const activeRentals = await this.prisma.rental.findMany({
-      where: { userId, isReturned: false },
+      where: { userId, isReturned: false, days: { gt: 0 } },
       include: {
         product: true,
         curator: { select: { name: true } },
@@ -440,7 +440,7 @@ export class RentersService {
     const safeWallet = wallet as any;
 
     const activeRentals = await this.prisma.rental.findMany({
-      where: { userId, isReturned: false },
+      where: { userId, isReturned: false, days: { gt: 0 } },
       include: { order: true },
     });
 
@@ -2087,7 +2087,7 @@ export class RentersService {
   ) {
     const order = await this.prisma.order.findUnique({
       where: { orderId }, // Use orderId mapping
-      include: { returnRequest: true },
+      include: { returnRequest: true, orderItems: { include: { product: true } } },
     });
 
     if (!order) {
@@ -2101,6 +2101,16 @@ export class RentersService {
     if (order.returnRequest) {
       throw new BadRequestException(
         'Return request already exists for this order',
+      );
+    }
+
+    // Block return requests for purchase orders (rentalDays=0)
+    const isPurchaseOrder = (order.orderItems as any[]).some(
+      (item) => item.days === 0
+    );
+    if (isPurchaseOrder) {
+      throw new BadRequestException(
+        'Return requests are not available for purchase orders',
       );
     }
 

@@ -1011,10 +1011,15 @@ export class OrderService {
           }
 
           // 3c. Notify Lister of new order
+          const hasResaleItems = listerData.items.some(
+            (item: any) =>
+              item.product.listingType === 'RESALE' ||
+              (item.product.listingType === 'RENT_OR_RESALE' && item.days === 0),
+          );
           await this.notificationService.createNotification({
             userId: listerData.listerId,
-            title: 'New Order Received',
-            message: `You have a new paid order (${order.orderId}) from ${user.name || 'a renter'}.`,
+            title: hasResaleItems ? 'New Purchase Received' : 'New Order Received',
+            message: `You have a new paid ${hasResaleItems ? 'purchase' : 'order'} (${order.orderId}) from ${user.name || 'a renter'}.`,
             type: 'ORDER_CONFIRMATION',
             metadata: { orderId: order.id, orderNumber: order.orderId },
             sendEmail: true,
@@ -1025,22 +1030,18 @@ export class OrderService {
               orderId: order.orderId,
               totalAmount: listerData.listerGrandTotal,
               platformName: 'Relisted',
+              approvalLink: `${process.env.CLIENT_URL}/listers/orders/${order.id}`,
+              requestType: hasResaleItems ? 'purchase' : 'rental',
               items: listerData.items.map((item: any) => ({
                 productName: item.product.name,
                 days: item.days,
                 pricePerDay: item.product.dailyPrice,
+                price: item.product.resalePrice || item.product.originalValue,
               })),
             },
           });
 
           // Emit notification event to lister for resale orders
-          const hasResaleItems = listerData.items.some(
-            (item) =>
-              item.product.listingType === 'RESALE' ||
-              (item.product.listingType === 'RENT_OR_RESALE' &&
-                item.days === 0),
-          );
-
           if (hasResaleItems) {
             await this.eventEmitter.emit('order.resale.placed', {
               orderId: order.orderId,
