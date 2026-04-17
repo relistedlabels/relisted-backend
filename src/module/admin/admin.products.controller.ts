@@ -68,9 +68,9 @@ export class AdminProductsController {
   @ApiOperation({ summary: 'Reject a product' })
   async rejectProduct(
     @Param('productId') productId: string,
-    @Body() data: { reason: string },
+    @Body() data: { rejectionComment: string },
   ) {
-    return this.adminService.updateProductStatus(productId, 'REJECTED', data.reason);
+    return this.adminService.updateProductStatus(productId, 'REJECTED', data.rejectionComment);
   }
 
   @Get('listings/:productId/availability')
