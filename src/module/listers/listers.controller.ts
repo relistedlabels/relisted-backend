@@ -301,6 +301,19 @@ export class ListersController {
   }
 
   @Auth([Role.LISTER, Role.ADMIN])
+  @Post('orders/:orderId/confirm-return-receipt')
+  @ApiOperation({ summary: 'Confirm receipt of returned item with condition assessment' })
+  @ApiParam({ name: 'orderId', description: 'Order UUID' })
+  @ApiResponse({ status: 200, description: 'Return receipt confirmed' })
+  confirmReturnReceipt(
+    @AuthUser() user: userEntity,
+    @Param('orderId') orderId: string,
+    @Body() data: any,
+  ) {
+    return this.listersService.confirmReturnReceipt(user.id, orderId, data);
+  }
+
+  @Auth([Role.LISTER, Role.ADMIN])
   @Patch('orders/:orderId/return/reject')
   @ApiOperation({ summary: 'Reject return (item damaged or not received)' })
   @ApiParam({ name: 'orderId', description: 'Order UUID' })
