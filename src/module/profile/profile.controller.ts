@@ -105,6 +105,37 @@ export class ProfileController {
   }
 
   /**
+   * Upgrade user profile to LISTER (Curator)
+   */
+  @Auth()
+  @Patch('upgrade-lister')
+  @ApiOperation({ summary: 'Upgrade user profile to LISTER' })
+  @ApiBody({ type: upgradeProfile })
+  @ApiOkResponse({
+    description: 'Profile upgraded to LISTER successfully',
+    schema: {
+      example: {
+        message: 'User profile verified and role upgraded to LISTER successfully',
+        data: {
+          id: 'profile-uuid',
+          user: {
+            id: 'user-uuid',
+            role: 'LISTER',
+          },
+        },
+      },
+    },
+  })
+  @ApiBadRequestResponse({ description: 'Profile already verified or incomplete' })
+  @ApiNotFoundResponse({ description: 'User not found' })
+  upgradeToLister(
+    @AuthUser() user: userEntity,
+    @Body() dto: upgradeProfile,
+  ) {
+    return this.profileService.upgradeProfileToLister(user.id, user, dto);
+  }
+
+  /**
    * Update user profile
    */
   @Auth()
@@ -131,39 +162,6 @@ export class ProfileController {
     @AuthUser() user: userEntity,
   ) {
     return this.profileService.update(id, updateProfileDto, user);
-  }
-
-  /**
-   * Upgrade user profile to LISTER (Curator)
-   */
-  @Auth()
-  @Patch(':profileId/upgrade-lister')
-  @ApiOperation({ summary: 'Upgrade user profile to LISTER' })
-  @ApiParam({ name: 'profileId', description: 'Profile ID', example: 'profile-uuid' })
-  @ApiBody({ type: upgradeProfile })
-  @ApiOkResponse({
-    description: 'Profile upgraded to LISTER successfully',
-    schema: {
-      example: {
-        message: 'User profile verified and role upgraded to LISTER successfully',
-        data: {
-          id: 'profile-uuid',
-          user: {
-            id: 'user-uuid',
-            role: 'LISTER',
-          },
-        },
-      },
-    },
-  })
-  @ApiBadRequestResponse({ description: 'Profile already verified or incomplete' })
-  @ApiNotFoundResponse({ description: 'Profile not found' })
-  upgradeToLister(
-    @Param('profileId') profileId: string,
-    @AuthUser() user: userEntity,
-    @Body() dto: upgradeProfile,
-  ) {
-    return this.profileService.upgradeProfileToLister(profileId, user, dto);
   }
 
   /**

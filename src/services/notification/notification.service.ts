@@ -74,6 +74,12 @@ export class NotificationService {
         case 'SHIPPING_UPDATE':
           await this.mailService.SendShippingUpdateMail(data);
           break;
+        case 'RETURN_INITIATED':
+          await this.mailService.SendReturnInitiatedMail(data);
+          break;
+        case 'RETURN_COMPLETED':
+          await this.mailService.SendReturnCompletedMail(data);
+          break;
         default:
           console.warn(`No mail handler for notification type: ${type}`);
       }

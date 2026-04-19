@@ -2188,4 +2188,150 @@ export class RentersService {
       },
     };
   }
+
+  async processReturnWithShipping(
+    userId: string,
+    orderId: string,
+    data: {
+      itemCondition: string;
+      damageNotes?: string;
+      images?: string[];
+    },
+  ) {
+    console.log(`[RentersService] Processing return request for order ${orderId}`);
+    const order = await this.prisma.order.findUnique({
+      where: { orderId },
+      include: {
+        orderItems: {
+          include: {
+            product: {
+              include: {
+                curator: {
+                  include: {
+                    profile: {
+                      include: { businessInfo: true },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        user: {
+          include: {
+            profile: {
+              include: { address: true },
+            },
+          },
+        },
+        returnRequest: true,
+      },
+    });
+
+    if (!order) {
+      console.log(`[RentersService] Order ${orderId} not found`);
+      throw new NotFoundException('Order not found');
+    }
+
+    if (order.userId !== userId) {
+      console.log(`[RentersService] User ${userId} not authorized for order ${orderId}`);
+      throw new BadRequestException('Not authorized to return this order');
+    }
+
+    if (order.returnRequest) {
+      console.log(`[RentersService] Return request already exists for order ${orderId}`);
+      throw new BadRequestException(
+        'Return request already exists for this order',
+      );
+    }
+
+    // Block return requests for purchase orders (only if ALL items are purchases, not mixed orders)
+    const isPurchaseOrder = order.orderItems.every(
+      (item: any) => item.days === 0,
+    );
+    if (isPurchaseOrder) {
+      console.log(`[RentersService] Purchase order ${orderId} cannot be returned`);
+      throw new BadRequestException(
+        'Return requests are not available for purchase orders',
+      );
+    }
+
+    // Upload images if provided
+    const imageUrls: string[] = [];
+    if (data.images && data.images.length > 0) {
+      for (const imageId of data.images) {
+        const upload = await this.prisma.upload.findUnique({
+          where: { id: imageId },
+        });
+        if (upload) {
+          imageUrls.push(upload.url);
+        }
+      }
+    }
+
+    // Process in transaction
+    console.log(`[RentersService] Starting transaction for order ${orderId}`);
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Create return request
+      const returnRequest = await tx.returnRequest.create({
+        data: {
+          orderId: order.id,
+          itemCondition: data.itemCondition.toUpperCase() as any,
+          damageNotes: data.damageNotes,
+          imageUrls,
+          status: 'PENDING_PICKUP',
+        },
+      });
+      console.log(`[RentersService] Return request created for order ${orderId} with ID ${returnRequest.id}`);
+
+      // Update order status
+      await tx.order.update({
+        where: { id: order.id },
+        data: {
+          status: 'RETURN_DUE',
+          returnDueAt: new Date(),
+        },
+      });
+
+      return returnRequest;
+    });
+    console.log(`[RentersService] Transaction completed successfully for order ${orderId}`);
+
+    // Notify lister about return
+    const lister = order.orderItems[0]?.product?.curator;
+    if (lister) {
+      await this.notificationService.createNotification({
+        userId: lister.id,
+        title: 'Return Request Initiated',
+        message: `A return has been initiated for order ${order.orderId}. Please coordinate pickup with the renter.`,
+        type: 'RETURN_INITIATED',
+        metadata: { orderId: order.id, orderNumber: order.orderId, returnRequestId: result.id },
+        sendEmail: true,
+        emailData: {
+          email: lister.email,
+          curatorName: lister.profile?.businessInfo?.businessName || lister.name,
+          renterName: order.user.name,
+          renterEmail: order.user.email,
+          renterPhone: order.user.profile?.phoneNumber || '',
+          renterAddress: order.user.profile?.address ? `${order.user.profile.address.street}, ${order.user.profile.address.city}, ${order.user.profile.address.state}` : '',
+          orderId: order.orderId,
+          itemCondition: data.itemCondition,
+          damageNotes: data.damageNotes,
+          platformName: 'Relisted',
+        },
+      });
+    }
+
+    return {
+      success: true,
+      message: 'Return request created successfully',
+      data: {
+        returnRequest: result,
+        order: {
+          orderId: order.orderId,
+          status: 'RETURN_DUE',
+        },
+      },
+    };
+  }
 }

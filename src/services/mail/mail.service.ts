@@ -1,14 +1,62 @@
 import { MailerService } from '@nestjs-modules/mailer';
 import { Injectable } from '@nestjs/common';
-import { VerificationDto, VerifyOrderDto, ResetPasswordDto, RentalRequestDto, RentalResponseDto, WithdrawalDto, ShippingDto } from './mail.type';
+import { VerificationDto, VerifyOrderDto, ResetPasswordDto, RentalRequestDto, RentalResponseDto, WithdrawalDto, ShippingDto, ReturnInitiatedDto, ReturnCompletedDto } from './mail.type';
 import { Auth_Otp_Token_Subject } from '../../module/auth/auth.types';
+import { writeFile, mkdir } from 'fs/promises';
+import { join } from 'path';
+import { existsSync } from 'fs';
+import open from 'open';
+import * as Handlebars from 'handlebars';
 
 @Injectable()
 export class MailService {
-    constructor(private readonly mailerService:MailerService){}
+    private readonly devBypass = process.env.DEV_EMAIL_BYPASS === 'true';
+    private readonly emailOutputDir = join(process.cwd(), 'dev-emails');
+
+    constructor(private readonly mailerService:MailerService){
+        if (this.devBypass && !existsSync(this.emailOutputDir)) {
+            mkdir(this.emailOutputDir, { recursive: true });
+        }
+        
+        // Register custom helpers
+        Handlebars.registerHelper('eq', (v1, v2) => v1 === v2);
+    }
+
+    private async renderTemplateToHtml(template: string, context: any): Promise<string> {
+        const templatePath = join(process.cwd(), 'src/services/mail/templates', `${template}.hbs`);
+        const { readFile } = await import('fs/promises');
+        const templateContent = await readFile(templatePath, 'utf-8');
+        
+        const compiledTemplate = Handlebars.compile(templateContent);
+        return compiledTemplate(context);
+    }
+
+    private async handleDevBypass(template: string, subject: string, context: any, email: string) {
+        console.log(`[DEV EMAIL BYPASS] Would send to: ${email}`);
+        console.log(`[DEV EMAIL BYPASS] Subject: ${subject}`);
+        console.log(`[DEV EMAIL BYPASS] Context:`, JSON.stringify(context, null, 2));
+        
+        const html = await this.renderTemplateToHtml(template, context);
+        const timestamp = Date.now();
+        const filename = `${template}-${timestamp}.html`;
+        const filepath = join(this.emailOutputDir, filename);
+        
+        await writeFile(filepath, html);
+        console.log(`[DEV EMAIL BYPASS] Saved to: ${filepath}`);
+        
+        await open(filepath);
+        console.log(`[DEV EMAIL BYPASS] Opened in browser`);
+    }
+
     async SendVerficationMail(dto:VerificationDto){
         const{email,...rest} =dto
         console.log(`[EMAIL] Sending verify-email to ${email}`);
+        
+        if (this.devBypass) {
+            await this.handleDevBypass('verify-email', Auth_Otp_Token_Subject.Verify_Email, rest, email);
+            return;
+        }
+        
      await this.mailerService.sendMail({
         to:email,
         template:"./verify-email",
@@ -20,6 +68,12 @@ export class MailService {
     async SendVerificationOrderMail(dto:VerifyOrderDto){
         const {email,...rest} =dto
         console.log(`[EMAIL] Sending confirm-order to ${email}`);
+        
+        if (this.devBypass) {
+            await this.handleDevBypass('confirm-order', Auth_Otp_Token_Subject.CONFIRM_ORDER, rest, email);
+            return;
+        }
+        
         await this.mailerService.sendMail({
             to:email,
             template:"./confirm-order",
@@ -33,6 +87,12 @@ export class MailService {
     async SendPasswordResetMail(dto: ResetPasswordDto) {
         const { email, ...rest } = dto;
         console.log(`[EMAIL] Sending reset-password to ${email}`);
+        
+        if (this.devBypass) {
+            await this.handleDevBypass('reset-password', Auth_Otp_Token_Subject.RESET_PASSWORD, rest, email);
+            return;
+        }
+        
         await this.mailerService.sendMail({
             to: email,
             template: './reset-password',
@@ -47,6 +107,12 @@ export class MailService {
             ? Auth_Otp_Token_Subject.RENTAL_REQUEST_WITHDRAWN
             : Auth_Otp_Token_Subject.RENTAL_REQUEST;
         console.log(`[EMAIL] Sending rental-request to ${email}, withdrawn: ${dto.withdrawn}`);
+        
+        if (this.devBypass) {
+            await this.handleDevBypass('rental-request', subject, rest, email);
+            return;
+        }
+        
         await this.mailerService.sendMail({
             to: email,
             template: './rental-request',
@@ -58,6 +124,12 @@ export class MailService {
     async SendRentalResponseMail(dto: RentalResponseDto) {
         const { email, ...rest } = dto;
         console.log(`[EMAIL] Sending rental-response to ${email}, status: ${dto.status}`);
+        
+        if (this.devBypass) {
+            await this.handleDevBypass('rental-response', Auth_Otp_Token_Subject.RENTAL_RESPONSE, rest, email);
+            return;
+        }
+        
         await this.mailerService.sendMail({
             to: email,
             template: './rental-response',
@@ -69,6 +141,12 @@ export class MailService {
     async SendWithdrawalMail(dto: WithdrawalDto) {
         const { email, ...rest } = dto;
         console.log(`[EMAIL] Sending withdrawal-status to ${email}, status: ${dto.status}`);
+        
+        if (this.devBypass) {
+            await this.handleDevBypass('withdrawal-status', Auth_Otp_Token_Subject.WITHDRAWAL_STATUS, rest, email);
+            return;
+        }
+        
         await this.mailerService.sendMail({
             to: email,
             template: './withdrawal-status',
@@ -80,10 +158,50 @@ export class MailService {
     async SendShippingUpdateMail(dto: ShippingDto) {
         const { email, ...rest } = dto;
         console.log(`[EMAIL] Sending shipping-update to ${email}`);
+
+        if (this.devBypass) {
+            await this.handleDevBypass('shipping-update', Auth_Otp_Token_Subject.SHIPPING_UPDATE, rest, email);
+            return;
+        }
+
         await this.mailerService.sendMail({
             to: email,
             template: './shipping-update',
             subject: Auth_Otp_Token_Subject.SHIPPING_UPDATE,
+            context: rest,
+        });
+    }
+
+    async SendReturnInitiatedMail(dto: ReturnInitiatedDto) {
+        const { email, ...rest } = dto;
+        console.log(`[EMAIL] Sending return-initiated to ${email}`);
+
+        if (this.devBypass) {
+            await this.handleDevBypass('return-initiated', 'Return Request Initiated', rest, email);
+            return;
+        }
+
+        await this.mailerService.sendMail({
+            to: email,
+            template: './return-initiated',
+            subject: 'Return Request Initiated',
+            context: rest,
+        });
+    }
+
+    async SendReturnCompletedMail(dto: ReturnCompletedDto) {
+        const { email, ...rest } = dto;
+        console.log(`[EMAIL] Sending return-completed to ${email}`);
+
+        if (this.devBypass) {
+            await this.handleDevBypass('return-completed', 'Return Completed', rest, email);
+            return;
+        }
+
+        await this.mailerService.sendMail({
+            to: email,
+            template: './return-completed',
+            subject: 'Return Completed',
             context: rest,
         });
     }

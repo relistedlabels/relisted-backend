@@ -95,4 +95,14 @@ export class RentersOrdersController {
   async getReturn(@Request() req, @Param('orderId') orderId: string) {
     return this.rentersService.getReturnRequest(req.user.id, orderId);
   }
+
+  @Post(':orderId/return-with-shipping')
+  @ApiOperation({ summary: 'Initiate return request with item condition and photos' })
+  async processReturnWithShipping(
+    @Request() req,
+    @Param('orderId') orderId: string,
+    @Body() data: any,
+  ) {
+    return this.rentersService.processReturnWithShipping(req.user.id, orderId, data);
+  }
 }

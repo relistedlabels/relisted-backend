@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+        }
+
+        .container {
+            width: 80%;
+            margin: 20px auto;
+            border: 1px solid #eee;
+            padding: 20px;
+            border-radius: 10px;
+        }
+
+        .header {
+            background: #f8f9fa;
+            padding: 10px;
+            text-align: center;
+            border-bottom: 2px solid #555;
+        }
+
+        .content {
+            padding: 20px;
+        }
+
+        .contact-info {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+        }
+
+        .contact-info p {
+            margin: 5px 0;
+        }
+
+        .footer {
+            font-size: 12px;
+            color: #777;
+            margin-top: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>Return Request Initiated</h2>
+        </div>
+        <div class="content">
+            <p>Hello {{curatorName}},</p>
+            <p>A return has been initiated for order <strong>{{orderId}}</strong>.</p>
+            
+            <p><strong>Renter Details:</strong></p>
+            <ul>
+                <li><strong>Name:</strong> {{renterName}}</li>
+                <li><strong>Email:</strong> {{renterEmail}}</li>
+                <li><strong>Phone:</strong> {{renterPhone}}</li>
+            </ul>
+
+            <div class="contact-info">
+                <p><strong>Renter Address:</strong></p>
+                <p>{{renterAddress}}</p>
+            </div>
+
+            <p><strong>Item Condition Reported:</strong> {{itemCondition}}</p>
+
+            {{#if damageNotes}}
+            <p><strong>Damage Notes:</strong> {{damageNotes}}</p>
+            {{/if}}
+
+            <p>Please coordinate pickup with the renter using the contact information above.</p>
+            <p>Thank you for choosing {{platformName}}!</p>
+        </div>
+        <div class="footer">
+            <p>&copy; 2024 {{platformName}}. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+
+</html>
