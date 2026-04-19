@@ -617,15 +617,20 @@ model Newsletter {
 }
 
 model ReturnRequest {
-  id            String        @id @default(uuid())
-  orderId       String        @unique
-  itemCondition ItemCondition
-  damageNotes   String?
-  imageUrls     String[]
-  status        String        @default("PENDING")
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  order         Order         @relation(fields: [orderId], references: [id])
+  id                       String         @id @default(uuid())
+  orderId                  String         @unique
+  itemCondition            ItemCondition
+  damageNotes              String?
+  imageUrls                String[]
+  listerCondition          ItemCondition?
+  listerDamageNotes        String?
+  listerConfirmationImages String[]
+  status                   String         @default("PENDING_PICKUP")
+  shippedAt                DateTime?
+  deliveredAt              DateTime?
+  createdAt                DateTime       @default(now())
+  updatedAt                DateTime       @updatedAt
+  order                    Order          @relation(fields: [orderId], references: [id])
 }
 
 enum Role {

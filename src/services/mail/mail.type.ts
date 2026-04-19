@@ -173,3 +173,45 @@ export class ShippingDto {
   @IsOptional()
   estimatedDelivery?: string;
 }
+
+export class ReturnInitiatedDto {
+  @IsEmail()
+  email: string;
+  @IsString()
+  curatorName: string;
+  @IsString()
+  renterName: string;
+  @IsString()
+  renterEmail: string;
+  @IsString()
+  renterPhone: string;
+  @IsString()
+  renterAddress: string;
+  @IsString()
+  orderId: string;
+  @IsString()
+  itemCondition: string;
+  @IsString()
+  @IsOptional()
+  damageNotes?: string;
+  @IsString()
+  platformName: string;
+}
+
+export class ReturnCompletedDto {
+  @IsEmail()
+  email: string;
+  @IsString()
+  renterName: string;
+  @IsString()
+  orderId: string;
+  @IsString()
+  listerCondition: string;
+  @IsString()
+  @IsOptional()
+  listerDamageNotes?: string;
+  @IsNumber()
+  collateralReleased: number;
+  @IsString()
+  platformName: string;
+}

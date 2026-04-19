@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+        }
+
+        .container {
+            width: 80%;
+            margin: 20px auto;
+            border: 1px solid #eee;
+            padding: 20px;
+            border-radius: 10px;
+        }
+
+        .header {
+            background: #f8f9fa;
+            padding: 10px;
+            text-align: center;
+            border-bottom: 2px solid #555;
+        }
+
+        .content {
+            padding: 20px;
+        }
+
+        .collateral-info {
+            background: #e8f5e9;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            text-align: center;
+        }
+
+        .collateral-info h3 {
+            margin: 0 0 10px 0;
+            color: #2e7d32;
+        }
+
+        .collateral-amount {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2e7d32;
+        }
+
+        .footer {
+            font-size: 12px;
+            color: #777;
+            margin-top: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>Return Completed</h2>
+        </div>
+        <div class="content">
+            <p>Hello {{renterName}},</p>
+            <p>Your return for order <strong>{{orderId}}</strong> has been completed and confirmed by the lister.</p>
+            
+            <p><strong>Lister's Assessment:</strong> {{listerCondition}}</p>
+
+            {{#if listerDamageNotes}}
+            <p><strong>Lister's Notes:</strong> {{listerDamageNotes}}</p>
+            {{/if}}
+
+            <div class="collateral-info">
+                <h3>Collateral Released</h3>
+                <div class="collateral-amount">NGN {{collateralReleased}}</div>
+                <p>Your collateral has been returned to your wallet.</p>
+            </div>
+
+            <p>Thank you for choosing {{platformName}}!</p>
+        </div>
+        <div class="footer">
+            <p>&copy; 2024 {{platformName}}. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+
+</html>
