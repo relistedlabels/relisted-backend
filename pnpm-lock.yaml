@@ -159,6 +159,9 @@ importers:
       globals:
         specifier: ^16.0.0
         version: 16.5.0
+      handlebars:
+        specifier: ^4.7.9
+        version: 4.7.9
       jest:
         specifier: ^30.0.0
         version: 30.3.0(@types/node@22.19.15)(ts-node@10.9.2(@types/node@22.19.15)(typescript@5.9.3))
