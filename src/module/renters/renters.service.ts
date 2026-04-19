@@ -2245,8 +2245,8 @@ export class RentersService {
       );
     }
 
-    // Block return requests for purchase orders
-    const isPurchaseOrder = order.orderItems.some(
+    // Block return requests for purchase orders (only if ALL items are purchases, not mixed orders)
+    const isPurchaseOrder = order.orderItems.every(
       (item: any) => item.days === 0,
     );
     if (isPurchaseOrder) {
