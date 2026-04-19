@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { CreateProfileDto, upgradeProfile } from './dto/create-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
@@ -220,25 +221,26 @@ async create(dto: CreateProfileDto, user: userEntity) {
   }
 
 
-async upgradeProfileToLister(profileId: string, user: userEntity,dto:upgradeProfile) {
-  const profile = await this.prisma.profile.findUnique({
-    where: { id: profileId },
-    include: { user: true, businessInfo: true }, 
+async upgradeProfileToLister(userId: string, user: userEntity, dto: upgradeProfile) {
+  // Find user's profile or create one if it doesn't exist
+  let profile = await this.prisma.profile.findUnique({
+    where: { userId },
+    include: { user: true, businessInfo: true },
   });
 
+  // Create profile if it doesn't exist
   if (!profile) {
-    throw new NotFoundException('Profile not found');
+    profile = await this.prisma.profile.create({
+      data: {
+        user: { connect: { id: userId } },
+        phoneNumber: '',
+      },
+      include: { user: true, businessInfo: true },
+    });
   }
 
-  if (profile.isApproved) {
+  if (profile.isApproved && profile.user.role === 'LISTER') {
     throw new BadRequestException('Profile already verified');
-  }
-
-  // Check required fields for LISTER upgrade
-  if (!profile.businessInfo) {
-    throw new BadRequestException(
-      'Profile is incomplete. business information is required to become a LISTER',
-    );
   }
 
   // Approve profile and upgrade role
@@ -247,20 +249,19 @@ async upgradeProfileToLister(profileId: string, user: userEntity,dto:upgradeProf
     data: {
       isApproved: true,
       ...(dto.businessInfo && {
-  businessInfo: {
-    upsert: {
-      where: { profileId: profileId },
-      create: dto.businessInfo,
-      update: dto.businessInfo,
-    },
-  },
-}),
-
+        businessInfo: {
+          upsert: {
+            where: { profileId: profile.id },
+            create: dto.businessInfo,
+            update: dto.businessInfo,
+          },
+        },
+      }),
       user: {
-        update: { role: 'LISTER' }, 
+        update: { role: 'LISTER' },
       },
     },
-    include: { user: true },
+    include: { user: true, businessInfo: true },
   });
 
   return {
