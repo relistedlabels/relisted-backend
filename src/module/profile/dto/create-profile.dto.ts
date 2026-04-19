@@ -131,8 +131,9 @@ export class CreateProfileDto {
 
 
 export class upgradeProfile {
-  @ApiProperty()
+  @ApiProperty({ required: false })
   @ValidateNested()
   @Type(() => CreateBusinessInfoDto)
-  businessInfo: CreateBusinessInfoDto;
+  @IsOptional()
+  businessInfo?: CreateBusinessInfoDto;
 }
