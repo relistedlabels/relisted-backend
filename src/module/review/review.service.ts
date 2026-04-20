@@ -8,13 +8,53 @@ import { bad } from 'src/utils/error';
 @Injectable()
 export class ReviewService {
   constructor(private readonly prisma: PrismaService) {}
+
   async create(dto: CreateReviewDto, user: userEntity) {
-    // Get rental and related order
-    const rental = await this.prisma.rental.findUnique({
-      where: { id: dto.rentalId },
-      include: { order: true, product: true, curator: true, review: true },
-    });
-    if (!rental) bad('Rental not found');
+    let rentalId = dto.rentalId;
+    let rental = rentalId
+      ? await this.prisma.rental.findUnique({
+          where: { id: rentalId },
+          include: { order: true, product: true, curator: true, review: true },
+        })
+      : null;
+
+    if (!rental && dto.orderId) {
+      const order = await this.prisma.order.findUnique({
+        where: { orderId: dto.orderId },
+        include: { rentals: true, orderItems: { include: { product: true } } },
+      });
+      if (!order) bad('Order not found');
+      if (order.userId !== user.id) bad('You can only review your own orders');
+
+      if (order.rentals.length > 0) {
+        rentalId = order.rentals[0].id;
+        rental = await this.prisma.rental.findUnique({
+          where: { id: rentalId },
+          include: { order: true, product: true, curator: true, review: true },
+        });
+      } else if (
+        order.status === 'COMPLETED' ||
+        order.status === 'DELIVERED' || order.status==="RETURN_DUE"
+      ) {
+        const firstItem = order.orderItems[0];
+        rental = await this.prisma.rental.create({
+          data: {
+            orderId: order.id,
+            userId: user.id,
+            productId: firstItem.productId,
+            curatorId: firstItem.product.curatorId,
+            days: firstItem.days,
+            totalAmount: firstItem.rentalFee || 0,
+            startDate: order.deliveredAt || order.createdAt,
+            endDate: order.returnDueAt || order.createdAt,
+          },
+          include: { order: true, product: true, curator: true, review: true },
+        });
+        rentalId = rental.id;
+      }
+    }
+
+    if (!rental) bad('Rental not found for this order');
 
     if (rental.order.userId !== user.id) {
       bad('You can only review your own rentals');
@@ -22,7 +62,9 @@ export class ReviewService {
 
     if (
       rental.order.status !== 'COMPLETED' &&
-      rental.order.status !== 'DELIVERED'
+      rental.order.status !== 'DELIVERED' &&
+      rental.order.status !== 'RETURNED' &&
+      rental.order.status !== 'RETURN_DUE'
     ) {
       bad('Cannot review before completing the transaction');
     }
@@ -30,11 +72,12 @@ export class ReviewService {
     if (rental.review) {
       bad('Review already submitted for this product');
     }
+
     return this.prisma.review.create({
       data: {
         rating: dto.rating,
         comment: dto.comment,
-        rental: { connect: { id: dto.rentalId } },
+        rental: { connect: { id: rentalId } },
         product: { connect: { id: rental.productId } },
         curator: { connect: { id: rental.curatorId } },
         user: { connect: { id: user.id } },

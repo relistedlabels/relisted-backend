@@ -213,5 +213,8 @@ export class ReturnCompletedDto {
   @IsNumber()
   collateralReleased: number;
   @IsString()
+  @IsOptional()
+  walletUrl?: string;
+  @IsString()
   platformName: string;
 }

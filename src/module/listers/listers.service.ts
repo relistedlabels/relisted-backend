@@ -995,17 +995,23 @@ export class ListersService {
         listingType: oi.product.listingType,
         purchasePrice: oi.product.resalePrice || 0,
         returnDue:
-          oi.days === 0 && (oi.product.listingType === 'RESALE' || oi.product.listingType === 'RENT_OR_RESALE')
+          oi.days === 0 &&
+          (oi.product.listingType === 'RESALE' ||
+            oi.product.listingType === 'RENT_OR_RESALE')
             ? null
             : rental
               ? rental.endDate.toISOString().split('T')[0]
               : new Date().toISOString().split('T')[0],
         returnDueDate:
-          oi.days === 0 && (oi.product.listingType === 'RESALE' || oi.product.listingType === 'RENT_OR_RESALE')
+          oi.days === 0 &&
+          (oi.product.listingType === 'RESALE' ||
+            oi.product.listingType === 'RENT_OR_RESALE')
             ? null
             : (rental?.endDate?.toISOString() ?? new Date().toISOString()),
         rentalFee:
-          oi.days === 0 && (oi.product.listingType === 'RESALE' || oi.product.listingType === 'RENT_OR_RESALE')
+          oi.days === 0 &&
+          (oi.product.listingType === 'RESALE' ||
+            oi.product.listingType === 'RENT_OR_RESALE')
             ? oi.product.resalePrice || 0
             : (oi.pricePerDay ?? oi.product.dailyPrice) * oi.days,
         currency: CURRENCY,
@@ -1119,7 +1125,9 @@ export class ListersService {
       const isPurchaseRequest = request.rentalDays === 0;
       await this.notificationService.createNotification({
         userId: request.requesterId,
-        title: isPurchaseRequest ? 'Purchase Request Approved' : 'Rental Request Approved',
+        title: isPurchaseRequest
+          ? 'Purchase Request Approved'
+          : 'Rental Request Approved',
         message: `Good news! Your ${isPurchaseRequest ? 'purchase' : 'rental'} request for ${(request as any).product?.name} has been approved. Please proceed to payment.`,
         type: 'RENTAL_RESPONSE',
         metadata: {
@@ -1207,7 +1215,9 @@ export class ListersService {
       const isPurchaseRequest = request.rentalDays === 0;
       await this.notificationService.createNotification({
         userId: request.requesterId,
-        title: isPurchaseRequest ? 'Purchase Request Declined' : 'Rental Request Declined',
+        title: isPurchaseRequest
+          ? 'Purchase Request Declined'
+          : 'Rental Request Declined',
         message: `Unfortunately, your ${isPurchaseRequest ? 'purchase' : 'rental'} request for ${(request as any).product?.name} was declined. Reason: ${body.reason}`,
         type: 'RENTAL_RESPONSE',
         metadata: {
@@ -1352,13 +1362,14 @@ export class ListersService {
               },
             });
 
-            // Update escrow status: PARTIALLY_RELEASED if resale amount exists, otherwise RELEASED
+            // Update escrow status: always PARTIALLY_RELEASED at delivery for rentals 
+            // because collateral and cleaning fees are held until return.
+            // For mixed orders, resaleAmount is also still held until buyer confirmation.
             await tx.escrow.update({
               where: { id: escrow.id },
               data: {
-                status: hasResaleAmount ? 'PARTIALLY_RELEASED' : 'RELEASED',
-                releasedAt: hasResaleAmount ? null : new Date(),
-                rentalAmount: 0, // Clear released rental amount
+                status: 'PARTIALLY_RELEASED',
+                releasedAt: null,
               },
             });
           });
@@ -1502,6 +1513,263 @@ export class ListersService {
       throw new InternalServerErrorException('Failed to update order status');
     }
   }
+  
+  /** POST /api/listers/orders/:orderId/confirm-return-receipt */
+  async confirmReturnReceipt(
+    listerId: string,
+    orderId: string,
+    data: { actualCondition: string; damageNotes?: string; images?: string[] },
+  ) {
+    try {
+      await this.ensureOrderBelongsToLister(listerId, orderId);
+
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: {
+          returnRequest: true,
+          user: true,
+          orderItems: {
+            include: {
+              product: {
+                select: {
+                  curatorId: true,
+                },
+              },
+            },
+          },
+          escrows: true,
+        },
+      });
+
+      if (!order || !order.returnRequest) {
+        throw new NotFoundException('Order or return request not found');
+      }
+
+      // Calculate total collateral to release from escrow if available, otherwise fallback to order items
+      let totalCollateral = 0;
+      let escrowToReleaseId: string | null = null;
+
+      if (order.escrows) {
+        if (order.escrows.status === 'RELEASED' || order.status === 'COMPLETED') {
+          throw new BadRequestException(
+            'Collateral and cleaning fee already released for this order',
+          );
+        }
+        totalCollateral = order.escrows.collateralAmount;
+        escrowToReleaseId = order.escrows.id;
+      } else {
+        totalCollateral = (order.orderItems as any[]).reduce(
+          (sum, item) => sum + (item.collateralFee || 0),
+          0,
+        );
+      }
+
+      // Verify lister owns the product
+      const isListerProduct =
+        (order as any).listerId === listerId ||
+        order.orderItems.some((item: any) => item.product?.curatorId === listerId);
+      if (!isListerProduct) {
+        console.log(
+          `[ListersService] Lister ${listerId} not authorized for order ${orderId}`,
+        );
+        throw new BadRequestException('Not authorized to confirm this return');
+      }
+
+      if (order.returnRequest.status === 'COMPLETED') {
+        console.log(
+          `[ListersService] Return already confirmed for order ${orderId}`,
+        );
+        throw new BadRequestException('Return already confirmed');
+      }
+
+      // Upload images if provided
+      const listerConfirmationImages: string[] = [];
+      if (data.images && data.images.length > 0) {
+        for (const imageId of data.images) {
+          const upload = await this.prisma.upload.findUnique({
+            where: { id: imageId },
+          });
+          if (upload) {
+            listerConfirmationImages.push(upload.url);
+          }
+        }
+      }
+
+      // Process in transaction
+      console.log(
+        `[ListersService] Starting transaction to confirm return for order ${orderId}`,
+      );
+      const result = await this.prisma.$transaction(async (tx) => {
+        // Update return request status
+        const updatedReturn = await tx.returnRequest.update({
+          where: { orderId: order.id },
+          data: {
+            status: 'COMPLETED',
+            deliveredAt: new Date(),
+            listerCondition: data.actualCondition.toUpperCase() as any,
+            listerDamageNotes: data.damageNotes,
+            listerConfirmationImages,
+          },
+        });
+        console.log(
+          `[ListersService] Return request updated to COMPLETED for order ${orderId}`,
+        );
+
+        // Update order status
+        await tx.order.update({
+          where: { id: order.id },
+          data: { status: OrderStatus.COMPLETED },
+        });
+        console.log(
+          `[ListersService] Order status updated to COMPLETED for order ${orderId}`,
+        );
+
+        // Release collateral to renter
+        let collateralReleased = 0;
+        if (order.escrows) {
+          collateralReleased = order.escrows.collateralAmount;
+          console.log(
+            `[ListersService] Releasing collateral NGN ${collateralReleased} for order ${orderId}`,
+          );
+
+          // 1. Credit renter wallet (Collateral Release)
+          const renterWallet = await tx.wallet.findUnique({
+            where: { userId: order.userId },
+          });
+
+          if (renterWallet) {
+            const actualCollateralToRelease = Math.min(
+              collateralReleased,
+              renterWallet.collateralBalance,
+            );
+
+            if (actualCollateralToRelease > 0) {
+              await tx.wallet.update({
+                where: { id: renterWallet.id },
+                data: {
+                  availableBalance: { increment: actualCollateralToRelease },
+                  collateralBalance: { decrement: actualCollateralToRelease },
+                },
+              });
+
+              await tx.walletTransaction.create({
+                data: {
+                  walletId: renterWallet.id,
+                  amount: actualCollateralToRelease,
+                  type: 'MAIN',
+                  status: 'SUCCESS',
+                  note: `Collateral released for returned order ${order.orderId}`,
+                  orderId: order.id,
+                },
+              });
+            }
+          }
+
+          // 2. Credit lister wallet (Rental + Cleaning + Resale)
+          const rentalAmount = order.escrows.rentalAmount || 0;
+          const cleaningFee = order.escrows.cleaningFee || 0;
+          const resaleAmount = order.escrows.resaleAmount || 0;
+          const totalListerPayout = rentalAmount + cleaningFee + resaleAmount;
+
+          if (totalListerPayout > 0) {
+            console.log(
+              `[ListersService] Releasing NGN ${totalListerPayout} (Rental: ${rentalAmount}, Cleaning: ${cleaningFee}, Resale: ${resaleAmount}) to lister ${order.escrows.curatorId}`,
+            );
+            const listerWallet = await tx.wallet.upsert({
+              where: { userId: order.escrows.curatorId },
+              create: {
+                userId: order.escrows.curatorId,
+                mainBalance: totalListerPayout,
+                availableBalance: totalListerPayout,
+              },
+              update: {
+                mainBalance: { increment: totalListerPayout },
+                availableBalance: { increment: totalListerPayout },
+              },
+            });
+
+            // Create wallet transaction for lister
+            const payoutNote = `Final payout released for completed order ${order.orderId} (Rental + Cleaning + Resale)`;
+
+            await tx.walletTransaction.create({
+              data: {
+                walletId: listerWallet.id,
+                amount: totalListerPayout,
+                type: 'MAIN',
+                status: 'SUCCESS',
+                note: payoutNote,
+                orderId: order.id,
+              },
+            });
+          }
+
+          // 3. Finalize Escrow Status (Audit: Everything has been released)
+          await tx.escrow.update({
+            where: { orderId: order.id },
+            data: {
+              status: 'RELEASED',
+              releasedAt: new Date(),
+            },
+          });
+          console.log(
+            `[ListersService] Escrow fully settled and released for order ${orderId}`,
+          );
+        } else {
+          console.error(
+            `[ListersService] CRITICAL: No escrow found for order ${orderId} - collateral cannot be released automatically. Manual intervention required.`,
+          );
+          // Note: We still complete the return, but collateral release requires manual intervention
+        }
+
+        return { returnRequest: updatedReturn, collateralReleased };
+      });
+      console.log(
+        `[ListersService] Transaction completed successfully for order ${orderId}, released NGN ${result.collateralReleased} collateral`,
+      );
+
+      // Notify renter about return completion
+      await this.notificationService.createNotification({
+        userId: order.userId,
+        title: 'Return Completed',
+        message: `Your return for order ${order.orderId} has been completed and your collateral of NGN ${result.collateralReleased} has been released to your wallet.`,
+        type: 'RETURN_COMPLETED',
+        sendEmail: true,
+        emailData: {
+          email: order.user.email,
+          renterName: order.user.name,
+          orderId: order.orderId,
+          listerCondition: result.returnRequest.listerCondition,
+          listerDamageNotes: result.returnRequest.listerDamageNotes,
+          collateralReleased: result.collateralReleased,
+          walletUrl: `${process.env.CLIENT_URL}/renters/wallet`,
+          platformName: 'Relisted',
+        },
+      });
+      console.log(
+        `[ListersService] Sent return completion notification to renter for order ${orderId}`,
+      );
+
+      return {
+        success: true,
+        message: 'Return receipt confirmed',
+        data: {
+          returnRequest: result.returnRequest,
+          collateralReleased: result.collateralReleased,
+          order: {
+            orderId: order.orderId,
+            status: 'COMPLETED',
+          },
+        },
+      };
+    } catch (e) {
+      if (e instanceof NotFoundException || e instanceof BadRequestException)
+        throw e;
+      console.error('confirmReturnReceipt error:', e);
+      throw new InternalServerErrorException(
+        'Failed to confirm return receipt',
+      );
+    }
+  }
 
   /** PATCH /api/listers/orders/:orderId/return/confirm */
   async confirmReturn(user: userEntity, orderId: string) {
@@ -1510,67 +1778,33 @@ export class ListersService {
 
       const order = await this.prisma.order.findUnique({
         where: { id: orderId },
-        include: { returnRequest: true, user: true, orderItems: true },
+        include: { returnRequest: true, user: true },
       });
 
       if (!order || !order.returnRequest) {
         throw new NotFoundException('Order or return request not found');
       }
 
-      // Calculate total collateral to release
-      const totalCollateral = (order.orderItems as any[]).reduce(
-        (sum, item) => sum + (item.collateralFee || 0),
-        0,
-      );
+      const returnRequestId = order.returnRequest.id;
 
-      const updated = await this.prisma.$transaction([
-        this.prisma.returnRequest.update({
-          where: { id: order.returnRequest.id },
+      const result = await this.prisma.$transaction(async (tx) => {
+        const updatedReturnRequest = await tx.returnRequest.update({
+          where: { id: returnRequestId },
           data: { status: 'APPROVED' },
-        }),
-        this.prisma.order.update({
-          where: { id: order.id },
-          data: { status: 'RETURNED' },
-        }),
-        // Increment rentalCount only for actual rental transactions
-        ...(() => {
-          const isRentalTransaction = order.orderItems.some(
-            (item: any) => item.days > 0,
-          );
-          // Increment rentalCount for ALL rental items in the order
-          const rentalItems = order.orderItems.filter(
-            (item: any) => item.days > 0,
-          );
-          return rentalItems.length > 0
-            ? rentalItems.map((item: any) =>
-                this.prisma.product.update({
-                  where: { id: item.productId },
-                  data: { 
-                    rentalCount: { increment: 1 },
-                    status: 'AVAILABLE', // Set back to AVAILABLE when rental ends
-                  },
-                }),
-              )
-            : [];
-        })(),
-        // Release collateral back to renter
-        ...(totalCollateral > 0
-          ? [
-              this.prisma.wallet.update({
-                where: { userId: order.userId },
-                data: {
-                  collateralBalance: { decrement: totalCollateral },
-                  availableBalance: { increment: totalCollateral },
-                },
-              }),
-            ]
-          : []),
-      ]);
+        });
+
+        const updatedOrder = await tx.order.update({
+          where: { id: orderId },
+          data: { status: OrderStatus.RETURNED },
+        });
+
+        return { returnRequest: updatedReturnRequest, order: updatedOrder };
+      });
 
       await this.notificationService.createNotification({
         userId: order.userId,
         title: 'Return Confirmed',
-        message: `The lister has confirmed receipt of your returned item for order ${order.orderId}.`,
+        message: `The lister has confirmed your return for order ${order.orderId}`,
         type: 'RETURN_CONFIRMED',
         metadata: { orderId: order.id },
         sendEmail: true,
@@ -1578,14 +1812,14 @@ export class ListersService {
           email: order.user?.email,
           userName: order.user?.name,
           orderId: order.orderId,
-          status: 'Returned',
+          status: 'Return Confirmed',
         },
       });
 
       return {
         success: true,
         message: 'Return confirmed successfully',
-        data: updated[1],
+        data: result,
       };
     } catch (e) {
       if (e instanceof NotFoundException || e instanceof BadRequestException)
@@ -1878,20 +2112,26 @@ export class ListersService {
         listingType: oi.product.listingType,
         purchasePrice: oi.product.resalePrice || 0,
         returnDue:
-          oi.days === 0 && (oi.product.listingType === 'RESALE' || oi.product.listingType === 'RENT_OR_RESALE')
+          oi.days === 0 &&
+          (oi.product.listingType === 'RESALE' ||
+            oi.product.listingType === 'RENT_OR_RESALE')
             ? null
             : order.rental
               ? order.rental.endDate.toISOString().split('T')[0]
               : new Date().toISOString().split('T')[0],
         rentalFee:
-          oi.days === 0 && (oi.product.listingType === 'RESALE' || oi.product.listingType === 'RENT_OR_RESALE')
+          oi.days === 0 &&
+          (oi.product.listingType === 'RESALE' ||
+            oi.product.listingType === 'RENT_OR_RESALE')
             ? oi.product.resalePrice || 0
             : (oi.pricePerDay ?? oi.product.dailyPrice) * oi.days,
         itemValue: oi.product.originalValue ?? 0,
         itemValueHeld:
-          oi.days === 0 && (oi.product.listingType === 'RESALE' || oi.product.listingType === 'RENT_OR_RESALE')
+          oi.days === 0 &&
+          (oi.product.listingType === 'RESALE' ||
+            oi.product.listingType === 'RENT_OR_RESALE')
             ? oi.product.resalePrice || 0
-            : oi.product.collateralPrice ?? oi.product.originalValue ?? 0,
+            : (oi.product.collateralPrice ?? oi.product.originalValue ?? 0),
         status: order.status.toLowerCase(),
         statusLabel: ORDER_STATUS_TO_LABEL[order.status] ?? order.status,
       })),
@@ -1902,42 +2142,55 @@ export class ListersService {
           order.status === OrderStatus.DELIVERED ? order.orderItems.length : 0,
         currentStep: apiStatus,
       },
-      returnRequest: order.returnRequest ? {
-        id: order.returnRequest.id,
-        orderId: order.orderId,
-        itemCondition: order.returnRequest.itemCondition,
-        damageNotes: order.returnRequest.damageNotes,
-        imageUrls: order.returnRequest.imageUrls,
-        status: order.returnRequest.status,
-        createdAt: order.returnRequest.createdAt.toISOString(),
-      } : null,
+      returnRequest: order.returnRequest
+        ? {
+            id: order.returnRequest.id,
+            orderId: order.orderId,
+            itemCondition: order.returnRequest.itemCondition,
+            damageNotes: order.returnRequest.damageNotes,
+            imageUrls: order.returnRequest.imageUrls,
+            status: order.returnRequest.status,
+            createdAt: order.returnRequest.createdAt.toISOString(),
+          }
+        : null,
       escrow: {
         rentalFeeTotal: order.orderItems.reduce(
           (sum: number, oi: any) =>
-            oi.days === 0 && (oi.product?.listingType === 'RESALE' || oi.product?.listingType === 'RENT_OR_RESALE')
+            oi.days === 0 &&
+            (oi.product?.listingType === 'RESALE' ||
+              oi.product?.listingType === 'RENT_OR_RESALE')
               ? sum
-              : sum + ((oi.pricePerDay ?? oi.product?.dailyPrice) * oi.days),
+              : sum + (oi.pricePerDay ?? oi.product?.dailyPrice) * oi.days,
           0,
         ),
         itemValueHeld: order.orderItems.reduce(
           (sum: number, oi: any) =>
-            oi.days === 0 && (oi.product?.listingType === 'RESALE' || oi.product?.listingType === 'RENT_OR_RESALE')
+            oi.days === 0 &&
+            (oi.product?.listingType === 'RESALE' ||
+              oi.product?.listingType === 'RENT_OR_RESALE')
               ? sum + (oi.product?.resalePrice || 0)
-              : sum + (oi.product?.collateralPrice ?? oi.product?.originalValue ?? 0),
+              : sum +
+                (oi.product?.collateralPrice ?? oi.product?.originalValue ?? 0),
           0,
         ),
         purchasePrice: order.orderItems.reduce(
           (sum: number, oi: any) =>
-            oi.days === 0 && (oi.product?.listingType === 'RESALE' || oi.product?.listingType === 'RENT_OR_RESALE')
+            oi.days === 0 &&
+            (oi.product?.listingType === 'RESALE' ||
+              oi.product?.listingType === 'RENT_OR_RESALE')
               ? sum + (oi.product?.resalePrice || 0)
               : sum,
           0,
         ),
         totalHeld: order.orderItems.reduce(
           (sum: number, oi: any) =>
-            oi.days === 0 && (oi.product?.listingType === 'RESALE' || oi.product?.listingType === 'RENT_OR_RESALE')
+            oi.days === 0 &&
+            (oi.product?.listingType === 'RESALE' ||
+              oi.product?.listingType === 'RENT_OR_RESALE')
               ? sum + (oi.product?.resalePrice || 0)
-              : sum + ((oi.pricePerDay ?? oi.product?.dailyPrice) * oi.days) + (oi.product?.collateralPrice ?? oi.product?.originalValue ?? 0),
+              : sum +
+                (oi.pricePerDay ?? oi.product?.dailyPrice) * oi.days +
+                (oi.product?.collateralPrice ?? oi.product?.originalValue ?? 0),
           0,
         ),
         currency: CURRENCY,
@@ -3003,6 +3256,7 @@ export class ListersService {
       emergencyContact?: any;
       emergencyContacts?: any;
       bankAccounts?: any;
+      bankAccountInfo?: any;
       avatarUploadId?: string;
     },
   ) {
@@ -3106,37 +3360,48 @@ export class ListersService {
       };
     }
 
-    // Handle bank account update/upsert separately
-    if (body.bankAccounts) {
-      const existingBank = await (this.prisma as any).bankAccount.findFirst({
-        where: {
-          userId: userId,
-          accountNumber: body.bankAccounts.accountNumber,
-        },
-      });
+    const bankInfoRaw = body.bankAccountInfo || body.bankAccounts;
+    const bankInfo = Array.isArray(bankInfoRaw) ? bankInfoRaw[0] : bankInfoRaw;
+    if (bankInfo) {
+      const accountNumber = bankInfo.accountNumber ?? bankInfo.account_number;
+      const bankName = bankInfo.bankName ?? bankInfo.bank_name;
+      const bankCode = bankInfo.bankCode ?? bankInfo.bank_code;
+      const accountName =
+        bankInfo.accountName ??
+        bankInfo.account_name ??
+        bankInfo.nameOfAccount ??
+        bankInfo.name_of_account;
 
-      if (existingBank) {
-        await (this.prisma as any).bankAccount.update({
-          where: { id: existingBank.id },
-          data: {
-            bankName: body.bankAccounts.bankName,
-            bankCode: body.bankAccounts.bankCode,
-            accountName:
-              body.bankAccounts.nameOfAccount || body.bankAccounts.accountName,
-          },
-        });
-      } else {
-        await (this.prisma as any).bankAccount.create({
-          data: {
+      if (accountNumber && bankName && accountName) {
+        const existingBank = await (this.prisma as any).bankAccount.findFirst({
+          where: {
             userId: userId,
-            bankName: body.bankAccounts.bankName,
-            bankCode: body.bankAccounts.bankCode,
-            accountNumber: body.bankAccounts.accountNumber,
-            accountName:
-              body.bankAccounts.nameOfAccount || body.bankAccounts.accountName,
-            isDefault: true,
+            accountNumber,
           },
         });
+
+        if (existingBank) {
+          await (this.prisma as any).bankAccount.update({
+            where: { id: existingBank.id },
+            data: {
+              bankName,
+              bankCode,
+              accountName,
+              isDefault: true,
+            },
+          });
+        } else {
+          await (this.prisma as any).bankAccount.create({
+            data: {
+              userId: userId,
+              bankName,
+              bankCode,
+              accountNumber,
+              accountName,
+              isDefault: true,
+            },
+          });
+        }
       }
     }
 
@@ -4627,175 +4892,6 @@ export class ListersService {
           status: withdrawal.status,
           reference: withdrawal.reference,
           initiatedAt: withdrawal.createdAt,
-        },
-      },
-    };
-  }
-
-  async confirmReturnReceipt(
-    listerId: string,
-    orderId: string,
-    data: { actualCondition: string; damageNotes?: string; images?: string[] },
-  ) {
-    console.log(`[ListersService] Confirming return receipt for order ${orderId} by lister ${listerId}`);
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      include: {
-        user: true,
-        returnRequest: true,
-        orderItems: {
-          include: {
-            product: { include: { curator: true } },
-          },
-        },
-        escrows: true,
-      },
-    });
-
-    if (!order) {
-      console.log(`[ListersService] Order ${orderId} not found`);
-      throw new NotFoundException('Order not found');
-    }
-
-    // Verify lister owns the product
-    const isListerProduct = order.orderItems.some(
-      (item: any) => item.product.curatorId === listerId,
-    );
-    if (!isListerProduct) {
-      console.log(`[ListersService] Lister ${listerId} not authorized for order ${orderId}`);
-      throw new BadRequestException('Not authorized to confirm this return');
-    }
-
-    if (!order.returnRequest) {
-      console.log(`[ListersService] No return request found for order ${orderId}`);
-      throw new NotFoundException('No return request found for this order');
-    }
-
-    if (order.returnRequest.status === 'COMPLETED') {
-      console.log(`[ListersService] Return already confirmed for order ${orderId}`);
-      throw new BadRequestException('Return already confirmed');
-    }
-
-    // Upload images if provided
-    const listerConfirmationImages: string[] = [];
-    if (data.images && data.images.length > 0) {
-      for (const imageId of data.images) {
-        const upload = await this.prisma.upload.findUnique({
-          where: { id: imageId },
-        });
-        if (upload) {
-          listerConfirmationImages.push(upload.url);
-        }
-      }
-    }
-
-    // Process in transaction
-    console.log(`[ListersService] Starting transaction to confirm return for order ${orderId}`);
-    const result = await this.prisma.$transaction(async (tx) => {
-      // Update return request status
-      const updatedReturn = await tx.returnRequest.update({
-        where: { orderId: order.id },
-        data: {
-          status: 'COMPLETED',
-          deliveredAt: new Date(),
-          listerCondition: data.actualCondition.toUpperCase() as any,
-          listerDamageNotes: data.damageNotes,
-          listerConfirmationImages,
-        },
-      });
-      console.log(`[ListersService] Return request updated to COMPLETED for order ${orderId}`);
-
-      // Update order status
-      await tx.order.update({
-        where: { id: order.id },
-        data: { status: 'RETURNED' },
-      });
-      console.log(`[ListersService] Order status updated to RETURNED for order ${orderId}`);
-
-      // Release collateral to renter
-      let collateralReleased = 0;
-      if (order.escrows) {
-        collateralReleased = order.escrows.collateralAmount;
-        console.log(`[ListersService] Releasing collateral NGN ${collateralReleased} for order ${orderId}`);
-
-        // Release escrow
-        await tx.escrow.update({
-          where: { orderId: order.id },
-          data: {
-            status: 'RELEASED',
-            releasedAt: new Date(),
-          },
-        });
-        console.log(`[ListersService] Escrow released for order ${orderId}`);
-
-        // Credit renter wallet
-        const renterWallet = await tx.wallet.findUnique({
-          where: { userId: order.userId },
-        });
-
-        if (renterWallet) {
-          await tx.wallet.update({
-            where: { id: renterWallet.id },
-            data: {
-              mainBalance: { increment: collateralReleased },
-              availableBalance: { increment: collateralReleased },
-              collateralBalance: { decrement: collateralReleased },
-            },
-          });
-          console.log(`[ListersService] Credited NGN ${collateralReleased} to renter wallet for order ${orderId}`);
-
-          // Create wallet transaction
-          await tx.walletTransaction.create({
-            data: {
-              walletId: renterWallet.id,
-              amount: collateralReleased,
-              type: 'MAIN',
-              status: 'SUCCESS',
-              note: `Collateral released for returned order ${order.orderId}`,
-              orderId: order.id,
-            },
-          });
-          console.log(`[ListersService] Wallet transaction created for collateral release - order ${orderId}`);
-        } else {
-          console.error(`[ListersService] CRITICAL: No wallet found for renter ${order.userId} - cannot release collateral NGN ${collateralReleased}`);
-        }
-      } else {
-        console.error(`[ListersService] CRITICAL: No escrow found for order ${orderId} - collateral cannot be released automatically. Manual intervention required.`);
-        // Note: We still complete the return, but collateral release requires manual intervention
-      }
-
-      return { returnRequest: updatedReturn, collateralReleased };
-    });
-    console.log(`[ListersService] Transaction completed successfully for order ${orderId}, released NGN ${result.collateralReleased} collateral`);
-
-    // Notify renter about return completion
-    await this.notificationService.createNotification({
-      userId: order.userId,
-      title: 'Return Completed',
-      message: `Your return for order ${order.orderId} has been completed and your collateral of NGN ${result.collateralReleased} has been released to your wallet.`,
-      type: 'RETURN_COMPLETED',
-      sendEmail: true,
-      emailData: {
-        email: order.user.email,
-        renterName: order.user.name,
-        orderId: order.orderId,
-        listerCondition: result.returnRequest.listerCondition,
-        listerDamageNotes: result.returnRequest.listerDamageNotes,
-        collateralReleased: result.collateralReleased,
-        platformName: 'Relisted',
-      },
-    });
-    console.log(`[ListersService] Sent return completion notification to renter for order ${orderId}`);
-
-    return {
-      success: true,
-      message: 'Return receipt confirmed',
-      data: {
-        returnRequest: result.returnRequest,
-        collateralReleased: result.collateralReleased,
-        order: {
-          orderId: order.orderId,
-          status: 'RETURNED',
         },
       },
     };

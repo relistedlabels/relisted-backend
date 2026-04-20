@@ -571,6 +571,7 @@ export class ListersController {
       emergencyContact?: any;
       emergencyContacts?: any;
       bankAccounts?: any;
+      bankAccountInfo?: any;
       avatarUploadId?: string;
     },
   ) {

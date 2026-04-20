@@ -77,6 +77,15 @@
                 <p>Your collateral has been returned to your wallet.</p>
             </div>
 
+            {{#if walletUrl}}
+            <p><strong>How to withdraw:</strong></p>
+            <ol>
+                <li>Go to <a href="{{walletUrl}}">{{walletUrl}}</a></li>
+                <li>Click <strong>Withdraw</strong></li>
+                <li>Follow the steps to complete your withdrawal</li>
+            </ol>
+            {{/if}}
+
             <p>Thank you for choosing {{platformName}}!</p>
         </div>
         <div class="footer">
