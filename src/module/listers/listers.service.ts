@@ -1741,6 +1741,7 @@ export class ListersService {
           listerCondition: result.returnRequest.listerCondition,
           listerDamageNotes: result.returnRequest.listerDamageNotes,
           collateralReleased: result.collateralReleased,
+          walletUrl: `${process.env.CLIENT_URL}/renters/wallet`,
           platformName: 'Relisted',
         },
       });
@@ -3255,6 +3256,7 @@ export class ListersService {
       emergencyContact?: any;
       emergencyContacts?: any;
       bankAccounts?: any;
+      bankAccountInfo?: any;
       avatarUploadId?: string;
     },
   ) {
@@ -3358,37 +3360,48 @@ export class ListersService {
       };
     }
 
-    // Handle bank account update/upsert separately
-    if (body.bankAccounts) {
-      const existingBank = await (this.prisma as any).bankAccount.findFirst({
-        where: {
-          userId: userId,
-          accountNumber: body.bankAccounts.accountNumber,
-        },
-      });
+    const bankInfoRaw = body.bankAccountInfo || body.bankAccounts;
+    const bankInfo = Array.isArray(bankInfoRaw) ? bankInfoRaw[0] : bankInfoRaw;
+    if (bankInfo) {
+      const accountNumber = bankInfo.accountNumber ?? bankInfo.account_number;
+      const bankName = bankInfo.bankName ?? bankInfo.bank_name;
+      const bankCode = bankInfo.bankCode ?? bankInfo.bank_code;
+      const accountName =
+        bankInfo.accountName ??
+        bankInfo.account_name ??
+        bankInfo.nameOfAccount ??
+        bankInfo.name_of_account;
 
-      if (existingBank) {
-        await (this.prisma as any).bankAccount.update({
-          where: { id: existingBank.id },
-          data: {
-            bankName: body.bankAccounts.bankName,
-            bankCode: body.bankAccounts.bankCode,
-            accountName:
-              body.bankAccounts.nameOfAccount || body.bankAccounts.accountName,
-          },
-        });
-      } else {
-        await (this.prisma as any).bankAccount.create({
-          data: {
+      if (accountNumber && bankName && accountName) {
+        const existingBank = await (this.prisma as any).bankAccount.findFirst({
+          where: {
             userId: userId,
-            bankName: body.bankAccounts.bankName,
-            bankCode: body.bankAccounts.bankCode,
-            accountNumber: body.bankAccounts.accountNumber,
-            accountName:
-              body.bankAccounts.nameOfAccount || body.bankAccounts.accountName,
-            isDefault: true,
+            accountNumber,
           },
         });
+
+        if (existingBank) {
+          await (this.prisma as any).bankAccount.update({
+            where: { id: existingBank.id },
+            data: {
+              bankName,
+              bankCode,
+              accountName,
+              isDefault: true,
+            },
+          });
+        } else {
+          await (this.prisma as any).bankAccount.create({
+            data: {
+              userId: userId,
+              bankName,
+              bankCode,
+              accountNumber,
+              accountName,
+              isDefault: true,
+            },
+          });
+        }
       }
     }
 
