@@ -1528,7 +1528,15 @@ export class ListersService {
         include: {
           returnRequest: true,
           user: true,
-          orderItems: true,
+          orderItems: {
+            include: {
+              product: {
+                select: {
+                  curatorId: true,
+                },
+              },
+            },
+          },
           escrows: true,
         },
       });
@@ -1557,9 +1565,9 @@ export class ListersService {
       }
 
       // Verify lister owns the product
-      const isListerProduct = order.orderItems.some(
-        (item: any) => item.product.curatorId === listerId,
-      );
+      const isListerProduct =
+        (order as any).listerId === listerId ||
+        order.orderItems.some((item: any) => item.product?.curatorId === listerId);
       if (!isListerProduct) {
         console.log(
           `[ListersService] Lister ${listerId} not authorized for order ${orderId}`,
