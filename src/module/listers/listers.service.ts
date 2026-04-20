@@ -1542,11 +1542,7 @@ export class ListersService {
       let escrowToReleaseId: string | null = null;
 
       if (order.escrows) {
-        if (
-          order.escrows.status === 'RELEASED' ||
-          order.status === 'RETURNED' ||
-          order.status === 'COMPLETED'
-        ) {
+        if (order.escrows.status === 'RELEASED' || order.status === 'COMPLETED') {
           throw new BadRequestException(
             'Collateral and cleaning fee already released for this order',
           );
@@ -1614,10 +1610,10 @@ export class ListersService {
         // Update order status
         await tx.order.update({
           where: { id: order.id },
-          data: { status: 'RETURNED' },
+          data: { status: OrderStatus.COMPLETED },
         });
         console.log(
-          `[ListersService] Order status updated to RETURNED for order ${orderId}`,
+          `[ListersService] Order status updated to COMPLETED for order ${orderId}`,
         );
 
         // Release collateral to renter
@@ -1752,7 +1748,7 @@ export class ListersService {
           collateralReleased: result.collateralReleased,
           order: {
             orderId: order.orderId,
-            status: 'RETURNED',
+            status: 'COMPLETED',
           },
         },
       };
