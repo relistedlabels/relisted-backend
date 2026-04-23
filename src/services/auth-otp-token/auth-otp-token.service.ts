@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { isAfter } from 'date-fns';
-import { v4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import { bad } from 'src/utils/error';
 import { generateOtp } from 'src/utils/generateOtp';
 import { PrismaService } from '../prisma/prisma.service';
@@ -23,7 +23,7 @@ export class AuthOtpTokenService {
 
   async createOtp(createAuthOtpTokenDto: CreateAuthOtpTokenDto) {
     const { subject, email, type, expiry, userId } = createAuthOtpTokenDto;
-    const code = type === 'OTP' ? generateOtp() : v4();
+    const code = type === 'OTP' ? generateOtp() : randomUUID();
     //  create the token
     const otp = await this.prisma.authOtpToken.create({
       data: {
@@ -48,7 +48,7 @@ export class AuthOtpTokenService {
         subject,
       },
     });
-    
+
     if (!token) {
       bad('invalid token');
     }

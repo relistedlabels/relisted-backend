@@ -1,0 +1,16 @@
+<div style="font-family: Arial, sans-serif; line-height: 1.5;">
+  <h2>Dispute Update</h2>
+  <p>Hello {{userName}},</p>
+  <p>Your dispute has been updated.</p>
+  <ul>
+    <li><strong>Dispute ID:</strong> {{disputeId}}</li>
+    <li><strong>Order:</strong> {{orderId}}</li>
+    <li><strong>Status:</strong> {{status}}</li>
+  </ul>
+  {{#if collateralWithheldToLister}}
+    <p><strong>Collateral withheld:</strong> {{collateralWithheldToLister}}</p>
+  {{/if}}
+  {{#if collateralReturnedToRenter}}
+    <p><strong>Collateral returned:</strong> {{collateralReturnedToRenter}}</p>
+  {{/if}}
+</div>

@@ -1,0 +1,17 @@
+<div style="font-family: Arial, sans-serif; line-height: 1.5;">
+  <h2>New Dispute Created</h2>
+  <p>Hello {{adminName}},</p>
+  <p>A new dispute has been created.</p>
+  <ul>
+    <li><strong>Dispute ID:</strong> {{disputeId}}</li>
+    <li><strong>Order:</strong> {{orderId}}</li>
+    <li><strong>Raised by:</strong> {{raisedByName}} ({{raisedByRole}})</li>
+    <li><strong>Category:</strong> {{category}}</li>
+  </ul>
+  {{#if description}}
+    <p><strong>Description:</strong> {{description}}</p>
+  {{/if}}
+  {{#if adminLink}}
+    <p><a href="{{adminLink}}">Open in admin</a></p>
+  {{/if}}
+</div>

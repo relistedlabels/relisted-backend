@@ -1,9 +1,5 @@
-import { v4 } from "uuid"
+import { randomUUID } from 'crypto';
 
-
-export const generateTransactionRef=()=>{
-    const uuid =v4 
-    const timeStamp =Date.now()
-    const reference =`${uuid}-${timeStamp}`
-    return reference
-}
+export const generateTransactionRef = () => {
+  return `${randomUUID()}-${Date.now()}`;
+};

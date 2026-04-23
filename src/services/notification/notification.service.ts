@@ -18,7 +18,8 @@ export class NotificationService {
     sendEmail?: boolean;
     emailData?: any;
   }) {
-    const { userId, title, message, type, metadata, sendEmail, emailData } = dto;
+    const { userId, title, message, type, metadata, sendEmail, emailData } =
+      dto;
 
     // 1. Create In-App Notification
     const notification = await this.prisma.notification.create({
@@ -33,6 +34,11 @@ export class NotificationService {
 
     // 2. Handle Email if requested
     if (sendEmail) {
+      if (type === 'DISPUTE_CREATED' || type === 'DISPUTE_STATUS') {
+        await this.triggerEmail(type, emailData);
+        return notification;
+      }
+
       // Check user notification settings
       const settings = await this.prisma.notificationSettings.findUnique({
         where: { userId },
@@ -80,11 +86,17 @@ export class NotificationService {
         case 'RETURN_COMPLETED':
           await this.mailService.SendReturnCompletedMail(data);
           break;
+        case 'DISPUTE_CREATED':
+          await this.mailService.SendDisputeCreatedMail(data);
+          break;
+        case 'DISPUTE_STATUS':
+          await this.mailService.SendDisputeStatusMail(data);
+          break;
         default:
           console.warn(`No mail handler for notification type: ${type}`);
       }
     } catch (error) {
-           console.error(`Failed to send email for ${type}:`, error);
+      console.error(`Failed to send email for ${type}:`, error);
     }
   }
 
