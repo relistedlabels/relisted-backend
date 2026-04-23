@@ -638,10 +638,20 @@ export class AdminService {
     if (!order.escrows) throw new BadRequestException('Escrow not found');
 
     const escrow = order.escrows;
-    const totalCollateralLocked = Math.max(0, Number(escrow.collateralAmount) || 0);
-    const rawWithheld = Math.max(0, Math.round(Number(data.collateralWithheldToLister || 0)));
-    const collateralWithheldToLister = Math.min(rawWithheld, totalCollateralLocked);
-    const collateralReturnedToRenter = totalCollateralLocked - collateralWithheldToLister;
+    const totalCollateralLocked = Math.max(
+      0,
+      Number(escrow.collateralAmount) || 0,
+    );
+    const rawWithheld = Math.max(
+      0,
+      Math.round(Number(data.collateralWithheldToLister || 0)),
+    );
+    const collateralWithheldToLister = Math.min(
+      rawWithheld,
+      totalCollateralLocked,
+    );
+    const collateralReturnedToRenter =
+      totalCollateralLocked - collateralWithheldToLister;
 
     const lister = await this.prisma.user.findUnique({
       where: { id: escrow.curatorId },
@@ -738,7 +748,10 @@ export class AdminService {
         data: { status: 'RELEASED' as any, releasedAt: new Date() },
       });
 
-      if (order.returnRequest?.status === 'COMPLETED' && order.status !== 'COMPLETED') {
+      if (
+        order.returnRequest?.status === 'COMPLETED' &&
+        order.status !== 'COMPLETED'
+      ) {
         await tx.order.update({
           where: { id: order.id },
           data: { status: OrderStatus.COMPLETED },
@@ -748,7 +761,10 @@ export class AdminService {
       return { updatedDispute };
     });
 
+    const clientUrl = process.env.CLIENT_URL || '';
+
     if (order.user?.id) {
+      const disputeLink = `${clientUrl}/renters/dispute`;
       await this.notificationService.createNotification({
         userId: order.user.id,
         title: 'Dispute Resolved',
@@ -768,6 +784,7 @@ export class AdminService {
           orderId: order.orderId,
           disputeId: dispute.disputeId,
           status: 'resolved',
+          disputeLink,
           collateralWithheldToLister,
           collateralReturnedToRenter,
         },
@@ -775,6 +792,7 @@ export class AdminService {
     }
 
     if (lister?.id) {
+      const disputeLink = `${clientUrl}/listers/dispute`;
       await this.notificationService.createNotification({
         userId: lister.id,
         title: 'Dispute Resolved',
@@ -793,6 +811,7 @@ export class AdminService {
           orderId: order.orderId,
           disputeId: dispute.disputeId,
           status: 'resolved',
+          disputeLink,
           collateralWithheldToLister,
           collateralReturnedToRenter: 0,
         },

@@ -265,6 +265,10 @@ export class DisputeStatusDto {
   @IsString()
   status: string;
 
+  @IsString()
+  @IsOptional()
+  disputeLink?: string;
+
   @IsNumber()
   @IsOptional()
   collateralWithheldToLister?: number;

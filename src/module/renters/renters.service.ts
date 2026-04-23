@@ -1690,15 +1690,15 @@ export class RentersService {
 
   async getDisputeStats(userId: string) {
     const [total, pending, inReview, resolved] = await Promise.all([
-      this.prisma.dispute.count({ where: { userId } }),
+      this.prisma.dispute.count({ where: { order: { userId } } }),
       this.prisma.dispute.count({
-        where: { userId, status: 'PENDING' },
+        where: { order: { userId }, status: 'PENDING' },
       }),
       this.prisma.dispute.count({
-        where: { userId, status: 'IN_REVIEW' },
+        where: { order: { userId }, status: 'IN_REVIEW' },
       }),
       this.prisma.dispute.count({
-        where: { userId, status: 'RESELOVED' },
+        where: { order: { userId }, status: 'RESELOVED' },
       }),
     ]);
 
@@ -1724,7 +1724,7 @@ export class RentersService {
     const skip = (page - 1) * limit;
     const status = query.status || 'all';
 
-    const where: any = { userId };
+    const where: any = { order: { userId } };
     if (status && status !== 'all') {
       const map: Record<string, string> = {
         pending: 'PENDING',
@@ -1789,6 +1789,14 @@ export class RentersService {
     if (!order || order.userId !== userId)
       throw new NotFoundException('Order not found');
 
+    const existing = await this.prisma.dispute.findFirst({
+      where: { orderId: order.id },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new BadRequestException('A dispute already exists for this order');
+    }
+
     const raisedBy = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { name: true, role: true },
@@ -1807,10 +1815,37 @@ export class RentersService {
       },
     });
 
+    const orderWithLister = await this.prisma.order.findUnique({
+      where: { id: order.id },
+      include: {
+        rentals: { select: { curatorId: true } },
+        orderItems: {
+          take: 1,
+          include: { product: { include: { curator: true } } },
+        },
+      },
+    });
+
+    const listerUserId =
+      (orderWithLister as any)?.rentals?.[0]?.curatorId ??
+      (orderWithLister as any)?.orderItems?.[0]?.product?.curator?.id ??
+      order.listerId ??
+      null;
+
+    const listerUser = listerUserId
+      ? await this.prisma.user.findUnique({
+          where: { id: listerUserId },
+          select: { id: true, name: true, email: true },
+        })
+      : null;
+
     const admins = await this.prisma.user.findMany({
       where: { role: 'ADMIN' },
       select: { id: true, name: true, email: true },
     });
+
+    const clientUrl = process.env.CLIENT_URL || '';
+    const adminLink = `${clientUrl}/admin/k340eol21/disputes`;
 
     await Promise.all(
       admins.map((admin) =>
@@ -1836,10 +1871,36 @@ export class RentersService {
             raisedByRole: raisedBy?.role ?? 'USER',
             category: data.issueCategory,
             description: data.description,
+            adminLink,
           },
         }),
       ),
     );
+
+    if (listerUser) {
+      const disputeLink = `${clientUrl}/listers/dispute`;
+      await this.notificationService.createNotification({
+        userId: listerUser.id,
+        title: 'New Dispute Created',
+        message: `A dispute has been raised for order ${order.orderId}.`,
+        type: 'DISPUTE_STATUS',
+        metadata: {
+          disputeId: dispute.disputeId,
+          disputeDbId: dispute.id,
+          orderId: order.id,
+          orderNumber: order.orderId,
+        },
+        sendEmail: true,
+        emailData: {
+          email: listerUser.email,
+          userName: listerUser.name,
+          disputeId: dispute.disputeId,
+          orderId: order.orderId,
+          status: 'created',
+          disputeLink,
+        },
+      });
+    }
 
     return {
       success: true,
@@ -1861,12 +1922,16 @@ export class RentersService {
     const dispute = await this.prisma.dispute.findUnique({
       where: { disputeId },
       include: {
-        order: { include: { orderItems: { include: { product: true } } } },
+        order: {
+          include: {
+            orderItems: { include: { product: true } },
+          },
+        },
         chatRooms: { include: { message: true } },
       },
     });
 
-    if (!dispute || dispute.userId !== userId)
+    if (!dispute || dispute.order?.userId !== userId)
       throw new NotFoundException('Dispute not found');
 
     return {
@@ -1902,7 +1967,7 @@ export class RentersService {
       },
     });
 
-    if (!dispute || dispute.userId !== userId)
+    if (!dispute || dispute.order?.userId !== userId)
       throw new NotFoundException('Dispute not found');
 
     return {
@@ -1924,10 +1989,10 @@ export class RentersService {
   async getDisputeEvidence(userId: string, disputeId: string) {
     const dispute = await this.prisma.dispute.findUnique({
       where: { disputeId },
-      include: { attachment: { include: { uploads: true } } },
+      include: { attachment: { include: { uploads: true } }, order: true },
     });
 
-    if (!dispute || dispute.userId !== userId)
+    if (!dispute || dispute.order?.userId !== userId)
       throw new NotFoundException('Dispute not found');
 
     const files = dispute.attachment?.uploads
@@ -1949,9 +2014,10 @@ export class RentersService {
   async getDisputeTimeline(userId: string, disputeId: string) {
     const dispute = await this.prisma.dispute.findUnique({
       where: { disputeId },
+      include: { order: true },
     });
 
-    if (!dispute || dispute.userId !== userId)
+    if (!dispute || dispute.order?.userId !== userId)
       throw new NotFoundException('Dispute not found');
 
     return {
@@ -1978,9 +2044,10 @@ export class RentersService {
   async getDisputeResolution(userId: string, disputeId: string) {
     const dispute = await this.prisma.dispute.findUnique({
       where: { disputeId },
+      include: { order: true },
     });
 
-    if (!dispute || dispute.userId !== userId)
+    if (!dispute || dispute.order?.userId !== userId)
       throw new NotFoundException('Dispute not found');
 
     return {
@@ -2009,11 +2076,12 @@ export class RentersService {
     const dispute = await this.prisma.dispute.findUnique({
       where: { disputeId },
       include: {
+        order: true,
         chatRooms: { include: { message: { orderBy: { createdAt: 'asc' } } } },
       },
     });
 
-    if (!dispute || dispute.userId !== userId)
+    if (!dispute || dispute.order?.userId !== userId)
       throw new NotFoundException('Dispute not found');
 
     const messages: any[] = dispute.chatRooms
@@ -2038,10 +2106,10 @@ export class RentersService {
   ) {
     const dispute = await this.prisma.dispute.findUnique({
       where: { disputeId },
-      include: { chatRooms: true },
+      include: { chatRooms: true, order: true },
     });
 
-    if (!dispute || dispute.userId !== userId)
+    if (!dispute || dispute.order?.userId !== userId)
       throw new NotFoundException('Dispute not found');
 
     if (!dispute.chatRooms)

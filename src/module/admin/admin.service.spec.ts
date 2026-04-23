@@ -37,7 +37,9 @@ describe('AdminService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    mockPrisma.$transaction.mockImplementation(async (fn: any) => fn(mockPrisma));
+    mockPrisma.$transaction.mockImplementation(async (fn: any) =>
+      fn(mockPrisma),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -109,7 +111,9 @@ describe('AdminService', () => {
 
       expect(mockPrisma.walletTransaction.create).toHaveBeenCalledTimes(3);
       expect(mockPrisma.escrow.update).toHaveBeenCalled();
-      expect(mockNotificationService.createNotification).toHaveBeenCalledTimes(2);
+      expect(mockNotificationService.createNotification).toHaveBeenCalledTimes(
+        2,
+      );
       expect(mockNotificationService.createNotification).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'DISPUTE_STATUS' }),
       );
@@ -155,4 +159,3 @@ describe('AdminService', () => {
     });
   });
 });
-
