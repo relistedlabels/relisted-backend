@@ -39,12 +39,11 @@ export class VerifyOrderDto {
   orderId: string;
   @IsNumber()
   totalAmount: number;
-   @IsString()
+  @IsString()
   platformName: string;
 
   @IsString()
   approvalLink: string;
- 
 
   @IsString()
   productName: string;
@@ -217,4 +216,80 @@ export class ReturnCompletedDto {
   walletUrl?: string;
   @IsString()
   platformName: string;
+}
+
+export class DisputeCreatedDto {
+  @IsEmail()
+  email: string;
+
+  @IsString()
+  adminName: string;
+
+  @IsString()
+  disputeId: string;
+
+  @IsString()
+  orderId: string;
+
+  @IsString()
+  raisedByName: string;
+
+  @IsString()
+  raisedByRole: string;
+
+  @IsString()
+  category: string;
+
+  @IsString()
+  @IsOptional()
+  description?: string;
+
+  @IsString()
+  @IsOptional()
+  adminLink?: string;
+}
+
+export class DisputeStatusDto {
+  @IsEmail()
+  email: string;
+
+  @IsString()
+  userName: string;
+
+  @IsString()
+  disputeId: string;
+
+  @IsString()
+  orderId: string;
+
+  @IsString()
+  status: string;
+
+  @IsString()
+  @IsOptional()
+  category?: string;
+
+  @IsString()
+  @IsOptional()
+  description?: string;
+
+  @IsString()
+  @IsOptional()
+  preferredResolution?: string;
+
+  @IsString()
+  @IsOptional()
+  disputeLink?: string;
+
+  @IsNumber()
+  @IsOptional()
+  collateralWithheldToLister?: number;
+
+  @IsNumber()
+  @IsOptional()
+  collateralReturnedToRenter?: number;
+
+  @IsNumber()
+  @IsOptional()
+  compensationToLister?: number;
 }

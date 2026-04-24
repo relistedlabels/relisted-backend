@@ -9,12 +9,12 @@ import { DisputeStatus } from '@prisma/client';
 
 @Injectable()
 export class DisputeService {
-  constructor(private readonly prisma:PrismaService){}
-async  create(dto: CreateDisputeDto,user:userEntity) {
-    // find if the order exist  
-    const orderExist  =await this.prisma.order.findUnique({
-      where:{
-        id:dto.orderId
+  constructor(private readonly prisma: PrismaService) {}
+  async create(dto: CreateDisputeDto, user: userEntity) {
+    // find if the order exist
+    const orderExist = await this.prisma.order.findUnique({
+      where: {
+        id: dto.orderId,
       },
       include: {
         rentals: {
@@ -24,15 +24,15 @@ async  create(dto: CreateDisputeDto,user:userEntity) {
         },
         user: true,
       } as any,
-    })
+    });
 
-    if(!orderExist) bad ("order not found")
+    if (!orderExist) bad('order not found');
 
-       if (orderExist.userId !== user.id) {
+    if (orderExist.userId !== user.id) {
       bad('You are not allowed to dispute this order');
     }
 
-      const existingDispute = await this.prisma.dispute.findFirst({
+    const existingDispute = await this.prisma.dispute.findFirst({
       where: {
         orderId: orderExist.id,
         userId: user.id,
@@ -43,63 +43,59 @@ async  create(dto: CreateDisputeDto,user:userEntity) {
       bad('A dispute already exists for this order');
     }
 
-      // create dispute 
-      const newDispute =await this.prisma.dispute.create({
-        data:{
-          disputeId:await this.generateDisputeId(),
-          issueCategory:dto.issueCategory,
-          description:dto.description,
-          order:connectId(orderExist.id),
-          user:connectId(user.id),
-          chatRooms:{
-            create:{}
-          },
-          attachment:dto.attachments ?createAttachments(dto.attachments):undefined
-        }
-      })
-
+    // create dispute
+    const newDispute = await this.prisma.dispute.create({
+      data: {
+        disputeId: await this.generateDisputeId(),
+        issueCategory: dto.issueCategory,
+        description: dto.description,
+        preferredResolution: dto.preferredResolution,
+        order: connectId(orderExist.id),
+        user: connectId(user.id),
+        chatRooms: {
+          create: {},
+        },
+        attachment: dto.attachments
+          ? createAttachments(dto.attachments)
+          : undefined,
+      },
+    });
 
     return {
-      message:" dispute created successfully",
-      data:newDispute
-    }
+      message: ' dispute created successfully',
+      data: newDispute,
+    };
   }
 
-
-  async findAll(user:userEntity) {
-     return await this.prisma.dispute.findMany({
-    where:{
-    userId:user.id
-  }
-
- })
-  }
-
-async  findOne(id: string,user:userEntity) {
- return await this.prisma.dispute.findFirst({
-  where:{
-    id,
-    userId:user.id
-  }
-
- })
-  
-  }
-
-  async withdrawDispute(id:string) {
-    return await this.prisma.dispute.update({
-      where:{
-        id
+  async findAll(user: userEntity) {
+    return await this.prisma.dispute.findMany({
+      where: {
+        userId: user.id,
       },
-      data:{
-        status:DisputeStatus.WITHDRAW
-      }
-    })
+    });
   }
 
+  async findOne(id: string, user: userEntity) {
+    return await this.prisma.dispute.findFirst({
+      where: {
+        id,
+        userId: user.id,
+      },
+    });
+  }
 
+  async withdrawDispute(id: string) {
+    return await this.prisma.dispute.update({
+      where: {
+        id,
+      },
+      data: {
+        status: DisputeStatus.WITHDRAW,
+      },
+    });
+  }
 
-   async generateDisputeId() {
+  async generateDisputeId() {
     return `DQ-${Date.now()}`;
   }
 }

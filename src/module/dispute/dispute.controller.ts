@@ -10,25 +10,22 @@ export class DisputeController {
 
   @Auth()
   @Post()
-  create(@Body() createDisputeDto: CreateDisputeDto,@AuthUser() user:userEntity) {
-    return this.disputeService.create(createDisputeDto,user);
+  create(
+    @Body() createDisputeDto: CreateDisputeDto,
+    @AuthUser() user: userEntity,
+  ) {
+    return this.disputeService.create(createDisputeDto, user);
   }
-
-
 
   @Auth()
   @Get()
-  findAllDispute (@AuthUser() user:userEntity){
-    return this.disputeService.findAll(user)
-
+  findAllDispute(@AuthUser() user: userEntity) {
+    return this.disputeService.findAll(user);
   }
 
   @Auth()
-  @Get(":id")
-  findDispute (@Param("id") id:string,@AuthUser() user:userEntity){
-    return this.disputeService.findOne(id,user)
-
+  @Get(':id')
+  findDispute(@Param('id') id: string, @AuthUser() user: userEntity) {
+    return this.disputeService.findOne(id, user);
   }
-  
-
 }

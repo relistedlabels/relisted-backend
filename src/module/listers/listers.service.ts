@@ -1362,7 +1362,7 @@ export class ListersService {
               },
             });
 
-            // Update escrow status: always PARTIALLY_RELEASED at delivery for rentals 
+            // Update escrow status: always PARTIALLY_RELEASED at delivery for rentals
             // because collateral and cleaning fees are held until return.
             // For mixed orders, resaleAmount is also still held until buyer confirmation.
             await tx.escrow.update({
@@ -1513,7 +1513,7 @@ export class ListersService {
       throw new InternalServerErrorException('Failed to update order status');
     }
   }
-  
+
   /** POST /api/listers/orders/:orderId/confirm-return-receipt */
   async confirmReturnReceipt(
     listerId: string,
@@ -1550,7 +1550,10 @@ export class ListersService {
       let escrowToReleaseId: string | null = null;
 
       if (order.escrows) {
-        if (order.escrows.status === 'RELEASED' || order.status === 'COMPLETED') {
+        if (
+          order.escrows.status === 'RELEASED' ||
+          order.status === 'COMPLETED'
+        ) {
           throw new BadRequestException(
             'Collateral and cleaning fee already released for this order',
           );
@@ -1567,7 +1570,9 @@ export class ListersService {
       // Verify lister owns the product
       const isListerProduct =
         (order as any).listerId === listerId ||
-        order.orderItems.some((item: any) => item.product?.curatorId === listerId);
+        order.orderItems.some(
+          (item: any) => item.product?.curatorId === listerId,
+        );
       if (!isListerProduct) {
         console.log(
           `[ListersService] Lister ${listerId} not authorized for order ${orderId}`,
@@ -1614,6 +1619,28 @@ export class ListersService {
         console.log(
           `[ListersService] Return request updated to COMPLETED for order ${orderId}`,
         );
+
+        const openDispute = await tx.dispute.findFirst({
+          where: {
+            orderId: order.id,
+            status: { in: [DisputeStatus.PENDING, DisputeStatus.IN_REVIEW] },
+          },
+          select: { disputeId: true },
+        });
+
+        if (openDispute) {
+          await tx.order.update({
+            where: { id: order.id },
+            data: { status: OrderStatus.RETURNED },
+          });
+
+          return {
+            returnRequest: updatedReturn,
+            collateralReleased: 0,
+            disputeHold: true,
+            disputeId: openDispute.disputeId,
+          };
+        }
 
         // Update order status
         await tx.order.update({
@@ -1721,33 +1748,62 @@ export class ListersService {
           // Note: We still complete the return, but collateral release requires manual intervention
         }
 
-        return { returnRequest: updatedReturn, collateralReleased };
+        return {
+          returnRequest: updatedReturn,
+          collateralReleased,
+          disputeHold: false,
+        };
       });
       console.log(
         `[ListersService] Transaction completed successfully for order ${orderId}, released NGN ${result.collateralReleased} collateral`,
       );
 
-      // Notify renter about return completion
-      await this.notificationService.createNotification({
-        userId: order.userId,
-        title: 'Return Completed',
-        message: `Your return for order ${order.orderId} has been completed and your collateral of NGN ${result.collateralReleased} has been released to your wallet.`,
-        type: 'RETURN_COMPLETED',
-        sendEmail: true,
-        emailData: {
-          email: order.user.email,
-          renterName: order.user.name,
-          orderId: order.orderId,
-          listerCondition: result.returnRequest.listerCondition,
-          listerDamageNotes: result.returnRequest.listerDamageNotes,
-          collateralReleased: result.collateralReleased,
-          walletUrl: `${process.env.CLIENT_URL}/renters/wallet`,
-          platformName: 'Relisted',
-        },
-      });
-      console.log(
-        `[ListersService] Sent return completion notification to renter for order ${orderId}`,
-      );
+      if (result.disputeHold) {
+        await this.notificationService.createNotification({
+          userId: order.userId,
+          title: 'Dispute In Review',
+          message: `Your return for order ${order.orderId} has been completed. Collateral release is on hold while the dispute is reviewed.`,
+          type: 'DISPUTE_STATUS',
+          metadata: {
+            orderId: order.id,
+            orderNumber: order.orderId,
+            disputeId: result.disputeId,
+          },
+          sendEmail: true,
+          emailData: {
+            email: order.user.email,
+            userName: order.user.name,
+            disputeId: result.disputeId,
+            orderId: order.orderId,
+            status: 'in_review',
+            disputeLink: `${process.env.CLIENT_URL || ''}/renters/dispute`,
+            collateralWithheldToLister: 0,
+            collateralReturnedToRenter: 0,
+          },
+        });
+      } else {
+        // Notify renter about return completion
+        await this.notificationService.createNotification({
+          userId: order.userId,
+          title: 'Return Completed',
+          message: `Your return for order ${order.orderId} has been completed and your collateral of NGN ${result.collateralReleased} has been released to your wallet.`,
+          type: 'RETURN_COMPLETED',
+          sendEmail: true,
+          emailData: {
+            email: order.user.email,
+            renterName: order.user.name,
+            orderId: order.orderId,
+            listerCondition: result.returnRequest.listerCondition,
+            listerDamageNotes: result.returnRequest.listerDamageNotes,
+            collateralReleased: result.collateralReleased,
+            walletUrl: `${process.env.CLIENT_URL}/renters/wallet`,
+            platformName: 'Relisted',
+          },
+        });
+        console.log(
+          `[ListersService] Sent return completion notification to renter for order ${orderId}`,
+        );
+      }
 
       return {
         success: true,
@@ -1757,7 +1813,7 @@ export class ListersService {
           collateralReleased: result.collateralReleased,
           order: {
             orderId: order.orderId,
-            status: 'COMPLETED',
+            status: result.disputeHold ? 'RETURNED' : 'COMPLETED',
           },
         },
       };
@@ -2234,9 +2290,7 @@ export class ListersService {
 
       const whereBase: any = {
         order: {
-          rental: {
-            curatorId: user.id,
-          },
+          rentals: { some: { curatorId: user.id } },
         },
       };
       if (fromDate) {
@@ -2502,7 +2556,6 @@ export class ListersService {
       const existing = await this.prisma.dispute.findFirst({
         where: {
           orderId: order.id,
-          userId: user.id,
         },
       });
       if (existing) {
@@ -2521,6 +2574,7 @@ export class ListersService {
           userId: user.id,
           issueCategory: body.category,
           description: body.description,
+          preferredResolution: body.preferredResolution,
           status: DisputeStatus.PENDING,
           attachment:
             body.evidenceFiles && body.evidenceFiles.length > 0
@@ -2535,7 +2589,76 @@ export class ListersService {
         },
       });
 
-      // Placeholder for notification (email / push)
+      const admins = await this.prisma.user.findMany({
+        where: { role: Role.ADMIN },
+        select: { id: true, name: true, email: true },
+      });
+
+      const clientUrl = process.env.CLIENT_URL || '';
+      const adminLink = `${clientUrl}/admin/k340eol21/disputes`;
+
+      await Promise.all(
+        admins.map((admin) =>
+          this.notificationService.createNotification({
+            userId: admin.id,
+            title: 'New Dispute Created',
+            message: `A new dispute ${created.disputeId} was created for order ${order.orderId}.`,
+            type: 'DISPUTE_CREATED',
+            metadata: {
+              disputeId: created.disputeId,
+              disputeDbId: created.id,
+              orderId: order.id,
+              orderNumber: order.orderId,
+              raisedByUserId: user.id,
+            },
+            sendEmail: true,
+            emailData: {
+              email: admin.email,
+              adminName: admin.name,
+              disputeId: created.disputeId,
+              orderId: order.orderId,
+              raisedByName: user.name ?? 'User',
+              raisedByRole: user.role ?? 'USER',
+              category: created.issueCategory,
+              description: created.description,
+              adminLink,
+            },
+          }),
+        ),
+      );
+
+      const renterUser = await this.prisma.user.findUnique({
+        where: { id: order.userId },
+        select: { id: true, name: true, email: true },
+      });
+
+      if (renterUser) {
+        const disputeLink = `${clientUrl}/renters/dispute`;
+        await this.notificationService.createNotification({
+          userId: renterUser.id,
+          title: 'New Dispute Created',
+          message: `A dispute has been created for order ${order.orderId}.`,
+          type: 'DISPUTE_STATUS',
+          metadata: {
+            disputeId: created.disputeId,
+            disputeDbId: created.id,
+            orderId: order.id,
+            orderNumber: order.orderId,
+          },
+          sendEmail: true,
+          emailData: {
+            email: renterUser.email,
+            userName: renterUser.name,
+            disputeId: created.disputeId,
+            orderId: order.orderId,
+            status: 'created',
+            category: created.issueCategory,
+            description: created.description,
+            preferredResolution: created.preferredResolution ?? undefined,
+            disputeLink,
+          },
+        });
+      }
 
       return {
         success: true,
@@ -2694,7 +2817,7 @@ export class ListersService {
               curator: curatorName,
               category: dispute.issueCategory,
               dateSubmitted: dispute.createdAt.toISOString().split('T')[0],
-              preferredResolution: null,
+              preferredResolution: dispute.preferredResolution ?? null,
               description: dispute.description,
             },
             evidence,
@@ -2740,7 +2863,7 @@ export class ListersService {
           disputeDetails: {
             category: dispute.issueCategory,
             dateSubmitted: dispute.createdAt.toISOString().split('T')[0],
-            preferredResolution: null,
+            preferredResolution: dispute.preferredResolution ?? null,
             description: dispute.description,
           },
         },
@@ -3012,9 +3135,12 @@ export class ListersService {
   ) {
     const dispute = await this.findListerDisputeOrThrow(user, disputeId);
 
-    if (dispute.status !== DisputeStatus.PENDING) {
+    if (
+      dispute.status !== DisputeStatus.PENDING &&
+      dispute.status !== DisputeStatus.IN_REVIEW
+    ) {
       throw new ForbiddenException(
-        'Dispute cannot be withdrawn from its current status',
+        `Dispute cannot be withdrawn from its current status (${dispute.status})`,
       );
     }
 
@@ -4642,7 +4768,7 @@ export class ListersService {
       wallet.transactions = [];
     }
 
-    const safeWallet = wallet as any;
+    const safeWallet = wallet;
 
     const activeRentals = await this.prisma.rental.findMany({
       where: { curatorId: userId, isReturned: false },
