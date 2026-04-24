@@ -1,20 +1,58 @@
-import { Injectable, NotFoundException, BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { PrismaService } from '../../services/prisma/prisma.service';
 import { NotificationService } from 'src/services/notification/notification.service';
-import { OrderStatus, ProductStatus, Role } from '@prisma/client';
+import {
+  DisputeStatus,
+  OrderStatus,
+  ProductStatus,
+  Role,
+} from '@prisma/client';
 
 @Injectable()
 export class AdminService {
   constructor(
     private prisma: PrismaService,
-    private notificationService: NotificationService
+    private notificationService: NotificationService,
   ) {}
 
+  private getDisputeUniqueWhere(disputeId: string) {
+    return disputeId.startsWith('DQ-') ? { disputeId } : { id: disputeId };
+  }
+
+  private normalizeDisputeStatus(raw: string) {
+    const key = String(raw || '')
+      .trim()
+      .toUpperCase();
+    const map: Record<string, DisputeStatus> = {
+      PENDING: DisputeStatus.PENDING,
+      PENDING_REVIEW: DisputeStatus.PENDING,
+      IN_REVIEW: DisputeStatus.IN_REVIEW,
+      REVIEWING: DisputeStatus.IN_REVIEW,
+      RESOLVED: DisputeStatus.RESELOVED,
+      RESELOVED: DisputeStatus.RESELOVED,
+      REJECTED: DisputeStatus.REJECTED,
+      WITHDRAW: DisputeStatus.WITHDRAW,
+      WITHDRAWN: DisputeStatus.WITHDRAW,
+    };
+    return map[key];
+  }
+
   async getAnalyticsStats(timeframe: string, year?: string, month?: string) {
-    const totalRentees = await this.prisma.user.count({ where: { role: 'RENTER' } });
-    const products = await this.prisma.product.aggregate({ _sum: { originalValue: true } });
-    const activeRentals = await this.prisma.rental.count({ where: { isReturned: false } });
-    
+    const totalRentees = await this.prisma.user.count({
+      where: { role: 'RENTER' },
+    });
+    const products = await this.prisma.product.aggregate({
+      _sum: { originalValue: true },
+    });
+    const activeRentals = await this.prisma.rental.count({
+      where: { isReturned: false },
+    });
+
     // Total revenue could be sum of all successful transaction amounts.
     const revenue = await this.prisma.transaction.aggregate({
       where: { status: 'SUCCESS' },
@@ -32,7 +70,11 @@ export class AdminService {
     };
   }
 
-  async getRentalsRevenueTrend(timeframe: string, year?: string, month?: string) {
+  async getRentalsRevenueTrend(
+    timeframe: string,
+    year?: string,
+    month?: string,
+  ) {
     // Returning dummy data for chart structure. Actual grouped queries can be complex in Prisma.
     return {
       success: true,
@@ -49,12 +91,13 @@ export class AdminService {
     const categories = await this.prisma.productCategory.findMany({
       include: { _count: { select: { products: true } } },
     });
-    
-    const total = categories.reduce((sum, cat) => sum + cat._count.products, 0) || 1;
+
+    const total =
+      categories.reduce((sum, cat) => sum + cat._count.products, 0) || 1;
 
     return {
       success: true,
-      data: categories.map(cat => ({
+      data: categories.map((cat) => ({
         category: cat.name,
         value: cat._count.products,
         percentage: Math.round((cat._count.products / total) * 100),
@@ -80,14 +123,14 @@ export class AdminService {
       take: limit,
       include: {
         profile: true,
-        _count: { select: { products: true, rentalsCurated: true } }
+        _count: { select: { products: true, rentalsCurated: true } },
       },
-      orderBy: { rentalsCurated: { _count: 'desc' } }
+      orderBy: { rentalsCurated: { _count: 'desc' } },
     });
 
     return {
       success: true,
-      data: topCurators.map(user => ({
+      data: topCurators.map((user) => ({
         id: user.id,
         name: user.name,
         avatar: user.profile?.avatarUploadId || null, // Simplified
@@ -104,12 +147,12 @@ export class AdminService {
         _count: { select: { rentals: true } },
         brand: true,
       },
-      orderBy: { rentals: { _count: 'desc' } }
+      orderBy: { rentals: { _count: 'desc' } },
     });
 
     return {
       success: true,
-      data: topProducts.map(prod => ({
+      data: topProducts.map((prod) => ({
         id: prod.id,
         name: prod.name,
         brand: prod.brand?.name,
@@ -152,13 +195,18 @@ export class AdminService {
   }
 
   async toggleAdmin2FA(adminId: string, data: any) {
-    return { success: true, message: `2FA ${data.enabled ? 'enabled' : 'disabled'}` };
+    return {
+      success: true,
+      message: `2FA ${data.enabled ? 'enabled' : 'disabled'}`,
+    };
   }
 
   async getAdminDevices(adminId: string) {
     return {
       success: true,
-      data: [{ device: 'MacBook Pro', location: 'Lagos, Nigeria', current: true }],
+      data: [
+        { device: 'MacBook Pro', location: 'Lagos, Nigeria', current: true },
+      ],
     };
   }
 
@@ -282,19 +330,42 @@ export class AdminService {
         // 5. Virtual accounts (by userId)
         await tx.virtualAccount.deleteMany({ where: { userId } });
 
-        // 6. Transactions (by userId)
+        // 6. Bank accounts
+        await tx.bankAccount.deleteMany({ where: { userId } });
+
+        // 7. Withdrawal requests
+        await tx.withdrawalRequest.deleteMany({ where: { userId } });
+
+        // 8. Availability requests where user is lister or requester
+        await tx.availabilityRequest.deleteMany({
+          where: { listerId: userId },
+        });
+        await tx.availabilityRequest.deleteMany({
+          where: { requesterId: userId },
+        });
+
+        // 9. Transactions (by userId)
         await tx.transaction.deleteMany({ where: { userId } });
 
-        // 7. Uploads
+        // 10. Uploads
         await tx.upload.deleteMany({ where: { userId } });
 
-        // 8. Nullify user-owned Brand, Tag, ProductCategory
-        await tx.brand.updateMany({ where: { userId }, data: { userId: null } });
-        await tx.productCategory.updateMany({ where: { userId }, data: { userId: null } });
+        // 11. Nullify user-owned Brand, Tag, ProductCategory
+        await tx.brand.updateMany({
+          where: { userId },
+          data: { userId: null },
+        });
+        await tx.productCategory.updateMany({
+          where: { userId },
+          data: { userId: null },
+        });
         await tx.tag.updateMany({ where: { userId }, data: { userId: null } });
 
-        // 9. Orders and their dependencies
-        const orders = await tx.order.findMany({ where: { userId }, select: { id: true } });
+        // 12. Orders and their dependencies
+        const orders = await tx.order.findMany({
+          where: { userId },
+          select: { id: true },
+        });
         for (const order of orders) {
           const orderId = order.id;
           const rental = await tx.rental.findFirst({ where: { orderId } });
@@ -309,27 +380,37 @@ export class AdminService {
           await tx.escrow.deleteMany({ where: { orderId } });
           const dispute = await tx.dispute.findFirst({ where: { orderId } });
           if (dispute) {
-            const chatRoom = await tx.chatRoom.findUnique({ where: { disputeId: dispute.id } });
+            const chatRoom = await tx.chatRoom.findUnique({
+              where: { disputeId: dispute.id },
+            });
             if (chatRoom) {
-              await tx.message.deleteMany({ where: { chatRoomId: chatRoom.id } });
+              await tx.message.deleteMany({
+                where: { chatRoomId: chatRoom.id },
+              });
               await tx.chatRoom.delete({ where: { id: chatRoom.id } });
             }
-            await tx.attachments.updateMany({ where: { disputeId: dispute.id }, data: { disputeId: null } });
+            await tx.attachments.updateMany({
+              where: { disputeId: dispute.id },
+              data: { disputeId: null },
+            });
             await tx.dispute.delete({ where: { id: dispute.id } });
           }
           await tx.order.delete({ where: { id: orderId } });
         }
 
-        // 10. Rentals where user is curator or rentee (not already deleted via order)
+        // 13. Rentals where user is curator or rentee (not already deleted via order)
         await tx.rental.deleteMany({ where: { userId } });
         await tx.rental.deleteMany({ where: { curatorId: userId } });
 
-        // 11. Reviews by this user
+        // 14. Reviews by this user
         await tx.review.deleteMany({ where: { userId } });
         await tx.review.deleteMany({ where: { curatorId: userId } });
 
-        // 12. Products owned by user (curator)
-        const products = await tx.product.findMany({ where: { curatorId: userId }, select: { id: true } });
+        // 15. Products owned by user (curator)
+        const products = await tx.product.findMany({
+          where: { curatorId: userId },
+          select: { id: true },
+        });
         for (const product of products) {
           const productId = product.id;
           await tx.availabilityRequest.deleteMany({ where: { productId } });
@@ -345,22 +426,24 @@ export class AdminService {
           await tx.product.delete({ where: { id: productId } });
         }
 
-        // 13. Wallet and wallet transactions
+        // 16. Wallet and wallet transactions
         const wallet = await tx.wallet.findUnique({ where: { userId } });
         if (wallet) {
-          await tx.walletTransaction.deleteMany({ where: { walletId: wallet.id } });
+          await tx.walletTransaction.deleteMany({
+            where: { walletId: wallet.id },
+          });
           await tx.wallet.delete({ where: { id: wallet.id } });
         }
 
-        // 14. Disputes, Notifications and Settings
+        // 17. Disputes, Notifications and Settings
         await tx.dispute.deleteMany({ where: { userId } });
         await tx.notification.deleteMany({ where: { userId } });
         await tx.notificationSettings.deleteMany({ where: { userId } });
 
-        // 15. User
+        // 18. User
         await tx.user.delete({ where: { id: userId } });
       },
-      { timeout: 60_000 }
+      { timeout: 60_000 },
     );
 
     return {
@@ -403,7 +486,13 @@ export class AdminService {
     return { success: true, message: 'Admin settings updated' };
   }
 
-  async getAuditLogs(page: number, limit: number, action?: string, admin?: string, dateRange?: string) {
+  async getAuditLogs(
+    page: number,
+    limit: number,
+    action?: string,
+    admin?: string,
+    dateRange?: string,
+  ) {
     const skip = (page - 1) * limit;
     const where: any = {};
     if (action) where.actionType = action;
@@ -461,8 +550,25 @@ export class AdminService {
   async getAllDisputes(page: number, limit: number, status?: string) {
     const skip = (page - 1) * limit;
     const where: any = {};
-    if (status && status !== 'ALL') {
-      where.status = status as any;
+
+    if (status) {
+      const raw = String(status).trim();
+      if (raw && raw.toUpperCase() !== 'ALL') {
+        const key = raw.toUpperCase();
+        const map: Record<string, string> = {
+          PENDING: 'PENDING',
+          PENDING_REVIEW: 'PENDING',
+          IN_REVIEW: 'IN_REVIEW',
+          REVIEWING: 'IN_REVIEW',
+          RESOLVED: 'RESELOVED',
+          RESELOVED: 'RESELOVED',
+          REJECTED: 'REJECTED',
+          WITHDRAW: 'WITHDRAW',
+          WITHDRAWN: 'WITHDRAW',
+        };
+        const normalized = map[key];
+        if (normalized) where.status = normalized as any;
+      }
     }
 
     const [total, disputes] = await this.prisma.$transaction([
@@ -473,16 +579,115 @@ export class AdminService {
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
-          user: { select: { name: true, email: true } },
-          order: { select: { id: true, orderId: true } },
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              role: true,
+              profile: {
+                select: {
+                  phoneNumber: true,
+                  avatarUpload: { select: { url: true } },
+                },
+              },
+            },
+          },
+          order: {
+            select: {
+              id: true,
+              orderId: true,
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                  role: true,
+                  profile: {
+                    select: {
+                      phoneNumber: true,
+                      avatarUpload: { select: { url: true } },
+                    },
+                  },
+                },
+              },
+              rentals: {
+                take: 1,
+                select: {
+                  curatorId: true,
+                  curator: {
+                    select: {
+                      id: true,
+                      name: true,
+                      email: true,
+                      role: true,
+                      profile: {
+                        select: {
+                          phoneNumber: true,
+                          avatarUpload: { select: { url: true } },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
       }),
     ]);
 
+    const mapped = disputes.map((d: any) => {
+      const renter = d.order?.user ?? null;
+      const lister = d.order?.rentals?.[0]?.curator ?? null;
+      const raisedBy = d.user ?? null;
+
+      return {
+        id: d.disputeId,
+        dbId: d.id,
+        status: d.status,
+        category: d.issueCategory,
+        description: d.description,
+        preferredResolution: d.preferredResolution ?? null,
+        createdAt: d.createdAt?.toISOString?.() ?? d.createdAt,
+        updatedAt: d.updatedAt?.toISOString?.() ?? d.updatedAt,
+        raisedBy: raisedBy
+          ? {
+              id: raisedBy.id,
+              name: raisedBy.name,
+              role: raisedBy.role,
+              avatar: raisedBy.profile?.avatarUpload?.url ?? null,
+            }
+          : null,
+        renter: renter
+          ? {
+              id: renter.id,
+              name: renter.name,
+              role: renter.role,
+              avatar: renter.profile?.avatarUpload?.url ?? null,
+              email: renter.email,
+              phone: renter.profile?.phoneNumber ?? null,
+            }
+          : null,
+        lister: lister
+          ? {
+              id: lister.id,
+              name: lister.name,
+              role: lister.role,
+              avatar: lister.profile?.avatarUpload?.url ?? null,
+              email: lister.email,
+              phone: lister.profile?.phoneNumber ?? null,
+            }
+          : null,
+        orderId: d.order?.orderId ?? null,
+        orderDbId: d.order?.id ?? null,
+      };
+    });
+
     return {
       success: true,
       data: {
-        disputes,
+        disputes: mapped,
         total,
         page,
         totalPages: Math.ceil(total / limit),
@@ -491,26 +696,198 @@ export class AdminService {
   }
 
   async getDisputeDetails(disputeId: string) {
+    const isPublicDisputeId = disputeId.startsWith('DQ-');
     const dispute = await this.prisma.dispute.findUnique({
-      where: { id: disputeId },
+      where: isPublicDisputeId ? { disputeId } : { id: disputeId },
       include: {
-        user: true,
-        order: { include: { orderItems: { include: { product: true } } } },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+            profile: {
+              select: {
+                phoneNumber: true,
+                avatarUpload: { select: { url: true } },
+              },
+            },
+          },
+        },
+        attachment: {
+          include: {
+            uploads: true,
+          },
+        },
+        chatRooms: {
+          include: {
+            message: {
+              orderBy: { createdAt: 'asc' },
+            },
+          },
+        },
+        order: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+                profile: {
+                  select: {
+                    phoneNumber: true,
+                    avatarUpload: { select: { url: true } },
+                  },
+                },
+              },
+            },
+            escrows: true,
+            rentals: {
+              take: 1,
+              include: {
+                curator: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                    role: true,
+                    profile: {
+                      select: {
+                        phoneNumber: true,
+                        avatarUpload: { select: { url: true } },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            orderItems: { include: { product: true } },
+          },
+        },
       },
     });
 
     if (!dispute) throw new NotFoundException('Dispute not found');
-    return { success: true, data: dispute };
+
+    const renter: any = (dispute as any).order?.user ?? null;
+    const lister: any = (dispute as any).order?.rentals?.[0]?.curator ?? null;
+    const raisedBy: any = (dispute as any).user ?? null;
+    const otherParty =
+      raisedBy?.id && renter?.id && lister?.id
+        ? raisedBy.id === renter.id
+          ? lister
+          : renter
+        : null;
+
+    const order: any = (dispute as any).order;
+    const item = order?.orderItems?.[0]?.product ?? null;
+    const escrow: any = order?.escrows ?? null;
+
+    return {
+      success: true,
+      data: {
+        id: (dispute as any).disputeId,
+        dbId: (dispute as any).id,
+        status: (dispute as any).status,
+        category: (dispute as any).issueCategory,
+        description: (dispute as any).description,
+        preferredResolution: (dispute as any).preferredResolution ?? null,
+        createdAt: (dispute as any).createdAt?.toISOString?.() ?? null,
+        updatedAt: (dispute as any).updatedAt?.toISOString?.() ?? null,
+        raisedBy: raisedBy
+          ? {
+              id: raisedBy.id,
+              name: raisedBy.name,
+              role: raisedBy.role,
+              avatar: raisedBy.profile?.avatarUpload?.url ?? null,
+              email: raisedBy.email,
+              phone: raisedBy.profile?.phoneNumber ?? null,
+            }
+          : null,
+        otherParty: otherParty
+          ? {
+              id: otherParty.id,
+              name: otherParty.name,
+              role: otherParty.role,
+              avatar: otherParty.profile?.avatarUpload?.url ?? null,
+              email: otherParty.email,
+              phone: otherParty.profile?.phoneNumber ?? null,
+            }
+          : null,
+        orderDetails: order
+          ? {
+              id: order.orderId,
+              dbId: order.id,
+              totalAmountPaid: order.totalAmountPaid ?? null,
+              escrow: escrow
+                ? {
+                    id: escrow.id,
+                    status: escrow.status,
+                    collateralAmount: escrow.collateralAmount ?? 0,
+                    rentalAmount: escrow.rentalAmount ?? 0,
+                    cleaningFee: escrow.cleaningFee ?? 0,
+                    resaleAmount: escrow.resaleAmount ?? 0,
+                    releasedAt: escrow.releasedAt?.toISOString?.() ?? null,
+                  }
+                : null,
+              item: item
+                ? {
+                    id: item.id,
+                    name: item.name,
+                    imageUrl: item.imageUrl ?? null,
+                  }
+                : null,
+              renter: renter
+                ? {
+                    id: renter.id,
+                    name: renter.name,
+                    avatar: renter.profile?.avatarUpload?.url ?? null,
+                  }
+                : null,
+              lister: lister
+                ? {
+                    id: lister.id,
+                    name: lister.name,
+                    avatar: lister.profile?.avatarUpload?.url ?? null,
+                  }
+                : null,
+            }
+          : null,
+        evidence: {
+          uploads: (dispute as any).attachment?.uploads ?? [],
+        },
+        messages:
+          (dispute as any).chatRooms?.message?.map((m: any) => ({
+            id: m.id,
+            senderId: m.senderId,
+            senderRole: m.senderRole,
+            content: m.content,
+            type: m.type,
+            createdAt: m.createdAt?.toISOString?.() ?? m.createdAt,
+          })) ?? [],
+      },
+    };
   }
 
-  async updateDisputeStatus(disputeId: string, data: { status: string; note: string }) {
-    const dispute = await this.prisma.dispute.findUnique({ where: { id: disputeId } });
+  async updateDisputeStatus(
+    disputeId: string,
+    data: { status: string; note: string },
+  ) {
+    const dispute = await this.prisma.dispute.findUnique({
+      where: this.getDisputeUniqueWhere(disputeId),
+    });
     if (!dispute) throw new NotFoundException('Dispute not found');
 
+    const normalized = this.normalizeDisputeStatus(data.status);
+    if (!normalized) {
+      throw new BadRequestException('Invalid dispute status');
+    }
+
     const updated = await this.prisma.dispute.update({
-      where: { id: disputeId },
+      where: { id: dispute.id },
       data: {
-        status: data.status as any,
+        status: normalized,
       },
     });
 
@@ -521,12 +898,17 @@ export class AdminService {
     };
   }
 
-  async resolveDispute(disputeId: string, data: { resolutionDetails: string; refundAmount?: number }) {
-    const dispute = await this.prisma.dispute.findUnique({ where: { id: disputeId } });
+  async resolveDispute(
+    disputeId: string,
+    data: { resolutionDetails: string; refundAmount?: number },
+  ) {
+    const dispute = await this.prisma.dispute.findUnique({
+      where: this.getDisputeUniqueWhere(disputeId),
+    });
     if (!dispute) throw new NotFoundException('Dispute not found');
 
     const updated = await this.prisma.dispute.update({
-      where: { id: disputeId },
+      where: { id: dispute.id },
       data: {
         status: 'RESELOVED',
       },
@@ -539,8 +921,315 @@ export class AdminService {
     };
   }
 
+  async resolveDisputeAndSettle(
+    disputeId: string,
+    data: {
+      resolutionDetails: string;
+      refundAmount?: number;
+      collateralWithheldToLister?: number;
+    },
+  ) {
+    const dispute = await this.prisma.dispute.findUnique({
+      where: this.getDisputeUniqueWhere(disputeId),
+      include: {
+        order: {
+          include: {
+            user: true,
+            escrows: true,
+            returnRequest: true,
+          },
+        },
+      },
+    });
+
+    if (!dispute) throw new NotFoundException('Dispute not found');
+    const order: any = (dispute as any).order;
+    if (!order) throw new NotFoundException('Order not found');
+    if (!order.escrows) throw new BadRequestException('Escrow not found');
+
+    const escrow = order.escrows;
+    const escrowStatus = escrow.status as string;
+    const totalCollateralLocked = Math.max(
+      0,
+      Number(escrow.collateralAmount) || 0,
+    );
+    const rawWithheld = Math.max(
+      0,
+      Math.round(Number(data.collateralWithheldToLister || 0)),
+    );
+    const collateralWithheldToLister = Math.min(
+      rawWithheld,
+      totalCollateralLocked,
+    );
+    const collateralReturnedToRenter =
+      totalCollateralLocked - collateralWithheldToLister;
+
+    const rawRefundAmount = Math.max(
+      0,
+      Math.round(Number(data.refundAmount || 0)),
+    );
+
+    const payoutLocked =
+      escrowStatus === 'LOCKED'
+        ? Math.max(
+            0,
+            Number(escrow.rentalAmount || 0) +
+              Number(escrow.cleaningFee || 0) +
+              Number(escrow.resaleAmount || 0),
+          )
+        : escrowStatus === 'PARTIALLY_RELEASED'
+          ? Math.max(
+              0,
+              Number(escrow.cleaningFee || 0) +
+                Number(escrow.resaleAmount || 0),
+            )
+          : 0;
+
+    if (rawRefundAmount > payoutLocked) {
+      throw new BadRequestException(
+        `Refund amount cannot exceed locked escrow payout (max ${payoutLocked})`,
+      );
+    }
+
+    const listerPayoutToRelease = Math.max(0, payoutLocked - rawRefundAmount);
+
+    const lister = await this.prisma.user.findUnique({
+      where: { id: escrow.curatorId },
+      select: { id: true, name: true, email: true },
+    });
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updatedDispute = await tx.dispute.update({
+        where: { id: dispute.id },
+        data: { status: 'RESELOVED' as any },
+      });
+
+      if (rawRefundAmount > 0) {
+        const renterWallet = await tx.wallet.upsert({
+          where: { userId: order.userId },
+          create: {
+            userId: order.userId,
+            mainBalance: 0,
+            availableBalance: rawRefundAmount,
+            collateralBalance: 0,
+          },
+          update: {
+            availableBalance: { increment: rawRefundAmount },
+          },
+        });
+
+        await tx.walletTransaction.create({
+          data: {
+            walletId: renterWallet.id,
+            amount: rawRefundAmount,
+            type: 'MAIN',
+            status: 'SUCCESS',
+            note: `Refund issued after dispute resolution for order ${order.orderId}`,
+            orderId: order.id,
+          },
+        });
+      }
+
+      if (listerPayoutToRelease > 0) {
+        const listerWallet = await tx.wallet.upsert({
+          where: { userId: escrow.curatorId },
+          create: {
+            userId: escrow.curatorId,
+            mainBalance: listerPayoutToRelease,
+            availableBalance: listerPayoutToRelease,
+            collateralBalance: 0,
+          },
+          update: {
+            mainBalance: { increment: listerPayoutToRelease },
+            availableBalance: { increment: listerPayoutToRelease },
+          },
+        });
+
+        await tx.walletTransaction.create({
+          data: {
+            walletId: listerWallet.id,
+            amount: listerPayoutToRelease,
+            type: 'MAIN',
+            status: 'SUCCESS',
+            note: `Escrow payout released after dispute resolution for order ${order.orderId}`,
+            orderId: order.id,
+          },
+        });
+      }
+
+      if (totalCollateralLocked > 0) {
+        const renterWallet = await tx.wallet.upsert({
+          where: { userId: order.userId },
+          create: {
+            userId: order.userId,
+            mainBalance: 0,
+            availableBalance: 0,
+            collateralBalance: 0,
+          },
+          update: {},
+        });
+
+        if (renterWallet.collateralBalance < totalCollateralLocked) {
+          throw new BadRequestException(
+            'Renter wallet collateral balance is below escrow collateral amount',
+          );
+        }
+
+        await tx.wallet.update({
+          where: { id: renterWallet.id },
+          data: {
+            collateralBalance: { decrement: totalCollateralLocked },
+            availableBalance: { increment: collateralReturnedToRenter },
+          },
+        });
+
+        if (collateralReturnedToRenter > 0) {
+          await tx.walletTransaction.create({
+            data: {
+              walletId: renterWallet.id,
+              amount: collateralReturnedToRenter,
+              type: 'MAIN',
+              status: 'SUCCESS',
+              note: `Collateral released after dispute resolution for order ${order.orderId}`,
+              orderId: order.id,
+            },
+          });
+        }
+
+        if (collateralWithheldToLister > 0) {
+          await tx.walletTransaction.create({
+            data: {
+              walletId: renterWallet.id,
+              amount: -collateralWithheldToLister,
+              type: 'MAIN',
+              status: 'SUCCESS',
+              note: `Collateral withheld after dispute resolution for order ${order.orderId}`,
+              orderId: order.id,
+            },
+          });
+
+          const listerWallet = await tx.wallet.upsert({
+            where: { userId: escrow.curatorId },
+            create: {
+              userId: escrow.curatorId,
+              mainBalance: collateralWithheldToLister,
+              availableBalance: collateralWithheldToLister,
+              collateralBalance: 0,
+            },
+            update: {
+              mainBalance: { increment: collateralWithheldToLister },
+              availableBalance: { increment: collateralWithheldToLister },
+            },
+          });
+
+          await tx.walletTransaction.create({
+            data: {
+              walletId: listerWallet.id,
+              amount: collateralWithheldToLister,
+              type: 'MAIN',
+              status: 'SUCCESS',
+              note: `Collateral received after dispute resolution for order ${order.orderId}`,
+              orderId: order.id,
+            },
+          });
+        }
+      }
+
+      await tx.escrow.update({
+        where: { id: escrow.id },
+        data: { status: 'RELEASED' as any, releasedAt: new Date() },
+      });
+
+      if (
+        order.returnRequest?.status === 'COMPLETED' &&
+        order.status !== 'COMPLETED'
+      ) {
+        await tx.order.update({
+          where: { id: order.id },
+          data: { status: OrderStatus.COMPLETED },
+        });
+      }
+
+      return { updatedDispute };
+    });
+
+    const clientUrl = process.env.CLIENT_URL || '';
+
+    if (order.user?.id) {
+      const disputeLink = `${clientUrl}/renters/dispute`;
+      await this.notificationService.createNotification({
+        userId: order.user.id,
+        title: 'Dispute Resolved',
+        message: `Your dispute for order ${order.orderId} has been resolved.`,
+        type: 'DISPUTE_STATUS',
+        metadata: {
+          disputeId: dispute.disputeId,
+          orderId: order.id,
+          orderNumber: order.orderId,
+          collateralWithheldToLister,
+          collateralReturnedToRenter,
+        },
+        sendEmail: true,
+        emailData: {
+          email: order.user.email,
+          userName: order.user.name,
+          orderId: order.orderId,
+          disputeId: dispute.disputeId,
+          status: 'resolved',
+          disputeLink,
+          collateralWithheldToLister,
+          collateralReturnedToRenter,
+        },
+      });
+    }
+
+    if (lister?.id) {
+      const disputeLink = `${clientUrl}/listers/dispute`;
+      await this.notificationService.createNotification({
+        userId: lister.id,
+        title: 'Dispute Resolved',
+        message: `A dispute for order ${order.orderId} has been resolved.`,
+        type: 'DISPUTE_STATUS',
+        metadata: {
+          disputeId: dispute.disputeId,
+          orderId: order.id,
+          orderNumber: order.orderId,
+          collateralWithheldToLister,
+        },
+        sendEmail: true,
+        emailData: {
+          email: lister.email,
+          userName: lister.name,
+          orderId: order.orderId,
+          disputeId: dispute.disputeId,
+          status: 'resolved',
+          disputeLink,
+          compensationToLister: collateralWithheldToLister,
+          collateralWithheldToLister,
+          collateralReturnedToRenter: 0,
+        },
+      });
+    }
+
+    return {
+      success: true,
+      message: 'Dispute resolved successfully',
+      data: {
+        disputeId: dispute.disputeId,
+        status: 'RESELOVED',
+        refundAmount: rawRefundAmount,
+        listerPayoutReleased: listerPayoutToRelease,
+        collateralWithheldToLister,
+        collateralReturnedToRenter,
+        db: result.updatedDispute,
+      },
+    };
+  }
+
   async assignDispute(disputeId: string, data: { adminId: string }) {
-    const dispute = await this.prisma.dispute.findUnique({ where: { id: disputeId } });
+    const dispute = await this.prisma.dispute.findUnique({
+      where: { id: disputeId },
+    });
     if (!dispute) throw new NotFoundException('Dispute not found');
 
     // Currently schema.prisma does not have an assignedTo field for Disputes
@@ -556,19 +1245,30 @@ export class AdminService {
 
   async getWalletStats() {
     const [totalActive, totalEscrow] = await Promise.all([
-      this.prisma.wallet.aggregate({ _sum: { mainBalance: true, availableBalance: true, collateralBalance: true } }),
+      this.prisma.wallet.aggregate({
+        _sum: {
+          mainBalance: true,
+          availableBalance: true,
+          collateralBalance: true,
+        },
+      }),
       this.prisma.escrow.aggregate({
         where: { status: 'LOCKED' },
         _sum: { collateralAmount: true, rentalAmount: true },
       }),
     ]);
 
-    const escrowBalance = (totalEscrow._sum.collateralAmount || 0) + (totalEscrow._sum.rentalAmount || 0);
+    const escrowBalance =
+      (totalEscrow._sum.collateralAmount || 0) +
+      (totalEscrow._sum.rentalAmount || 0);
 
     return {
       success: true,
       data: {
-        totalWalletBalance: (totalActive._sum.mainBalance || 0) + (totalActive._sum.availableBalance || 0) + (totalActive._sum.collateralBalance || 0),
+        totalWalletBalance:
+          (totalActive._sum.mainBalance || 0) +
+          (totalActive._sum.availableBalance || 0) +
+          (totalActive._sum.collateralBalance || 0),
         totalEscrowBalance: escrowBalance,
       },
     };
@@ -646,8 +1346,13 @@ export class AdminService {
     };
   }
 
-  async releaseEscrow(escrowId: string, data: { amount?: number; note: string }) {
-    const escrow = await this.prisma.escrow.findUnique({ where: { id: escrowId } });
+  async releaseEscrow(
+    escrowId: string,
+    data: { amount?: number; note: string },
+  ) {
+    const escrow = await this.prisma.escrow.findUnique({
+      where: { id: escrowId },
+    });
     if (!escrow) throw new NotFoundException('Escrow not found');
 
     const updated = await this.prisma.escrow.update({
@@ -693,13 +1398,21 @@ export class AdminService {
   }
 
   async exportWallets() {
-    return { success: true, data: { message: 'Wallets exported successfully' } };
+    return {
+      success: true,
+      data: { message: 'Wallets exported successfully' },
+    };
   }
 
-  async getAllWithdrawals(page: number, limit: number, status?: string, search?: string) {
+  async getAllWithdrawals(
+    page: number,
+    limit: number,
+    status?: string,
+    search?: string,
+  ) {
     const skip = (page - 1) * limit;
     const where: any = {};
-    
+
     if (status && status !== 'ALL') {
       where.status = status;
     }
@@ -720,38 +1433,38 @@ export class AdminService {
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
-          user: { 
-            select: { 
-              id: true, 
-              name: true, 
+          user: {
+            select: {
+              id: true,
+              name: true,
               email: true,
               profile: {
                 select: {
-                  avatarUpload: { select: { url: true } }
-                }
-              }
-            } 
+                  avatarUpload: { select: { url: true } },
+                },
+              },
+            },
           },
           bankAccount: {
             select: {
               accountNumber: true,
               bankName: true,
               accountName: true,
-            }
+            },
           },
         },
       }),
     ]);
 
     // Format to match user requested structure
-    const formatted = withdrawals.map(w => ({
+    const formatted = withdrawals.map((w) => ({
       id: w.id,
       userId: w.userId,
       user: {
         id: w.user.id,
         name: w.user.name,
         email: w.user.email,
-        avatar: (w.user as any).profile?.avatarUpload?.url || null
+        avatar: (w.user as any).profile?.avatarUpload?.url || null,
       },
       bankAccount: w.bankAccount,
       amount: w.amount,
@@ -759,7 +1472,7 @@ export class AdminService {
       requestedDate: w.createdAt,
       paidDate: (w as any).paidDate,
       trackingId: (w as any).trackingId,
-      reference: w.reference
+      reference: w.reference,
     }));
 
     return {
@@ -842,15 +1555,27 @@ export class AdminService {
     };
   }
 
-  async updateWithdrawalStatus(withdrawalId: string, status: 'APPROVED' | 'REJECTED', note?: string) {
-    const withdrawal = await this.prisma.withdrawalRequest.findUnique({ where: { id: withdrawalId } });
-    if (!withdrawal) throw new NotFoundException('Withdrawal request not found');
-    if (withdrawal.status !== 'PENDING') throw new BadRequestException(`Withdrawal is already ${withdrawal.status}`);
+  async updateWithdrawalStatus(
+    withdrawalId: string,
+    status: 'APPROVED' | 'REJECTED',
+    note?: string,
+  ) {
+    const withdrawal = await this.prisma.withdrawalRequest.findUnique({
+      where: { id: withdrawalId },
+    });
+    if (!withdrawal)
+      throw new NotFoundException('Withdrawal request not found');
+    if (withdrawal.status !== 'PENDING')
+      throw new BadRequestException(
+        `Withdrawal is already ${withdrawal.status}`,
+      );
 
     if (status === 'REJECTED') {
       // Refund wallet in a transaction
       await this.prisma.$transaction(async (tx) => {
-        const wallet = await (tx as any).wallet.findUnique({ where: { userId: withdrawal.userId } });
+        const wallet = await (tx as any).wallet.findUnique({
+          where: { userId: withdrawal.userId },
+        });
         if (wallet) {
           await (tx as any).wallet.update({
             where: { id: wallet.id },
@@ -859,54 +1584,62 @@ export class AdminService {
               availableBalance: { increment: withdrawal.amount },
             },
           });
-          
+
           await (tx as any).walletTransaction.create({
             data: {
               walletId: wallet.id,
-              type: "MAIN",
+              type: 'MAIN',
               amount: withdrawal.amount,
-              status: "SUCCESS",
-              note: `Refund for rejected withdrawal request (Ref: ${withdrawal.reference})`
-            }
+              status: 'SUCCESS',
+              note: `Refund for rejected withdrawal request (Ref: ${withdrawal.reference})`,
+            },
           });
         }
-        
+
         await (tx as any).withdrawalRequest.update({
           where: { id: withdrawalId },
-          data: { 
+          data: {
             status: (status as string) === 'APPROVED' ? 'approved' : 'rejected',
             processedAt: new Date(),
-          }
+          },
         });
       });
     } else {
       await this.prisma.withdrawalRequest.update({
         where: { id: withdrawalId },
-        data: { status }
+        data: { status },
       });
     }
 
     // Trigger Notification
     await this.notificationService.createNotification({
-        userId: withdrawal.userId,
-        title: `Withdrawal ${status === 'APPROVED' ? 'Approved' : 'Rejected'}`,
-        message: `Your withdrawal request of NGN ${withdrawal.amount} (Ref: ${withdrawal.reference}) has been ${status.toLowerCase()}.`,
-        type: "WITHDRAWAL_STATUS",
-        metadata: { withdrawalId: withdrawal.id, status },
-        sendEmail: true,
-        emailData: {
-            email: (await this.prisma.user.findUnique({ where: { id: withdrawal.userId } }))?.email,
-            userName: (await this.prisma.user.findUnique({ where: { id: withdrawal.userId } }))?.name,
-            amount: withdrawal.amount,
-            reference: withdrawal.reference,
-            status: status,
-        }
+      userId: withdrawal.userId,
+      title: `Withdrawal ${status === 'APPROVED' ? 'Approved' : 'Rejected'}`,
+      message: `Your withdrawal request of NGN ${withdrawal.amount} (Ref: ${withdrawal.reference}) has been ${status.toLowerCase()}.`,
+      type: 'WITHDRAWAL_STATUS',
+      metadata: { withdrawalId: withdrawal.id, status },
+      sendEmail: true,
+      emailData: {
+        email: (
+          await this.prisma.user.findUnique({
+            where: { id: withdrawal.userId },
+          })
+        )?.email,
+        userName: (
+          await this.prisma.user.findUnique({
+            where: { id: withdrawal.userId },
+          })
+        )?.name,
+        amount: withdrawal.amount,
+        reference: withdrawal.reference,
+        status: status,
+      },
     });
 
     return {
       success: true,
       message: `Withdrawal ${status.toLowerCase()} successfully`,
-      data: { status }
+      data: { status },
     };
   }
 
@@ -1022,9 +1755,12 @@ export class AdminService {
       }
     }
 
-    // Revenue for this months rentals (prorated or just simple sum if it starts this month?) 
+    // Revenue for this months rentals (prorated or just simple sum if it starts this month?)
     // User requested "totalRentalRevenue" - typically means revenue from orders placed/active this month.
-    totalRentalRevenue = orders.reduce((sum, o: any) => sum + (o.rentals?.[0]?.totalAmount || 0), 0);
+    totalRentalRevenue = orders.reduce(
+      (sum, o: any) => sum + (o.rentals?.[0]?.totalAmount || 0),
+      0,
+    );
 
     // Current status
     const now = new Date();
@@ -1047,9 +1783,12 @@ export class AdminService {
         productId,
         month,
         year,
-        nextAvailableDate: nextAvailable?.startDate.toISOString().split('T')[0] || null,
+        nextAvailableDate:
+          nextAvailable?.startDate.toISOString().split('T')[0] || null,
         currentlyRented: !!currentRental,
-        currentRentalEndDate: currentRental?.rentals?.[0]?.endDate?.toISOString().split('T')[0] || null,
+        currentRentalEndDate:
+          currentRental?.rentals?.[0]?.endDate?.toISOString().split('T')[0] ||
+          null,
         stats: {
           daysRentedThisMonth,
           totalRentalsThisMonth: orders.length,
@@ -1075,7 +1814,10 @@ export class AdminService {
       where: {
         OR: [
           { targetType: 'PRODUCT', targetId: productId },
-          { targetType: 'ORDER', details: { path: ['productId'], equals: productId } as any },
+          {
+            targetType: 'ORDER',
+            details: { path: ['productId'], equals: productId } as any,
+          },
         ],
       },
       include: { admin: { select: { id: true, name: true, email: true } } },
@@ -1142,7 +1884,10 @@ export class AdminService {
         metadata: { orderId: order.id },
       });
 
-      if (order.status === OrderStatus.COMPLETED || order.status === OrderStatus.RETURNED) {
+      if (
+        order.status === OrderStatus.COMPLETED ||
+        order.status === OrderStatus.RETURNED
+      ) {
         activities.push({
           id: `returned_${order.id}`,
           type: 'returned',
@@ -1156,7 +1901,10 @@ export class AdminService {
     }
 
     // Sort all by timestamp descending
-    activities.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    activities.sort(
+      (a, b) =>
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+    );
 
     return {
       success: true,
@@ -1167,7 +1915,11 @@ export class AdminService {
     };
   }
 
-  async getProductsByStatus(status: 'PENDING' | 'REJECTED' | 'APPROVED', page: number, limit: number) {
+  async getProductsByStatus(
+    status: 'PENDING' | 'REJECTED' | 'APPROVED',
+    page: number,
+    limit: number,
+  ) {
     const skip = (page - 1) * limit;
     const [total, products] = await this.prisma.$transaction([
       this.prisma.product.count({ where: { status: status as any } }),
@@ -1226,8 +1978,14 @@ export class AdminService {
     return { success: true, data: product };
   }
 
-  async updateProductStatus(productId: string, status: 'APPROVED' | 'REJECTED', reason?: string) {
-    const product = await this.prisma.product.findUnique({ where: { id: productId } });
+  async updateProductStatus(
+    productId: string,
+    status: 'APPROVED' | 'REJECTED',
+    reason?: string,
+  ) {
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+    });
     if (!product) throw new NotFoundException('Product not found');
 
     const updated = await this.prisma.product.update({
@@ -1247,7 +2005,9 @@ export class AdminService {
   }
 
   async deleteProduct(productId: string) {
-    const product = await this.prisma.product.findUnique({ where: { id: productId } });
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+    });
     if (!product) throw new NotFoundException('Product not found');
 
     await this.prisma.product.delete({
@@ -1262,7 +2022,9 @@ export class AdminService {
 
   /* USERS */
   async getAllUsers() {
-    const users = await this.prisma.user.findMany({ select: { id: true, name: true, email: true, role: true, profile: true } });
+    const users = await this.prisma.user.findMany({
+      select: { id: true, name: true, email: true, role: true, profile: true },
+    });
     return { success: true, data: { users, total: users.length } };
   }
   async getUserDetails(userId: string) {
@@ -1302,7 +2064,9 @@ export class AdminService {
     return { success: true, data: rentals };
   }
   async getUserListings(userId: string) {
-    const listings = await this.prisma.product.findMany({ where: { curatorId: userId } });
+    const listings = await this.prisma.product.findMany({
+      where: { curatorId: userId },
+    });
     return { success: true, data: listings };
   }
   async getUserWallet(userId: string) {
@@ -1312,7 +2076,9 @@ export class AdminService {
   async getUserTransactions(userId: string) {
     const wallet = await this.prisma.wallet.findUnique({ where: { userId } });
     if (!wallet) return { success: true, data: [] };
-    const transactions = await this.prisma.walletTransaction.findMany({ where: { walletId: wallet.id } });
+    const transactions = await this.prisma.walletTransaction.findMany({
+      where: { walletId: wallet.id },
+    });
     return { success: true, data: transactions };
   }
   async getUserDisputes(userId: string) {
@@ -1320,7 +2086,10 @@ export class AdminService {
     return { success: true, data: disputes };
   }
   async getUserFavorites(userId: string) {
-    const favorites = await this.prisma.favourite.findMany({ where: { userId }, include: { product: true } });
+    const favorites = await this.prisma.favourite.findMany({
+      where: { userId },
+      include: { product: true },
+    });
     return { success: true, data: favorites };
   }
 
@@ -1331,36 +2100,72 @@ export class AdminService {
   }
   async getAllOrders(page: number, limit: number, status?: string) {
     const where = status && status !== 'ALL' ? { status: status as any } : {};
-    
-    const [total, orders, totalListings, completedOrders, activeOrders, disputedOrders, revenue] = await this.prisma.$transaction([
+
+    const [
+      total,
+      orders,
+      totalListings,
+      completedOrders,
+      activeOrders,
+      disputedOrders,
+      revenue,
+    ] = await this.prisma.$transaction([
       this.prisma.order.count({ where }),
-      this.prisma.order.findMany({ 
-        where, 
-        skip: (page - 1) * limit, 
-        take: limit, 
+      this.prisma.order.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
         orderBy: { createdAt: 'desc' },
-        include: { 
-          orderItems: { include: { product: { include: { curator: { include: { profile: { include: { avatarUpload: true } } } } } } } },
-          rentals: { include: { curator: { include: { profile: { include: { avatarUpload: true } } } } } } as any,
+        include: {
+          orderItems: {
+            include: {
+              product: {
+                include: {
+                  curator: {
+                    include: { profile: { include: { avatarUpload: true } } },
+                  },
+                },
+              },
+            },
+          },
+          rentals: {
+            include: {
+              curator: {
+                include: { profile: { include: { avatarUpload: true } } },
+              },
+            },
+          } as any,
           user: { include: { profile: { include: { avatarUpload: true } } } },
-          payments: { take: 1, orderBy: { createdAt: 'desc' } }
-        } 
+          payments: { take: 1, orderBy: { createdAt: 'desc' } },
+        },
       }),
       this.prisma.product.count(),
       this.prisma.order.count({ where: { status: 'COMPLETED' } }),
-      this.prisma.order.count({ where: { status: { in: ['CONFIRMED', 'IN_TRANSIT', 'DELIVERED', 'ACTIVE'] } } }),
+      this.prisma.order.count({
+        where: {
+          status: { in: ['CONFIRMED', 'IN_TRANSIT', 'DELIVERED', 'ACTIVE'] },
+        },
+      }),
       this.prisma.dispute.count(),
-      this.prisma.transaction.aggregate({ where: { status: 'SUCCESS' }, _sum: { amount: true } })
+      this.prisma.transaction.aggregate({
+        where: { status: 'SUCCESS' },
+        _sum: { amount: true },
+      }),
     ]);
 
     const formattedOrders = orders.map((o: any) => {
       // Determine total amount
       const rental = o.rentals?.[0];
-      const totalAmount = rental?.totalAmount || o.orderItems.reduce((sum: number, item: any) => sum + (item.pricePerDay * item.days), 0);
-      
+      const totalAmount =
+        rental?.totalAmount ||
+        o.orderItems.reduce(
+          (sum: number, item: any) => sum + item.pricePerDay * item.days,
+          0,
+        );
+
       // Determine curator (from rental or first order item)
       const curatorUser = rental?.curator || o.orderItems[0]?.product?.curator;
-      
+
       // Determine if payment reference exists
       const paymentRef = o.payments?.[0]?.referenceId || null;
 
@@ -1373,59 +2178,85 @@ export class AdminService {
 
       return {
         id: o.orderId,
-        date: o.createdAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-        curator: curatorUser ? {
-          id: curatorUser.id,
-          name: curatorUser.name,
-          avatar: curatorUser.profile?.avatarUpload?.url || null
-        } : null,
-        dresser: o.user ? {
-          id: o.user.id,
-          name: o.user.name,
-          avatar: o.user.profile?.avatarUpload?.url || null
-        } : null,
+        date: o.createdAt.toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        }),
+        curator: curatorUser
+          ? {
+              id: curatorUser.id,
+              name: curatorUser.name,
+              avatar: curatorUser.profile?.avatarUpload?.url || null,
+            }
+          : null,
+        dresser: o.user
+          ? {
+              id: o.user.id,
+              name: o.user.name,
+              avatar: o.user.profile?.avatarUpload?.url || null,
+            }
+          : null,
         items: o.orderItems.length,
         total: totalAmount,
         status: displayStatus,
-        returnDue: o.returnDueAt ? o.returnDueAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null,
-        paymentReference: paymentRef
+        returnDue: o.returnDueAt
+          ? o.returnDueAt.toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric',
+            })
+          : null,
+        paymentReference: paymentRef,
       };
     });
 
-    return { 
-      success: true, 
+    return {
+      success: true,
       data: {
         orders: formattedOrders,
         pagination: {
           total,
           page,
           limit,
-          pages: Math.ceil(total / limit)
+          pages: Math.ceil(total / limit),
         },
         stats: {
           totalListings,
           completedOrders,
           activeOrders,
           disputedOrders,
-          totalRevenue: revenue._sum.amount || 0
-        }
-      }
+          totalRevenue: revenue._sum.amount || 0,
+        },
+      },
     };
   }
   async exportOrders() {
     return { success: true, data: { message: 'Export initiated' } };
   }
   async getOrderDetails(orderId: string) {
-    const order = await this.prisma.order.findUnique({ where: { orderId }, include: { orderItems: true, user: true } });
+    const order = await this.prisma.order.findUnique({
+      where: { orderId },
+      include: { orderItems: true, user: true },
+    });
     if (!order) throw new NotFoundException('Order not found');
     return { success: true, data: order };
   }
-  async updateOrderStatus(orderId: string, data: { status: string; note: string }) {
-    const order = await this.prisma.order.update({ where: { orderId }, data: { status: data.status as any } });
+  async updateOrderStatus(
+    orderId: string,
+    data: { status: string; note: string },
+  ) {
+    const order = await this.prisma.order.update({
+      where: { orderId },
+      data: { status: data.status as any },
+    });
     return { success: true, data: order };
   }
   async cancelOrder(orderId: string, data: { reason: string }) {
-    const order = await this.prisma.order.update({ where: { orderId }, data: { status: 'CANCELLED' as any } });
+    const order = await this.prisma.order.update({
+      where: { orderId },
+      data: { status: 'CANCELLED' as any },
+    });
     return { success: true, data: order };
   }
   async getOrderActivity(orderId: string) {
@@ -1445,14 +2276,20 @@ export class AdminService {
           order: {
             include: {
               user: { include: { profile: true } },
-              orderItems: { include: { product: { include: { curator: { include: { profile: true } } } } } }
-            }
-          }
-        }
-      })
+              orderItems: {
+                include: {
+                  product: {
+                    include: { curator: { include: { profile: true } } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
     ]);
 
-    const formattedReturns = returns.map(r => {
+    const formattedReturns = returns.map((r) => {
       const order = r.order as any;
       const lister = order.orderItems[0]?.product?.curator;
       return {
@@ -1466,14 +2303,16 @@ export class AdminService {
         renter: {
           id: order.user?.id,
           name: order.user?.name,
-          avatar: order.user?.profile?.avatarUpload?.url || null
+          avatar: order.user?.profile?.avatarUpload?.url || null,
         },
-        lister: lister ? {
-          id: lister.id,
-          name: lister.name,
-          avatar: lister.profile?.avatarUpload?.url || null
-        } : null,
-        itemName: order.orderItems[0]?.product?.name || 'Multiple items'
+        lister: lister
+          ? {
+              id: lister.id,
+              name: lister.name,
+              avatar: lister.profile?.avatarUpload?.url || null,
+            }
+          : null,
+        itemName: order.orderItems[0]?.product?.name || 'Multiple items',
       };
     });
 
@@ -1485,9 +2324,9 @@ export class AdminService {
           total,
           page,
           limit,
-          pages: Math.ceil(total / limit)
-        }
-      }
+          pages: Math.ceil(total / limit),
+        },
+      },
     };
   }
 }

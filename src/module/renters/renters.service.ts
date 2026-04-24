@@ -2,13 +2,16 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { PrismaService } from '../../services/prisma/prisma.service';
 import { UploadService } from '../upload/upload.service';
 import { WemaServiceService } from '../../services/wema-service/wema-service.service';
+import { TopshipService } from '../../services/topship/topship.service';
 import { randomUUID } from 'crypto';
 import { Role } from '@prisma/client';
 import { addMinutes } from 'date-fns';
+import { createAttachments } from 'prisma/prisma.utils';
 
 import { NotificationService } from '../../services/notification/notification.service';
 import { assertNoOpenAvailabilityRequestForProduct } from '../../utils/assert-no-open-availability-for-product';
@@ -26,6 +29,7 @@ export class RentersService {
     private uploadService: UploadService,
     private wemaService: WemaServiceService,
     private notificationService: NotificationService,
+    private topshipService: TopshipService,
   ) {}
 
   /** Accepts ISO strings, timestamps, or Date; rejects invalid / missing values. */
@@ -437,7 +441,7 @@ export class RentersService {
     }
 
     // Explicit casting to allow access to transactions if inferred type is incomplete due to include
-    const safeWallet = wallet as any;
+    const safeWallet = wallet;
 
     const activeRentals = await this.prisma.rental.findMany({
       where: { userId, isReturned: false, days: { gt: 0 } },
@@ -628,7 +632,9 @@ export class RentersService {
     const reference = `WD-${randomUUID().split('-')[0].toUpperCase()}`;
 
     const withdrawal = await this.prisma.$transaction(async (tx) => {
-      const w = await (tx as any).wallet.findUnique({ where: { id: wallet.id } });
+      const w = await (tx as any).wallet.findUnique({
+        where: { id: wallet.id },
+      });
       if (!w) throw new BadRequestException('Insufficient wallet balance');
 
       if (w.availableBalance < amount) {
@@ -706,9 +712,7 @@ export class RentersService {
         include: { cart: true },
       });
       if (!line || line.cart.userId !== userId) {
-        throw new BadRequestException(
-          'cartItemId does not match your cart',
-        );
+        throw new BadRequestException('cartItemId does not match your cart');
       }
       if (line.productId !== data.productId) {
         throw new BadRequestException(
@@ -743,20 +747,14 @@ export class RentersService {
     );
 
     const startRaw =
-      data.rentalStartDate ??
-      data.startDate ??
-      data.rental_start_date;
-    const endRaw =
-      data.rentalEndDate ?? data.endDate ?? data.rental_end_date;
+      data.rentalStartDate ?? data.startDate ?? data.rental_start_date;
+    const endRaw = data.rentalEndDate ?? data.endDate ?? data.rental_end_date;
 
     // For resale items (days = 0), startDate/endDate are not required
     let startDate: Date | null = null;
     let endDate: Date | null = null;
     if (data.rentalDays && data.rentalDays > 0) {
-      startDate = this.parseRentalBoundaryDate(
-        startRaw,
-        'Rental start date',
-      );
+      startDate = this.parseRentalBoundaryDate(startRaw, 'Rental start date');
       endDate = this.parseRentalBoundaryDate(endRaw, 'Rental end date');
       if (endDate.getTime() < startDate.getTime()) {
         bad('Rental end date must be on or after the start date');
@@ -791,7 +789,9 @@ export class RentersService {
     // Determine if this is a resale request (days = 0)
     const isResaleRequest = request.rentalDays === 0;
     const requestType = isResaleRequest ? 'Purchase Request' : 'Rental Request';
-    const requestTypeLower = isResaleRequest ? 'purchase request' : 'rental request';
+    const requestTypeLower = isResaleRequest
+      ? 'purchase request'
+      : 'rental request';
 
     // Notify Lister
     await this.notificationService.createNotification({
@@ -1033,7 +1033,10 @@ export class RentersService {
           where: { id: requestId },
           data: { status: 'CANCELLED_BY_RENTER' },
         });
-        const emailData = buildListerWithdrawRentalRequestEmailContext(r, false);
+        const emailData = buildListerWithdrawRentalRequestEmailContext(
+          r,
+          false,
+        );
         listerNotifies.push({
           listerId: r.listerId,
           productName: emailData.productName,
@@ -1247,7 +1250,8 @@ export class RentersService {
               listingType: i.product?.listingType,
               days: i.days,
               rentalDays: i.days,
-              imageUrl: i.imageUrl || i.product?.attachments?.uploads?.[0]?.url || null,
+              imageUrl:
+                i.imageUrl || i.product?.attachments?.uploads?.[0]?.url || null,
             })),
             totalAmount: totalAmount,
             status: o.status,
@@ -1299,7 +1303,9 @@ export class RentersService {
 
     const productIds = [
       ...new Set(
-        (typedOrder.orderItems as any[]).map((i) => i.productId).filter(Boolean),
+        (typedOrder.orderItems as any[])
+          .map((i) => i.productId)
+          .filter(Boolean),
       ),
     ] as string[];
     const availRows =
@@ -1337,6 +1343,17 @@ export class RentersService {
           status: typedOrder.status,
           createdAt: typedOrder.createdAt,
           totalAmount: totalAmount,
+          rentalId: rentals.length === 1 ? (rentals[0]?.id ?? null) : null,
+          rentals: rentals.map((r: any) => ({
+            id: r.id,
+            productId: r.productId,
+            curatorId: r.curatorId,
+            startDate: r.startDate,
+            endDate: r.endDate,
+            returnedAt: r.returnedAt,
+            isReturned: r.isReturned,
+            isOverdue: r.isOverdue,
+          })),
           rentalStartDate: rentals[0]?.startDate || null,
           rentalEndDate: rentals[0]?.endDate || null,
           deliveryFee: typedOrder.deliveryFee || 0,
@@ -1356,19 +1373,21 @@ export class RentersService {
               null,
           },
           items: typedOrder.orderItems.map((i: any) => {
-            const rentalRow = rentals.find((r: any) => r.productId === i.productId);
+            const rentalRow = rentals.find(
+              (r: any) => r.productId === i.productId,
+            );
             const avail = availByProduct.get(i.productId);
             const rentalStartDate =
               rentalRow?.startDate ?? avail?.startDate ?? null;
             const rentalEndDate = rentalRow?.endDate ?? avail?.endDate ?? null;
 
-            const cleaningFee =
-              i.cleaningFee ?? DEFAULT_CLEANING_FEE_NGN;
+            const cleaningFee = i.cleaningFee ?? DEFAULT_CLEANING_FEE_NGN;
             const collateralFee =
               i.collateralFee ??
               (Number(
                 i.product?.collateralPrice ?? i.product?.originalValue ?? 0,
-              ) || 0);
+              ) ||
+                0);
 
             return {
               id: i.product?.id || i.productId,
@@ -1381,7 +1400,7 @@ export class RentersService {
               imageUrl:
                 i.imageUrl ||
                 i.product?.attachments?.uploads?.[0]?.url ||
-                (i.product as any)?.images?.[0] ||
+                i.product?.images?.[0] ||
                 null,
               rentalFee: i.rentalFee || i.pricePerDay * i.days,
               cleaningFee,
@@ -1671,15 +1690,15 @@ export class RentersService {
 
   async getDisputeStats(userId: string) {
     const [total, pending, inReview, resolved] = await Promise.all([
-      this.prisma.dispute.count({ where: { userId } }),
+      this.prisma.dispute.count({ where: { order: { is: { userId } } } }),
       this.prisma.dispute.count({
-        where: { userId, status: 'PENDING' },
+        where: { order: { is: { userId } }, status: 'PENDING' },
       }),
       this.prisma.dispute.count({
-        where: { userId, status: 'IN_REVIEW' },
+        where: { order: { is: { userId } }, status: 'IN_REVIEW' },
       }),
       this.prisma.dispute.count({
-        where: { userId, status: 'RESELOVED' },
+        where: { order: { is: { userId } }, status: 'RESELOVED' },
       }),
     ]);
 
@@ -1705,14 +1724,15 @@ export class RentersService {
     const skip = (page - 1) * limit;
     const status = query.status || 'all';
 
-    const where: any = { userId };
+    const where: any = { order: { is: { userId } } };
     if (status && status !== 'all') {
       const map: Record<string, string> = {
         pending: 'PENDING',
         in_review: 'IN_REVIEW',
         resolved: 'RESELOVED',
       };
-      where.status = map[status] || undefined;
+      const mappedStatus = map[status];
+      if (mappedStatus) where.status = mappedStatus;
     }
 
     const [total, disputes] = await this.prisma.$transaction([
@@ -1761,6 +1781,8 @@ export class RentersService {
       issueCategory: string;
       description: string;
       amountDisputed: number;
+      preferredResolution?: string;
+      evidenceFiles?: string[];
     },
   ) {
     const order = await this.prisma.order.findUnique({
@@ -1769,17 +1791,122 @@ export class RentersService {
     if (!order || order.userId !== userId)
       throw new NotFoundException('Order not found');
 
+    const existing = await this.prisma.dispute.findFirst({
+      where: { orderId: order.id },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new BadRequestException('A dispute already exists for this order');
+    }
+
+    const raisedBy = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, role: true },
+    });
+
     const dispute = await this.prisma.dispute.create({
       data: {
         disputeId: `DSP-${Date.now()}`,
         issueCategory: data.issueCategory,
         description: data.description,
+        preferredResolution: data.preferredResolution,
         orderId: order.id,
         userId,
         status: 'PENDING',
         chatRooms: { create: {} },
+        attachment: createAttachments(data.evidenceFiles),
       },
     });
+
+    const orderWithLister = await this.prisma.order.findUnique({
+      where: { id: order.id },
+      include: {
+        rentals: { select: { curatorId: true } },
+        orderItems: {
+          take: 1,
+          include: { product: { include: { curator: true } } },
+        },
+      },
+    });
+
+    const listerUserId =
+      (orderWithLister as any)?.rentals?.[0]?.curatorId ??
+      (orderWithLister as any)?.orderItems?.[0]?.product?.curator?.id ??
+      order.listerId ??
+      null;
+
+    const listerUser = listerUserId
+      ? await this.prisma.user.findUnique({
+          where: { id: listerUserId },
+          select: { id: true, name: true, email: true },
+        })
+      : null;
+
+    const admins = await this.prisma.user.findMany({
+      where: { role: 'ADMIN' },
+      select: { id: true, name: true, email: true },
+    });
+
+    const clientUrl = process.env.CLIENT_URL || '';
+    const adminLink = `${clientUrl}/admin/k340eol21/disputes`;
+
+    await Promise.all(
+      admins.map((admin) =>
+        this.notificationService.createNotification({
+          userId: admin.id,
+          title: 'New Dispute Created',
+          message: `A new dispute ${dispute.disputeId} was created for order ${order.orderId}.`,
+          type: 'DISPUTE_CREATED',
+          metadata: {
+            disputeId: dispute.disputeId,
+            disputeDbId: dispute.id,
+            orderId: order.id,
+            orderNumber: order.orderId,
+            raisedByUserId: userId,
+          },
+          sendEmail: true,
+          emailData: {
+            email: admin.email,
+            adminName: admin.name,
+            disputeId: dispute.disputeId,
+            orderId: order.orderId,
+            raisedByName: raisedBy?.name ?? 'User',
+            raisedByRole: raisedBy?.role ?? 'USER',
+            category: data.issueCategory,
+            description: data.description,
+            adminLink,
+          },
+        }),
+      ),
+    );
+
+    if (listerUser) {
+      const disputeLink = `${clientUrl}/listers/dispute`;
+      await this.notificationService.createNotification({
+        userId: listerUser.id,
+        title: 'New Dispute Created',
+        message: `A dispute has been raised for order ${order.orderId}.`,
+        type: 'DISPUTE_STATUS',
+        metadata: {
+          disputeId: dispute.disputeId,
+          disputeDbId: dispute.id,
+          orderId: order.id,
+          orderNumber: order.orderId,
+        },
+        sendEmail: true,
+        emailData: {
+          email: listerUser.email,
+          userName: listerUser.name,
+          disputeId: dispute.disputeId,
+          orderId: order.orderId,
+          status: 'created',
+          category: data.issueCategory,
+          description: data.description,
+          preferredResolution: dispute.preferredResolution ?? undefined,
+          disputeLink,
+        },
+      });
+    }
 
     return {
       success: true,
@@ -1801,12 +1928,16 @@ export class RentersService {
     const dispute = await this.prisma.dispute.findUnique({
       where: { disputeId },
       include: {
-        order: { include: { orderItems: { include: { product: true } } } },
+        order: {
+          include: {
+            orderItems: { include: { product: true } },
+          },
+        },
         chatRooms: { include: { message: true } },
       },
     });
 
-    if (!dispute || dispute.userId !== userId)
+    if (!dispute || dispute.order?.userId !== userId)
       throw new NotFoundException('Dispute not found');
 
     return {
@@ -1842,7 +1973,7 @@ export class RentersService {
       },
     });
 
-    if (!dispute || dispute.userId !== userId)
+    if (!dispute || dispute.order?.userId !== userId)
       throw new NotFoundException('Dispute not found');
 
     return {
@@ -1854,7 +1985,7 @@ export class RentersService {
           orderID: dispute.order?.orderId || null,
           category: dispute.issueCategory,
           dateSubmitted: dispute.createdAt.toISOString(),
-          preferredResolution: 'Full Refund',
+          preferredResolution: dispute.preferredResolution || 'Full Refund',
           description: dispute.description,
         },
       },
@@ -1864,10 +1995,10 @@ export class RentersService {
   async getDisputeEvidence(userId: string, disputeId: string) {
     const dispute = await this.prisma.dispute.findUnique({
       where: { disputeId },
-      include: { attachment: { include: { uploads: true } } },
+      include: { attachment: { include: { uploads: true } }, order: true },
     });
 
-    if (!dispute || dispute.userId !== userId)
+    if (!dispute || dispute.order?.userId !== userId)
       throw new NotFoundException('Dispute not found');
 
     const files = dispute.attachment?.uploads
@@ -1889,9 +2020,10 @@ export class RentersService {
   async getDisputeTimeline(userId: string, disputeId: string) {
     const dispute = await this.prisma.dispute.findUnique({
       where: { disputeId },
+      include: { order: true },
     });
 
-    if (!dispute || dispute.userId !== userId)
+    if (!dispute || dispute.order?.userId !== userId)
       throw new NotFoundException('Dispute not found');
 
     return {
@@ -1918,9 +2050,10 @@ export class RentersService {
   async getDisputeResolution(userId: string, disputeId: string) {
     const dispute = await this.prisma.dispute.findUnique({
       where: { disputeId },
+      include: { order: true },
     });
 
-    if (!dispute || dispute.userId !== userId)
+    if (!dispute || dispute.order?.userId !== userId)
       throw new NotFoundException('Dispute not found');
 
     return {
@@ -1949,11 +2082,12 @@ export class RentersService {
     const dispute = await this.prisma.dispute.findUnique({
       where: { disputeId },
       include: {
+        order: true,
         chatRooms: { include: { message: { orderBy: { createdAt: 'asc' } } } },
       },
     });
 
-    if (!dispute || dispute.userId !== userId)
+    if (!dispute || dispute.order?.userId !== userId)
       throw new NotFoundException('Dispute not found');
 
     const messages: any[] = dispute.chatRooms
@@ -1978,21 +2112,27 @@ export class RentersService {
   ) {
     const dispute = await this.prisma.dispute.findUnique({
       where: { disputeId },
-      include: { chatRooms: true },
+      include: { chatRooms: true, order: true },
     });
 
-    if (!dispute || dispute.userId !== userId)
+    if (!dispute || dispute.order?.userId !== userId)
       throw new NotFoundException('Dispute not found');
 
-    if (!dispute.chatRooms)
-      throw new BadRequestException('Chat room not initialized');
+    let room = dispute.chatRooms;
+    if (!room) {
+      room = await this.prisma.chatRoom.create({
+        data: {
+          disputeId: dispute.id,
+        },
+      });
+    }
 
     const msg = await this.prisma.message.create({
       data: {
         senderId: userId,
         senderRole: 'renter',
         content: data.message,
-        chatRoomId: dispute.chatRooms.id,
+        chatRoomId: room.id,
       },
     });
 
@@ -2087,7 +2227,10 @@ export class RentersService {
   ) {
     const order = await this.prisma.order.findUnique({
       where: { orderId }, // Use orderId mapping
-      include: { returnRequest: true, orderItems: { include: { product: true } } },
+      include: {
+        returnRequest: true,
+        orderItems: { include: { product: true } },
+      },
     });
 
     if (!order) {
@@ -2106,7 +2249,7 @@ export class RentersService {
 
     // Block return requests for purchase orders (rentalDays=0)
     const isPurchaseOrder = (order.orderItems as any[]).some(
-      (item) => item.days === 0
+      (item) => item.days === 0,
     );
     if (isPurchaseOrder) {
       throw new BadRequestException(
@@ -2131,7 +2274,7 @@ export class RentersService {
       this.prisma.returnRequest.create({
         data: {
           orderId: order.id,
-          itemCondition: (data.itemCondition || 'GOOD').toUpperCase() as any,
+          itemCondition: (data.itemCondition || 'GOOD').toUpperCase(),
           damageNotes: data.damageNotes,
           imageUrls,
         },
@@ -2189,6 +2332,87 @@ export class RentersService {
     };
   }
 
+  async getReturnShippingRates(userId: string, orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { orderId },
+      include: {
+        user: { include: { profile: { include: { address: true } } } },
+        orderItems: {
+          include: {
+            product: {
+              include: {
+                curator: {
+                  include: {
+                    profile: { include: { businessInfo: true, address: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!order || order.userId !== userId) {
+      throw new NotFoundException('Order not found');
+    }
+
+    const renterProfile = order.user.profile;
+    const firstItem = order.orderItems[0];
+    const curatorProfile = firstItem.product.curator.profile;
+    const curatorBusiness = curatorProfile?.businessInfo;
+    const curatorAddress = curatorProfile?.address;
+
+    const senderCity = renterProfile?.address?.city || 'Lagos';
+    const receiverCity =
+      curatorBusiness?.businessCity || curatorAddress?.city || 'Lagos';
+
+    const ratePayload = {
+      senderDetail: {
+        addressLine1: renterProfile?.address?.street || 'Lagos, Nigeria',
+        addressLine2: '',
+        country: 'Nigeria',
+        countryCode: 'NG',
+        state: renterProfile?.address?.state || 'Lagos',
+        city: senderCity,
+      },
+      receiverDetail: {
+        addressLine1:
+          curatorBusiness?.businessAddress ||
+          curatorAddress?.street ||
+          'Lagos, Nigeria',
+        addressLine2: '',
+        country: 'Nigeria',
+        countryCode: 'NG',
+        state: curatorAddress?.state || 'Lagos',
+        city: receiverCity,
+      },
+      itemDetail: {
+        packageType: 'Parcel',
+        weight: 1,
+        items: order.orderItems.map((oi) => ({
+          category: 'ClothingAndTextile',
+          description: oi.product.name,
+          weight: 1,
+          quantity: 1,
+          value:
+            (oi.product.resalePrice || oi.product.originalValue || 10000) * 100,
+        })),
+      },
+    };
+
+    try {
+      const rates = await this.topshipService.getShipmentRate(ratePayload);
+      return {
+        success: true,
+        data: rates,
+      };
+    } catch (error) {
+      console.error('[RentersService] Error fetching return rates:', error);
+      throw new InternalServerErrorException('Failed to fetch shipping rates');
+    }
+  }
+
   async processReturnWithShipping(
     userId: string,
     orderId: string,
@@ -2196,9 +2420,19 @@ export class RentersService {
       itemCondition: string;
       damageNotes?: string;
       images?: string[];
+      selectedRate?: {
+        pickupPartner: string;
+        shipmentCharge: number;
+        pickupCharge: number;
+        vatCharge: number;
+        totalCharge: number;
+        pricingTier: string;
+      };
     },
   ) {
-    console.log(`[RentersService] Processing return request for order ${orderId}`);
+    console.log(
+      `[RentersService] Processing return request for order ${orderId}`,
+    );
     const order = await this.prisma.order.findUnique({
       where: { orderId },
       include: {
@@ -2209,7 +2443,7 @@ export class RentersService {
                 curator: {
                   include: {
                     profile: {
-                      include: { businessInfo: true },
+                      include: { businessInfo: true, address: true },
                     },
                   },
                 },
@@ -2234,12 +2468,16 @@ export class RentersService {
     }
 
     if (order.userId !== userId) {
-      console.log(`[RentersService] User ${userId} not authorized for order ${orderId}`);
+      console.log(
+        `[RentersService] User ${userId} not authorized for order ${orderId}`,
+      );
       throw new BadRequestException('Not authorized to return this order');
     }
 
     if (order.returnRequest) {
-      console.log(`[RentersService] Return request already exists for order ${orderId}`);
+      console.log(
+        `[RentersService] Return request already exists for order ${orderId}`,
+      );
       throw new BadRequestException(
         'Return request already exists for this order',
       );
@@ -2250,7 +2488,9 @@ export class RentersService {
       (item: any) => item.days === 0,
     );
     if (isPurchaseOrder) {
-      console.log(`[RentersService] Purchase order ${orderId} cannot be returned`);
+      console.log(
+        `[RentersService] Purchase order ${orderId} cannot be returned`,
+      );
       throw new BadRequestException(
         'Return requests are not available for purchase orders',
       );
@@ -2269,6 +2509,151 @@ export class RentersService {
       }
     }
 
+    // Get lister's address for pickup
+    const listerForAddress = order.orderItems[0]?.product?.curator;
+    const listerAddress = listerForAddress?.profile?.address
+      ? `${listerForAddress.profile.address.street}, ${listerForAddress.profile.address.city}, ${listerForAddress.profile.address.state}`
+      : '';
+
+    const renterAddress = order.user.profile?.address
+      ? `${order.user.profile.address.street}, ${order.user.profile.address.city}, ${order.user.profile.address.state}`
+      : '';
+
+    // Book Topship pickup shipment
+    let shipmentId: string | null = null;
+    let trackingNumber: string | null = null;
+    let pickupScheduledAt: Date | null = null;
+
+    try {
+      console.log(
+        `[RentersService] Booking Topship pickup for order ${orderId}`,
+      );
+
+      const firstItem = order.orderItems[0];
+      const curatorProfile = firstItem.product.curator.profile;
+      const curatorBusiness = curatorProfile?.businessInfo;
+      const curatorAddress = curatorProfile?.address;
+
+      const listerCity =
+        curatorBusiness?.businessCity || curatorAddress?.city || 'Lagos';
+      const renterCity = order.user.profile?.address?.city || 'Lagos';
+
+      const description = order.orderItems
+        .map((i: any) => {
+          const p = i.product;
+          return `${p.brand?.name || ''} ${p.name} (${p.color}, ${p.material || ''}, ${p.measurement}, ${p.category?.name || ''})`.trim();
+        })
+        .join(', ');
+
+      const value = order.orderItems.reduce(
+        (acc: number, i: any) =>
+          acc + (i.product.resalePrice || i.product.originalValue || 0),
+        0,
+      );
+
+      const shipmentPayload = {
+        shipment: [
+          {
+            senderDetail: {
+              name: order.user.name || 'Renter',
+              phoneNumber: order.user.profile?.phoneNumber || '08000000000',
+              email: order.user.email || 'renter@relisted.com',
+              city: renterCity,
+              state: order.user.profile?.address?.state || 'Lagos',
+              countryCode: 'NG',
+              addressLine1: renterAddress || 'Lagos, Nigeria',
+              country: 'Nigeria',
+              postalCode: order.user.profile?.address?.zipCode || '1111202',
+            },
+            receiverDetail: {
+              name:
+                curatorBusiness?.businessName || firstItem.product.curator.name,
+              phoneNumber:
+                curatorBusiness?.businessPhone ||
+                curatorProfile?.phoneNumber ||
+                '08000000000',
+              email:
+                curatorBusiness?.businessEmail ||
+                firstItem.product.curator.email ||
+                'lister@relisted.com',
+              city: listerCity,
+              state: curatorAddress?.state || 'Lagos',
+              countryCode: 'NG',
+              addressLine1: listerAddress || 'Lagos, Nigeria',
+              country: 'Nigeria',
+              postalCode: curatorAddress?.zipCode,
+            },
+            pricingTier: data.selectedRate?.pricingTier || 'Budget',
+            insuranceType: 'None',
+            itemCollectionMode: 'PickUp',
+            shipmentRoute: 'Domestic',
+            insuranceCharge: 0,
+            shipmentCharge: (data.selectedRate?.shipmentCharge || 0) * 100, // Convert to Kobo
+            pickupId: `RETURN-PICKUP-${Date.now()}`,
+            pickupPartner: data.selectedRate?.pickupPartner || 'Standard',
+            pickupCharge: (data.selectedRate?.pickupCharge || 0) * 100, // Pickup charge usually separate
+            valueAddedTaxCharge: (data.selectedRate?.vatCharge || 0) * 100,
+            discount: 0,
+            deliveryLocation: listerAddress || 'Lagos, Nigeria',
+            items: [
+              {
+                category: 'ClothingAndTextile',
+                description:
+                  description.substring(0, 200) || 'Return Clothing Item',
+                weight: 1,
+                quantity: order.orderItems.length,
+                value: Number(value) * 100 || 1000000,
+              },
+            ],
+          },
+        ],
+      };
+
+      const shipmentResult =
+        await this.topshipService.bookShipmentAsDraft(shipmentPayload);
+
+      const responseData = shipmentResult?.[0] || shipmentResult?.data?.[0];
+      if (responseData?.id || responseData?.shipmentId) {
+        shipmentId = responseData?.id || responseData?.shipmentId;
+        trackingNumber =
+          responseData?.trackingId || responseData?.trackingNumber;
+        pickupScheduledAt = new Date();
+        pickupScheduledAt.setHours(pickupScheduledAt.getHours() + 24); // Schedule pickup for 24 hours from now
+
+        console.log(
+          `[RentersService] Topship shipment booked: ${shipmentId}, tracking: ${trackingNumber}`,
+        );
+
+        // Trigger Payment for the return shipment
+        if (shipmentId) {
+          console.log(
+            `[RentersService] Paying for return shipment ${shipmentId}...`,
+          );
+          try {
+            await this.topshipService.payForShipment(shipmentId);
+            console.log(
+              `[RentersService] Return shipment ${shipmentId} paid successfully.`,
+            );
+          } catch (payErr: any) {
+            console.error(
+              `[RentersService] Payment for return shipment ${shipmentId} failed:`,
+              payErr.message,
+            );
+          }
+        }
+      } else {
+        console.warn(
+          `[RentersService] Failed to book Topship shipment, continuing without shipping. Response:`,
+          JSON.stringify(shipmentResult),
+        );
+      }
+    } catch (error) {
+      console.error(`[RentersService] Error booking Topship shipment:`, error);
+      console.warn(
+        `[RentersService] Continuing with return request without shipping`,
+      );
+    }
+
     // Process in transaction
     console.log(`[RentersService] Starting transaction for order ${orderId}`);
     const result = await this.prisma.$transaction(async (tx) => {
@@ -2280,11 +2665,17 @@ export class RentersService {
           damageNotes: data.damageNotes,
           imageUrls,
           status: 'PENDING_PICKUP',
+          shipmentId,
+          trackingNumber,
+          pickupAddress: renterAddress,
+          pickupScheduledAt,
         },
       });
-      console.log(`[RentersService] Return request created for order ${orderId} with ID ${returnRequest.id}`);
+      console.log(
+        `[RentersService] Return request created for order ${orderId} with ID ${returnRequest.id}`,
+      );
 
-      // Update order status
+      // Update order status and return tracking info
       await tx.order.update({
         where: { id: order.id },
         data: {
@@ -2295,7 +2686,9 @@ export class RentersService {
 
       return returnRequest;
     });
-    console.log(`[RentersService] Transaction completed successfully for order ${orderId}`);
+    console.log(
+      `[RentersService] Transaction completed successfully for order ${orderId}`,
+    );
 
     // Notify lister about return
     const lister = order.orderItems[0]?.product?.curator;
@@ -2305,15 +2698,22 @@ export class RentersService {
         title: 'Return Request Initiated',
         message: `A return has been initiated for order ${order.orderId}. Please coordinate pickup with the renter.`,
         type: 'RETURN_INITIATED',
-        metadata: { orderId: order.id, orderNumber: order.orderId, returnRequestId: result.id },
+        metadata: {
+          orderId: order.id,
+          orderNumber: order.orderId,
+          returnRequestId: result.id,
+        },
         sendEmail: true,
         emailData: {
           email: lister.email,
-          curatorName: lister.profile?.businessInfo?.businessName || lister.name,
+          curatorName:
+            lister.profile?.businessInfo?.businessName || lister.name,
           renterName: order.user.name,
           renterEmail: order.user.email,
           renterPhone: order.user.profile?.phoneNumber || '',
-          renterAddress: order.user.profile?.address ? `${order.user.profile.address.street}, ${order.user.profile.address.city}, ${order.user.profile.address.state}` : '',
+          renterAddress: order.user.profile?.address
+            ? `${order.user.profile.address.street}, ${order.user.profile.address.city}, ${order.user.profile.address.state}`
+            : '',
           orderId: order.orderId,
           itemCondition: data.itemCondition,
           damageNotes: data.damageNotes,

@@ -303,6 +303,11 @@ model Order {
   dispatchedAt          DateTime?
   deliveredAt           DateTime?
   returnDueAt           DateTime?
+  returnShipmentId      String?
+  returnTrackingId      String?
+  returnShippingTier    String?
+  returnShippingFee     Int?
+  returnPickupPartner   String?
   externalTrackingUrl   String?
   shipmentId            String?
   trackingId            String?
@@ -387,6 +392,7 @@ model Dispute {
   userId        String
   issueCategory String
   description   String
+  preferredResolution String?
   status        DisputeStatus @default(PENDING)
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
@@ -626,6 +632,10 @@ model ReturnRequest {
   listerDamageNotes        String?
   listerConfirmationImages String[]
   status                   String         @default("PENDING_PICKUP")
+  shipmentId               String?
+  trackingNumber           String?
+  pickupAddress            String?
+  pickupScheduledAt        DateTime?
   shippedAt                DateTime?
   deliveredAt              DateTime?
   createdAt                DateTime       @default(now())

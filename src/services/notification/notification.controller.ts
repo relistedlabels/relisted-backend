@@ -1,5 +1,10 @@
 import { Controller, Get, Patch, Param, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags, ApiOkResponse } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiTags,
+  ApiOkResponse,
+} from '@nestjs/swagger';
 import { NotificationService } from './notification.service';
 import { Auth, AuthUser } from '../../module/auth/decorator/auth.decorator';
 import { userEntity } from '../../module/auth/auth.types';
