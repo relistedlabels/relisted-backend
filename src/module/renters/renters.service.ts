@@ -1902,6 +1902,7 @@ export class RentersService {
           status: 'created',
           category: data.issueCategory,
           description: data.description,
+          preferredResolution: dispute.preferredResolution ?? undefined,
           disputeLink,
         },
       });

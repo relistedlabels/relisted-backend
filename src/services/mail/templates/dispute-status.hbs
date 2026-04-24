@@ -44,10 +44,23 @@
             <div style="margin-top:6px; color:#111827; line-height:1.45; white-space:pre-wrap;">{{description}}</div>
           </div>
         {{/if}}
+        {{#if preferredResolution}}
+          <div style="margin-top:12px;">
+            <div style="font-size:12px; color:#6b7280;">Preferred resolution</div>
+            <div style="margin-top:6px; color:#111827; line-height:1.45; white-space:pre-wrap;">{{preferredResolution}}</div>
+          </div>
+        {{/if}}
       </div>
 
-      {{#if collateralWithheldToLister}}
-        <p style="margin:14px 0 0;"><strong>Collateral withheld:</strong> {{collateralWithheldToLister}}</p>
+      {{#if compensationToLister}}
+        <p style="margin:14px 0 0;"><strong>Compensation awarded to you:</strong> {{compensationToLister}}</p>
+        <div style="margin-top:6px; color:#6b7280; font-size:12px; line-height:1.45;">
+          This amount was awarded from the renter’s collateral as compensation based on the dispute outcome.
+        </div>
+      {{else}}
+        {{#if collateralWithheldToLister}}
+          <p style="margin:14px 0 0;"><strong>Collateral withheld:</strong> {{collateralWithheldToLister}}</p>
+        {{/if}}
       {{/if}}
       {{#if collateralReturnedToRenter}}
         <p style="margin:10px 0 0;"><strong>Collateral returned:</strong> {{collateralReturnedToRenter}}</p>

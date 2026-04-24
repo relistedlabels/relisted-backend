@@ -6,7 +6,12 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../services/prisma/prisma.service';
 import { NotificationService } from 'src/services/notification/notification.service';
-import { OrderStatus, ProductStatus, Role } from '@prisma/client';
+import {
+  DisputeStatus,
+  OrderStatus,
+  ProductStatus,
+  Role,
+} from '@prisma/client';
 
 @Injectable()
 export class AdminService {
@@ -14,6 +19,28 @@ export class AdminService {
     private prisma: PrismaService,
     private notificationService: NotificationService,
   ) {}
+
+  private getDisputeUniqueWhere(disputeId: string) {
+    return disputeId.startsWith('DQ-') ? { disputeId } : { id: disputeId };
+  }
+
+  private normalizeDisputeStatus(raw: string) {
+    const key = String(raw || '')
+      .trim()
+      .toUpperCase();
+    const map: Record<string, DisputeStatus> = {
+      PENDING: DisputeStatus.PENDING,
+      PENDING_REVIEW: DisputeStatus.PENDING,
+      IN_REVIEW: DisputeStatus.IN_REVIEW,
+      REVIEWING: DisputeStatus.IN_REVIEW,
+      RESOLVED: DisputeStatus.RESELOVED,
+      RESELOVED: DisputeStatus.RESELOVED,
+      REJECTED: DisputeStatus.REJECTED,
+      WITHDRAW: DisputeStatus.WITHDRAW,
+      WITHDRAWN: DisputeStatus.WITHDRAW,
+    };
+    return map[key];
+  }
 
   async getAnalyticsStats(timeframe: string, year?: string, month?: string) {
     const totalRentees = await this.prisma.user.count({
@@ -523,8 +550,25 @@ export class AdminService {
   async getAllDisputes(page: number, limit: number, status?: string) {
     const skip = (page - 1) * limit;
     const where: any = {};
-    if (status && status !== 'ALL') {
-      where.status = status as any;
+
+    if (status) {
+      const raw = String(status).trim();
+      if (raw && raw.toUpperCase() !== 'ALL') {
+        const key = raw.toUpperCase();
+        const map: Record<string, string> = {
+          PENDING: 'PENDING',
+          PENDING_REVIEW: 'PENDING',
+          IN_REVIEW: 'IN_REVIEW',
+          REVIEWING: 'IN_REVIEW',
+          RESOLVED: 'RESELOVED',
+          RESELOVED: 'RESELOVED',
+          REJECTED: 'REJECTED',
+          WITHDRAW: 'WITHDRAW',
+          WITHDRAWN: 'WITHDRAW',
+        };
+        const normalized = map[key];
+        if (normalized) where.status = normalized as any;
+      }
     }
 
     const [total, disputes] = await this.prisma.$transaction([
@@ -535,16 +579,115 @@ export class AdminService {
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
-          user: { select: { name: true, email: true } },
-          order: { select: { id: true, orderId: true } },
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              role: true,
+              profile: {
+                select: {
+                  phoneNumber: true,
+                  avatarUpload: { select: { url: true } },
+                },
+              },
+            },
+          },
+          order: {
+            select: {
+              id: true,
+              orderId: true,
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                  role: true,
+                  profile: {
+                    select: {
+                      phoneNumber: true,
+                      avatarUpload: { select: { url: true } },
+                    },
+                  },
+                },
+              },
+              rentals: {
+                take: 1,
+                select: {
+                  curatorId: true,
+                  curator: {
+                    select: {
+                      id: true,
+                      name: true,
+                      email: true,
+                      role: true,
+                      profile: {
+                        select: {
+                          phoneNumber: true,
+                          avatarUpload: { select: { url: true } },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
       }),
     ]);
 
+    const mapped = disputes.map((d: any) => {
+      const renter = d.order?.user ?? null;
+      const lister = d.order?.rentals?.[0]?.curator ?? null;
+      const raisedBy = d.user ?? null;
+
+      return {
+        id: d.disputeId,
+        dbId: d.id,
+        status: d.status,
+        category: d.issueCategory,
+        description: d.description,
+        preferredResolution: d.preferredResolution ?? null,
+        createdAt: d.createdAt?.toISOString?.() ?? d.createdAt,
+        updatedAt: d.updatedAt?.toISOString?.() ?? d.updatedAt,
+        raisedBy: raisedBy
+          ? {
+              id: raisedBy.id,
+              name: raisedBy.name,
+              role: raisedBy.role,
+              avatar: raisedBy.profile?.avatarUpload?.url ?? null,
+            }
+          : null,
+        renter: renter
+          ? {
+              id: renter.id,
+              name: renter.name,
+              role: renter.role,
+              avatar: renter.profile?.avatarUpload?.url ?? null,
+              email: renter.email,
+              phone: renter.profile?.phoneNumber ?? null,
+            }
+          : null,
+        lister: lister
+          ? {
+              id: lister.id,
+              name: lister.name,
+              role: lister.role,
+              avatar: lister.profile?.avatarUpload?.url ?? null,
+              email: lister.email,
+              phone: lister.profile?.phoneNumber ?? null,
+            }
+          : null,
+        orderId: d.order?.orderId ?? null,
+        orderDbId: d.order?.id ?? null,
+      };
+    });
+
     return {
       success: true,
       data: {
-        disputes,
+        disputes: mapped,
         total,
         page,
         totalPages: Math.ceil(total / limit),
@@ -553,16 +696,178 @@ export class AdminService {
   }
 
   async getDisputeDetails(disputeId: string) {
+    const isPublicDisputeId = disputeId.startsWith('DQ-');
     const dispute = await this.prisma.dispute.findUnique({
-      where: { id: disputeId },
+      where: isPublicDisputeId ? { disputeId } : { id: disputeId },
       include: {
-        user: true,
-        order: { include: { orderItems: { include: { product: true } } } },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+            profile: {
+              select: {
+                phoneNumber: true,
+                avatarUpload: { select: { url: true } },
+              },
+            },
+          },
+        },
+        attachment: {
+          include: {
+            uploads: true,
+          },
+        },
+        chatRooms: {
+          include: {
+            message: {
+              orderBy: { createdAt: 'asc' },
+            },
+          },
+        },
+        order: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+                profile: {
+                  select: {
+                    phoneNumber: true,
+                    avatarUpload: { select: { url: true } },
+                  },
+                },
+              },
+            },
+            escrows: true,
+            rentals: {
+              take: 1,
+              include: {
+                curator: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                    role: true,
+                    profile: {
+                      select: {
+                        phoneNumber: true,
+                        avatarUpload: { select: { url: true } },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            orderItems: { include: { product: true } },
+          },
+        },
       },
     });
 
     if (!dispute) throw new NotFoundException('Dispute not found');
-    return { success: true, data: dispute };
+
+    const renter: any = (dispute as any).order?.user ?? null;
+    const lister: any = (dispute as any).order?.rentals?.[0]?.curator ?? null;
+    const raisedBy: any = (dispute as any).user ?? null;
+    const otherParty =
+      raisedBy?.id && renter?.id && lister?.id
+        ? raisedBy.id === renter.id
+          ? lister
+          : renter
+        : null;
+
+    const order: any = (dispute as any).order;
+    const item = order?.orderItems?.[0]?.product ?? null;
+    const escrow: any = order?.escrows ?? null;
+
+    return {
+      success: true,
+      data: {
+        id: (dispute as any).disputeId,
+        dbId: (dispute as any).id,
+        status: (dispute as any).status,
+        category: (dispute as any).issueCategory,
+        description: (dispute as any).description,
+        preferredResolution: (dispute as any).preferredResolution ?? null,
+        createdAt: (dispute as any).createdAt?.toISOString?.() ?? null,
+        updatedAt: (dispute as any).updatedAt?.toISOString?.() ?? null,
+        raisedBy: raisedBy
+          ? {
+              id: raisedBy.id,
+              name: raisedBy.name,
+              role: raisedBy.role,
+              avatar: raisedBy.profile?.avatarUpload?.url ?? null,
+              email: raisedBy.email,
+              phone: raisedBy.profile?.phoneNumber ?? null,
+            }
+          : null,
+        otherParty: otherParty
+          ? {
+              id: otherParty.id,
+              name: otherParty.name,
+              role: otherParty.role,
+              avatar: otherParty.profile?.avatarUpload?.url ?? null,
+              email: otherParty.email,
+              phone: otherParty.profile?.phoneNumber ?? null,
+            }
+          : null,
+        orderDetails: order
+          ? {
+              id: order.orderId,
+              dbId: order.id,
+              totalAmountPaid: order.totalAmountPaid ?? null,
+              escrow: escrow
+                ? {
+                    id: escrow.id,
+                    status: escrow.status,
+                    collateralAmount: escrow.collateralAmount ?? 0,
+                    rentalAmount: escrow.rentalAmount ?? 0,
+                    cleaningFee: escrow.cleaningFee ?? 0,
+                    resaleAmount: escrow.resaleAmount ?? 0,
+                    releasedAt: escrow.releasedAt?.toISOString?.() ?? null,
+                  }
+                : null,
+              item: item
+                ? {
+                    id: item.id,
+                    name: item.name,
+                    imageUrl: item.imageUrl ?? null,
+                  }
+                : null,
+              renter: renter
+                ? {
+                    id: renter.id,
+                    name: renter.name,
+                    avatar: renter.profile?.avatarUpload?.url ?? null,
+                  }
+                : null,
+              lister: lister
+                ? {
+                    id: lister.id,
+                    name: lister.name,
+                    avatar: lister.profile?.avatarUpload?.url ?? null,
+                  }
+                : null,
+            }
+          : null,
+        evidence: {
+          uploads: (dispute as any).attachment?.uploads ?? [],
+        },
+        messages:
+          (dispute as any).chatRooms?.message?.map((m: any) => ({
+            id: m.id,
+            senderId: m.senderId,
+            senderRole: m.senderRole,
+            content: m.content,
+            type: m.type,
+            createdAt: m.createdAt?.toISOString?.() ?? m.createdAt,
+          })) ?? [],
+      },
+    };
   }
 
   async updateDisputeStatus(
@@ -570,14 +875,19 @@ export class AdminService {
     data: { status: string; note: string },
   ) {
     const dispute = await this.prisma.dispute.findUnique({
-      where: { id: disputeId },
+      where: this.getDisputeUniqueWhere(disputeId),
     });
     if (!dispute) throw new NotFoundException('Dispute not found');
 
+    const normalized = this.normalizeDisputeStatus(data.status);
+    if (!normalized) {
+      throw new BadRequestException('Invalid dispute status');
+    }
+
     const updated = await this.prisma.dispute.update({
-      where: { id: disputeId },
+      where: { id: dispute.id },
       data: {
-        status: data.status as any,
+        status: normalized,
       },
     });
 
@@ -593,12 +903,12 @@ export class AdminService {
     data: { resolutionDetails: string; refundAmount?: number },
   ) {
     const dispute = await this.prisma.dispute.findUnique({
-      where: { id: disputeId },
+      where: this.getDisputeUniqueWhere(disputeId),
     });
     if (!dispute) throw new NotFoundException('Dispute not found');
 
     const updated = await this.prisma.dispute.update({
-      where: { id: disputeId },
+      where: { id: dispute.id },
       data: {
         status: 'RESELOVED',
       },
@@ -620,7 +930,7 @@ export class AdminService {
     },
   ) {
     const dispute = await this.prisma.dispute.findUnique({
-      where: { id: disputeId },
+      where: this.getDisputeUniqueWhere(disputeId),
       include: {
         order: {
           include: {
@@ -638,6 +948,7 @@ export class AdminService {
     if (!order.escrows) throw new BadRequestException('Escrow not found');
 
     const escrow = order.escrows;
+    const escrowStatus = escrow.status as string;
     const totalCollateralLocked = Math.max(
       0,
       Number(escrow.collateralAmount) || 0,
@@ -653,6 +964,35 @@ export class AdminService {
     const collateralReturnedToRenter =
       totalCollateralLocked - collateralWithheldToLister;
 
+    const rawRefundAmount = Math.max(
+      0,
+      Math.round(Number(data.refundAmount || 0)),
+    );
+
+    const payoutLocked =
+      escrowStatus === 'LOCKED'
+        ? Math.max(
+            0,
+            Number(escrow.rentalAmount || 0) +
+              Number(escrow.cleaningFee || 0) +
+              Number(escrow.resaleAmount || 0),
+          )
+        : escrowStatus === 'PARTIALLY_RELEASED'
+          ? Math.max(
+              0,
+              Number(escrow.cleaningFee || 0) +
+                Number(escrow.resaleAmount || 0),
+            )
+          : 0;
+
+    if (rawRefundAmount > payoutLocked) {
+      throw new BadRequestException(
+        `Refund amount cannot exceed locked escrow payout (max ${payoutLocked})`,
+      );
+    }
+
+    const listerPayoutToRelease = Math.max(0, payoutLocked - rawRefundAmount);
+
     const lister = await this.prisma.user.findUnique({
       where: { id: escrow.curatorId },
       select: { id: true, name: true, email: true },
@@ -663,6 +1003,59 @@ export class AdminService {
         where: { id: dispute.id },
         data: { status: 'RESELOVED' as any },
       });
+
+      if (rawRefundAmount > 0) {
+        const renterWallet = await tx.wallet.upsert({
+          where: { userId: order.userId },
+          create: {
+            userId: order.userId,
+            mainBalance: 0,
+            availableBalance: rawRefundAmount,
+            collateralBalance: 0,
+          },
+          update: {
+            availableBalance: { increment: rawRefundAmount },
+          },
+        });
+
+        await tx.walletTransaction.create({
+          data: {
+            walletId: renterWallet.id,
+            amount: rawRefundAmount,
+            type: 'MAIN',
+            status: 'SUCCESS',
+            note: `Refund issued after dispute resolution for order ${order.orderId}`,
+            orderId: order.id,
+          },
+        });
+      }
+
+      if (listerPayoutToRelease > 0) {
+        const listerWallet = await tx.wallet.upsert({
+          where: { userId: escrow.curatorId },
+          create: {
+            userId: escrow.curatorId,
+            mainBalance: listerPayoutToRelease,
+            availableBalance: listerPayoutToRelease,
+            collateralBalance: 0,
+          },
+          update: {
+            mainBalance: { increment: listerPayoutToRelease },
+            availableBalance: { increment: listerPayoutToRelease },
+          },
+        });
+
+        await tx.walletTransaction.create({
+          data: {
+            walletId: listerWallet.id,
+            amount: listerPayoutToRelease,
+            type: 'MAIN',
+            status: 'SUCCESS',
+            note: `Escrow payout released after dispute resolution for order ${order.orderId}`,
+            orderId: order.id,
+          },
+        });
+      }
 
       if (totalCollateralLocked > 0) {
         const renterWallet = await tx.wallet.upsert({
@@ -687,7 +1080,6 @@ export class AdminService {
           data: {
             collateralBalance: { decrement: totalCollateralLocked },
             availableBalance: { increment: collateralReturnedToRenter },
-            mainBalance: { decrement: collateralWithheldToLister },
           },
         });
 
@@ -812,6 +1204,7 @@ export class AdminService {
           disputeId: dispute.disputeId,
           status: 'resolved',
           disputeLink,
+          compensationToLister: collateralWithheldToLister,
           collateralWithheldToLister,
           collateralReturnedToRenter: 0,
         },
@@ -824,6 +1217,8 @@ export class AdminService {
       data: {
         disputeId: dispute.disputeId,
         status: 'RESELOVED',
+        refundAmount: rawRefundAmount,
+        listerPayoutReleased: listerPayoutToRelease,
         collateralWithheldToLister,
         collateralReturnedToRenter,
         db: result.updatedDispute,

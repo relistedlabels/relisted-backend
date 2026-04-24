@@ -2654,6 +2654,7 @@ export class ListersService {
             status: 'created',
             category: created.issueCategory,
             description: created.description,
+            preferredResolution: created.preferredResolution ?? undefined,
             disputeLink,
           },
         });

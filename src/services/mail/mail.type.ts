@@ -275,6 +275,10 @@ export class DisputeStatusDto {
 
   @IsString()
   @IsOptional()
+  preferredResolution?: string;
+
+  @IsString()
+  @IsOptional()
   disputeLink?: string;
 
   @IsNumber()
@@ -284,4 +288,8 @@ export class DisputeStatusDto {
   @IsNumber()
   @IsOptional()
   collateralReturnedToRenter?: number;
+
+  @IsNumber()
+  @IsOptional()
+  compensationToLister?: number;
 }
