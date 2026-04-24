@@ -7,7 +7,7 @@ import { HandlebarsAdapter } from '@nestjs-modules/mailer/adapters/handlebars.ad
 
 @Global()
 @Module({
-  imports:[
+  imports: [
     MailerModule.forRoot({
       transport: {
         host: process.env.MAIL_HOST,
@@ -23,19 +23,19 @@ import { HandlebarsAdapter } from '@nestjs-modules/mailer/adapters/handlebars.ad
       defaults: {
         from: process.env.MAIL_DEFAULT || 'Relisted <noreply@relisted.com>',
       },
-      template:{
-        dir:join(process.cwd(),"./src/services/mail/templates"),
-        adapter:new HandlebarsAdapter({
+      template: {
+        dir: join(process.cwd(), './src/services/mail/templates'),
+        adapter: new HandlebarsAdapter({
           eq: (v1, v2) => v1 === v2,
         }),
-        options:{
-          strict:true
-        }
-      }
-    })
+        options: {
+          strict: true,
+        },
+      },
+    }),
   ],
   controllers: [MailController],
   providers: [MailService],
-  exports:[MailService]
+  exports: [MailService],
 })
 export class MailModule {}

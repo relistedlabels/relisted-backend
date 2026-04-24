@@ -267,6 +267,14 @@ export class DisputeStatusDto {
 
   @IsString()
   @IsOptional()
+  category?: string;
+
+  @IsString()
+  @IsOptional()
+  description?: string;
+
+  @IsString()
+  @IsOptional()
   disputeLink?: string;
 
   @IsNumber()

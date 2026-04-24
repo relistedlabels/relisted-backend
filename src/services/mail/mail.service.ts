@@ -302,11 +302,13 @@ export class MailService {
   async SendDisputeStatusMail(dto: DisputeStatusDto) {
     const { email, ...rest } = dto;
     console.log(`[EMAIL] Sending dispute-status to ${email}`);
+    const subject =
+      dto.status === 'created' ? 'New Dispute Created' : 'Dispute Update';
 
     if (this.devBypass) {
       await this.handleDevBypass(
         'dispute-status',
-        'Dispute Update',
+        subject,
         rest,
         email,
       );
@@ -316,7 +318,7 @@ export class MailService {
     await this.mailerService.sendMail({
       to: email,
       template: './dispute-status',
-      subject: 'Dispute Update',
+      subject,
       context: rest,
     });
   }

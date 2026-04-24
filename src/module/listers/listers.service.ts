@@ -1362,7 +1362,7 @@ export class ListersService {
               },
             });
 
-            // Update escrow status: always PARTIALLY_RELEASED at delivery for rentals 
+            // Update escrow status: always PARTIALLY_RELEASED at delivery for rentals
             // because collateral and cleaning fees are held until return.
             // For mixed orders, resaleAmount is also still held until buyer confirmation.
             await tx.escrow.update({
@@ -1550,7 +1550,10 @@ export class ListersService {
       let escrowToReleaseId: string | null = null;
 
       if (order.escrows) {
-        if (order.escrows.status === 'RELEASED' || order.status === 'COMPLETED') {
+        if (
+          order.escrows.status === 'RELEASED' ||
+          order.status === 'COMPLETED'
+        ) {
           throw new BadRequestException(
             'Collateral and cleaning fee already released for this order',
           );
@@ -1567,7 +1570,9 @@ export class ListersService {
       // Verify lister owns the product
       const isListerProduct =
         (order as any).listerId === listerId ||
-        order.orderItems.some((item: any) => item.product?.curatorId === listerId);
+        order.orderItems.some(
+          (item: any) => item.product?.curatorId === listerId,
+        );
       if (!isListerProduct) {
         console.log(
           `[ListersService] Lister ${listerId} not authorized for order ${orderId}`,
@@ -2569,6 +2574,7 @@ export class ListersService {
           userId: user.id,
           issueCategory: body.category,
           description: body.description,
+          preferredResolution: body.preferredResolution,
           status: DisputeStatus.PENDING,
           attachment:
             body.evidenceFiles && body.evidenceFiles.length > 0
@@ -2646,6 +2652,8 @@ export class ListersService {
             disputeId: created.disputeId,
             orderId: order.orderId,
             status: 'created',
+            category: created.issueCategory,
+            description: created.description,
             disputeLink,
           },
         });
@@ -2808,7 +2816,7 @@ export class ListersService {
               curator: curatorName,
               category: dispute.issueCategory,
               dateSubmitted: dispute.createdAt.toISOString().split('T')[0],
-              preferredResolution: null,
+              preferredResolution: dispute.preferredResolution ?? null,
               description: dispute.description,
             },
             evidence,
@@ -2854,7 +2862,7 @@ export class ListersService {
           disputeDetails: {
             category: dispute.issueCategory,
             dateSubmitted: dispute.createdAt.toISOString().split('T')[0],
-            preferredResolution: null,
+            preferredResolution: dispute.preferredResolution ?? null,
             description: dispute.description,
           },
         },
@@ -3126,9 +3134,12 @@ export class ListersService {
   ) {
     const dispute = await this.findListerDisputeOrThrow(user, disputeId);
 
-    if (dispute.status !== DisputeStatus.PENDING) {
+    if (
+      dispute.status !== DisputeStatus.PENDING &&
+      dispute.status !== DisputeStatus.IN_REVIEW
+    ) {
       throw new ForbiddenException(
-        'Dispute cannot be withdrawn from its current status',
+        `Dispute cannot be withdrawn from its current status (${dispute.status})`,
       );
     }
 
@@ -4756,7 +4767,7 @@ export class ListersService {
       wallet.transactions = [];
     }
 
-    const safeWallet = wallet as any;
+    const safeWallet = wallet;
 
     const activeRentals = await this.prisma.rental.findMany({
       where: { curatorId: userId, isReturned: false },

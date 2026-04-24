@@ -1690,15 +1690,15 @@ export class RentersService {
 
   async getDisputeStats(userId: string) {
     const [total, pending, inReview, resolved] = await Promise.all([
-      this.prisma.dispute.count({ where: { order: { userId } } }),
+      this.prisma.dispute.count({ where: { order: { is: { userId } } } }),
       this.prisma.dispute.count({
-        where: { order: { userId }, status: 'PENDING' },
+        where: { order: { is: { userId } }, status: 'PENDING' },
       }),
       this.prisma.dispute.count({
-        where: { order: { userId }, status: 'IN_REVIEW' },
+        where: { order: { is: { userId } }, status: 'IN_REVIEW' },
       }),
       this.prisma.dispute.count({
-        where: { order: { userId }, status: 'RESELOVED' },
+        where: { order: { is: { userId } }, status: 'RESELOVED' },
       }),
     ]);
 
@@ -1724,14 +1724,15 @@ export class RentersService {
     const skip = (page - 1) * limit;
     const status = query.status || 'all';
 
-    const where: any = { order: { userId } };
+    const where: any = { order: { is: { userId } } };
     if (status && status !== 'all') {
       const map: Record<string, string> = {
         pending: 'PENDING',
         in_review: 'IN_REVIEW',
         resolved: 'RESELOVED',
       };
-      where.status = map[status] || undefined;
+      const mappedStatus = map[status];
+      if (mappedStatus) where.status = mappedStatus;
     }
 
     const [total, disputes] = await this.prisma.$transaction([
@@ -1780,6 +1781,7 @@ export class RentersService {
       issueCategory: string;
       description: string;
       amountDisputed: number;
+      preferredResolution?: string;
       evidenceFiles?: string[];
     },
   ) {
@@ -1807,6 +1809,7 @@ export class RentersService {
         disputeId: `DSP-${Date.now()}`,
         issueCategory: data.issueCategory,
         description: data.description,
+        preferredResolution: data.preferredResolution,
         orderId: order.id,
         userId,
         status: 'PENDING',
@@ -1897,6 +1900,8 @@ export class RentersService {
           disputeId: dispute.disputeId,
           orderId: order.orderId,
           status: 'created',
+          category: data.issueCategory,
+          description: data.description,
           disputeLink,
         },
       });
@@ -1979,7 +1984,7 @@ export class RentersService {
           orderID: dispute.order?.orderId || null,
           category: dispute.issueCategory,
           dateSubmitted: dispute.createdAt.toISOString(),
-          preferredResolution: 'Full Refund',
+          preferredResolution: dispute.preferredResolution || 'Full Refund',
           description: dispute.description,
         },
       },
@@ -2112,15 +2117,21 @@ export class RentersService {
     if (!dispute || dispute.order?.userId !== userId)
       throw new NotFoundException('Dispute not found');
 
-    if (!dispute.chatRooms)
-      throw new BadRequestException('Chat room not initialized');
+    let room = dispute.chatRooms;
+    if (!room) {
+      room = await this.prisma.chatRoom.create({
+        data: {
+          disputeId: dispute.id,
+        },
+      });
+    }
 
     const msg = await this.prisma.message.create({
       data: {
         senderId: userId,
         senderRole: 'renter',
         content: data.message,
-        chatRoomId: dispute.chatRooms.id,
+        chatRoomId: room.id,
       },
     });
 
@@ -2571,23 +2582,14 @@ export class RentersService {
               country: 'Nigeria',
               postalCode: curatorAddress?.zipCode,
             },
-            pricingTier:
-              order.returnShippingTier ||
-              data.selectedRate?.pricingTier ||
-              'Budget',
+            pricingTier: data.selectedRate?.pricingTier || 'Budget',
             insuranceType: 'None',
             itemCollectionMode: 'PickUp',
             shipmentRoute: 'Domestic',
             insuranceCharge: 0,
-            shipmentCharge:
-              (order.returnShippingFee ||
-                data.selectedRate?.shipmentCharge ||
-                0) * 100, // Convert to Kobo
+            shipmentCharge: (data.selectedRate?.shipmentCharge || 0) * 100, // Convert to Kobo
             pickupId: `RETURN-PICKUP-${Date.now()}`,
-            pickupPartner:
-              order.returnPickupPartner ||
-              data.selectedRate?.pickupPartner ||
-              'Standard',
+            pickupPartner: data.selectedRate?.pickupPartner || 'Standard',
             pickupCharge: (data.selectedRate?.pickupCharge || 0) * 100, // Pickup charge usually separate
             valueAddedTaxCharge: (data.selectedRate?.vatCharge || 0) * 100,
             discount: 0,
@@ -2678,8 +2680,6 @@ export class RentersService {
         data: {
           status: 'RETURN_DUE',
           returnDueAt: new Date(),
-          returnShipmentId: shipmentId,
-          returnTrackingId: trackingNumber,
         },
       });
 

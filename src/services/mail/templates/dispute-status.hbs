@@ -2,12 +2,20 @@
   <div style="max-width:640px; margin:0 auto; background:#ffffff; border:1px solid #e6e8ef; border-radius:12px; overflow:hidden;">
     <div style="padding:18px 20px; background:#111827; color:#ffffff;">
       <div style="font-size:14px; opacity:0.9;">Relisted</div>
-      <div style="font-size:18px; font-weight:700; margin-top:6px;">Dispute Update</div>
+      {{#if (eq status "created")}}
+        <div style="font-size:18px; font-weight:700; margin-top:6px;">New Dispute Created</div>
+      {{else}}
+        <div style="font-size:18px; font-weight:700; margin-top:6px;">Dispute Update</div>
+      {{/if}}
     </div>
 
     <div style="padding:20px;">
       <p style="margin:0 0 12px;">Hello {{userName}},</p>
-      <p style="margin:0 0 16px; color:#374151;">Your dispute has been updated.</p>
+      {{#if (eq status "created")}}
+        <p style="margin:0 0 16px; color:#374151;">A new dispute has been created.</p>
+      {{else}}
+        <p style="margin:0 0 16px; color:#374151;">Your dispute has been updated.</p>
+      {{/if}}
 
       <div style="border:1px solid #eef0f5; border-radius:10px; padding:14px 16px; background:#fbfbfe;">
         <div style="display:flex; gap:12px; flex-wrap:wrap; color:#111827;">
@@ -23,7 +31,19 @@
             <div style="font-size:12px; color:#6b7280;">Status</div>
             <div style="font-weight:600;">{{status}}</div>
           </div>
+          {{#if category}}
+            <div style="min-width:220px;">
+              <div style="font-size:12px; color:#6b7280;">Issue</div>
+              <div style="font-weight:600;">{{category}}</div>
+            </div>
+          {{/if}}
         </div>
+        {{#if description}}
+          <div style="margin-top:12px;">
+            <div style="font-size:12px; color:#6b7280;">Description</div>
+            <div style="margin-top:6px; color:#111827; line-height:1.45; white-space:pre-wrap;">{{description}}</div>
+          </div>
+        {{/if}}
       </div>
 
       {{#if collateralWithheldToLister}}
