@@ -40,6 +40,7 @@ const ORDER_STATUS_TO_LABEL: Record<OrderStatus, string> = {
   [OrderStatus.DELIVERED]: 'Delivered',
   [OrderStatus.ACTIVE]: 'Active',
   [OrderStatus.RETURN_DUE]: 'Return Due',
+  [OrderStatus.IN_DISPUTE]: 'In Dispute',
   [OrderStatus.RETURNED]: 'Completed',
   [OrderStatus.COMPLETED]: 'Completed',
   [OrderStatus.CANCELLED]: 'Cancelled',
@@ -54,6 +55,7 @@ const ORDER_STATUS_TO_API: Record<OrderStatus, string> = {
   [OrderStatus.DELIVERED]: 'delivered',
   [OrderStatus.ACTIVE]: 'active',
   [OrderStatus.RETURN_DUE]: 'return_due',
+  [OrderStatus.IN_DISPUTE]: 'in_dispute',
   [OrderStatus.RETURNED]: 'completed',
   [OrderStatus.COMPLETED]: 'completed',
   [OrderStatus.CANCELLED]: 'cancelled',
@@ -2589,6 +2591,11 @@ export class ListersService {
         },
       });
 
+      await this.prisma.order.update({
+        where: { id: order.id },
+        data: { status: OrderStatus.IN_DISPUTE },
+      });
+
       const admins = await this.prisma.user.findMany({
         where: { role: Role.ADMIN },
         select: { id: true, name: true, email: true },
@@ -3069,7 +3076,7 @@ export class ListersService {
       senderId: m.senderId,
       sender: {
         id: m.senderId,
-        name: m.sender?.name || "User",
+        name: m.sender?.name || 'User',
         avatarUrl: m.sender?.profile?.avatar || null,
         role: m.senderRole,
       },
@@ -3103,7 +3110,10 @@ export class ListersService {
     disputeId: string,
     body: { content?: string; mediaIds?: string[]; uploadIds?: string[] },
   ) {
-    if (!body.content?.trim() && (!body.uploadIds || body.uploadIds.length === 0)) {
+    if (
+      !body.content?.trim() &&
+      (!body.uploadIds || body.uploadIds.length === 0)
+    ) {
       throw new ForbiddenException('Message content cannot be empty');
     }
 
@@ -3145,11 +3155,17 @@ export class ListersService {
         message.sender?.name ||
         'Someone';
       const recipientName =
-        renter.profile?.fullName || renter.profile?.businessName || renter.name || 'Renter';
+        renter.profile?.fullName ||
+        renter.profile?.businessName ||
+        renter.name ||
+        'Renter';
       const clientUrl = process.env.CLIENT_URL || '';
-      const threadLink = clientUrl ? `${clientUrl}/renters/dispute#${disputeId}` : undefined;
+      const threadLink = clientUrl
+        ? `${clientUrl}/renters/dispute#${disputeId}`
+        : undefined;
       const preview =
-        (body.content || '').trim() || (body.uploadIds?.length ? 'Sent an attachment' : '');
+        (body.content || '').trim() ||
+        (body.uploadIds?.length ? 'Sent an attachment' : '');
       await this.notificationService.createNotification({
         userId: renter.id,
         title: 'New message',
@@ -3169,7 +3185,8 @@ export class ListersService {
           senderName,
           disputeId,
           orderId: (dispute as any).order?.orderId,
-          messagePreview: preview.length > 200 ? `${preview.slice(0, 200)}…` : preview,
+          messagePreview:
+            preview.length > 200 ? `${preview.slice(0, 200)}…` : preview,
           threadLink,
         },
       });
@@ -3185,7 +3202,10 @@ export class ListersService {
         senderId: message.senderId,
         sender: {
           id: message.senderId,
-          name: message.sender?.profile?.fullName || message.sender?.profile?.businessName || null,
+          name:
+            message.sender?.profile?.fullName ||
+            message.sender?.profile?.businessName ||
+            null,
           avatarUrl: message.sender?.profile?.avatar || null,
           role: 'lister',
         },
