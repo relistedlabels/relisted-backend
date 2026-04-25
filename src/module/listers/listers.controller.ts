@@ -26,6 +26,7 @@ import {
   ApiBody,
 } from '@nestjs/swagger';
 import { ListersService } from './listers.service';
+import { UploadService } from '../upload/upload.service';
 import { Auth, AuthUser } from '../auth/decorator/auth.decorator';
 import { Role } from '@prisma/client';
 import { userEntity } from '../auth/auth.types';
@@ -34,7 +35,10 @@ import { userEntity } from '../auth/auth.types';
 @ApiBearerAuth()
 @Controller('api/listers')
 export class ListersController {
-  constructor(private readonly listersService: ListersService) {}
+  constructor(
+    private readonly listersService: ListersService,
+    private readonly uploadService: UploadService,
+  ) {}
 
   @Auth([Role.LISTER, Role.ADMIN])
   @Get('inventory/top-items')
@@ -302,7 +306,9 @@ export class ListersController {
 
   @Auth([Role.LISTER, Role.ADMIN])
   @Post('orders/:orderId/confirm-return-receipt')
-  @ApiOperation({ summary: 'Confirm receipt of returned item with condition assessment' })
+  @ApiOperation({
+    summary: 'Confirm receipt of returned item with condition assessment',
+  })
   @ApiParam({ name: 'orderId', description: 'Order UUID' })
   @ApiResponse({ status: 200, description: 'Return receipt confirmed' })
   confirmReturnReceipt(
@@ -509,9 +515,26 @@ export class ListersController {
     body: {
       content: string;
       mediaIds?: string[];
+      uploadIds?: string[];
     },
   ) {
     return this.listersService.addDisputeMessage(user, disputeId, body);
+  }
+
+  // 29. POST /api/listers/disputes/:disputeId/uploads
+  @Auth([Role.LISTER, Role.ADMIN])
+  @Post('disputes/:disputeId/uploads')
+  @ApiOperation({ summary: 'Upload chat image' })
+  @ApiParam({ name: 'disputeId', description: 'Dispute ID' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file'))
+  uploadImage(
+    @AuthUser() user: userEntity,
+    @Param('disputeId') disputeId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    const id = `chat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    return this.uploadService.uploadFile(id, file, user, true);
   }
 
   // 29. POST /api/listers/disputes/:disputeId/withdraw

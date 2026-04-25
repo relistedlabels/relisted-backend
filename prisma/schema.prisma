@@ -41,6 +41,7 @@ model User {
   products              Product[]             @relation("CuratedProducts")
   productCategory       ProductCategory[]
   profile               Profile?
+  sentMessages          Message[]             @relation("MessageSender")
   rentalsCurated        Rental[]              @relation("Curator")
   rentalsRented         Rental[]              @relation("Rentee")
   curatorReviews        Review[]              @relation("CuratorReviews")
@@ -57,6 +58,8 @@ model User {
 model Profile {
   id                 String            @id @default(uuid())
   userId             String            @unique
+  fullName           String?
+  businessName       String?
   phoneNumber        String
   bvn                String?
   isApproved         Boolean           @default(false)
@@ -71,6 +74,7 @@ model Profile {
   address            Address?
   businessInfo       BusinessInfo?
   emergencyContact   EmergencyContact?
+  avatar             String?
   avatarUpload       Upload?           @relation("AvatarUpload", fields: [avatarUploadId], references: [id])
   idDocumentUpload   Upload?           @relation("IdDocumentUpload", fields: [idDocumentUploadId], references: [id])
   ninUpload          Upload?           @relation("NinUpload", fields: [ninUploadId], references: [id])
@@ -228,6 +232,7 @@ model Upload {
   profileAsNin    Profile?     @relation("NinUpload")
   attachment      Attachments? @relation(fields: [attachmentId], references: [id])
   user            User         @relation(fields: [userId], references: [id])
+  messages        Message[]
 }
 
 model Attachments {
@@ -420,6 +425,8 @@ model Message {
   createdAt  DateTime  @default(now())
   chatRoomId String
   chatRoom   ChatRoom  @relation(fields: [chatRoomId], references: [id])
+  sender     User      @relation("MessageSender", fields: [senderId], references: [id])
+  uploads   Upload[]
 }
 
 model Transaction {
