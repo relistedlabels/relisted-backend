@@ -7,13 +7,22 @@ import {
   Request,
   Query,
   Param,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { RentersService } from './renters.service';
+import { UploadService } from '../upload/upload.service';
 import { JwtAuthGuard } from '../auth/guard/authGuard';
 import { RoleGuard } from '../auth/guard/roleGuard';
 import { Roles } from '../auth/decorator/roles.decorator';
 import { Role } from '@prisma/client';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiConsumes,
+} from '@nestjs/swagger';
 
 @ApiTags('Renters Disputes')
 @ApiBearerAuth('bearer')
@@ -21,7 +30,10 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 @Roles(Role.RENTER)
 @Controller('api/renters/disputes')
 export class RentersDisputesController {
-  constructor(private readonly rentersService: RentersService) {}
+  constructor(
+    private readonly rentersService: RentersService,
+    private readonly uploadService: UploadService,
+  ) {}
 
   @Get('stats')
   @ApiOperation({ summary: 'Get dispute statistics' })
@@ -85,5 +97,18 @@ export class RentersDisputesController {
     @Body() data: any,
   ) {
     return this.rentersService.sendDisputeMessage(req.user.id, disputeId, data);
+  }
+
+  @Post(':disputeId/uploads')
+  @ApiOperation({ summary: 'Upload chat image' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadImage(
+    @Request() req,
+    @Param('disputeId') disputeId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    const id = `chat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    return this.uploadService.uploadFile(id, file, req.user, true);
   }
 }

@@ -40,7 +40,10 @@ export class OrderService {
       select: { cartItemId: true, startDate: true, endDate: true },
     });
     const acceptedMap = new Map(
-      accepted.map((r) => [r.cartItemId, { startDate: r.startDate, endDate: r.endDate }]),
+      accepted.map((r) => [
+        r.cartItemId,
+        { startDate: r.startDate, endDate: r.endDate },
+      ]),
     );
     return items
       .filter((i) => acceptedMap.has(i.id))
@@ -270,6 +273,32 @@ export class OrderService {
       if (!lister) continue;
 
       const { pickupChargeNGN, rateData } = result;
+      const preferredTierOrder = ['chowdeck', 'glovo', 'errandlr', 'dellyman'];
+      const preferredTierIndex = new Map(
+        preferredTierOrder.map((t, i) => [t, i] as const),
+      );
+      const pickPreferredRate = (rates: any[]) => {
+        const list = Array.isArray(rates) ? rates : [];
+        for (const name of preferredTierOrder) {
+          const found = list.find(
+            (r) =>
+              String(r?.pricingTier ?? '')
+                .trim()
+                .toLowerCase() === name,
+          );
+          if (found) return found;
+        }
+        return (
+          list
+            .slice()
+            .sort((a, b) => Number(a?.cost ?? 0) - Number(b?.cost ?? 0))[0] ||
+          null
+        );
+      };
+      const preferredRate = pickPreferredRate(rateData);
+      const preferredShipping = Math.ceil(
+        (preferredRate?.cost || 300000) / 100,
+      );
 
       // Aggregate shipping tiers globally
       for (const rate of rateData) {
@@ -288,13 +317,12 @@ export class OrderService {
         }
       }
 
-      const baselineShipping = Math.ceil((rateData[0]?.cost || 300000) / 100);
       const listerGrandTotal =
         lister.listerRentalTotal +
         lister.listerCollateralTotal +
         lister.listerCleaningTotal +
         lister.listerPurchaseTotal +
-        baselineShipping +
+        preferredShipping +
         pickupChargeNGN +
         lister.listerVatTotal +
         lister.listerServiceChargeTotal;
@@ -315,7 +343,7 @@ export class OrderService {
         collateralTotal: lister.listerCollateralTotal,
         cleaningTotal: lister.listerCleaningTotal,
         purchaseTotal: lister.listerPurchaseTotal,
-        shippingCost: baselineShipping,
+        shippingCost: preferredShipping,
         pickupCost: pickupChargeNGN,
         serviceCharge: lister.listerServiceChargeTotal,
         vatAmount: lister.listerVatTotal,
@@ -331,11 +359,24 @@ export class OrderService {
       globalPickupTotal;
 
     // Map the aggregated shipping tiers into the response array
-    const shippingTiers = Array.from(shippingTiersMap.values()).map((tier) => ({
-      name: tier.name,
-      totalShippingCost: tier.totalShippingCost,
-      grandTotal: itemTotalsBase + tier.totalShippingCost,
-    }));
+    const preferredTierOrder = ['chowdeck', 'glovo', 'errandlr', 'dellyman'];
+    const preferredTierIndex = new Map(
+      preferredTierOrder.map((t, i) => [t, i] as const),
+    );
+    const shippingTiers = Array.from(shippingTiersMap.values())
+      .map((tier) => ({
+        name: tier.name,
+        totalShippingCost: tier.totalShippingCost,
+        grandTotal: itemTotalsBase + tier.totalShippingCost,
+      }))
+      .sort((a, b) => {
+        const aKey = String(a.name).trim().toLowerCase();
+        const bKey = String(b.name).trim().toLowerCase();
+        const aPref = preferredTierIndex.get(aKey) ?? Number.MAX_SAFE_INTEGER;
+        const bPref = preferredTierIndex.get(bKey) ?? Number.MAX_SAFE_INTEGER;
+        if (aPref !== bPref) return aPref - bPref;
+        return a.totalShippingCost - b.totalShippingCost;
+      });
 
     // For backwards compatibility and baseline metrics
     const baselineShippingTotal =
@@ -731,8 +772,12 @@ export class OrderService {
             }
 
             // Check if product is actively rented or has overlapping rental period (inside transaction for race condition protection)
-            const newRentalStart = item.startDate ? new Date(item.startDate) : new Date();
-            const newRentalEnd = item.endDate ? new Date(item.endDate) : new Date();
+            const newRentalStart = item.startDate
+              ? new Date(item.startDate)
+              : new Date();
+            const newRentalEnd = item.endDate
+              ? new Date(item.endDate)
+              : new Date();
             const bufferDays = 1;
             const bufferMs = bufferDays * 24 * 60 * 60 * 1000;
 
@@ -792,8 +837,7 @@ export class OrderService {
             // Check for concurrent rental orders to prevent double-renting
             const isRentalItem =
               item.product.listingType === 'RENTAL' ||
-              (item.product.listingType === 'RENT_OR_RESALE' &&
-                item.days > 0);
+              (item.product.listingType === 'RENT_OR_RESALE' && item.days > 0);
 
             if (isRentalItem) {
               const activeRentalOrder = await tx.order.findFirst({
@@ -851,7 +895,7 @@ export class OrderService {
               expiresAt,
               listingType: orderListingType,
               // New persisted fields
-              totalAmountPaid: listerData.listerGrandTotal as any,
+              totalAmountPaid: listerData.listerGrandTotal,
               deliveryFee:
                 listerData.shippingCost +
                 Math.ceil(listerData.pickupChargeRaw / 100),
@@ -885,8 +929,7 @@ export class OrderService {
                   ? 0
                   : item.product.dailyPrice || 0,
                 // New persisted fields
-                imageUrl: (item.product.attachments?.uploads?.[0]?.url ||
-                  null) as any,
+                imageUrl: item.product.attachments?.uploads?.[0]?.url || null,
                 rentalFee: isResalePurchase
                   ? 0
                   : (item.product.dailyPrice || 0) * item.days,
@@ -900,8 +943,7 @@ export class OrderService {
           for (const item of listerData.items) {
             const isRentalItem =
               item.product.listingType === 'RENTAL' ||
-              (item.product.listingType === 'RENT_OR_RESALE' &&
-                item.days > 0);
+              (item.product.listingType === 'RENT_OR_RESALE' && item.days > 0);
             const isResaleItem =
               item.product.listingType === 'RESALE' ||
               (item.product.listingType === 'RENT_OR_RESALE' &&
@@ -1014,11 +1056,14 @@ export class OrderService {
           const hasResaleItems = listerData.items.some(
             (item: any) =>
               item.product.listingType === 'RESALE' ||
-              (item.product.listingType === 'RENT_OR_RESALE' && item.days === 0),
+              (item.product.listingType === 'RENT_OR_RESALE' &&
+                item.days === 0),
           );
           await this.notificationService.createNotification({
             userId: listerData.listerId,
-            title: hasResaleItems ? 'New Purchase Received' : 'New Order Received',
+            title: hasResaleItems
+              ? 'New Purchase Received'
+              : 'New Order Received',
             message: `You have a new paid ${hasResaleItems ? 'purchase' : 'order'} (${order.orderId}) from ${user.name || 'a renter'}.`,
             type: 'ORDER_CONFIRMATION',
             metadata: { orderId: order.id, orderNumber: order.orderId },
@@ -1348,11 +1393,10 @@ export class OrderService {
         // Update product status to SOLD and deactivate only for resale items
         for (const orderItem of order.orderItems) {
           // Check individual item's listingType to determine if it's a resale purchase
-          const itemListingType = (orderItem as any).product?.listingType;
+          const itemListingType = orderItem.product?.listingType;
           const isResaleItem =
             itemListingType === 'RESALE' ||
-            (itemListingType === 'RENT_OR_RESALE' &&
-              (orderItem as any).days === 0);
+            (itemListingType === 'RENT_OR_RESALE' && orderItem.days === 0);
 
           if (isResaleItem) {
             await tx.product.update({

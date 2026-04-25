@@ -722,6 +722,20 @@ export class AdminService {
         chatRooms: {
           include: {
             message: {
+              include: {
+                uploads: true,
+                sender: {
+                  select: {
+                    id: true,
+                    name: true,
+                    profile: {
+                      select: {
+                        avatarUpload: { select: { url: true } },
+                      },
+                    },
+                  },
+                },
+              },
               orderBy: { createdAt: 'asc' },
             },
           },
@@ -861,10 +875,16 @@ export class AdminService {
           (dispute as any).chatRooms?.message?.map((m: any) => ({
             id: m.id,
             senderId: m.senderId,
-            senderRole: m.senderRole,
+            sender: {
+              id: m.sender?.id ?? m.senderId,
+              name: m.sender?.name || "User",
+              avatarUrl: m.sender?.profile?.avatarUpload?.url ?? null,
+              role: m.senderRole,
+            },
             content: m.content,
             type: m.type,
             createdAt: m.createdAt?.toISOString?.() ?? m.createdAt,
+            uploads: m.uploads ?? [],
           })) ?? [],
       },
     };
