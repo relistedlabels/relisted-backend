@@ -12,6 +12,7 @@ import {
   ReturnCompletedDto,
   DisputeCreatedDto,
   DisputeStatusDto,
+  DisputeMessageDto,
 } from './mail.type';
 import { Auth_Otp_Token_Subject } from '../../module/auth/auth.types';
 import { writeFile, mkdir } from 'fs/promises';
@@ -65,6 +66,22 @@ export class MailService {
     const html = await this.renderTemplateToHtml(template, context);
     const timestamp = Date.now();
     const filename = `${template}-${timestamp}.html`;
+    const filepath = join(this.emailOutputDir, filename);
+
+    await writeFile(filepath, html);
+    console.log(`[DEV EMAIL BYPASS] Saved to: ${filepath}`);
+
+    const { default: open } = await import('open');
+    await open(filepath);
+    console.log(`[DEV EMAIL BYPASS] Opened in browser`);
+  }
+
+  private async handleDevBypassHtml(subject: string, html: string, email: string) {
+    console.log(`[DEV EMAIL BYPASS] Would send to: ${email}`);
+    console.log(`[DEV EMAIL BYPASS] Subject: ${subject}`);
+
+    const timestamp = Date.now();
+    const filename = `raw-${timestamp}.html`;
     const filepath = join(this.emailOutputDir, filename);
 
     await writeFile(filepath, html);
@@ -320,6 +337,71 @@ export class MailService {
       template: './dispute-status',
       subject,
       context: rest,
+    });
+  }
+
+  async SendDisputeMessageMail(dto: DisputeMessageDto) {
+    const { email, recipientName, senderName, disputeId, orderId, messagePreview, threadLink } =
+      dto;
+
+    const subject = `New message from ${senderName}`;
+    console.log(`[EMAIL] Sending dispute-message to ${email}`);
+
+    const safePreview = (messagePreview || '').trim();
+    const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f6f7fb;padding:24px;">
+  <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
+    <div style="padding:18px 20px;background:#111827;color:#ffffff;">
+      <div style="font-size:14px;opacity:0.9;">Relisted</div>
+      <div style="font-size:18px;font-weight:700;margin-top:6px;">You have a new message</div>
+    </div>
+    <div style="padding:20px;">
+      <p style="margin:0 0 12px;">Hello ${recipientName},</p>
+      <p style="margin:0 0 16px;color:#374151;"><strong>${senderName}</strong> sent you a new message.</p>
+      <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Dispute ID</div>
+            <div style="font-weight:600;">${disputeId}</div>
+          </div>
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Order</div>
+            <div style="font-weight:600;">${orderId}</div>
+          </div>
+        </div>
+        ${
+          safePreview
+            ? `<div style="margin-top:12px;">
+          <div style="font-size:12px;color:#6b7280;">Message</div>
+          <div style="margin-top:6px;color:#111827;line-height:1.45;white-space:pre-wrap;">${safePreview}</div>
+        </div>`
+            : ''
+        }
+      </div>
+      ${
+        threadLink
+          ? `<div style="margin-top:18px;">
+        <a href="${threadLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">
+          Open message thread
+        </a>
+        <div style="margin-top:10px;font-size:12px;color:#6b7280;">
+          If the button doesn’t work, open: <span style="color:#111827;">${threadLink}</span>
+        </div>
+      </div>`
+          : ''
+      }
+    </div>
+  </div>
+</div>`;
+
+    if (this.devBypass) {
+      await this.handleDevBypassHtml(subject, html, email);
+      return;
+    }
+
+    await this.mailerService.sendMail({
+      to: email,
+      subject,
+      html,
     });
   }
 }

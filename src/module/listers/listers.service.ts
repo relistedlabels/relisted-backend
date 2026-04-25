@@ -2711,7 +2711,7 @@ export class ListersService {
             },
           },
         },
-        user: true,
+        user: { include: { profile: true } },
         attachment: {
           include: {
             uploads: true,
@@ -3136,6 +3136,44 @@ export class ListersService {
       },
       include: { uploads: true, sender: { include: { profile: true } } },
     });
+
+    const renter = (dispute as any).user;
+    if (renter?.id && renter.id !== user.id) {
+      const senderName =
+        message.sender?.profile?.fullName ||
+        message.sender?.profile?.businessName ||
+        message.sender?.name ||
+        'Someone';
+      const recipientName =
+        renter.profile?.fullName || renter.profile?.businessName || renter.name || 'Renter';
+      const clientUrl = process.env.CLIENT_URL || '';
+      const threadLink = clientUrl ? `${clientUrl}/renters/dispute#${disputeId}` : undefined;
+      const preview =
+        (body.content || '').trim() || (body.uploadIds?.length ? 'Sent an attachment' : '');
+      await this.notificationService.createNotification({
+        userId: renter.id,
+        title: 'New message',
+        message: `${senderName} sent you a new message.`,
+        type: 'DISPUTE_MESSAGE',
+        metadata: {
+          disputeId,
+          orderId: (dispute as any).order?.orderId,
+          chatRoomId: room.id,
+          messageId: message.id,
+          senderId: user.id,
+        },
+        sendEmail: true,
+        emailData: {
+          email: renter.email,
+          recipientName,
+          senderName,
+          disputeId,
+          orderId: (dispute as any).order?.orderId,
+          messagePreview: preview.length > 200 ? `${preview.slice(0, 200)}…` : preview,
+          threadLink,
+        },
+      });
+    }
 
     const createdAt = message.createdAt.toISOString();
     return {
