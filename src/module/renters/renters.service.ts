@@ -1933,7 +1933,15 @@ export class RentersService {
             orderItems: { include: { product: true } },
           },
         },
-        chatRooms: { include: { message: true } },
+        chatRooms: {
+          include: {
+            message: {
+              include: {
+                uploads: true,
+              },
+            },
+          },
+        },
       },
     });
 
@@ -2082,8 +2090,18 @@ export class RentersService {
     const dispute = await this.prisma.dispute.findUnique({
       where: { disputeId },
       include: {
-        order: true,
-        chatRooms: { include: { message: { orderBy: { createdAt: 'asc' } } } },
+        order: { include: { user: { include: { profile: true } } } },
+        chatRooms: {
+          include: {
+            message: {
+              orderBy: { createdAt: 'asc' },
+              include: {
+                uploads: true,
+                sender: { include: { profile: true } },
+              },
+            },
+          },
+        },
       },
     });
 
@@ -2093,9 +2111,26 @@ export class RentersService {
     const messages: any[] = dispute.chatRooms
       ? dispute.chatRooms.message.map((m: any) => ({
           id: m.id,
+          createdBy: m.senderRole === 'admin' ? 'admin' : m.senderRole,
+          senderId: m.senderId,
+          sender: {
+            id: m.senderId,
+            name: m.sender?.name || "User",
+            avatarUrl: m.sender?.profile?.avatar || null,
+            role: m.senderRole,
+          },
           type: m.senderRole === 'admin' ? 'admin' : 'user',
           content: m.content,
           timestamp: m.createdAt.toISOString(),
+          attachments:
+            m.uploads?.map((u: any) => ({
+              id: u.id,
+              url: u.url,
+              thumbnailUrl: u.url,
+              name: u.name,
+              type: u.type,
+              size: u.size,
+            })) || [],
         }))
       : [];
 
@@ -2108,8 +2143,19 @@ export class RentersService {
   async sendDisputeMessage(
     userId: string,
     disputeId: string,
-    data: { message: string; attachmentUrls?: string[] },
+    data: {
+      message?: string;
+      content?: string;
+      attachmentUrls?: string[];
+      uploadIds?: string[];
+      mediaIds?: string[];
+    },
   ) {
+    const messageContent = data.message || data.content;
+    const fileIds = data.uploadIds || data.mediaIds || data.attachmentUrls || [];
+    if (!messageContent?.trim() && fileIds.length === 0) {
+      throw new BadRequestException('Message content cannot be empty');
+    }
     const dispute = await this.prisma.dispute.findUnique({
       where: { disputeId },
       include: { chatRooms: true, order: true },
@@ -2131,9 +2177,13 @@ export class RentersService {
       data: {
         senderId: userId,
         senderRole: 'renter',
-        content: data.message,
+        content: messageContent || '',
         chatRoomId: room.id,
+        uploads: fileIds.length
+          ? { connect: fileIds.map((id) => ({ id })) }
+          : undefined,
       },
+      include: { uploads: true, sender: { include: { profile: true } } },
     });
 
     return {
@@ -2141,10 +2191,26 @@ export class RentersService {
       message: 'Message sent successfully',
       data: {
         messageId: msg.id,
+        createdBy: 'renter',
+        senderId: msg.senderId,
+        sender: {
+          id: msg.senderId,
+          name: msg.sender?.profile?.fullName || msg.sender?.profile?.businessName || null,
+          avatarUrl: msg.sender?.profile?.avatar || null,
+          role: 'renter',
+        },
         type: 'user',
         content: msg.content,
         timestamp: msg.createdAt.toISOString(),
-        attachments: data.attachmentUrls || [],
+        attachments:
+          msg.uploads?.map((u) => ({
+            id: u.id,
+            url: u.url,
+            thumbnailUrl: u.url,
+            name: u.name,
+            type: u.type,
+            size: u.size,
+          })) || [],
       },
     };
   }
@@ -2529,6 +2595,13 @@ export class RentersService {
         `[RentersService] Booking Topship pickup for order ${orderId}`,
       );
 
+      const toKobo = (amount: number | undefined | null) => {
+        const value = Number(amount || 0);
+        if (!Number.isFinite(value) || value <= 0) return 0;
+        if (value > 100000) return Math.round(value);
+        return Math.round(value * 100);
+      };
+
       const firstItem = order.orderItems[0];
       const curatorProfile = firstItem.product.curator.profile;
       const curatorBusiness = curatorProfile?.businessInfo;
@@ -2588,11 +2661,11 @@ export class RentersService {
             itemCollectionMode: 'PickUp',
             shipmentRoute: 'Domestic',
             insuranceCharge: 0,
-            shipmentCharge: (data.selectedRate?.shipmentCharge || 0) * 100, // Convert to Kobo
+            shipmentCharge: toKobo(data.selectedRate?.shipmentCharge),
             pickupId: `RETURN-PICKUP-${Date.now()}`,
             pickupPartner: data.selectedRate?.pickupPartner || 'Standard',
-            pickupCharge: (data.selectedRate?.pickupCharge || 0) * 100, // Pickup charge usually separate
-            valueAddedTaxCharge: (data.selectedRate?.vatCharge || 0) * 100,
+            pickupCharge: toKobo(data.selectedRate?.pickupCharge),
+            valueAddedTaxCharge: toKobo(data.selectedRate?.vatCharge),
             discount: 0,
             deliveryLocation: listerAddress || 'Lagos, Nigeria',
             items: [

@@ -2719,7 +2719,11 @@ export class ListersService {
         },
         chatRooms: {
           include: {
-            message: true,
+            message: {
+              include: {
+                uploads: true,
+              },
+            },
           },
         },
       },
@@ -3051,11 +3055,37 @@ export class ListersService {
         orderBy: { createdAt: 'asc' },
         skip,
         take: limit,
+        include: {
+          uploads: true,
+          sender: { include: { profile: true } },
+        },
       }),
       this.prisma.message.count({ where: { chatRoomId: room.id } }),
     ]);
 
-    const mapped = messages.map((m) => this.mapMessageToConversationItem(m));
+    const mapped = messages.map((m) => ({
+      id: m.id,
+      createdBy: m.senderRole === 'admin' ? 'admin' : m.senderRole,
+      senderId: m.senderId,
+      sender: {
+        id: m.senderId,
+        name: m.sender?.name || "User",
+        avatarUrl: m.sender?.profile?.avatar || null,
+        role: m.senderRole,
+      },
+      type: m.senderRole === 'admin' ? 'admin' : 'user',
+      content: m.content,
+      timestamp: m.createdAt.toISOString(),
+      attachments:
+        m.uploads?.map((u) => ({
+          id: u.id,
+          url: u.url,
+          thumbnailUrl: u.url,
+          name: u.name,
+          type: u.type,
+          size: u.size,
+        })) || [],
+    }));
 
     const pages = Math.ceil(total / limit) || 1;
     return {
@@ -3071,9 +3101,9 @@ export class ListersService {
   async addDisputeMessage(
     user: userEntity,
     disputeId: string,
-    body: { content: string; mediaIds?: string[] },
+    body: { content?: string; mediaIds?: string[]; uploadIds?: string[] },
   ) {
-    if (!body.content || !body.content.trim()) {
+    if (!body.content?.trim() && (!body.uploadIds || body.uploadIds.length === 0)) {
       throw new ForbiddenException('Message content cannot be empty');
     }
 
@@ -3097,14 +3127,15 @@ export class ListersService {
       data: {
         senderId: user.id,
         senderRole: Role.LISTER,
-        content: body.content,
+        content: body.content || '',
         type: 'user',
         chatRoomId: room.id,
+        uploads: body.uploadIds?.length
+          ? { connect: body.uploadIds.map((id) => ({ id })) }
+          : undefined,
       },
+      include: { uploads: true, sender: { include: { profile: true } } },
     });
-
-    // Placeholder: associate mediaIds via a separate table / attachments if needed
-    // Placeholder: notification to admin / renter
 
     const createdAt = message.createdAt.toISOString();
     return {
@@ -3112,6 +3143,14 @@ export class ListersService {
       message: 'Message sent successfully',
       data: {
         messageId: message.id,
+        createdBy: 'lister',
+        senderId: message.senderId,
+        sender: {
+          id: message.senderId,
+          name: message.sender?.profile?.fullName || message.sender?.profile?.businessName || null,
+          avatarUrl: message.sender?.profile?.avatar || null,
+          role: 'lister',
+        },
         type: 'user',
         content: message.content,
         createdAt,
@@ -3122,7 +3161,15 @@ export class ListersService {
           hour: '2-digit',
           minute: '2-digit',
         }),
-        senderId: user.id,
+        attachments:
+          message.uploads?.map((u) => ({
+            id: u.id,
+            url: u.url,
+            thumbnailUrl: u.url,
+            name: u.name,
+            type: u.type,
+            size: u.size,
+          })) || [],
       },
     };
   }

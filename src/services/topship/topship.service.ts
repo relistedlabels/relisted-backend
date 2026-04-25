@@ -7,7 +7,8 @@ export class TopshipService {
   private readonly apiKey: string;
 
   constructor() {
-    this.baseUrl = process.env.TOPSHIP_API_URL || 'https://topship-staging.africa/api';
+    this.baseUrl =
+      process.env.TOPSHIP_API_URL || 'https://topship-staging.africa/api';
     this.apiKey = process.env.TOPSHIP_API_KEY || '';
   }
 
@@ -18,15 +19,77 @@ export class TopshipService {
     };
   }
 
-  async getShipmentRate(data: any) {
+  private filterPickupRates(rates: any[]): any[] {
+    const allowedPartners = new Set([
+      'chowdeck',
+      'glovo',
+      'errandlr',
+      'dellyman',
+    ]);
+
+    const filtered = (Array.isArray(rates) ? rates : [])
+      .filter((r) => {
+        const partner = String(r?.partner ?? '')
+          .trim()
+          .toLowerCase();
+        if (!allowedPartners.has(partner)) return false;
+
+        const duration = String(r?.duration ?? '')
+          .trim()
+          .toLowerCase();
+        if (duration && !duration.includes('same-day')) return false;
+
+        return true;
+      })
+      .sort((a, b) => {
+        const aCharge = Number(a?.pickupCharge ?? 0);
+        const bCharge = Number(b?.pickupCharge ?? 0);
+        return aCharge - bCharge;
+      });
+
+    return filtered;
+  }
+
+  private filterShipmentRates(rates: any[]): any[] {
+    const allowed = new Set(['chowdeck', 'glovo', 'errandlr', 'dellyman']);
+    const list = Array.isArray(rates) ? rates : [];
+
+    const hasPartnerRates = list.some((r) => {
+      const tier = String(r?.pricingTier ?? r?.name ?? '')
+        .trim()
+        .toLowerCase();
+      return allowed.has(tier);
+    });
+
+    if (!hasPartnerRates) return list;
+
+    return list
+      .filter((r) => {
+        const tier = String(r?.pricingTier ?? r?.name ?? '')
+          .trim()
+          .toLowerCase();
+        return allowed.has(tier);
+      })
+      .sort((a, b) => {
+        const aCost = Number(a?.cost ?? 0);
+        const bCost = Number(b?.cost ?? 0);
+        return aCost - bCost;
+      });
+  }
+
+  async getShipmentRate(data: any): Promise<any[]> {
     try {
       const response = await axios.get(`${this.baseUrl}/get-shipment-rate`, {
         headers: this.headers,
-        params: { shipmentDetail: typeof data === 'string' ? data : JSON.stringify(data) },
+        params: {
+          shipmentDetail:
+            typeof data === 'string' ? data : JSON.stringify(data),
+        },
       });
-      return response.data;
+      return this.filterShipmentRates(response.data);
     } catch (error: any) {
       this.handleError(error);
+      return [];
     }
   }
 
@@ -34,7 +97,9 @@ export class TopshipService {
     try {
       const response = await axios.get(`${this.baseUrl}/get-shopnship-rates`, {
         headers: this.headers,
-        params: { input: typeof data === 'string' ? data : JSON.stringify(data) },
+        params: {
+          input: typeof data === 'string' ? data : JSON.stringify(data),
+        },
       });
       return response.data;
     } catch (error: any) {
@@ -46,9 +111,11 @@ export class TopshipService {
     try {
       const response = await axios.get(`${this.baseUrl}/get-pickup-rates`, {
         headers: this.headers,
-        params: { input: typeof data === 'string' ? data : JSON.stringify(data) },
+        params: {
+          input: typeof data === 'string' ? data : JSON.stringify(data),
+        },
       });
-      return response.data;
+      return this.filterPickupRates(response.data);
     } catch (error: any) {
       this.handleError(error);
     }
@@ -150,9 +217,13 @@ export class TopshipService {
 
   async bookShopAndShipAsDraft(data: any) {
     try {
-      const response = await axios.post(`${this.baseUrl}/save-shopnship`, data, {
-        headers: this.headers,
-      });
+      const response = await axios.post(
+        `${this.baseUrl}/save-shopnship`,
+        data,
+        {
+          headers: this.headers,
+        },
+      );
       return response.data;
     } catch (error: any) {
       this.handleError(error);
