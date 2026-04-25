@@ -2158,7 +2158,15 @@ export class RentersService {
     }
     const dispute = await this.prisma.dispute.findUnique({
       where: { disputeId },
-      include: { chatRooms: true, order: true },
+      include: {
+        chatRooms: true,
+        order: {
+          include: {
+            user: { include: { profile: true } },
+            rentals: { include: { curator: { include: { profile: true } } } },
+          },
+        },
+      },
     });
 
     if (!dispute || dispute.order?.userId !== userId)
@@ -2185,6 +2193,44 @@ export class RentersService {
       },
       include: { uploads: true, sender: { include: { profile: true } } },
     });
+
+    const lister = (dispute as any).order?.rentals?.[0]?.curator;
+    if (lister?.id && lister.id !== userId) {
+      const senderName =
+        msg.sender?.profile?.fullName ||
+        msg.sender?.profile?.businessName ||
+        msg.sender?.name ||
+        'Someone';
+      const recipientName =
+        lister.profile?.fullName || lister.profile?.businessName || lister.name || 'Lister';
+      const clientUrl = process.env.CLIENT_URL || '';
+      const threadLink = clientUrl ? `${clientUrl}/listers/dispute#${disputeId}` : undefined;
+      const preview =
+        (messageContent || '').trim() || (fileIds.length ? 'Sent an attachment' : '');
+      await this.notificationService.createNotification({
+        userId: lister.id,
+        title: 'New message',
+        message: `${senderName} sent you a new message.`,
+        type: 'DISPUTE_MESSAGE',
+        metadata: {
+          disputeId,
+          orderId: (dispute as any).order?.orderId,
+          chatRoomId: room.id,
+          messageId: msg.id,
+          senderId: userId,
+        },
+        sendEmail: true,
+        emailData: {
+          email: lister.email,
+          recipientName,
+          senderName,
+          disputeId,
+          orderId: (dispute as any).order?.orderId,
+          messagePreview: preview.length > 200 ? `${preview.slice(0, 200)}…` : preview,
+          threadLink,
+        },
+      });
+    }
 
     return {
       success: true,

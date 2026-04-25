@@ -293,3 +293,28 @@ export class DisputeStatusDto {
   @IsOptional()
   compensationToLister?: number;
 }
+
+export class DisputeMessageDto {
+  @IsEmail()
+  email: string;
+
+  @IsString()
+  recipientName: string;
+
+  @IsString()
+  senderName: string;
+
+  @IsString()
+  disputeId: string;
+
+  @IsString()
+  orderId: string;
+
+  @IsString()
+  @IsOptional()
+  messagePreview?: string;
+
+  @IsString()
+  @IsOptional()
+  threadLink?: string;
+}
