@@ -9,7 +9,7 @@ import { UploadService } from '../upload/upload.service';
 import { WemaServiceService } from '../../services/wema-service/wema-service.service';
 import { TopshipService } from '../../services/topship/topship.service';
 import { randomUUID } from 'crypto';
-import { Role } from '@prisma/client';
+import { OrderStatus, Role } from '@prisma/client';
 import { addMinutes } from 'date-fns';
 import { createAttachments } from 'prisma/prisma.utils';
 
@@ -1818,6 +1818,11 @@ export class RentersService {
       },
     });
 
+    await this.prisma.order.update({
+      where: { id: order.id },
+      data: { status: OrderStatus.IN_DISPUTE },
+    });
+
     const orderWithLister = await this.prisma.order.findUnique({
       where: { id: order.id },
       include: {
@@ -2115,7 +2120,7 @@ export class RentersService {
           senderId: m.senderId,
           sender: {
             id: m.senderId,
-            name: m.sender?.name || "User",
+            name: m.sender?.name || 'User',
             avatarUrl: m.sender?.profile?.avatar || null,
             role: m.senderRole,
           },
@@ -2152,7 +2157,8 @@ export class RentersService {
     },
   ) {
     const messageContent = data.message || data.content;
-    const fileIds = data.uploadIds || data.mediaIds || data.attachmentUrls || [];
+    const fileIds =
+      data.uploadIds || data.mediaIds || data.attachmentUrls || [];
     if (!messageContent?.trim() && fileIds.length === 0) {
       throw new BadRequestException('Message content cannot be empty');
     }
@@ -2202,11 +2208,17 @@ export class RentersService {
         msg.sender?.name ||
         'Someone';
       const recipientName =
-        lister.profile?.fullName || lister.profile?.businessName || lister.name || 'Lister';
+        lister.profile?.fullName ||
+        lister.profile?.businessName ||
+        lister.name ||
+        'Lister';
       const clientUrl = process.env.CLIENT_URL || '';
-      const threadLink = clientUrl ? `${clientUrl}/listers/dispute#${disputeId}` : undefined;
+      const threadLink = clientUrl
+        ? `${clientUrl}/listers/dispute#${disputeId}`
+        : undefined;
       const preview =
-        (messageContent || '').trim() || (fileIds.length ? 'Sent an attachment' : '');
+        (messageContent || '').trim() ||
+        (fileIds.length ? 'Sent an attachment' : '');
       await this.notificationService.createNotification({
         userId: lister.id,
         title: 'New message',
@@ -2226,7 +2238,8 @@ export class RentersService {
           senderName,
           disputeId,
           orderId: (dispute as any).order?.orderId,
-          messagePreview: preview.length > 200 ? `${preview.slice(0, 200)}…` : preview,
+          messagePreview:
+            preview.length > 200 ? `${preview.slice(0, 200)}…` : preview,
           threadLink,
         },
       });
@@ -2241,7 +2254,10 @@ export class RentersService {
         senderId: msg.senderId,
         sender: {
           id: msg.senderId,
-          name: msg.sender?.profile?.fullName || msg.sender?.profile?.businessName || null,
+          name:
+            msg.sender?.profile?.fullName ||
+            msg.sender?.profile?.businessName ||
+            null,
           avatarUrl: msg.sender?.profile?.avatar || null,
           role: 'renter',
         },
