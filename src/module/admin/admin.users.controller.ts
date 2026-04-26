@@ -1,8 +1,24 @@
-import { Controller, Get, Param, Patch, Body, Query, Delete } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Body,
+  Query,
+  Delete,
+  UseGuards,
+} from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../auth/guard/authGuard';
+import { RoleGuard } from '../auth/guard/roleGuard';
+import { Roles } from '../auth/decorator/roles.decorator';
+import { Role } from '@prisma/client';
 import { AdminService } from './admin.service';
 
 @ApiTags('Admin Users')
+@ApiBearerAuth('bearer')
+@UseGuards(JwtAuthGuard, RoleGuard)
+@Roles(Role.ADMIN)
 @Controller('api/admin/users')
 export class AdminUsersController {
   constructor(private readonly adminService: AdminService) {}
@@ -79,4 +95,3 @@ export class AdminUsersController {
     return this.adminService.deleteUser(userId);
   }
 }
-

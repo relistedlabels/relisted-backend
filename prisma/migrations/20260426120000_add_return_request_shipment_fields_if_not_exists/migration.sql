@@ -1,0 +1,5 @@
+ALTER TABLE "ReturnRequest"
+ADD COLUMN IF NOT EXISTS "shipmentId" TEXT,
+ADD COLUMN IF NOT EXISTS "trackingNumber" TEXT,
+ADD COLUMN IF NOT EXISTS "pickupAddress" TEXT,
+ADD COLUMN IF NOT EXISTS "pickupScheduledAt" TIMESTAMP(3);

@@ -5,7 +5,7 @@ import { PrismaService } from 'src/services/prisma/prisma.service';
 import { bad } from 'src/utils/error';
 import { connectId, createAttachments } from 'prisma/prisma.utils';
 import { userEntity } from '../auth/auth.types';
-import { DisputeStatus } from '@prisma/client';
+import { DisputeStatus, OrderStatus } from '@prisma/client';
 
 @Injectable()
 export class DisputeService {
@@ -44,22 +44,28 @@ export class DisputeService {
     }
 
     // create dispute
-    const newDispute = await this.prisma.dispute.create({
-      data: {
-        disputeId: await this.generateDisputeId(),
-        issueCategory: dto.issueCategory,
-        description: dto.description,
-        preferredResolution: dto.preferredResolution,
-        order: connectId(orderExist.id),
-        user: connectId(user.id),
-        chatRooms: {
-          create: {},
+    const [newDispute] = await this.prisma.$transaction([
+      this.prisma.dispute.create({
+        data: {
+          disputeId: await this.generateDisputeId(),
+          issueCategory: dto.issueCategory,
+          description: dto.description,
+          preferredResolution: dto.preferredResolution,
+          order: connectId(orderExist.id),
+          user: connectId(user.id),
+          chatRooms: {
+            create: {},
+          },
+          attachment: dto.attachments
+            ? createAttachments(dto.attachments)
+            : undefined,
         },
-        attachment: dto.attachments
-          ? createAttachments(dto.attachments)
-          : undefined,
-      },
-    });
+      }),
+      this.prisma.order.update({
+        where: { id: orderExist.id },
+        data: { status: OrderStatus.IN_DISPUTE },
+      }),
+    ]);
 
     return {
       message: ' dispute created successfully',

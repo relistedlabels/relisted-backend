@@ -31,7 +31,11 @@ export class AuthService {
   ) {}
 
   async register(dto: registerDto) {
-    const { name, email, password, role } = dto;
+    const { name, email, password } = dto;
+    const role =
+      dto.role === Role.RENTER || dto.role === Role.LISTER
+        ? dto.role
+        : Role.RENTER;
 
     let newUser;
     try {

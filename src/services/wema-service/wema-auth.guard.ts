@@ -1,4 +1,10 @@
-import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  CanActivate,
+  ExecutionContext,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { timingSafeEqual } from 'crypto';
 
 @Injectable()
 export class WemaAuthGuard implements CanActivate {
@@ -16,10 +22,17 @@ export class WemaAuthGuard implements CanActivate {
     }
 
     const token = tokenParts[1];
-    const expectedToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1lIjoiUmVsaXN0ZWQtbGFiZWxzIiwibmJmIjoxNzY4OTk4MTIxLCJleHAiOjE4MDA1MzQxMjEsImlzcyI6ImFwcHMud2VtYWJhbmsuY29tIiwiYXVkIjoiYXBwcy53ZW1hYmFuay5jb20ifQ.MpYaqOEyVLkQlKJFUf6CoU6iKNpXJNC4LxBtq2MY_NQ";
+    const expectedToken = process.env.WEMA_BEARER_TOKEN;
+    if (!expectedToken) {
+      throw new UnauthorizedException('Wema auth not configured');
+    }
 
-    // Validate the statically provided JWT
-    if (token !== expectedToken) {
+    const tokenBuffer = Buffer.from(token);
+    const expectedBuffer = Buffer.from(expectedToken);
+    if (
+      tokenBuffer.length !== expectedBuffer.length ||
+      !timingSafeEqual(tokenBuffer, expectedBuffer)
+    ) {
       throw new UnauthorizedException('Invalid Token');
     }
 

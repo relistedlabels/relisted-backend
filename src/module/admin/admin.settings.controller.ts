@@ -1,52 +1,70 @@
-import { Controller, Get, Param, Patch, Post, Body, Query, Put } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Body,
+  Query,
+  Put,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../auth/guard/authGuard';
+import { RoleGuard } from '../auth/guard/roleGuard';
+import { Roles } from '../auth/decorator/roles.decorator';
+import { Role } from '@prisma/client';
 import { AdminService } from './admin.service';
 
 @ApiTags('Admin Settings')
+@ApiBearerAuth('bearer')
+@UseGuards(JwtAuthGuard, RoleGuard)
+@Roles(Role.ADMIN)
 @Controller('api/admin/settings')
 export class AdminSettingsController {
   constructor(private readonly adminService: AdminService) {}
 
   @Get('profile')
   @ApiOperation({ summary: 'Get admin profile' })
-  async getProfile(@Query('adminId') adminId: string) {
-    return this.adminService.getAdminProfile(adminId || 'mock-admin-id');
+  async getProfile(@Request() req) {
+    return this.adminService.getAdminProfile(req.user.id);
   }
 
   @Put('profile')
   @ApiOperation({ summary: 'Update admin profile' })
-  async updateProfile(@Query('adminId') adminId: string, @Body() data: any) {
-    return this.adminService.updateAdminProfile(adminId || 'mock-admin-id', data);
+  async updateProfile(@Request() req, @Body() data: any) {
+    return this.adminService.updateAdminProfile(req.user.id, data);
   }
 
   @Put('profile/photo')
   @ApiOperation({ summary: 'Update profile photo' })
-  async updateProfilePhoto(@Query('adminId') adminId: string, @Body() data: any) {
-    return this.adminService.updateAdminProfilePhoto(adminId || 'mock-admin-id', data);
+  async updateProfilePhoto(@Request() req, @Body() data: any) {
+    return this.adminService.updateAdminProfilePhoto(req.user.id, data);
   }
 
   @Put('profile/password')
   @ApiOperation({ summary: 'Update password' })
-  async updatePassword(@Query('adminId') adminId: string, @Body() data: any) {
-    return this.adminService.updateAdminPassword(adminId || 'mock-admin-id', data);
+  async updatePassword(@Request() req, @Body() data: any) {
+    return this.adminService.updateAdminPassword(req.user.id, data);
   }
 
   @Put('profile/2fa')
   @ApiOperation({ summary: 'Toggle 2FA' })
-  async toggle2FA(@Query('adminId') adminId: string, @Body() data: any) {
-    return this.adminService.toggleAdmin2FA(adminId || 'mock-admin-id', data);
+  async toggle2FA(@Request() req, @Body() data: any) {
+    return this.adminService.toggleAdmin2FA(req.user.id, data);
   }
 
   @Get('profile/devices')
   @ApiOperation({ summary: 'Get connected devices' })
-  async getDevices(@Query('adminId') adminId: string) {
-    return this.adminService.getAdminDevices(adminId || 'mock-admin-id');
+  async getDevices(@Request() req) {
+    return this.adminService.getAdminDevices(req.user.id);
   }
 
   @Post('profile/logout-all-devices')
   @ApiOperation({ summary: 'Logout from all other devices' })
-  async logoutAllDevices(@Query('adminId') adminId: string) {
-    return this.adminService.logoutAllOtherDevices(adminId || 'mock-admin-id');
+  async logoutAllDevices(@Request() req) {
+    return this.adminService.logoutAllOtherDevices(req.user.id);
   }
 
   @Get('platform-controls')
@@ -75,7 +93,10 @@ export class AdminSettingsController {
 
   @Put('roles/:roleId/permissions')
   @ApiOperation({ summary: 'Update role permissions' })
-  async updateRolePermissions(@Param('roleId') roleId: string, @Body() data: any) {
+  async updateRolePermissions(
+    @Param('roleId') roleId: string,
+    @Body() data: any,
+  ) {
     return this.adminService.updateRolePermissions(roleId, data);
   }
 
@@ -93,7 +114,10 @@ export class AdminSettingsController {
 
   @Put('admins/:adminId')
   @ApiOperation({ summary: 'Update an admin' })
-  async updateAdminList(@Param('adminId') targetAdminId: string, @Body() data: any) {
+  async updateAdminList(
+    @Param('adminId') targetAdminId: string,
+    @Body() data: any,
+  ) {
     return this.adminService.updateAdminSettings(targetAdminId, data);
   }
 
@@ -121,4 +145,3 @@ export class AdminSettingsController {
     return this.adminService.exportAuditLogs();
   }
 }
-
