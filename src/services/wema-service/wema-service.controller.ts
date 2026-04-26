@@ -1,4 +1,15 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards, HttpCode } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  BadRequestException,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+  HttpCode,
+} from '@nestjs/common';
 import { CreateFundWalletDto } from './dto/create-wema-service.dto';
 import { UpdateWemaServiceDto } from './dto/update-wema-service.dto';
 import { WemaServiceService } from './wema-service.service';
@@ -12,6 +23,14 @@ export class WemaServiceController {
   @UseGuards(WemaAuthGuard)
   @HttpCode(200)
   async nameLookup(@Body() body: any) {
+    const accountnumber = body?.accountnumber;
+    if (
+      accountnumber === undefined ||
+      accountnumber === null ||
+      String(accountnumber).trim() === ''
+    ) {
+      throw new BadRequestException('accountnumber is required');
+    }
     return this.wemaServiceService.nameLookup(body);
   }
 
@@ -19,6 +38,22 @@ export class WemaServiceController {
   @UseGuards(WemaAuthGuard)
   @HttpCode(200)
   async transactionNotify(@Body() body: any) {
+    const craccount = body?.craccount;
+    const sessionid = body?.sessionid;
+    if (
+      craccount === undefined ||
+      craccount === null ||
+      String(craccount).trim() === ''
+    ) {
+      throw new BadRequestException('craccount is required');
+    }
+    if (
+      sessionid === undefined ||
+      sessionid === null ||
+      String(sessionid).trim() === ''
+    ) {
+      throw new BadRequestException('sessionid is required');
+    }
     return this.wemaServiceService.transactionNotify(body);
   }
 
@@ -26,6 +61,14 @@ export class WemaServiceController {
   @UseGuards(WemaAuthGuard)
   @HttpCode(200)
   async fetchMiniStatement(@Body() body: any) {
+    const accountnumber = body?.accountnumber;
+    if (
+      accountnumber === undefined ||
+      accountnumber === null ||
+      String(accountnumber).trim() === ''
+    ) {
+      throw new BadRequestException('accountnumber is required');
+    }
     return this.wemaServiceService.fetchMiniStatement(body);
   }
 
@@ -33,6 +76,14 @@ export class WemaServiceController {
   @UseGuards(WemaAuthGuard)
   @HttpCode(200)
   async getKycDetails(@Body() body: any) {
+    const accountnumber = body?.accountnumber;
+    if (
+      accountnumber === undefined ||
+      accountnumber === null ||
+      String(accountnumber).trim() === ''
+    ) {
+      throw new BadRequestException('accountnumber is required');
+    }
     return this.wemaServiceService.getKycDetails(body);
   }
 
@@ -40,6 +91,14 @@ export class WemaServiceController {
   @UseGuards(WemaAuthGuard)
   @HttpCode(200)
   async blockAccount(@Body() body: any) {
+    const accountnumber = body?.accountnumber;
+    if (
+      accountnumber === undefined ||
+      accountnumber === null ||
+      String(accountnumber).trim() === ''
+    ) {
+      throw new BadRequestException('accountnumber is required');
+    }
     return this.wemaServiceService.blockAccount(body);
   }
 
@@ -51,6 +110,22 @@ export class WemaServiceController {
   @UseGuards(WemaAuthGuard)
   @HttpCode(200)
   async fundWalletPlaceholder(@Body() body: any) {
+    const userId = body?.userId;
+    const amount = body?.amount;
+    if (
+      userId === undefined ||
+      userId === null ||
+      String(userId).trim() === ''
+    ) {
+      throw new BadRequestException('userId is required');
+    }
+    if (
+      amount === undefined ||
+      amount === null ||
+      String(amount).trim() === ''
+    ) {
+      throw new BadRequestException('amount is required');
+    }
     return this.wemaServiceService.fundWallet(body.userId, body.amount);
   }
 

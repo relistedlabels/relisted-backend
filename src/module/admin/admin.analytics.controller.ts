@@ -1,8 +1,15 @@
-import { Controller, Get, Query } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../auth/guard/authGuard';
+import { RoleGuard } from '../auth/guard/roleGuard';
+import { Roles } from '../auth/decorator/roles.decorator';
+import { Role } from '@prisma/client';
 import { AdminService } from './admin.service';
 
 @ApiTags('Admin Analytics')
+@ApiBearerAuth('bearer')
+@UseGuards(JwtAuthGuard, RoleGuard)
+@Roles(Role.ADMIN)
 @Controller('api/admin/analytics')
 export class AdminAnalyticsController {
   constructor(private readonly adminService: AdminService) {}
@@ -59,4 +66,3 @@ export class AdminAnalyticsController {
     return this.adminService.getTopItems(limit ? parseInt(limit, 10) : 5);
   }
 }
-

@@ -1,8 +1,24 @@
-import { Controller, Get, Param, Post, Body, Query, Put } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Param,
+  Post,
+  Body,
+  Query,
+  Put,
+  UseGuards,
+} from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../auth/guard/authGuard';
+import { RoleGuard } from '../auth/guard/roleGuard';
+import { Roles } from '../auth/decorator/roles.decorator';
+import { Role } from '@prisma/client';
 import { AdminService } from './admin.service';
 
 @ApiTags('Admin Wallets')
+@ApiBearerAuth('bearer')
+@UseGuards(JwtAuthGuard, RoleGuard)
+@Roles(Role.ADMIN)
 @Controller('api/admin/wallets')
 export class AdminWalletsController {
   constructor(private readonly adminService: AdminService) {}
@@ -111,7 +127,11 @@ export class AdminWalletsController {
     @Param('id') withdrawalId: string,
     @Body() data: { status: 'APPROVED' | 'REJECTED'; note?: string },
   ) {
-    return this.adminService.updateWithdrawalStatus(withdrawalId, data.status, data.note);
+    return this.adminService.updateWithdrawalStatus(
+      withdrawalId,
+      data.status,
+      data.note,
+    );
   }
 
   @Get(':walletId')

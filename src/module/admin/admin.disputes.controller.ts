@@ -1,8 +1,23 @@
-import { Body, Controller, Get, Param, Put, Query } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Put,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../auth/guard/authGuard';
+import { RoleGuard } from '../auth/guard/roleGuard';
+import { Roles } from '../auth/decorator/roles.decorator';
+import { Role } from '@prisma/client';
 import { AdminService } from './admin.service';
 
 @ApiTags('Admin Disputes')
+@ApiBearerAuth('bearer')
+@UseGuards(JwtAuthGuard, RoleGuard)
+@Roles(Role.ADMIN)
 @Controller('api/admin/disputes')
 export class AdminDisputesController {
   constructor(private readonly adminService: AdminService) {}

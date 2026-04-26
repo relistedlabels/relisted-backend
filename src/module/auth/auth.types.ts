@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
-import { IsEmail, IsEnum, IsString } from 'class-validator';
+import { IsEmail, IsEnum, IsOptional, IsString } from 'class-validator';
 // import { Role } from "@prisma/client"
 
 export const Auth_Otp_Token_Subject = {
@@ -28,9 +28,10 @@ export class registerDto {
   @IsString()
   password: string;
 
-  @ApiProperty({ enum: Role })
+  @ApiProperty({ enum: Role, required: false })
+  @IsOptional()
   @IsEnum(Role)
-  role: Role;
+  role?: Role;
 }
 
 export class loginDto {

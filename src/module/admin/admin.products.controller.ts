@@ -1,8 +1,26 @@
-import { Controller, Get, Param, Patch, Post, Body, Query, Put, Delete } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Body,
+  Query,
+  Put,
+  Delete,
+  UseGuards,
+} from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../auth/guard/authGuard';
+import { RoleGuard } from '../auth/guard/roleGuard';
+import { Roles } from '../auth/decorator/roles.decorator';
+import { Role } from '@prisma/client';
 import { AdminService } from './admin.service';
 
 @ApiTags('Admin Products')
+@ApiBearerAuth('bearer')
+@UseGuards(JwtAuthGuard, RoleGuard)
+@Roles(Role.ADMIN)
 @Controller('api/admin/products')
 export class AdminProductsController {
   constructor(private readonly adminService: AdminService) {}
@@ -19,7 +37,11 @@ export class AdminProductsController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.adminService.getProductsByStatus('PENDING', page ? parseInt(page, 10) : 1, limit ? parseInt(limit, 10) : 10);
+    return this.adminService.getProductsByStatus(
+      'PENDING',
+      page ? parseInt(page, 10) : 1,
+      limit ? parseInt(limit, 10) : 10,
+    );
   }
 
   @Get('rejected')
@@ -28,7 +50,11 @@ export class AdminProductsController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.adminService.getProductsByStatus('REJECTED', page ? parseInt(page, 10) : 1, limit ? parseInt(limit, 10) : 10);
+    return this.adminService.getProductsByStatus(
+      'REJECTED',
+      page ? parseInt(page, 10) : 1,
+      limit ? parseInt(limit, 10) : 10,
+    );
   }
 
   @Get('active')
@@ -37,7 +63,11 @@ export class AdminProductsController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.adminService.getProductsByStatus('APPROVED', page ? parseInt(page, 10) : 1, limit ? parseInt(limit, 10) : 10);
+    return this.adminService.getProductsByStatus(
+      'APPROVED',
+      page ? parseInt(page, 10) : 1,
+      limit ? parseInt(limit, 10) : 10,
+    );
   }
 
   @Get('categories')
@@ -70,7 +100,11 @@ export class AdminProductsController {
     @Param('productId') productId: string,
     @Body() data: { rejectionComment: string },
   ) {
-    return this.adminService.updateProductStatus(productId, 'REJECTED', data.rejectionComment);
+    return this.adminService.updateProductStatus(
+      productId,
+      'REJECTED',
+      data.rejectionComment,
+    );
   }
 
   @Get('listings/:productId/availability')
