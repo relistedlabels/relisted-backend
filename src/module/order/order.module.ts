@@ -1,4 +1,5 @@
 import { Global, Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bull';
 import { OrderService } from './order.service';
 import { OrderController } from './order.controller';
 import { PrismaService } from 'src/services/prisma/prisma.service';
@@ -7,9 +8,13 @@ import { NotificationModule } from 'src/services/notification/notification.modul
 
 @Global()
 @Module({
-  imports: [TopshipModule, NotificationModule],
+  imports: [
+    TopshipModule,
+    NotificationModule,
+    BullModule.registerQueue({ name: 'shipment-dispatch' }),
+  ],
   controllers: [OrderController],
   providers: [OrderService],
-  exports: [OrderService]
+  exports: [OrderService],
 })
 export class OrderModule {}
