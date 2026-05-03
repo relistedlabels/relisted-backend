@@ -44,6 +44,7 @@ model User {
   sentMessages          Message[]             @relation("MessageSender")
   rentalsCurated        Rental[]              @relation("Curator")
   rentalsRented         Rental[]              @relation("Rentee")
+  orderListers          OrderLister[]         @relation("OrderListers")
   curatorReviews        Review[]              @relation("CuratorReviews")
   reviewsWritten        Review[]
   tags                  Tag[]
@@ -274,23 +275,30 @@ model Favourite {
 }
 
 model AvailabilityRequest {
-  id                String             @id @default(uuid())
-  productId         String
-  cartItemId        String
-  requesterId       String
-  listerId          String
-  status            AvailabilityStatus @default(PENDING)
-  expiresAt         DateTime
-  createdAt         DateTime           @default(now())
-  autoPay           Boolean            @default(false)
-  deliveryAddressId String?
-  endDate           DateTime?
-  rentalDays        Int?
-  startDate         DateTime?
-  totalPrice        Int?
-  lister            User               @relation("ListerAvailability", fields: [listerId], references: [id])
-  product           Product            @relation(fields: [productId], references: [id])
-  requester         User               @relation("RequestedAvailability", fields: [requesterId], references: [id])
+  id                  String             @id @default(uuid())
+  productId           String
+  cartItemId          String
+  requesterId         String
+  listerId            String
+  status              AvailabilityStatus @default(PENDING)
+  expiresAt           DateTime
+  createdAt           DateTime           @default(now())
+  autoPay             Boolean            @default(false)
+  rejectionReason     String?
+  deliveryAddressId   String?
+  endDate             DateTime?
+  rentalDays          Int?
+  startDate           DateTime?
+  totalPrice          Int?
+  outboundWindowStart DateTime?
+  outboundWindowEnd   DateTime?
+  returnWindowStart   DateTime?
+  returnWindowEnd     DateTime?
+  resaleWindowStart   DateTime?
+  resaleWindowEnd     DateTime?
+  lister              User               @relation("ListerAvailability", fields: [listerId], references: [id])
+  product             Product            @relation(fields: [productId], references: [id])
+  requester           User               @relation("RequestedAvailability", fields: [requesterId], references: [id])
 }
 
 model Order {
@@ -318,23 +326,33 @@ model Order {
   trackingId            String?
   deliveryFee           Int?
   listerBusinessName    String?
-  listerId              String? // Nullable - some orders have items from multiple listers
   listerImage           String?
   listerRating          Float?
   serviceFee            Int?
   totalAmountPaid       Int?
   vatAmount             Int?
   disputes              Dispute[]
-  escrows               Escrow?
+  escrows               Escrow[]
   user                  User                @relation(fields: [userId], references: [id])
   orderItems            OrderItem[]
   rentals               Rental[]
-  returnRequest         ReturnRequest?
+  returnRequests        ReturnRequest[]
   payments              Transaction[]
   virtualAccount        VirtualAccount?
   walletTransactions    WalletTransaction[]
+  shipments             Shipment[]
+  orderListers          OrderLister[]
 
   @@index([listingType])
+}
+
+model OrderLister {
+  orderId  String
+  listerId String
+  order    Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  lister   User   @relation("OrderListers", fields: [listerId], references: [id], onDelete: Cascade)
+
+  @@id([orderId, listerId])
 }
 
 model OrderItem {
@@ -391,20 +409,20 @@ model Review {
 }
 
 model Dispute {
-  id            String        @id @default(uuid())
-  disputeId     String        @unique
-  orderId       String
-  userId        String
-  issueCategory String
-  description   String
+  id                  String        @id @default(uuid())
+  disputeId           String        @unique
+  orderId             String
+  userId              String
+  issueCategory       String
+  description         String
   preferredResolution String?
-  status        DisputeStatus @default(PENDING)
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  attachment    Attachments?
-  chatRooms     ChatRoom?
-  order         Order         @relation(fields: [orderId], references: [id])
-  user          User          @relation(fields: [userId], references: [id])
+  status              DisputeStatus @default(PENDING)
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  attachment          Attachments?
+  chatRooms           ChatRoom?
+  order               Order         @relation(fields: [orderId], references: [id])
+  user                User          @relation(fields: [userId], references: [id])
 }
 
 model ChatRoom {
@@ -426,7 +444,7 @@ model Message {
   chatRoomId String
   chatRoom   ChatRoom  @relation(fields: [chatRoomId], references: [id])
   sender     User      @relation("MessageSender", fields: [senderId], references: [id])
-  uploads   Upload[]
+  uploads    Upload[]
 }
 
 model Transaction {
@@ -486,9 +504,9 @@ model WalletTransaction {
 
 model Escrow {
   id               String       @id @default(uuid())
-  orderId          String       @unique
+  orderId          String
+  listerId         String
   renterId         String
-  curatorId        String
   rentalAmount     Int
   resaleAmount     Int?
   collateralAmount Int
@@ -497,6 +515,8 @@ model Escrow {
   releasedAt       DateTime?
   createdAt        DateTime     @default(now())
   order            Order        @relation(fields: [orderId], references: [id])
+
+  @@unique([orderId, listerId])
 }
 
 model VirtualAccount {
@@ -631,7 +651,8 @@ model Newsletter {
 
 model ReturnRequest {
   id                       String         @id @default(uuid())
-  orderId                  String         @unique
+  orderId                  String
+  shipmentId               String?
   itemCondition            ItemCondition
   damageNotes              String?
   imageUrls                String[]
@@ -639,15 +660,17 @@ model ReturnRequest {
   listerDamageNotes        String?
   listerConfirmationImages String[]
   status                   String         @default("PENDING_PICKUP")
-  shipmentId               String?
   trackingNumber           String?
   pickupAddress            String?
   pickupScheduledAt        DateTime?
+  pickupWindowStart        DateTime?
+  pickupWindowEnd          DateTime?
   shippedAt                DateTime?
   deliveredAt              DateTime?
   createdAt                DateTime       @default(now())
   updatedAt                DateTime       @updatedAt
   order                    Order          @relation(fields: [orderId], references: [id])
+  shipment                 Shipment?      @relation(fields: [shipmentId], references: [id])
 }
 
 enum Role {
@@ -748,4 +771,78 @@ enum ListingType {
   RENTAL
   RESALE
   RENT_OR_RESALE
+}
+
+enum ShipmentType {
+  OUTBOUND // Lister → Renter on rental_start_date
+  RETURN // Renter → Lister on rental_end_date
+  RESALE // Lister → Buyer for resale purchases (immediate dispatch)
+}
+
+enum ShipmentStatus {
+  PENDING // Created at order time. Waiting for cron on scheduled_date.
+  DISPATCHING // Cron has locked this record. API call in progress.
+  DISPATCH_FAILED // All 3 retries exhausted. Admin notified.
+  DISPATCHED // Topship API succeeded. Tracking stored.
+  IN_TRANSIT // Provider confirmed rider pickup.
+  COMPLETED // Delivered (OUTBOUND) or received back (RETURN).
+  CANCELLED // Order cancelled before dispatch.
+}
+
+model Shipment {
+  id                   String               @id @default(uuid())
+  orderId              String
+  listerId             String?
+  type                 ShipmentType
+  status               ShipmentStatus       @default(PENDING)
+  /// Calendar day for dispatch eligibility when no finer window is set (see scheduler)
+  scheduledDate        DateTime
+  /// Relisted-only: when this leg may enter dispatch (cron/queue). Not sent to Topship as a window.
+  scheduledWindowStart DateTime?
+  /// Relisted-only: end of the dispatch window for UX / future rules. Not sent to Topship as a window.
+  scheduledWindowEnd   DateTime?
+  /// Full sender address snapshot captured at order creation time (JSON)
+  pickupAddress        Json
+  /// Full receiver address snapshot captured at order creation time (JSON)
+  deliveryAddress      Json
+  /// Topship shipment ID — populated after successful dispatch
+  providerShipmentId   String?
+  /// Topship tracking URL — populated after successful dispatch
+  providerTrackingUrl  String?
+  trackingId           String?
+  /// Topship pricingTier selected by the renter at checkout (e.g. 'chowdeck', 'glovo')
+  pricingTier          String?
+  /// Topship shipment charge in kobo captured at checkout
+  shipmentCharge       Int?
+  /// Topship pickup charge in kobo captured at checkout
+  pickupCharge         Int?
+  /// Topship VAT charge in kobo captured at checkout
+  vatCharge            Int?
+  /// Topship pickup partner captured at checkout (e.g. 'chowdeck')
+  pickupPartner        String?
+  /// Topship pickupId captured at checkout
+  pickupId             String?
+  /// Single-line receiver address captured at checkout (for admin / Topship); not the pickup-partner hub string from rate APIs
+  deliveryLocation     String?
+  dispatchAttempts     Int                  @default(0)
+  dispatchedAt         DateTime?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  order                Order                @relation(fields: [orderId], references: [id])
+  attemptLogs          DispatchAttemptLog[]
+  returnRequests       ReturnRequest[]
+
+  @@index([scheduledDate, status])
+}
+
+model DispatchAttemptLog {
+  id            String   @id @default(uuid())
+  shipmentId    String
+  attemptNumber Int
+  attemptedAt   DateTime @default(now())
+  success       Boolean
+  errorCode     String?
+  errorMessage  String?
+  durationMs    Int?
+  shipment      Shipment @relation(fields: [shipmentId], references: [id])
 }

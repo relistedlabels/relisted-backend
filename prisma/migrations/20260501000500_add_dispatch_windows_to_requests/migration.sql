@@ -1,0 +1,11 @@
+ALTER TABLE "AvailabilityRequest"
+  ADD COLUMN IF NOT EXISTS "outboundWindowStart" TIMESTAMP(3),
+  ADD COLUMN IF NOT EXISTS "outboundWindowEnd" TIMESTAMP(3),
+  ADD COLUMN IF NOT EXISTS "returnWindowStart" TIMESTAMP(3),
+  ADD COLUMN IF NOT EXISTS "returnWindowEnd" TIMESTAMP(3),
+  ADD COLUMN IF NOT EXISTS "resaleWindowStart" TIMESTAMP(3),
+  ADD COLUMN IF NOT EXISTS "resaleWindowEnd" TIMESTAMP(3);
+
+ALTER TABLE "ReturnRequest"
+  ADD COLUMN IF NOT EXISTS "pickupWindowStart" TIMESTAMP(3),
+  ADD COLUMN IF NOT EXISTS "pickupWindowEnd" TIMESTAMP(3);
