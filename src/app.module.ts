@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bull';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './module/auth/auth.module';
@@ -30,9 +31,50 @@ import { RentersModule } from './module/renters/renters.module';
 import { AdminModule } from './module/admin/admin.module';
 import { TopshipModule } from './services/topship/topship.module';
 import { NewsletterModule } from './module/newsletter/newsletter.module';
+import { DeliveryModule } from './services/delivery/delivery.module';
+import { ShipmentModule } from './module/shipment/shipment.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, MailModule, NotificationModule, EventModule, AuthOtpTokenModule, UserModule, ProfileModule, UploadModule, ProductModule, ReviewModule, DisputeModule, OrderModule, CartItemsModule, RentalModule, WaitlistModule, ChatRoomModule, WemaServiceModule, BrandsModule, CategoriesModule, WebhookModule, TagsModule, ListersModule, ContactModule, SearchModule, RentersModule, AdminModule, TopshipModule, NewsletterModule],
+  imports: [
+    // Redis / Bull — global queue configuration
+    BullModule.forRoot({
+      redis: {
+        host: process.env.REDIS_HOST ?? '127.0.0.1',
+        port: Number(process.env.REDIS_PORT ?? 6379),
+      },
+    }),
+    PrismaModule,
+    AuthModule,
+    MailModule,
+    NotificationModule,
+    EventModule,
+    AuthOtpTokenModule,
+    UserModule,
+    ProfileModule,
+    UploadModule,
+    ProductModule,
+    ReviewModule,
+    DisputeModule,
+    OrderModule,
+    CartItemsModule,
+    RentalModule,
+    WaitlistModule,
+    ChatRoomModule,
+    WemaServiceModule,
+    BrandsModule,
+    CategoriesModule,
+    WebhookModule,
+    TagsModule,
+    ListersModule,
+    ContactModule,
+    SearchModule,
+    RentersModule,
+    AdminModule,
+    TopshipModule,
+    NewsletterModule,
+    DeliveryModule,
+    ShipmentModule,
+  ],
   controllers: [AppController],
   providers: [AppService],
 })
