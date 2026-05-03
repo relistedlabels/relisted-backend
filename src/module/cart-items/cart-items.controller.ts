@@ -10,6 +10,7 @@ import {
 import { CartService } from './cart-items.service';
 import { CreateCartItemDto } from './dto/create-cart-item.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
+import { RequestAvailabilityDto } from './dto/request-availability.dto';
 import { Auth, AuthUser } from '../auth/decorator/auth.decorator';
 import { userEntity } from '../auth/auth.types';
 import {
@@ -162,6 +163,7 @@ export class CartItemsController {
   @Post(':id/request')
   @ApiOperation({ summary: 'Request availability for a cart item' })
   @ApiParam({ name: 'id', description: 'Cart item ID', example: 'uuid' })
+  @ApiBody({ type: RequestAvailabilityDto })
   @ApiResponse({
     status: 200,
     description:
@@ -177,7 +179,11 @@ export class CartItemsController {
     },
   })
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
-  requestAvailability(@Param('id') id: string, @AuthUser() user: userEntity) {
-    return this.cartItemsService.requestAvailability(id, user);
+  requestAvailability(
+    @Param('id') id: string,
+    @AuthUser() user: userEntity,
+    @Body() body: RequestAvailabilityDto,
+  ) {
+    return this.cartItemsService.requestAvailability(id, user, body);
   }
 }
