@@ -45,6 +45,9 @@ export class MailService {
         hour12: true,
       });
     });
+    Handlebars.registerHelper('currentYear', () =>
+      String(new Date().getFullYear()),
+    );
   }
 
   private async renderTemplateToHtml(
