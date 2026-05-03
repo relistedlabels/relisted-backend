@@ -28,6 +28,14 @@
             padding: 20px;
         }
 
+        .info-box {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            border-left: 4px solid #1d72b8;
+        }
+
         .footer {
             font-size: 12px;
             color: #777;
@@ -40,15 +48,31 @@
 <body>
     <div class="container">
         <div class="header">
-            <h2>Shipping Update</h2>
+            <h2>{{#if emailHeading}}{{emailHeading}}{{else}}Shipping Update{{/if}}</h2>
         </div>
         <div class="content">
             <p>Hello {{userName}},</p>
-            <p>There is an update on your order for: <strong>{{productName}}</strong> (Order ID: {{orderId}}).</p>
-            <p>New Status: <strong>{{status}}</strong></p>
+            <p>There is an update on your order <strong>{{orderId}}</strong>.</p>
+            <p><strong>{{status}}</strong></p>
+
+            {{#if pickupWindowSummary}}
+            <div class="info-box">
+                <p><strong>Scheduled pickup window</strong></p>
+                <p>{{pickupWindowSummary}}</p>
+            </div>
+            {{/if}}
+
+            {{#if extraNote}}
+            <p style="margin-top:12px;">{{extraNote}}</p>
+            {{/if}}
 
             {{#if trackingNumber}}
-            <p><strong>Tracking Number:</strong> {{trackingNumber}}</p>
+            <div class="info-box">
+                <p><strong>📦 Tracking Information</strong></p>
+                <p><strong>Tracking Number:</strong> {{trackingNumber}}</p>
+                <p>Track your shipment at: <a href="https://ship.topship.africa/tracking" target="_blank">https://ship.topship.africa/tracking</a></p>
+                <p><em>Copy your tracking number above and paste it on the Topship tracking page.</em></p>
+            </div>
             {{/if}}
 
             {{#if estimatedDelivery}}
@@ -58,7 +82,7 @@
             <p>Thank you for choosing Relisted!</p>
         </div>
         <div class="footer">
-            <p>&copy; 2024 Relisted. All rights reserved.</p>
+            <p>&copy; {{currentYear}} Relisted. All rights reserved.</p>
         </div>
     </div>
 </body>

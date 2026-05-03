@@ -76,10 +76,11 @@
             {{else}}
             <p>Unfortunately, your request was not accepted at this time.</p>
             {{#if reason}}<p><strong>Reason:</strong> {{reason}}</p>{{/if}}
+            {{#if notes}}<p><strong>Notes:</strong> {{notes}}</p>{{/if}}
             {{/if}}
         </div>
         <div class="footer">
-            <p>&copy; 2024 Relisted. All rights reserved.</p>
+            <p>&copy; {{currentYear}} Relisted. All rights reserved.</p>
         </div>
     </div>
 </body>

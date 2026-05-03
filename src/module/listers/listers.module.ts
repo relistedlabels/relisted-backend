@@ -10,9 +10,16 @@ import { ListersPublicController } from './listers.public.controller';
 import { ListersWalletController } from './listers.wallet.controller';
 import { PrismaService } from 'src/services/prisma/prisma.service';
 import { WemaServiceService } from 'src/services/wema-service/wema-service.service';
+import { ProductAvailabilityNotifyModule } from 'src/services/product-availability-notify/product-availability-notify.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, ProfileModule, UploadModule],
+  imports: [
+    PrismaModule,
+    AuthModule,
+    ProfileModule,
+    UploadModule,
+    ProductAvailabilityNotifyModule,
+  ],
   controllers: [
     ListersController,
     IssueCategoriesController,

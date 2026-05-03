@@ -81,6 +81,16 @@
             <p><strong>Price:</strong> NGN {{totalPrice}}</p>
             <p><strong>Dates:</strong> {{startDate}} - {{endDate}}</p>
             {{/if}}
+
+            {{#if dispatchWindows}}
+            {{#each dispatchWindows}}
+            <p style="margin:4px 0;">
+                <strong>{{#if (eq type "OUTBOUND")}}Pickup Time{{else if (eq type "RETURN")}}Return Date{{else}}Resale Date{{/if}}:</strong>
+                {{formatDateTime window.start}} - {{formatDateTime window.end}}
+            </p>
+            {{/each}}
+            {{/if}}
+
             <p>Please log in to your dashboard to approve or decline this request before it expires.</p>
             {{#if viewLink}}
             <p style="margin:24px 0;text-align:left;">
@@ -99,7 +109,7 @@
             {{/if}}
         </div>
         <div class="footer">
-            <p>&copy; 2024 Relisted. All rights reserved.</p>
+            <p>&copy; {{currentYear}} Relisted. All rights reserved.</p>
         </div>
     </div>
 </body>

@@ -30,10 +30,7 @@ export async function assertNoOpenAvailabilityRequestForProduct(
       where: { id: cid },
       include: { cart: true },
     });
-    if (
-      line?.productId === productId &&
-      line.cart?.userId === requesterId
-    ) {
+    if (line?.productId === productId && line.cart?.userId === requesterId) {
       bad(
         'This product already has an approved request. Complete checkout or remove it from your cart before requesting again.',
       );

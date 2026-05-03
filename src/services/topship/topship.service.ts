@@ -19,12 +19,42 @@ export class TopshipService {
     };
   }
 
+  /**
+   * save-shipment GraphQL expects PricingTierType enum casing (e.g. Chowdeck),
+   * while our checkout / rate helpers use lowercase slugs (chowdeck, glovo).
+   */
+  private toGraphqlPricingTierType(
+    tier: string | null | undefined,
+  ): string {
+    const t = String(tier ?? '').trim().toLowerCase();
+    if (!t || t === 'budget' || t === 'standard') return 'Chowdeck';
+    if (t === 'chowdeck') return 'Chowdeck';
+    if (t === 'glovo') return 'Glovo';
+    const raw = String(tier ?? '').trim();
+    if (/^[A-Z][a-zA-Z0-9]*$/.test(raw)) return raw;
+    return 'Chowdeck';
+  }
+
+  private normalizeSaveShipmentPayload(data: any) {
+    if (!data || typeof data !== 'object' || !Array.isArray(data.shipment)) {
+      return data;
+    }
+    return {
+      ...data,
+      shipment: data.shipment.map((row: any) => ({
+        ...row,
+        pricingTier: this.toGraphqlPricingTierType(row?.pricingTier),
+        pickupPartner: this.toGraphqlPricingTierType(
+          row?.pickupPartner ?? row?.pricingTier,
+        ),
+      })),
+    };
+  }
+
   private filterPickupRates(rates: any[]): any[] {
     const allowedPartners = new Set([
       'chowdeck',
       'glovo',
-      'errandlr',
-      'dellyman',
     ]);
 
     const filtered = (Array.isArray(rates) ? rates : [])
@@ -51,7 +81,7 @@ export class TopshipService {
   }
 
   private filterShipmentRates(rates: any[]): any[] {
-    const allowed = new Set(['chowdeck', 'glovo', 'errandlr', 'dellyman']);
+    const allowed = new Set(['chowdeck', 'glovo']);
     const list = Array.isArray(rates) ? rates : [];
 
     const hasPartnerRates = list.some((r) => {
@@ -157,6 +187,7 @@ export class TopshipService {
     }
   }
 
+  /** Public tracking reference (not the internal save-shipment / pay-from-wallet row id). */
   async trackShipment(trackingId: string) {
     try {
       const response = await axios.get(`${this.baseUrl}/track-shipment`, {
@@ -206,9 +237,14 @@ export class TopshipService {
 
   async bookShipmentAsDraft(data: any) {
     try {
-      const response = await axios.post(`${this.baseUrl}/save-shipment`, data, {
-        headers: this.headers,
-      });
+      const body = this.normalizeSaveShipmentPayload(data);
+      const response = await axios.post(
+        `${this.baseUrl}/save-shipment`,
+        body,
+        {
+          headers: this.headers,
+        },
+      );
       return response.data;
     } catch (error: any) {
       this.handleError(error);

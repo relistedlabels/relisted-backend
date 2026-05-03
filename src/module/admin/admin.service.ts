@@ -24,6 +24,72 @@ export class AdminService {
     return disputeId.startsWith('DQ-') ? { disputeId } : { id: disputeId };
   }
 
+  /** `Order.escrows` is a list; settlement uses a single row — same as first element. */
+  private pickOrderEscrow(order: any): any | null {
+    if (!order?.escrows) return null;
+    if (Array.isArray(order.escrows)) return order.escrows[0] ?? null;
+    return order.escrows;
+  }
+
+  /**
+   * Max `refundAmount` allowed on dispute resolve — must match `resolveDisputeAndSettle`.
+   * At checkout, `escrow.rentalAmount` is set to `listerRentalAndCleaning` (rent + cleaning),
+   * so `cleaningFee` must not be added again while status is LOCKED.
+   */
+  private getEscrowPayoutRefundCap(escrow: any): number {
+    const st = String(escrow?.status ?? '');
+    const rental = Math.max(0, Number(escrow?.rentalAmount || 0));
+    const cleaning = Math.max(0, Number(escrow?.cleaningFee || 0));
+    const resale = Math.max(0, Number(escrow?.resaleAmount || 0));
+    if (st === 'LOCKED') {
+      return rental + resale;
+    }
+    if (st === 'PARTIALLY_RELEASED') {
+      return cleaning + resale;
+    }
+    return 0;
+  }
+
+  /**
+   * Caps for admin dispute resolution UI — must stay in sync with `resolveDisputeAndSettle`.
+   */
+  private buildDisputeResolutionContext(input: {
+    escrow: any | null;
+    renter: any | null;
+    lister: any | null;
+    raisedBy: any | null;
+  }): {
+    initiator: 'renter' | 'lister' | 'unknown';
+    refundAmountMax: number;
+    collateralWithheldToListerMax: number;
+    escrowStatus: string | null;
+  } | null {
+    const { escrow, renter, lister, raisedBy } = input;
+    if (!escrow) return null;
+
+    const escrowStatus = String(escrow.status ?? '');
+    const totalCollateralLocked = Math.max(
+      0,
+      Number(escrow.collateralAmount) || 0,
+    );
+
+    const payoutLocked = this.getEscrowPayoutRefundCap(escrow);
+
+    let initiator: 'renter' | 'lister' | 'unknown' = 'unknown';
+    if (raisedBy?.id && renter?.id && raisedBy.id === renter.id) {
+      initiator = 'renter';
+    } else if (raisedBy?.id && lister?.id && raisedBy.id === lister.id) {
+      initiator = 'lister';
+    }
+
+    return {
+      initiator,
+      refundAmountMax: payoutLocked,
+      collateralWithheldToListerMax: totalCollateralLocked,
+      escrowStatus,
+    };
+  }
+
   private normalizeDisputeStatus(raw: string) {
     const key = String(raw || '')
       .trim()
@@ -796,7 +862,14 @@ export class AdminService {
 
     const order: any = (dispute as any).order;
     const item = order?.orderItems?.[0]?.product ?? null;
-    const escrow: any = order?.escrows ?? null;
+    const escrow: any = this.pickOrderEscrow(order);
+
+    const resolutionContext = this.buildDisputeResolutionContext({
+      escrow,
+      renter,
+      lister,
+      raisedBy,
+    });
 
     return {
       success: true,
@@ -829,6 +902,7 @@ export class AdminService {
               phone: otherParty.profile?.phoneNumber ?? null,
             }
           : null,
+        resolutionContext,
         orderDetails: order
           ? {
               id: order.orderId,
@@ -877,7 +951,7 @@ export class AdminService {
             senderId: m.senderId,
             sender: {
               id: m.sender?.id ?? m.senderId,
-              name: m.sender?.name || "User",
+              name: m.sender?.name || 'User',
               avatarUrl: m.sender?.profile?.avatarUpload?.url ?? null,
               role: m.senderRole,
             },
@@ -956,7 +1030,7 @@ export class AdminService {
           include: {
             user: true,
             escrows: true,
-            returnRequest: true,
+            returnRequests: true,
           },
         },
       },
@@ -965,9 +1039,8 @@ export class AdminService {
     if (!dispute) throw new NotFoundException('Dispute not found');
     const order: any = (dispute as any).order;
     if (!order) throw new NotFoundException('Order not found');
-    if (!order.escrows) throw new BadRequestException('Escrow not found');
-
-    const escrow = order.escrows;
+    const escrow = this.pickOrderEscrow(order);
+    if (!escrow) throw new BadRequestException('Escrow not found');
     const escrowStatus = escrow.status as string;
     const totalCollateralLocked = Math.max(
       0,
@@ -989,21 +1062,7 @@ export class AdminService {
       Math.round(Number(data.refundAmount || 0)),
     );
 
-    const payoutLocked =
-      escrowStatus === 'LOCKED'
-        ? Math.max(
-            0,
-            Number(escrow.rentalAmount || 0) +
-              Number(escrow.cleaningFee || 0) +
-              Number(escrow.resaleAmount || 0),
-          )
-        : escrowStatus === 'PARTIALLY_RELEASED'
-          ? Math.max(
-              0,
-              Number(escrow.cleaningFee || 0) +
-                Number(escrow.resaleAmount || 0),
-            )
-          : 0;
+    const payoutLocked = this.getEscrowPayoutRefundCap(escrow);
 
     if (rawRefundAmount > payoutLocked) {
       throw new BadRequestException(
@@ -1014,7 +1073,7 @@ export class AdminService {
     const listerPayoutToRelease = Math.max(0, payoutLocked - rawRefundAmount);
 
     const lister = await this.prisma.user.findUnique({
-      where: { id: escrow.curatorId },
+      where: { id: escrow.listerId },
       select: { id: true, name: true, email: true },
     });
 
@@ -1052,9 +1111,9 @@ export class AdminService {
 
       if (listerPayoutToRelease > 0) {
         const listerWallet = await tx.wallet.upsert({
-          where: { userId: escrow.curatorId },
+          where: { userId: escrow.listerId },
           create: {
-            userId: escrow.curatorId,
+            userId: escrow.listerId,
             mainBalance: listerPayoutToRelease,
             availableBalance: listerPayoutToRelease,
             collateralBalance: 0,
@@ -1129,9 +1188,9 @@ export class AdminService {
           });
 
           const listerWallet = await tx.wallet.upsert({
-            where: { userId: escrow.curatorId },
+            where: { userId: escrow.listerId },
             create: {
-              userId: escrow.curatorId,
+              userId: escrow.listerId,
               mainBalance: collateralWithheldToLister,
               availableBalance: collateralWithheldToLister,
               collateralBalance: 0,

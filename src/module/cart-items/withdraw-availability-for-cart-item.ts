@@ -33,7 +33,13 @@ export type ListerWithdrawNotify = {
 export function buildListerWithdrawRentalRequestEmailContext(
   r: Pick<
     AvailabilityRowForWithdraw,
-    'id' | 'rentalDays' | 'totalPrice' | 'startDate' | 'endDate' | 'product' | 'requester'
+    | 'id'
+    | 'rentalDays'
+    | 'totalPrice'
+    | 'startDate'
+    | 'endDate'
+    | 'product'
+    | 'requester'
   >,
   afterApproval: boolean,
 ): ListerWithdrawNotify['emailData'] {

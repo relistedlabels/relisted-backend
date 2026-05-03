@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { CreateCartItemDto } from './dto/create-cart-item.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
+import { RequestAvailabilityDto } from './dto/request-availability.dto';
 import { PrismaService } from 'src/services/prisma/prisma.service';
 import { bad } from 'src/utils/error';
 import { userEntity } from '../auth/auth.types';
@@ -9,6 +10,16 @@ import { addMinutes, differenceInMinutes, isAfter } from 'date-fns';
 import { NotificationService } from 'src/services/notification/notification.service';
 import { withdrawAvailabilityRequestsForCartItem } from './withdraw-availability-for-cart-item';
 import { assertNoOpenAvailabilityRequestForProduct } from 'src/utils/assert-no-open-availability-for-product';
+import {
+  DispatchWindowRangeMap,
+  DispatchWindowType,
+  DispatchWindowsInput,
+  applyRangeMapToData,
+  availabilityRequestWindowFieldMap,
+  extractRangeMapFromEntity,
+  isWindowExpired,
+  parseDispatchWindowFromInput,
+} from 'src/utils/dispatch-windows';
 
 @Injectable()
 export class CartService {
@@ -45,7 +56,72 @@ export class CartService {
     });
   }
 
-  async requestAvailability(cartItemId: string, user: userEntity) {
+  private resolveRequiredDispatchWindowTypes(cartItem: any) {
+    const listingType = cartItem.product?.listingType;
+    const isRentalItem =
+      cartItem.days > 0 &&
+      (listingType === 'RENTAL' || listingType === 'RENT_OR_RESALE');
+    const isResaleItem =
+      cartItem.days === 0 &&
+      (listingType === 'RESALE' || listingType === 'RENT_OR_RESALE');
+
+    const required: DispatchWindowType[] = [];
+    if (isRentalItem) {
+      required.push('OUTBOUND', 'RETURN');
+    }
+    if (isResaleItem) {
+      required.push('RESALE');
+    }
+
+    return required;
+  }
+
+  private buildDispatchWindowRangeMapForRequest(
+    requiredTypes: DispatchWindowType[],
+    manual?: DispatchWindowsInput,
+    persisted?: DispatchWindowRangeMap,
+  ): DispatchWindowRangeMap {
+    const map: DispatchWindowRangeMap = { ...(persisted ?? {}) };
+
+    for (const type of requiredTypes) {
+      if (manual?.[type]) {
+        map[type] = parseDispatchWindowFromInput(type, manual[type]!);
+      } else if (!map[type]) {
+        throw bad(
+          `Please provide a ${type.toLowerCase()} dispatch window before requesting availability.`,
+        );
+      }
+    }
+
+    return map;
+  }
+
+  async requestAvailability(
+    cartItemId: string,
+    user: userEntity,
+    dto?: RequestAvailabilityDto,
+  ) {
+    const dispatchWindowsInput = dto?.dispatchWindows as
+      | DispatchWindowsInput
+      | undefined;
+
+    const cartItem = await this.prisma.cartItem.findUnique({
+      where: { id: cartItemId },
+      include: {
+        cart: true,
+        product: {
+          include: { curator: true },
+        },
+      },
+    });
+
+    if (!cartItem || cartItem.cart?.userId !== user.id) {
+      bad('Cart item not found');
+    }
+
+    const requiredWindowTypes =
+      this.resolveRequiredDispatchWindowTypes(cartItem);
+
     // Check for an existing EXPIRED request that can be re-requested
     const existingExpired = await this.prisma.availabilityRequest.findFirst({
       where: {
@@ -57,23 +133,29 @@ export class CartService {
     });
 
     if (existingExpired) {
-      // Verify cart item still exists and belongs to user before reactivating
-      const cartItem = await this.prisma.cartItem.findUnique({
-        where: { id: cartItemId },
-        include: { cart: true },
-      });
-      if (!cartItem || cartItem.cart.userId !== user.id) {
-        bad('Cart item not found');
-      }
-
       // Reactivate expired request - reset to PENDING with new timer
       const expiresAt = addMinutes(new Date(), 15);
+
+      const persistedWindows = extractRangeMapFromEntity(
+        existingExpired,
+        availabilityRequestWindowFieldMap,
+      );
+      const windowMap = this.buildDispatchWindowRangeMapForRequest(
+        requiredWindowTypes,
+        dispatchWindowsInput,
+        persistedWindows,
+      );
+      const windowData = applyRangeMapToData(
+        windowMap,
+        availabilityRequestWindowFieldMap,
+      );
 
       const updated = await this.prisma.availabilityRequest.update({
         where: { id: existingExpired.id },
         data: {
           status: 'PENDING',
           expiresAt,
+          ...windowData,
         },
         include: {
           product: { include: { curator: true } },
@@ -87,9 +169,7 @@ export class CartService {
           updated.rentalDays === 0);
       await this.notificationService.createNotification({
         userId: updated.listerId,
-        title: isResale
-          ? 'Purchase Request Reactivated'
-          : 'Rental Request Reactivated',
+        title: isResale ? 'Purchase Request Reactivated' : 'Rental Request Reactivated',
         message: `Your ${isResale ? 'purchase' : 'rental'} request for ${updated.product?.name} has been reactivated by ${user.name || 'a user'}.`,
         type: isResale ? 'PURCHASE_REQUEST' : 'RENTAL_REQUEST',
         metadata: { requestId: updated.id, productId: updated.productId },
@@ -106,6 +186,18 @@ export class CartService {
             existingExpired.startDate?.toISOString().split('T')[0] || 'TBD',
           endDate:
             existingExpired.endDate?.toISOString().split('T')[0] || 'TBD',
+          dispatchWindows: Object.entries(
+            extractRangeMapFromEntity(
+              updated,
+              availabilityRequestWindowFieldMap,
+            ),
+          ).map(([type, window]) => ({
+            type,
+            window: {
+              start: window.start.toISOString(),
+              end: window.end.toISOString(),
+            },
+          })),
           viewLink: `${process.env.CLIENT_URL}/listers/orders/${updated.id}`,
         },
       });
@@ -114,17 +206,6 @@ export class CartService {
     }
 
     // If no expired request, create new (original logic)
-    const cartItem = await this.prisma.cartItem.findUnique({
-      where: { id: cartItemId },
-      include: {
-        product: {
-          include: { curator: true },
-        },
-      },
-    });
-
-    if (!cartItem) bad('Cart item not found');
-
     await assertNoOpenAvailabilityRequestForProduct(
       this.prisma,
       user.id,
@@ -157,6 +238,15 @@ export class CartService {
     // start 15 minutes countdown NOW
     const expiresAt = addMinutes(new Date(), 15);
 
+    const windowMap = this.buildDispatchWindowRangeMapForRequest(
+      requiredWindowTypes,
+      dispatchWindowsInput,
+    );
+    const windowData = applyRangeMapToData(
+      windowMap,
+      availabilityRequestWindowFieldMap,
+    );
+
     const request = await this.prisma.availabilityRequest.create({
       data: {
         cartItemId,
@@ -164,6 +254,7 @@ export class CartService {
         requesterId: user.id,
         listerId: cartItem.product.curatorId,
         expiresAt,
+        ...windowData,
       },
       include: {
         product: { include: { curator: true } },
@@ -190,6 +281,13 @@ export class CartService {
           : (request.product?.dailyPrice || 0) * (cartItem.days || 0),
         startDate: 'TBD',
         endDate: 'TBD',
+        dispatchWindows: Object.entries(windowMap).map(([type, window]) => ({
+          type,
+          window: {
+            start: window!.start.toISOString(),
+            end: window!.end.toISOString(),
+          },
+        })),
         viewLink: `${process.env.CLIENT_URL}/listers/orders/${request.id}`,
         requestType: isResaleRequest ? 'purchase' : 'rental',
       },
