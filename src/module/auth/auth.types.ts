@@ -7,6 +7,7 @@ export const Auth_Otp_Token_Subject = {
   Verify_Email: 'verify email',
   RESET_PASSWORD: 'RESET Password',
   CONFIRM_ORDER: 'Verify Order ',
+  LISTER_ORDER_PLACED: 'New order on Relisted',
   Admin_MFA: 'admin mfa',
   RENTAL_REQUEST: 'New Rental Request',
   RENTAL_REQUEST_WITHDRAWN: 'Rental request withdrawn',
