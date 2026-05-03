@@ -54,6 +54,8 @@ model User {
   virtualAccounts       VirtualAccount[]
   wallet                Wallet?
   withdrawalRequests    WithdrawalRequest[]
+  closets                          Closet[]
+  productAvailabilityNotifications ProductAvailabilityNotification[]
 }
 
 model Profile {
@@ -137,6 +139,23 @@ model AuthOtpToken {
   user      User             @relation(fields: [userId], references: [id])
 }
 
+model Closet {
+  id          String    @id @default(uuid())
+  ownerId     String
+  name        String
+  slug        String    @unique
+  description String?
+  imageUrl    String?
+  isActive    Boolean   @default(true)
+  sortOrder   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  owner       User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  products    Product[]
+
+  @@index([ownerId])
+}
+
 model Product {
   id                            String                @id @default(uuid())
   name                          String
@@ -155,6 +174,7 @@ model Product {
   color                         String
   brandId                       String?
   categoryId                    String?
+  closetId                      String?
   curatorId                     String
   receiveSmsNotifications       Boolean?              @default(false)
   receiveEmailNotifications     Boolean?              @default(true)
@@ -177,14 +197,17 @@ model Product {
   items                         OrderItem[]
   brand                         Brand?                @relation(fields: [brandId], references: [id])
   category                      ProductCategory?      @relation(fields: [categoryId], references: [id])
+  closet                        Closet?               @relation(fields: [closetId], references: [id], onDelete: SetNull)
   curator                       User                  @relation("CuratedProducts", fields: [curatorId], references: [id])
   rentals                       Rental[]
   reviews                       Review[]
   tags                          Tag[]                 @relation("ProductToTag")
+  productAvailabilityNotifications ProductAvailabilityNotification[]
 
   @@index([listingType])
   @@index([resalePrice])
   @@index([dailyPrice])
+  @@index([closetId])
 }
 
 model Brand {
@@ -272,6 +295,19 @@ model Favourite {
   user      User     @relation(fields: [userId], references: [id])
 
   @@unique([userId, productId])
+}
+
+/// Renters who asked to be emailed when a RENTED product is available again
+model ProductAvailabilityNotification {
+  id        String   @id @default(uuid())
+  productId String
+  userId    String
+  createdAt DateTime @default(now())
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, userId])
+  @@index([productId])
 }
 
 model AvailabilityRequest {

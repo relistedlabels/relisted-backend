@@ -33,6 +33,7 @@ import { TopshipModule } from './services/topship/topship.module';
 import { NewsletterModule } from './module/newsletter/newsletter.module';
 import { DeliveryModule } from './services/delivery/delivery.module';
 import { ShipmentModule } from './module/shipment/shipment.module';
+import { ClosetModule } from './module/closet/closet.module';
 
 @Module({
   imports: [
@@ -74,6 +75,7 @@ import { ShipmentModule } from './module/shipment/shipment.module';
     NewsletterModule,
     DeliveryModule,
     ShipmentModule,
+    ClosetModule,
   ],
   controllers: [AppController],
   providers: [AppService],

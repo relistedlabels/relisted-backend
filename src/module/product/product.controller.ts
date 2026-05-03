@@ -17,6 +17,7 @@ import {
   UpdateProductStatusDto,
   RejectProductDto,
   ToggleAvailabilityDto,
+  GetUserProductsQueryDto,
 } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { Auth, AuthUser } from '../auth/decorator/auth.decorator';
@@ -71,9 +72,8 @@ export class ProductController {
     return this.productService.create(createProductDto, user);
   }
 
-  
-    // List products (with optional pagination)
-   
+  // List products (with optional pagination)
+
   @Get()
   @ApiOperation({ summary: 'List all products with pagination' })
   @ApiQuery({ name: 'page', required: false, example: 1 })
@@ -97,12 +97,21 @@ export class ProductController {
     return this.productService.list(query);
   }
 
-  
-  //  Get all products created 
-   
+  //  Get all products created
+
   @Auth()
   @Get('user-products')
   @ApiOperation({ summary: 'Get products created by the logged-in user' })
+  @ApiQuery({
+    name: 'closetId',
+    required: false,
+    description: 'Filter by closet UUID',
+  })
+  @ApiQuery({
+    name: 'uncategorized',
+    required: false,
+    description: 'If true, only products without a closet',
+  })
   @ApiResponse({
     status: 200,
     description: 'User products retrieved successfully',
@@ -119,8 +128,11 @@ export class ProductController {
     },
   })
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
-  async getMyProducts(@AuthUser() user: userEntity) {
-    return this.productService.getUserProducts(user);
+  async getMyProducts(
+    @AuthUser() user: userEntity,
+    @Query() query: GetUserProductsQueryDto,
+  ) {
+    return this.productService.getUserProducts(user, query);
   }
 
   // Get pending products for admin review (Admin only)
@@ -143,7 +155,8 @@ export class ProductController {
   @Auth()
   @Get('statistics')
   @ApiOperation({
-    summary: 'Get product statistics with products (total, approved, rejected, pending, active). Admins see all, listers see their own.',
+    summary:
+      'Get product statistics with products (total, approved, rejected, pending, active). Admins see all, listers see their own.',
   })
   @ApiResponse({
     status: 200,
@@ -181,9 +194,8 @@ export class ProductController {
     return this.productService.getProductStatistics(user);
   }
 
-  
   //  Add product to favourites
-   
+
   @Auth()
   @Post('favourite')
   @ApiOperation({ summary: 'Add a product to favourites' })
@@ -198,7 +210,7 @@ export class ProductController {
   }
 
   //  * Get product by ID (must come after all specific routes)
-  
+
   @Auth()
   @Get(':id')
   @ApiOperation({ summary: 'Get product by ID' })
@@ -221,10 +233,6 @@ export class ProductController {
     return this.productService.findOne(id);
   }
 
-
-
-
-  
   // Approve product (Admin only)
   @Auth([Role.ADMIN])
   @Patch(':id/approve')
@@ -263,7 +271,9 @@ export class ProductController {
   // Update product (Users can edit own, Admins can edit any)
   @Auth()
   @Patch(':id')
-  @ApiOperation({ summary: 'Update a product (Users can edit own, Admins can edit any)' })
+  @ApiOperation({
+    summary: 'Update a product (Users can edit own, Admins can edit any)',
+  })
   @ApiParam({ name: 'id', description: 'Product ID', example: 'uuid' })
   @ApiBody({ type: UpdateProductDto })
   @ApiResponse({
@@ -307,7 +317,9 @@ export class ProductController {
   // Delete product (Users can delete own, Admins can delete any)
   @Auth()
   @Delete(':id')
-  @ApiOperation({ summary: 'Delete a product (Users can delete own, Admins can delete any)' })
+  @ApiOperation({
+    summary: 'Delete a product (Users can delete own, Admins can delete any)',
+  })
   @ApiParam({ name: 'id', description: 'Product ID', example: 'uuid' })
   @ApiResponse({
     status: 200,
@@ -317,7 +329,9 @@ export class ProductController {
     },
   })
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
-  @ApiForbiddenResponse({ description: 'Forbidden: Not the product owner or admin' })
+  @ApiForbiddenResponse({
+    description: 'Forbidden: Not the product owner or admin',
+  })
   remove(@Param('id') id: string, @AuthUser() user: userEntity) {
     return this.productService.remove(id, user);
   }

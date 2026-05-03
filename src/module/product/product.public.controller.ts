@@ -1,6 +1,12 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import { ProductService } from './product.service';
-import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiParam } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiQuery,
+  ApiParam,
+} from '@nestjs/swagger';
 import { ListProductQuery } from './dto/create-product.dto';
 
 @ApiTags('Public - Products')
@@ -12,16 +18,47 @@ export class ProductPublicController {
   @ApiOperation({ summary: 'List all products (Public)' })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 20 })
-  @ApiQuery({ name: 'sort', required: false, enum: ['newest', 'oldest', 'price_low', 'price_high', 'popular', 'rating'] })
+  @ApiQuery({
+    name: 'sort',
+    required: false,
+    enum: ['newest', 'oldest', 'price_low', 'price_high', 'popular', 'rating'],
+  })
   @ApiQuery({ name: 'category', required: false })
   @ApiQuery({ name: 'brand', required: false })
   @ApiQuery({ name: 'minPrice', required: false })
   @ApiQuery({ name: 'maxPrice', required: false })
   @ApiQuery({ name: 'search', required: false })
-  @ApiQuery({ name: 'color', required: false, description: 'Comma-separated colors' })
-  @ApiQuery({ name: 'size', required: false, description: 'Comma-separated sizes (measurement)' })
-  @ApiQuery({ name: 'condition', required: false, description: 'Comma-separated conditions' })
-  @ApiQuery({ name: 'material', required: false, description: 'Comma-separated materials' })
+  @ApiQuery({
+    name: 'color',
+    required: false,
+    description: 'Comma-separated colors',
+  })
+  @ApiQuery({
+    name: 'size',
+    required: false,
+    description: 'Comma-separated sizes (measurement)',
+  })
+  @ApiQuery({
+    name: 'condition',
+    required: false,
+    description: 'Comma-separated conditions',
+  })
+  @ApiQuery({
+    name: 'material',
+    required: false,
+    description: 'Comma-separated materials',
+  })
+  @ApiQuery({
+    name: 'closetId',
+    required: false,
+    description: 'Filter products to a single public closet (UUID)',
+  })
+  @ApiQuery({
+    name: 'onlyWithCloset',
+    required: false,
+    description:
+      'If true and closetId is omitted, exclude products not assigned to a closet',
+  })
   @ApiResponse({
     status: 200,
     description: 'Products retrieved successfully',
@@ -42,6 +79,9 @@ export class ProductPublicController {
       condition: query.condition,
       material: query.material,
       tags: query.tags,
+      closetId: query.closetId,
+      onlyWithCloset:
+        query.onlyWithCloset === true || query.onlyWithCloset === 'true',
     };
     return this.productService.list(listQuery);
   }
