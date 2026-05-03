@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>New Order Awaiting Approval</title>
+  <title>Order Confirmed</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -31,10 +31,53 @@
       margin-top: 10px;
       padding-top: 10px;
     }
+    .info-box {
+      background-color: #f8f9fa;
+      padding: 15px;
+      border-radius: 5px;
+      margin: 15px 0;
+      border-left: 4px solid #1d72b8;
+    }
   </style>
 </head>
 <body>
   <div class="container">
+    {{#if listerNewOrderConfirmed}}
+    <h2>Hello {{curatorName}},</h2>
+    <p>You have a new confirmed order from {{renterName}}.</p>
+    <p><strong>Order ID:</strong> {{orderId}}</p>
+
+    <p>
+      {{#if (gt listerRentalSubtotal 0)}}<strong>Rental subtotal:</strong> ₦{{listerRentalSubtotal}}<br />{{/if}}
+      {{#if (gt listerCleaningFeesTotal 0)}}<strong>Cleaning fees:</strong> ₦{{listerCleaningFeesTotal}}<br />{{/if}}
+      {{#if (gt listerResaleSubtotal 0)}}<strong>Resale:</strong> ₦{{listerResaleSubtotal}}<br />{{/if}}
+      <strong>Your total:</strong> ₦{{listerMerchandiseTotal}}
+    </p>
+
+    <p><strong>Items</strong></p>
+    <ul>
+      {{#each items}}
+      <li>{{this.productName}}</li>
+      {{/each}}
+    </ul>
+
+    {{#if dispatchWindowText}}
+    <div class="info-box">
+      <p><strong>{{dispatchWindowTitle}}</strong></p>
+      <p>{{dispatchWindowText}}</p>
+      <p>Please have these items ready during this window.</p>
+    </div>
+    {{else}}
+    <div class="info-box">
+      <p><strong>Dispatch</strong></p>
+      <p>Prepare your items for dispatch. Timing is in your dashboard if no window is shown here.</p>
+    </div>
+    {{/if}}
+
+    <p><a href="{{approvalLink}}" class="button">View order in dashboard</a></p>
+    {{else}}
+    {{#if curatorName}}
+    <!-- Lister: legacy flow when order still requires lister approval (e.g. availability not yet paid) -->
     <h2>Hello {{curatorName}},</h2>
     <p>You have a new {{#if (eq requestType 'purchase')}}purchase{{else}}order{{/if}} awaiting your approval.</p>
 
@@ -48,11 +91,11 @@
         {{#each items}}
           {{#if (eq ../requestType 'purchase')}}
           <li>
-            {{this.productName}} - ₦{{this.price}}
+            {{this.productName}}: ₦{{this.price}}
           </li>
           {{else}}
           <li>
-            {{this.productName}} - {{this.days}} day(s) @ ₦{{this.pricePerDay}}/day
+            {{this.productName}}: {{this.days}} day(s) at ₦{{this.pricePerDay}}/day
           </li>
           {{/if}}
         {{/each}}
@@ -63,6 +106,22 @@
     <a href="{{approvalLink}}" class="button">{{#if (eq requestType 'purchase')}}Accept Purchase{{else}}Accept Order{{/if}}</a>
 
     <p>If you do not approve this {{#if (eq requestType 'purchase')}}purchase{{else}}order{{/if}} within 30 minutes, it will expire automatically.</p>
+    {{else}}
+    <!-- Customer order confirmation email -->
+    <h2>Hello {{customerName}},</h2>
+    <p>Your order has been confirmed successfully!</p>
+
+    <p><strong>Order ID:</strong> {{orderId}}</p>
+    <p><strong>Total Amount:</strong> ₦{{totalAmount}}</p>
+
+    <div class="info-box">
+      <p><strong>📦 Shipping Information</strong></p>
+      <p>Your tracking link will be sent to you on your rental start date. You'll be able to track your shipment in real-time once it's dispatched.</p>
+    </div>
+
+    <p>You can view your order details and track its status in your account dashboard.</p>
+    {{/if}}
+    {{/if}}
 
     <p>Thanks,<br>The Relisted Team</p>
   </div>

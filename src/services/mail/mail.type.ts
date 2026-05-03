@@ -58,6 +58,11 @@ export class VerifyOrderDto {
   @IsString()
   @IsOptional()
   requestType?: string;
+
+  /** When true, lister email is a paid order confirmation (no approval / expiry copy). */
+  @IsOptional()
+  @IsBoolean()
+  listerNewOrderConfirmed?: boolean;
 }
 
 export class ResetPasswordDto {
@@ -130,6 +135,9 @@ export class RentalResponseDto {
   reason?: string;
   @IsString()
   @IsOptional()
+  notes?: string;
+  @IsString()
+  @IsOptional()
   checkoutLink?: string;
 
   @IsString()
@@ -171,6 +179,20 @@ export class ShippingDto {
   @IsString()
   @IsOptional()
   estimatedDelivery?: string;
+  /** Overrides default "Shipping Status Update" subject when set */
+  @IsString()
+  @IsOptional()
+  emailSubject?: string;
+  /** Optional <h2> title inside the shipping-update template */
+  @IsString()
+  @IsOptional()
+  emailHeading?: string;
+  @IsString()
+  @IsOptional()
+  pickupWindowSummary?: string;
+  @IsString()
+  @IsOptional()
+  extraNote?: string;
 }
 
 export class ReturnInitiatedDto {

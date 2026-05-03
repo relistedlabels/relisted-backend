@@ -32,6 +32,19 @@ export class MailService {
 
     // Register custom helpers
     Handlebars.registerHelper('eq', (v1, v2) => v1 === v2);
+    Handlebars.registerHelper('gt', (a: unknown, b: unknown) => Number(a) > Number(b));
+    Handlebars.registerHelper('formatDateTime', (isoString: string) => {
+      if (!isoString) return '';
+      const date = new Date(isoString);
+      return date.toLocaleString('en-NG', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      });
+    });
   }
 
   private async renderTemplateToHtml(
@@ -76,7 +89,11 @@ export class MailService {
     console.log(`[DEV EMAIL BYPASS] Opened in browser`);
   }
 
-  private async handleDevBypassHtml(subject: string, html: string, email: string) {
+  private async handleDevBypassHtml(
+    subject: string,
+    html: string,
+    email: string,
+  ) {
     console.log(`[DEV EMAIL BYPASS] Would send to: ${email}`);
     console.log(`[DEV EMAIL BYPASS] Subject: ${subject}`);
 
@@ -118,20 +135,19 @@ export class MailService {
     const { email, ...rest } = dto;
     console.log(`[EMAIL] Sending confirm-order to ${email}`);
 
+    const subject = dto.listerNewOrderConfirmed
+      ? Auth_Otp_Token_Subject.LISTER_ORDER_PLACED
+      : Auth_Otp_Token_Subject.CONFIRM_ORDER;
+
     if (this.devBypass) {
-      await this.handleDevBypass(
-        'confirm-order',
-        Auth_Otp_Token_Subject.CONFIRM_ORDER,
-        rest,
-        email,
-      );
+      await this.handleDevBypass('confirm-order', subject, rest, email);
       return;
     }
 
     await this.mailerService.sendMail({
       to: email,
       template: './confirm-order',
-      subject: Auth_Otp_Token_Subject.CONFIRM_ORDER,
+      subject,
       context: rest,
     });
   }
@@ -229,23 +245,19 @@ export class MailService {
   }
 
   async SendShippingUpdateMail(dto: ShippingDto) {
-    const { email, ...rest } = dto;
+    const { email, emailSubject, ...rest } = dto;
+    const subject = emailSubject ?? Auth_Otp_Token_Subject.SHIPPING_UPDATE;
     console.log(`[EMAIL] Sending shipping-update to ${email}`);
 
     if (this.devBypass) {
-      await this.handleDevBypass(
-        'shipping-update',
-        Auth_Otp_Token_Subject.SHIPPING_UPDATE,
-        rest,
-        email,
-      );
+      await this.handleDevBypass('shipping-update', subject, rest, email);
       return;
     }
 
     await this.mailerService.sendMail({
       to: email,
       template: './shipping-update',
-      subject: Auth_Otp_Token_Subject.SHIPPING_UPDATE,
+      subject,
       context: rest,
     });
   }
@@ -323,12 +335,7 @@ export class MailService {
       dto.status === 'created' ? 'New Dispute Created' : 'Dispute Update';
 
     if (this.devBypass) {
-      await this.handleDevBypass(
-        'dispute-status',
-        subject,
-        rest,
-        email,
-      );
+      await this.handleDevBypass('dispute-status', subject, rest, email);
       return;
     }
 
@@ -341,8 +348,15 @@ export class MailService {
   }
 
   async SendDisputeMessageMail(dto: DisputeMessageDto) {
-    const { email, recipientName, senderName, disputeId, orderId, messagePreview, threadLink } =
-      dto;
+    const {
+      email,
+      recipientName,
+      senderName,
+      disputeId,
+      orderId,
+      messagePreview,
+      threadLink,
+    } = dto;
 
     const subject = `New message from ${senderName}`;
     console.log(`[EMAIL] Sending dispute-message to ${email}`);
@@ -384,7 +398,7 @@ export class MailService {
           Open message thread
         </a>
         <div style="margin-top:10px;font-size:12px;color:#6b7280;">
-          If the button doesn’t work, open: <span style="color:#111827;">${threadLink}</span>
+          If the button doesn't work, open: <span style="color:#111827;">${threadLink}</span>
         </div>
       </div>`
           : ''
@@ -401,6 +415,181 @@ export class MailService {
     await this.mailerService.sendMail({
       to: email,
       subject,
+      html,
+    });
+  }
+
+  async sendAdminDispatchFailureAlert(dto: {
+    to: string;
+    shipmentId: string;
+    orderId: string;
+    shipmentType: string;
+    scheduledDate: Date;
+    errorMessage: string;
+    redispatchUrl: string;
+  }) {
+    const {
+      to,
+      shipmentId,
+      orderId,
+      shipmentType,
+      scheduledDate,
+      errorMessage,
+      redispatchUrl,
+    } = dto;
+    console.log(`[EMAIL] Sending admin dispatch failure alert to ${to}`);
+
+    const scheduledDateStr = new Date(scheduledDate).toLocaleDateString(
+      'en-NG',
+      {
+        timeZone: 'Africa/Lagos',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      },
+    );
+
+    const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f6f7fb;padding:24px;">
+  <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
+    <div style="padding:18px 20px;background:#dc2626;color:#ffffff;">
+      <div style="font-size:14px;opacity:0.9;">Relisted Admin Alert</div>
+      <div style="font-size:18px;font-weight:700;margin-top:6px;">⚠️ Shipment Dispatch Failed</div>
+    </div>
+    <div style="padding:20px;">
+      <p style="margin:0 0 16px;color:#374151;">A shipment dispatch has failed after 3 retry attempts. Manual action is required.</p>
+      <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Shipment ID</div>
+            <div style="font-weight:600;">${shipmentId}</div>
+          </div>
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Order ID</div>
+            <div style="font-weight:600;">${orderId}</div>
+          </div>
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Type</div>
+            <div style="font-weight:600;">${shipmentType}</div>
+          </div>
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Scheduled Date</div>
+            <div style="font-weight:600;">${scheduledDateStr}</div>
+          </div>
+        </div>
+        <div style="margin-top:12px;">
+          <div style="font-size:12px;color:#6b7280;">Error Message</div>
+          <div style="margin-top:6px;color:#dc2626;line-height:1.45;white-space:pre-wrap;">${errorMessage}</div>
+        </div>
+      </div>
+      <div style="margin-top:18px;">
+        <a href="${redispatchUrl}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">
+          View Shipment & Redispatch
+        </a>
+        <div style="margin-top:10px;font-size:12px;color:#6b7280;">
+          If the button doesn't work, open: <span style="color:#111827;">${redispatchUrl}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>`;
+
+    if (this.devBypass) {
+      await this.handleDevBypassHtml('Admin Dispatch Failure Alert', html, to);
+      return;
+    }
+
+    await this.mailerService.sendMail({
+      to,
+      subject: `⚠️ Shipment Dispatch Failed - ${shipmentId}`,
+      html,
+    });
+  }
+
+  async sendAdminShipmentCancelledAlert(dto: {
+    to: string;
+    shipmentId: string;
+    orderId: string;
+    shipmentType: string;
+    providerStatus: string;
+    providerMessage?: string;
+    trackingUrl?: string;
+    adminShipmentUrl?: string;
+  }) {
+    const {
+      to,
+      shipmentId,
+      orderId,
+      shipmentType,
+      providerStatus,
+      providerMessage,
+      trackingUrl,
+      adminShipmentUrl,
+    } = dto;
+
+    console.log(
+      `[EMAIL] Sending admin shipment cancellation alert to ${to} for shipment ${shipmentId}`,
+    );
+
+    const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f6f7fb;padding:24px;">
+  <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
+    <div style="padding:18px 20px;background:#b91c1c;color:#ffffff;">
+      <div style="font-size:14px;opacity:0.9;">Relisted Admin Alert</div>
+      <div style="font-size:18px;font-weight:700;margin-top:6px;">🚨 Shipment Cancelled by Topship</div>
+    </div>
+    <div style="padding:20px;">
+      <p style="margin:0 0 16px;color:#374151;">Topship reported that this shipment has been cancelled. Please review and take action.</p>
+      <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Shipment ID</div>
+            <div style="font-weight:600;">${shipmentId}</div>
+          </div>
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Order ID</div>
+            <div style="font-weight:600;">${orderId}</div>
+          </div>
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Type</div>
+            <div style="font-weight:600;">${shipmentType}</div>
+          </div>
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Provider Status</div>
+            <div style="font-weight:600;">${providerStatus}</div>
+          </div>
+        </div>
+        ${
+          providerMessage
+            ? `<div style="margin-top:12px;">
+          <div style="font-size:12px;color:#6b7280;">Provider Message</div>
+          <div style="margin-top:6px;color:#111827;line-height:1.45;white-space:pre-wrap;">${providerMessage}</div>
+        </div>`
+            : ''
+        }
+      </div>
+      <div style="margin-top:18px;display:flex;gap:12px;flex-wrap:wrap;">
+        ${
+          adminShipmentUrl
+            ? `<a href="${adminShipmentUrl}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">View in Admin</a>`
+            : ''
+        }
+        ${
+          trackingUrl
+            ? `<a href="${trackingUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">Topship Tracking</a>`
+            : ''
+        }
+      </div>
+    </div>
+  </div>
+</div>`;
+
+    if (this.devBypass) {
+      await this.handleDevBypassHtml('Admin Shipment Cancelled Alert', html, to);
+      return;
+    }
+
+    await this.mailerService.sendMail({
+      to,
+      subject: `🚨 Shipment Cancelled - ${shipmentId}`,
       html,
     });
   }
