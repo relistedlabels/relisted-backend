@@ -8,6 +8,7 @@ import { DeliveryProviderService } from 'src/services/delivery/delivery-provider
 import { NotificationService } from 'src/services/notification/notification.service';
 import { MailService } from 'src/services/mail/mail.service';
 import { syncOrderStatusFromShipments } from 'src/module/order/order-shipment-status.sync';
+import { fetchAdminAlertRecipients } from 'src/module/shipment/shipment-admin-alert-recipients';
 
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAYS_MS = [
@@ -285,13 +286,22 @@ export class ShipmentDispatchProcessor {
   }
 
   private async notifyAdminOfFailure(shipment: any, errorMessage: string) {
-    const adminEmail = process.env.ADMIN_ALERT_EMAIL;
-    const adminUserId = process.env.ADMIN_USER_ID;
     const adminUrl = process.env.ADMIN_URL ?? '';
+    const redispatchUrl = adminUrl
+      ? `${adminUrl}/shipments/${shipment.id}`
+      : '';
 
-    if (adminUserId) {
+    const admins = await fetchAdminAlertRecipients(this.prisma);
+    if (admins.length === 0) {
+      this.logger.warn(
+        `[Worker] No admin users found for dispatch failure alert (shipment ${shipment.id}).`,
+      );
+      return;
+    }
+
+    for (const admin of admins) {
       await this.notification.createNotification({
-        userId: adminUserId,
+        userId: admin.id,
         title: '⚠️ Shipment Dispatch Failed',
         message: `Shipment ${shipment.id} (${shipment.type}) failed all ${MAX_ATTEMPTS} retries. Manual action required.`,
         type: 'DISPATCH_FAILED',
@@ -300,25 +310,26 @@ export class ShipmentDispatchProcessor {
           orderId: shipment.orderId,
           shipmentType: shipment.type,
           error: errorMessage,
-          redispatchUrl: `${adminUrl}/shipments/${shipment.id}`,
+          redispatchUrl,
         },
       });
     }
 
-    if (adminEmail) {
+    for (const admin of admins) {
+      if (!admin.email?.trim()) continue;
       try {
         await this.mail.sendAdminDispatchFailureAlert?.({
-          to: adminEmail,
+          to: admin.email.trim(),
           shipmentId: shipment.id,
           orderId: shipment.orderId,
           shipmentType: shipment.type,
           scheduledDate: shipment.scheduledDate,
           errorMessage,
-          redispatchUrl: `${adminUrl}/shipments/${shipment.id}`,
+          redispatchUrl,
         });
       } catch (mailErr: any) {
         this.logger.error(
-          `[Worker] Failed to send admin failure email: ${mailErr.message}`,
+          `[Worker] Failed to send admin failure email to ${admin.email}: ${mailErr.message}`,
         );
       }
     }

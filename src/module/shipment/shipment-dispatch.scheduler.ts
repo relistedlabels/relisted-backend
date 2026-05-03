@@ -9,6 +9,7 @@ import { NotificationService } from 'src/services/notification/notification.serv
 import { MailService } from 'src/services/mail/mail.service';
 import { syncOrderStatusFromShipments } from 'src/module/order/order-shipment-status.sync';
 import { addMinutes, startOfDay, subMinutes } from 'date-fns';
+import { fetchAdminAlertRecipients } from 'src/module/shipment/shipment-admin-alert-recipients';
 
 const normalizeProviderStatus = (status: string) =>
   status.toLowerCase().replace(/[^a-z]/g, '');
@@ -376,15 +377,25 @@ export class ShipmentDispatchScheduler {
     shipment: any,
     tracking: TrackingStatus,
   ) {
-    const adminEmail = process.env.ADMIN_ALERT_EMAIL;
-    const adminUserId = process.env.ADMIN_USER_ID;
     const adminUrl = process.env.ADMIN_URL ?? '';
     const providerStatus = tracking.status || 'Cancelled';
     const order = shipment.order;
 
-    if (adminUserId) {
+    const admins = await fetchAdminAlertRecipients(this.prisma);
+    if (admins.length === 0) {
+      this.logger.warn(
+        `[Polling] No admin users found for shipment cancellation alert (shipment ${shipment.id}).`,
+      );
+      return;
+    }
+
+    const adminShipmentUrl = adminUrl
+      ? `${adminUrl}/shipments/${shipment.id}`
+      : undefined;
+
+    for (const admin of admins) {
       await this.notification.createNotification({
-        userId: adminUserId,
+        userId: admin.id,
         title: '🚨 Shipment cancelled by Topship',
         message: `Shipment ${shipment.id} (${shipment.type}) was cancelled by Topship (status: ${providerStatus}).`,
         type: 'SHIPMENT_PROVIDER_CANCELLED',
@@ -397,23 +408,22 @@ export class ShipmentDispatchScheduler {
       });
     }
 
-    if (adminEmail) {
+    for (const admin of admins) {
+      if (!admin.email?.trim()) continue;
       try {
         await this.mail.sendAdminShipmentCancelledAlert({
-          to: adminEmail,
+          to: admin.email.trim(),
           shipmentId: shipment.id,
           orderId: order?.orderId ?? shipment.orderId,
           shipmentType: shipment.type,
           providerStatus,
           providerMessage: tracking.message,
           trackingUrl: shipment.providerTrackingUrl ?? undefined,
-          adminShipmentUrl: adminUrl
-            ? `${adminUrl}/shipments/${shipment.id}`
-            : undefined,
+          adminShipmentUrl,
         });
       } catch (err: any) {
         this.logger.error(
-          `[Polling] Failed to send admin cancellation email for shipment ${shipment.id}: ${err.message}`,
+          `[Polling] Failed to send admin cancellation email to ${admin.email} for shipment ${shipment.id}: ${err.message}`,
         );
       }
     }
