@@ -16,7 +16,14 @@ import { JwtAuthGuard } from '../auth/guard/authGuard';
 import { RoleGuard } from '../auth/guard/roleGuard';
 import { Roles } from '../auth/decorator/roles.decorator';
 import { Role } from '@prisma/client';
-import { ApiTags, ApiOperation, ApiBearerAuth, ApiConsumes, ApiBody } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiConsumes,
+  ApiBody,
+} from '@nestjs/swagger';
+import { CreateReturnRequestDto } from './dto/return-request.dto';
 
 @ApiTags('Renters Orders')
 @ApiBearerAuth('bearer')
@@ -80,7 +87,9 @@ export class RentersOrdersController {
       },
     },
   })
-  @ApiOperation({ summary: 'Mark order as ready to return with condition report and images' })
+  @ApiOperation({
+    summary: 'Mark order as ready to return with condition report and images',
+  })
   async readyToReturn(
     @Request() req,
     @Param('orderId') orderId: string,
@@ -97,12 +106,18 @@ export class RentersOrdersController {
   }
 
   @Post(':orderId/return-with-shipping')
-  @ApiOperation({ summary: 'Initiate return request with item condition and photos' })
+  @ApiOperation({
+    summary: 'Initiate return request with item condition and photos',
+  })
   async processReturnWithShipping(
     @Request() req,
     @Param('orderId') orderId: string,
-    @Body() data: any,
+    @Body() data: CreateReturnRequestDto,
   ) {
-    return this.rentersService.processReturnWithShipping(req.user.id, orderId, data);
+    return this.rentersService.processReturnWithShipping(
+      req.user.id,
+      orderId,
+      data,
+    );
   }
 }
