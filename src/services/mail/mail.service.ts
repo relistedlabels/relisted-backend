@@ -596,4 +596,42 @@ export class MailService {
       html,
     });
   }
+
+  async sendProductAvailableNotifyEmail(dto: {
+    email: string;
+    userName: string;
+    productName: string;
+    productUrl: string;
+  }) {
+    const { email, userName, productName, productUrl } = dto;
+    const subject = `${productName} is available to rent again`;
+    const safeName = (userName || 'there').replace(/</g, '');
+    const safeProduct = (productName || 'This item').replace(/</g, '');
+
+    const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f6f7fb;padding:24px;">
+  <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
+    <div style="padding:18px 20px;background:#111827;color:#ffffff;">
+      <div style="font-size:14px;opacity:0.9;">Relisted</div>
+      <div style="font-size:18px;font-weight:700;margin-top:6px;">Back in stock</div>
+    </div>
+    <div style="padding:20px;">
+      <p style="margin:0 0 12px;color:#374151;">Hi ${safeName},</p>
+      <p style="margin:0 0 16px;color:#374151;">The item you asked us to watch — <strong>${safeProduct}</strong> — is available to rent again on Relisted.</p>
+      <a href="${productUrl}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">View listing</a>
+      <p style="margin:20px 0 0;font-size:12px;color:#6b7280;">You received this because you tapped &quot;Notify me when available&quot; while this piece was on rental.</p>
+    </div>
+  </div>
+</div>`;
+
+    if (this.devBypass) {
+      await this.handleDevBypassHtml(subject, html, email);
+      return;
+    }
+
+    await this.mailerService.sendMail({
+      to: email,
+      subject,
+      html,
+    });
+  }
 }

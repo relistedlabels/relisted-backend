@@ -34,6 +34,7 @@ import {
   DispatchWindowType,
 } from 'src/utils/dispatch-windows';
 import { releaseRentalEscrowOnOutboundDelivery } from '../order/release-rental-escrow-on-delivery';
+import { ProductAvailabilityNotifyService } from 'src/services/product-availability-notify/product-availability-notify.service';
 
 const CURRENCY = 'NGN';
 
@@ -135,6 +136,7 @@ export class ListersService {
     private readonly wemaService: WemaServiceService,
     private readonly notificationService: NotificationService,
     private readonly uploadService: UploadService,
+    private readonly productAvailabilityNotifyService: ProductAvailabilityNotifyService,
   ) {}
 
   private buildExternalTrackingUrl(trackingNumber: string) {
@@ -1408,6 +1410,17 @@ export class ListersService {
         },
       });
 
+      if (
+        mapped === OrderStatus.CANCELLED ||
+        mapped === OrderStatus.REJECTED
+      ) {
+        for (const item of order.orderItems as { productId: string }[]) {
+          await this.productAvailabilityNotifyService.notifyWatchersProductAvailable(
+            item.productId,
+          );
+        }
+      }
+
       const timeline = {
         approvedAt: updated.approvedAt?.toISOString() ?? null,
         dispatchedAt: updated.dispatchedAt?.toISOString() ?? null,
@@ -1532,6 +1545,7 @@ export class ListersService {
               product: {
                 select: {
                   curatorId: true,
+                  listingType: true,
                 },
               },
             },
@@ -1567,7 +1581,8 @@ export class ListersService {
       const isListerProduct =
         (order as any).listerId === listerId ||
         order.orderItems.some(
-          (item: any) => item.product?.curatorId === listerId,
+          (item: { product?: { curatorId?: string } | null }) =>
+            item.product?.curatorId === listerId,
         );
       if (!isListerProduct) {
         console.log(
@@ -1655,6 +1670,23 @@ export class ListersService {
         console.log(
           `[ListersService] Order status updated to COMPLETED for order ${orderId}`,
         );
+
+        for (const item of order.orderItems as {
+          productId: string;
+          days: number;
+          product?: { listingType?: string } | null;
+        }[]) {
+          const isRentalItem =
+            item.days > 0 &&
+            (item.product?.listingType === 'RENTAL' ||
+              item.product?.listingType === 'RENT_OR_RESALE');
+          if (isRentalItem) {
+            await tx.product.update({
+              where: { id: item.productId },
+              data: { status: ProductStatus.AVAILABLE },
+            });
+          }
+        }
 
         // Release collateral to renter and lister payouts (per-lister escrows)
         let totalCollateralReleased = 0;
@@ -1771,6 +1803,28 @@ export class ListersService {
       console.log(
         `[ListersService] Transaction completed successfully for order ${orderId}, released NGN ${result.collateralReleased} collateral`,
       );
+
+      if (!result.disputeHold) {
+        const rentalProductIds = (
+          order.orderItems as {
+            productId: string;
+            days: number;
+            product?: { listingType?: string } | null;
+          }[]
+        )
+          .filter(
+            (item) =>
+              item.days > 0 &&
+              (item.product?.listingType === 'RENTAL' ||
+                item.product?.listingType === 'RENT_OR_RESALE'),
+          )
+          .map((item) => item.productId);
+        for (const pid of rentalProductIds) {
+          await this.productAvailabilityNotifyService.notifyWatchersProductAvailable(
+            pid,
+          );
+        }
+      }
 
       if (result.disputeHold) {
         await this.notificationService.createNotification({
