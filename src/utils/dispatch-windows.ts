@@ -65,9 +65,15 @@ export const returnRequestWindowFieldMap: DispatchWindowFieldMap = {
 };
 
 export function getDailyWindowBounds(date: Date) {
-  const dayStart = startOfDay(date);
-  const start = addHours(dayStart, DISPATCH_WINDOW_START_HOUR);
-  const end = addHours(dayStart, DISPATCH_WINDOW_END_HOUR);
+  // Calculate bounds in UTC for Africa/Lagos timezone (UTC+1)
+  // Get the date in Lagos timezone and convert to UTC
+  const lagosOffset = 1 * 60 * 60 * 1000; // 1 hour in ms for WAT
+  const utcDate = new Date(date.getTime() - lagosOffset);
+  const dayStart = startOfDay(utcDate);
+  // Add back the offset to get Lagos time in UTC
+  const lagosDayStart = new Date(dayStart.getTime() + lagosOffset);
+  const start = addHours(lagosDayStart, DISPATCH_WINDOW_START_HOUR);
+  const end = addHours(lagosDayStart, DISPATCH_WINDOW_END_HOUR);
 
   if (!isAfter(end, start)) {
     throw new InternalServerErrorException(
@@ -135,14 +141,18 @@ export function parseDispatchWindowFromInput(
   type: DispatchWindowType,
   manual: DispatchWindowInput,
 ): DispatchWindowRange {
-  const start = parseISO(manual.start);
-  const end = parseISO(manual.end);
+  // Parse ISO strings with timezone offset to get correct UTC time
+  const start = new Date(manual.start);
+  const end = new Date(manual.end);
 
-  if (!isValid(start) || !isValid(end)) {
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) {
     bad(`${type} dispatch window timestamps must be valid ISO-8601 strings.`);
   }
 
-  if (!isSameDay(start, end)) {
+  // Check same day in Africa/Lagos timezone
+  const startLagos = start.toLocaleDateString('en-US', { timeZone: 'Africa/Lagos' });
+  const endLagos = end.toLocaleDateString('en-US', { timeZone: 'Africa/Lagos' });
+  if (startLagos !== endLagos) {
     bad(`${type} dispatch window must start and end on the same day.`);
   }
 
