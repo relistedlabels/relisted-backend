@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+        }
+
+        .container {
+            width: 80%;
+            margin: 20px auto;
+            border: 1px solid #eee;
+            padding: 20px;
+            border-radius: 10px;
+        }
+
+        .header {
+            background: #f8f9fa;
+            padding: 10px;
+            text-align: center;
+            border-bottom: 2px solid #555;
+        }
+
+        .content {
+            padding: 20px;
+        }
+
+        .steps {
+            background: #f9f9f9;
+            padding: 16px;
+            border-radius: 8px;
+            margin: 16px 0;
+            border-left: 4px solid #2e7d32;
+        }
+
+        .steps ol {
+            margin: 8px 0 0 0;
+            padding-left: 20px;
+        }
+
+        .steps li {
+            margin: 8px 0;
+        }
+
+        .cta {
+            display: inline-block;
+            margin-top: 16px;
+            padding: 12px 20px;
+            background: #2e7d32;
+            color: #fff !important;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+        }
+
+        .footer {
+            font-size: 12px;
+            color: #777;
+            margin-top: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>Confirm return receipt</h2>
+        </div>
+        <div class="content">
+            <p>Hello {{curatorName}},</p>
+            <p>Carrier tracking shows the return for order <strong>{{orderNumber}}</strong> has been <strong>delivered</strong> (to you or your designated address). Please confirm in the app so we can settle the rental.</p>
+
+            {{#if trackingNumber}}
+            <p><strong>Tracking reference:</strong> {{trackingNumber}}</p>
+            {{/if}}
+
+            <div class="steps">
+                <p><strong>What to do next</strong></p>
+                <ol>
+                    <li>Open your order on {{platformName}} using the button below.</li>
+                    <li>Review the renter&apos;s return photos and condition notes.</li>
+                    <li>Inspect the physical item when you have it in hand.</li>
+                    <li>Tap <strong>Confirm Return Receipt</strong>, choose the actual condition, add notes or photos if needed, and submit.</li>
+                </ol>
+            </div>
+
+            <p><strong>After you confirm:</strong> the order completes. The renter&apos;s <strong>collateral (security deposit)</strong> is released back to their wallet, and your <strong>rental earnings plus cleaning fee</strong> are credited to your wallet (unless a dispute is open).</p>
+
+            <p><a class="cta" href="{{orderPageUrl}}" target="_blank">Go to order</a></p>
+
+            <p>If something doesn&apos;t match the agreed condition, use the dispute or support options from your dashboard.</p>
+        </div>
+        <div class="footer">
+            <p>&copy; {{currentYear}} {{platformName}}. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+
+</html>

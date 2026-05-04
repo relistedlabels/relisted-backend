@@ -2,13 +2,14 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
+import { ListingType } from '@prisma/client';
 import { PrismaService } from 'src/services/prisma/prisma.service';
 import { DeliveryProviderService } from 'src/services/delivery/delivery-provider.service';
 import { TrackingStatus } from 'src/services/delivery/delivery-provider.interface';
 import { NotificationService } from 'src/services/notification/notification.service';
 import { MailService } from 'src/services/mail/mail.service';
 import { syncOrderStatusFromShipments } from 'src/module/order/order-shipment-status.sync';
-import { addMinutes, startOfDay, subMinutes, addHours, format } from 'date-fns';
+import { addMinutes, startOfDay, subHours, subMinutes } from 'date-fns';
 import { fetchAdminAlertRecipients } from 'src/module/shipment/shipment-admin-alert-recipients';
 
 const normalizeProviderStatus = (status: string) =>
@@ -16,6 +17,11 @@ const normalizeProviderStatus = (status: string) =>
 
 const DISPATCH_CRON_LOOKAHEAD_MINUTES = Number(
   process.env.DISPATCH_CRON_LOOKAHEAD_MINUTES ?? 60,
+);
+
+/** Hours after `pickupWindowEnd` before we email listers (carrier tracking often lags). */
+const LISTER_RETURN_WINDOW_PASSED_GRACE_HOURS = Number(
+  process.env.LISTER_RETURN_WINDOW_PASSED_GRACE_HOURS ?? 6,
 );
 
 @Injectable()
@@ -37,7 +43,7 @@ export class ShipmentDispatchScheduler {
    * `scheduledWindowStart` / `scheduledWindowEnd` are Relisted-only; the worker maps
    * them to Topship’s single `pickupDate` when booking, not as partner-facing windows.
    */
-  @Cron(process.env.DISPATCH_CRON || '0 * * * *', { timeZone: 'Africa/Lagos' })
+@Cron(process.env.DISPATCH_CRON || '0 * * * *', { timeZone: 'Africa/Lagos' })
   async dispatchDueShipments() {
     const now = new Date();
     const today = startOfDay(now);
@@ -259,7 +265,7 @@ export class ShipmentDispatchScheduler {
           );
         }
 
-        // Send notification
+        // Send notification (renter + lister for return legs)
         await this.sendTrackingNotification(shipment as any, mappedStatus);
       } catch (err: any) {
         this.logger.error(
@@ -282,6 +288,134 @@ export class ShipmentDispatchScheduler {
     this.logger.log(`[Polling] Completed. Updated ${updated} shipment(s)`);
   }
 
+  /**
+   * When the return pickup window ended some time ago (grace period — default 6h)
+   * but the RETURN leg is still not COMPLETED in our DB, remind listers once.
+   * Gives carrier polling time to catch up before we nudge.
+   */
+  @Cron(process.env.LISTER_RETURN_WINDOW_CRON || '45 * * * *', {
+    timeZone: 'Africa/Lagos',
+  })
+  async notifyListerReturnWindowPassedWithoutDelivery() {
+    const now = new Date();
+    const rentalish = [ListingType.RENTAL, ListingType.RENT_OR_RESALE];
+    const cutoff = subHours(now, LISTER_RETURN_WINDOW_PASSED_GRACE_HOURS);
+
+    const staleReturnRequestWhere = {
+      listerReturnWindowPassedNotifiedAt: null,
+      pickupWindowEnd: { lte: cutoff },
+      status: { notIn: ['COMPLETED', 'REJECTED'] },
+    };
+
+    const orders = await this.prisma.order.findMany({
+      where: {
+        status: { in: ['RETURN_DUE', 'RETURNED'] },
+        listingType: { in: rentalish },
+        returnRequests: {
+          some: staleReturnRequestWhere,
+        },
+      },
+      select: {
+        id: true,
+        orderId: true,
+        returnRequests: {
+          where: staleReturnRequestWhere,
+          take: 1,
+          orderBy: { createdAt: 'desc' },
+          select: { id: true },
+        },
+        shipments: {
+          where: { type: 'RETURN' },
+          select: { status: true },
+        },
+        orderItems: {
+          select: {
+            product: {
+              select: {
+                curator: {
+                  select: {
+                    id: true,
+                    email: true,
+                    name: true,
+                    profile: {
+                      select: {
+                        businessInfo: { select: { businessName: true } },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (orders.length > 0) {
+      this.logger.log(
+        `[ReturnWindowPassed] ${orders.length} order(s) eligible (pickup ended ≥${LISTER_RETURN_WINDOW_PASSED_GRACE_HOURS}h ago, return not delivered in tracking)`,
+      );
+    }
+
+    const clientUrl = process.env.CLIENT_URL || 'https://relisted.com';
+
+    for (const ord of orders) {
+      const rr = ord.returnRequests[0];
+      if (!rr) continue;
+
+      const returnLeg = ord.shipments[0];
+      if (returnLeg?.status === 'COMPLETED') continue;
+
+      const listers = new Map<
+        string,
+        {
+          id: string;
+          email: string | null;
+          name: string | null;
+          profile: {
+            businessInfo: { businessName: string | null } | null;
+          } | null;
+        }
+      >();
+      for (const oi of ord.orderItems) {
+        const c = oi.product?.curator;
+        if (c?.id) listers.set(c.id, c as any);
+      }
+
+      const orderPageUrl = `${clientUrl}/listers/orders/${ord.id}`;
+
+      for (const lister of listers.values()) {
+        if (!lister.email?.trim()) continue;
+        const curatorName =
+          lister.profile?.businessInfo?.businessName || lister.name || 'there';
+        await this.notification.createNotification({
+          userId: lister.id,
+          title: 'Return pickup window has ended',
+          message: `The scheduled return window for order ${ord.orderId} has passed and we have not marked the return as delivered yet. If you have not received the item, coordinate with the renter; otherwise confirm receipt on your order page when it arrives.`,
+          type: 'LISTER_RETURN_WINDOW_PASSED',
+          metadata: {
+            orderId: ord.id,
+            orderNumber: ord.orderId,
+            returnRequestId: rr.id,
+          },
+          sendEmail: true,
+          emailData: {
+            email: lister.email.trim(),
+            curatorName,
+            orderNumber: ord.orderId,
+            orderPageUrl,
+            platformName: 'Relisted',
+          },
+        });
+      }
+
+      await this.prisma.returnRequest.update({
+        where: { id: rr.id },
+        data: { listerReturnWindowPassedNotifiedAt: now },
+      });
+    }
+  }
+
   private async sendTrackingNotification(shipment: any, newStatus: string) {
     const order = shipment.order;
     const customer = order?.user;
@@ -289,6 +423,7 @@ export class ShipmentDispatchScheduler {
 
     const isOutbound = shipment.type === 'OUTBOUND';
     const isResale = shipment.type === 'RESALE';
+    const isReturn = shipment.type === 'RETURN';
 
     if (newStatus === 'IN_TRANSIT') {
       const title = isResale
@@ -300,7 +435,7 @@ export class ShipmentDispatchScheduler {
         ? 'Your item has been picked up and is on its way to you.'
         : isOutbound
           ? 'Your item has been picked up and is on its way to you.'
-          : 'The rider has picked up your item for return.';
+          : 'The rider has picked up your item for return. It is on its way back to the lister.';
 
       await this.notification.createNotification({
         userId: customer.id,
@@ -329,29 +464,53 @@ export class ShipmentDispatchScheduler {
           estimatedDelivery: undefined,
         },
       });
+
+      if (isReturn) {
+        await this.notifyListersForReturnLeg(shipment, 'IN_TRANSIT');
+      }
     }
 
     if (newStatus === 'COMPLETED') {
+      if (isReturn) {
+        await this.notification.createNotification({
+          userId: customer.id,
+          title: 'Return delivered to the lister',
+          message:
+            'Carrier tracking shows your return was delivered. The lister will inspect the item and confirm receipt in the app. You will be notified when your collateral is released after they complete confirmation.',
+          type: 'RETURN_DELIVERED_TO_LISTER',
+          metadata: {
+            shipmentId: shipment.id,
+            orderId: order.orderId,
+          },
+          sendEmail: true,
+          emailData: {
+            email: customer.email,
+            userName: customer.name,
+            orderId: order.orderId,
+            status: 'Delivered to lister (pending lister confirmation)',
+            emailSubject: 'Your return was delivered',
+            emailHeading: 'Return delivered',
+            trackingNumber: shipment.trackingId ?? undefined,
+            extraNote:
+              'Your rental is not fully closed until the lister confirms they received the item in the expected condition.',
+          },
+        });
+        await this.notifyListersForReturnLeg(shipment, 'COMPLETED');
+        return;
+      }
+
       const title = isResale
         ? 'Your purchase has been delivered!'
-        : isOutbound
-          ? 'Your rental has been delivered!'
-          : 'Return confirmed';
+        : 'Your rental has been delivered!';
       const message = isResale
         ? 'Your item has been delivered. Enjoy your purchase!'
-        : isOutbound
-          ? 'Your item has been delivered. Enjoy your rental!'
-          : 'Your return has been confirmed. Your rental period has ended.';
+        : 'Your item has been delivered. Enjoy your rental!';
 
       await this.notification.createNotification({
         userId: customer.id,
         title,
         message,
-        type: isResale
-          ? 'SHIPMENT_DELIVERED'
-          : isOutbound
-            ? 'SHIPMENT_DELIVERED'
-            : 'RETURN_CONFIRMED',
+        type: isResale ? 'SHIPMENT_DELIVERED' : 'SHIPMENT_DELIVERED',
         metadata: {
           shipmentId: shipment.id,
           orderId: order.orderId,
@@ -361,15 +520,119 @@ export class ShipmentDispatchScheduler {
           email: customer.email,
           userName: customer.name,
           orderId: order.orderId,
-          status: isResale
-            ? 'Delivered'
-            : isOutbound
-              ? 'Delivered'
-              : 'Return Confirmed',
+          status: 'Delivered',
           trackingNumber: shipment.trackingId ?? undefined,
           estimatedDelivery: undefined,
         },
       });
+    }
+  }
+
+  private async notifyListersForReturnLeg(
+    shipment: any,
+    phase: 'IN_TRANSIT' | 'COMPLETED',
+  ) {
+    const orderInternalId = shipment.order?.id as string | undefined;
+    if (!orderInternalId) return;
+
+    const full = await this.prisma.order.findUnique({
+      where: { id: orderInternalId },
+      select: {
+        id: true,
+        orderId: true,
+        orderItems: {
+          select: {
+            product: {
+              select: {
+                curator: {
+                  select: {
+                    id: true,
+                    email: true,
+                    name: true,
+                    profile: {
+                      select: {
+                        businessInfo: { select: { businessName: true } },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!full) return;
+
+    const clientUrl = process.env.CLIENT_URL || 'https://relisted.com';
+    const orderPageUrl = `${clientUrl}/listers/orders/${full.id}`;
+    const trackingNumber = shipment.trackingId ?? undefined;
+
+    const listers = new Map<
+      string,
+      {
+        id: string;
+        email: string | null;
+        name: string | null;
+        profile: {
+          businessInfo: { businessName: string | null } | null;
+        } | null;
+      }
+    >();
+
+    for (const oi of full.orderItems) {
+      const c = oi.product?.curator;
+      if (c?.id) listers.set(c.id, c as any);
+    }
+
+    for (const lister of listers.values()) {
+      if (!lister.email?.trim()) continue;
+      const curatorName =
+        lister.profile?.businessInfo?.businessName || lister.name || 'there';
+
+      if (phase === 'IN_TRANSIT') {
+        await this.notification.createNotification({
+          userId: lister.id,
+          title: 'Return on its way to you',
+          message: `The renter's return for order ${full.orderId} is in transit to your address.`,
+          type: 'LISTER_RETURN_IN_TRANSIT',
+          metadata: {
+            orderId: full.id,
+            orderNumber: full.orderId,
+            shipmentId: shipment.id,
+          },
+          sendEmail: true,
+          emailData: {
+            email: lister.email.trim(),
+            curatorName,
+            orderNumber: full.orderId,
+            orderPageUrl,
+            trackingNumber,
+            platformName: 'Relisted',
+          },
+        });
+      } else {
+        await this.notification.createNotification({
+          userId: lister.id,
+          title: 'Confirm return receipt to finish this rental',
+          message: `Tracking shows the return for order ${full.orderId} was delivered. Open your order, review the renter's condition report, then confirm return receipt. That completes the order: collateral goes back to the renter and your rental earnings plus cleaning fee are released to your wallet.`,
+          type: 'LISTER_RETURN_DELIVERED_CONFIRM',
+          metadata: {
+            orderId: full.id,
+            orderNumber: full.orderId,
+            shipmentId: shipment.id,
+          },
+          sendEmail: true,
+          emailData: {
+            email: lister.email.trim(),
+            curatorName,
+            orderNumber: full.orderId,
+            orderPageUrl,
+            trackingNumber,
+            platformName: 'Relisted',
+          },
+        });
+      }
     }
   }
 
@@ -427,356 +690,5 @@ export class ShipmentDispatchScheduler {
         );
       }
     }
-  }
-
-  /**
-   * Runs every hour to check for return shipments due in 24 hours and send reminder emails.
-   * Uses ReturnRequest.pickupWindowStart to determine when return shipment pickup is due.
-   */
-  @Cron('0 * * * *', { timeZone: 'Africa/Lagos' })
-  async send24HourReturnDueReminders() {
-    this.logger.log(`[ReturnReminder] Checking for return shipments due in 24 hours`);
-
-    const now = new Date();
-    const in24Hours = addHours(now, 24);
-
-    const returnRequestsDueIn24Hours = await this.prisma.returnRequest.findMany({
-      where: {
-        pickupWindowStart: {
-          gte: now,
-          lte: in24Hours,
-        },
-        status: { in: ['PENDING_PICKUP', 'DISPATCHING'] },
-        reminder24hSentAt: null,
-      },
-      include: {
-        order: {
-          select: {
-            orderId: true,
-            user: {
-              select: {
-                name: true,
-                email: true,
-              },
-            },
-            orderItems: {
-              include: {
-                product: {
-                  select: {
-                    name: true,
-                  },
-                },
-              },
-              take: 1,
-            },
-          },
-        },
-      },
-    });
-
-    this.logger.log(
-      `[ReturnReminder] Found ${returnRequestsDueIn24Hours.length} return request(s) due in 24 hours`,
-    );
-
-    let sent = 0;
-    const clientUrl = process.env.CLIENT_URL || 'https://relisted.com';
-
-    for (const rr of returnRequestsDueIn24Hours) {
-      const order = rr.order;
-      if (!order || !rr.pickupWindowStart) continue;
-
-      const dueDateStr = format(rr.pickupWindowStart, 'EEEE, MMMM do, yyyy');
-      const orderLink = `${clientUrl}/renters/orders/${order.orderId}`;
-
-      try {
-        await this.mail.sendReturnDueReminderMail({
-          email: order.user.email,
-          userName: order.user.name,
-          orderId: order.orderId,
-          orderLink,
-          dueDate: dueDateStr,
-          productName: order.orderItems[0]?.product.name,
-          reminderType: '24_hours',
-        });
-
-        // Mark 24h reminder as sent
-        await this.prisma.returnRequest.update({
-          where: { id: rr.id },
-          data: { reminder24hSentAt: now },
-        });
-
-        sent++;
-        this.logger.log(
-          `[ReturnReminder] Sent 24hr reminder for order ${order.orderId}`,
-        );
-      } catch (err: any) {
-        this.logger.error(
-          `[ReturnReminder] Failed to send 24hr reminder for order ${order.orderId}: ${err.message}`,
-        );
-      }
-    }
-
-    this.logger.log(`[ReturnReminder] Sent ${sent} 24hr reminder(s)`);
-  }
-
-  /**
-   * Runs every morning at 8 AM Lagos time to check for return shipments due today and send reminder emails.
-   * Uses ReturnRequest.pickupWindowStart to determine when return shipment pickup is due.
-   */
-  @Cron('0 8 * * *', { timeZone: 'Africa/Lagos' })
-  async sendMorningOfDueDateReminders() {
-    this.logger.log(`[ReturnReminder] Checking for return shipments due today`);
-
-    const now = new Date();
-    const todayStart = startOfDay(now);
-    const todayEnd = addHours(todayStart, 24);
-
-    const returnRequestsDueToday = await this.prisma.returnRequest.findMany({
-      where: {
-        pickupWindowStart: {
-          gte: todayStart,
-          lte: todayEnd,
-        },
-        status: { in: ['PENDING_PICKUP', 'DISPATCHING'] },
-        reminderDayOfSentAt: null,
-      },
-      include: {
-        order: {
-          select: {
-            orderId: true,
-            user: {
-              select: {
-                name: true,
-                email: true,
-              },
-            },
-            orderItems: {
-              include: {
-                product: {
-                  select: {
-                    name: true,
-                  },
-                },
-              },
-              take: 1,
-            },
-          },
-        },
-      },
-    });
-
-    this.logger.log(`[ReturnReminder] Found ${returnRequestsDueToday.length} return request(s) due today`);
-
-    let sent = 0;
-    const clientUrl = process.env.CLIENT_URL || 'https://relisted.com';
-
-    for (const rr of returnRequestsDueToday) {
-      const order = rr.order;
-      if (!order || !rr.pickupWindowStart) continue;
-
-      const dueDateStr = format(rr.pickupWindowStart, 'EEEE, MMMM do, yyyy');
-      const orderLink = `${clientUrl}/renters/orders/${order.orderId}`;
-
-      try {
-        await this.mail.sendReturnDueReminderMail({
-          email: order.user.email,
-          userName: order.user.name,
-          orderId: order.orderId,
-          orderLink,
-          dueDate: dueDateStr,
-          productName: order.orderItems[0]?.product.name,
-          reminderType: 'morning_of',
-        });
-
-        // Mark day-of reminder as sent
-        await this.prisma.returnRequest.update({
-          where: { id: rr.id },
-          data: { reminderDayOfSentAt: now },
-        });
-
-        sent++;
-        this.logger.log(
-          `[ReturnReminder] Sent morning reminder for order ${order.orderId}`,
-        );
-      } catch (err: any) {
-        this.logger.error(
-          `[ReturnReminder] Failed to send morning reminder for order ${order.orderId}: ${err.message}`,
-        );
-      }
-    }
-
-    this.logger.log(`[ReturnReminder] Sent ${sent} morning reminder(s)`);
-  }
-
-  /**
-   * Runs every hour to check for rentals that have reached endDate but no return request exists.
-   * Sends reminder email to renters to complete their return request.
-   * Sends two separate emails: one when end date is reached, another if past due.
-   */
-  @Cron('0 * * * *', { timeZone: 'Africa/Lagos' })
-  async sendReturnRequestReminders() {
-    this.logger.log(`[ReturnRequestReminder] Checking for rentals needing return request`);
-
-    const now = new Date();
-
-    // Find orders that need end date reminder
-    const ordersNeedingEndReminder = await this.prisma.order.findMany({
-      where: {
-        status: 'ACTIVE',
-        rentals: {
-          some: {
-            endDate: {
-              lte: now,
-            },
-            isReturned: false,
-          },
-        },
-        returnRequests: {
-          none: {},
-        },
-        returnRequestReminderSentAt: null,
-      },
-      include: {
-        user: true,
-        orderItems: {
-          include: {
-            product: true,
-          },
-          take: 1,
-        },
-        rentals: {
-          where: {
-            endDate: {
-              lte: now,
-            },
-            isReturned: false,
-          },
-          take: 1,
-        },
-      },
-    });
-
-    // Find orders that need past due reminder (already got end date reminder but still no return request)
-    const ordersNeedingPastDueReminder = await this.prisma.order.findMany({
-      where: {
-        status: 'ACTIVE',
-        rentals: {
-          some: {
-            endDate: {
-              lte: now,
-            },
-            isReturned: false,
-          },
-        },
-        returnRequests: {
-          none: {},
-        },
-        returnRequestReminderSentAt: { not: null },
-        returnRequestPastDueSentAt: null,
-      },
-      include: {
-        user: true,
-        orderItems: {
-          include: {
-            product: true,
-          },
-          take: 1,
-        },
-        rentals: {
-          where: {
-            endDate: {
-              lte: now,
-            },
-            isReturned: false,
-          },
-          take: 1,
-        },
-      },
-    });
-
-    this.logger.log(
-      `[ReturnRequestReminder] Found ${ordersNeedingEndReminder.length} order(s) needing end date reminder`,
-    );
-    this.logger.log(
-      `[ReturnRequestReminder] Found ${ordersNeedingPastDueReminder.length} order(s) needing past due reminder`,
-    );
-
-    let sent = 0;
-    const clientUrl = process.env.CLIENT_URL || 'https://relisted.com';
-
-    // Send end date reminders
-    for (const order of ordersNeedingEndReminder) {
-      const rental = order.rentals[0];
-      if (!rental) continue;
-
-      const orderLink = `${clientUrl}/renters/orders/${order.orderId}`;
-
-      try {
-        await this.mail.sendReturnRequestReminderMail({
-          email: order.user.email,
-          userName: order.user.name,
-          orderId: order.orderId,
-          orderLink,
-          productName: order.orderItems[0]?.product.name,
-          reminderType: 'end_date_reached',
-        });
-
-        // Mark end date reminder as sent
-        await this.prisma.order.update({
-          where: { id: order.id },
-          data: { returnRequestReminderSentAt: now },
-        });
-
-        sent++;
-        this.logger.log(
-          `[ReturnRequestReminder] Sent end date reminder for order ${order.orderId}`,
-        );
-      } catch (err: any) {
-        this.logger.error(
-          `[ReturnRequestReminder] Failed to send end date reminder for order ${order.orderId}: ${err.message}`,
-        );
-      }
-    }
-
-    // Send past due reminders (only if at least 1 day overdue to avoid immediate spam)
-    for (const order of ordersNeedingPastDueReminder) {
-      const rental = order.rentals[0];
-      if (!rental) continue;
-
-      const daysOverdue = Math.floor(
-        (now.getTime() - rental.endDate.getTime()) / (1000 * 60 * 60 * 24),
-      );
-      if (daysOverdue < 1) continue; // Only send past due if at least 1 day overdue
-
-      const orderLink = `${clientUrl}/renters/orders/${order.orderId}`;
-
-      try {
-        await this.mail.sendReturnRequestReminderMail({
-          email: order.user.email,
-          userName: order.user.name,
-          orderId: order.orderId,
-          orderLink,
-          productName: order.orderItems[0]?.product.name,
-          reminderType: 'past_due',
-        });
-
-        // Mark past due reminder as sent
-        await this.prisma.order.update({
-          where: { id: order.id },
-          data: { returnRequestPastDueSentAt: now },
-        });
-
-        sent++;
-        this.logger.log(
-          `[ReturnRequestReminder] Sent past due reminder for order ${order.orderId}`,
-        );
-      } catch (err: any) {
-        this.logger.error(
-          `[ReturnRequestReminder] Failed to send past due reminder for order ${order.orderId}: ${err.message}`,
-        );
-      }
-    }
-
-    this.logger.log(`[ReturnRequestReminder] Sent ${sent} return request reminder(s)`);
   }
 }

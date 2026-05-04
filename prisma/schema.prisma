@@ -705,6 +705,8 @@ model ReturnRequest {
   pickupWindowEnd          DateTime?
   reminder24hSentAt        DateTime?
   reminderDayOfSentAt      DateTime?
+  /// One-shot email to lister when return pickup window ended but return leg not yet completed (fallback if tracking lags).
+  listerReturnWindowPassedNotifiedAt DateTime?
   shippedAt                DateTime?
   deliveredAt              DateTime?
   createdAt                DateTime       @default(now())

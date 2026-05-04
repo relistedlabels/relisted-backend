@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+        }
+
+        .container {
+            width: 80%;
+            margin: 20px auto;
+            border: 1px solid #eee;
+            padding: 20px;
+            border-radius: 10px;
+        }
+
+        .header {
+            background: #fff9e5;
+            padding: 10px;
+            text-align: center;
+            border-bottom: 2px solid #d4a017;
+        }
+
+        .content {
+            padding: 20px;
+        }
+
+        .cta {
+            display: inline-block;
+            margin-top: 16px;
+            padding: 12px 20px;
+            background: #111;
+            color: #fff !important;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+        }
+
+        .footer {
+            font-size: 12px;
+            color: #777;
+            margin-top: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>Return pickup window has ended</h2>
+        </div>
+        <div class="content">
+            <p>Hello {{curatorName}},</p>
+            <p>For order <strong>{{orderNumber}}</strong>, the renter&apos;s scheduled <strong>return pickup window</strong> ended some time ago. After allowing for tracking to catch up, we still don&apos;t show this return as delivered. The parcel may be on its way, or the carrier status may not have updated yet.</p>
+            <p><strong>Already have the item?</strong> Open your order below and use <strong>Confirm return receipt</strong> once you&apos;ve inspected it.</p>
+            <p>If you have not received it yet, please coordinate with the renter or contact support. Carrier updates can occasionally lag.</p>
+            <p><a class="cta" href="{{orderPageUrl}}" target="_blank">Open order</a></p>
+            <p>Thank you for using {{platformName}}.</p>
+        </div>
+        <div class="footer">
+            <p>&copy; {{currentYear}} {{platformName}}. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+
+</html>

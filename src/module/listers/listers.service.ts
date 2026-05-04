@@ -51,9 +51,9 @@ const ORDER_STATUS_TO_LABEL: Record<OrderStatus, string> = {
   [OrderStatus.IN_TRANSIT]: 'In Transit',
   [OrderStatus.DELIVERED]: 'Delivered',
   [OrderStatus.ACTIVE]: 'Active',
-  [OrderStatus.RETURN_DUE]: 'Return Due',
+  [OrderStatus.RETURN_DUE]: 'Awaiting return',
   [OrderStatus.IN_DISPUTE]: 'In Dispute',
-  [OrderStatus.RETURNED]: 'Completed',
+  [OrderStatus.RETURNED]: 'Return received',
   [OrderStatus.COMPLETED]: 'Completed',
   [OrderStatus.CANCELLED]: 'Cancelled',
   [OrderStatus.REJECTED]: 'Rejected',
@@ -68,7 +68,7 @@ const ORDER_STATUS_TO_API: Record<OrderStatus, string> = {
   [OrderStatus.ACTIVE]: 'active',
   [OrderStatus.RETURN_DUE]: 'return_due',
   [OrderStatus.IN_DISPUTE]: 'in_dispute',
-  [OrderStatus.RETURNED]: 'completed',
+  [OrderStatus.RETURNED]: 'returned',
   [OrderStatus.COMPLETED]: 'completed',
   [OrderStatus.CANCELLED]: 'cancelled',
   [OrderStatus.REJECTED]: 'rejected',
@@ -76,10 +76,10 @@ const ORDER_STATUS_TO_API: Record<OrderStatus, string> = {
 
 const RENTAL_STATUS_TO_LABEL: Record<string, string> = {
   DELIVERED: 'Delivered',
-  RETURN_DUE: 'Return Due',
+  RETURN_DUE: 'Awaiting return',
   ACTIVE: 'Active',
   COMPLETED: 'Completed',
-  RETURNED: 'Returned',
+  RETURNED: 'Return received',
 };
 
 const RENTAL_STATUS_TO_TYPE: Record<string, string> = {
@@ -117,12 +117,18 @@ const PROGRESS_STEPS = [
   },
   {
     id: 5,
-    label: 'Return Due',
+    label: 'Awaiting return',
     icon: 'reply',
     orderStatus: OrderStatus.RETURN_DUE,
   },
   {
     id: 6,
+    label: 'Return received',
+    icon: 'check-circle',
+    orderStatus: OrderStatus.RETURNED,
+  },
+  {
+    id: 7,
     label: 'Completed',
     icon: 'smile',
     orderStatus: OrderStatus.COMPLETED,
@@ -1850,7 +1856,7 @@ export class ListersService {
         if (lister?.email) {
           const firstItem = order.orderItems[0] as any;
           const productName = firstItem?.product?.name;
-          const orderLink = `${clientUrl}/listers/orders/${order.orderId}`;
+          const orderLink = `${clientUrl}/listers/orders/${order.id}`;
           try {
             await this.notificationService.createNotification({
               userId: lister.id,
@@ -2132,6 +2138,8 @@ export class ListersService {
         return OrderStatus.DELIVERED;
       case 'return_due':
         return OrderStatus.RETURN_DUE;
+      case 'returned':
+        return OrderStatus.RETURNED;
       case 'completed':
         return OrderStatus.COMPLETED;
       default:
@@ -2304,6 +2312,7 @@ export class ListersService {
       pending_approval: { bg: '#FFF9E5', text: '#D4A017' },
       processing: { bg: '#FFF9E5', text: '#D4A017' },
       ongoing: { bg: '#E8F4FD', text: '#1E88E5' },
+      returned: { bg: '#E8F5E9', text: '#2E7D32' },
       completed: { bg: '#E8F5E9', text: '#2E7D32' },
       cancelled: { bg: '#FFEBEE', text: '#C62828' },
     };

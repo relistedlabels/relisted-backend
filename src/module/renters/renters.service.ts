@@ -17,7 +17,10 @@ import { NotificationService } from '../../services/notification/notification.se
 import { assertNoOpenAvailabilityRequestForProduct } from '../../utils/assert-no-open-availability-for-product';
 import { DEFAULT_CLEANING_FEE_NGN } from '../../constants/rental-pricing';
 import { bad } from '../../utils/error';
-import { CreateReturnRequestDto } from './dto/return-request.dto';
+import {
+  CreateReturnRequestDto,
+  SelectedReturnRateDto,
+} from './dto/return-request.dto';
 import {
   DispatchWindowRange,
   DispatchWindowType,
@@ -32,6 +35,7 @@ import {
   buildListerWithdrawRentalRequestEmailContext,
   type ListerWithdrawNotify,
 } from '../cart-items/withdraw-availability-for-cart-item';
+import { syncOrderStatusFromShipments } from '../order/order-shipment-status.sync';
 
 /** Renter progress ordering (subset of shipment-driven flow; excludes terminal edge cases). */
 const RENTER_PROGRESS_RANK: OrderStatus[] = [
@@ -74,23 +78,84 @@ const formatPickupWindowLagos = (start: Date, end: Date): string => {
     minute: '2-digit',
     hour12: true,
   };
-  return `${start.toLocaleDateString('en-NG', dateOpts)}, ${start.toLocaleTimeString('en-NG', timeOpts)} – ${end.toLocaleTimeString('en-NG', timeOpts)}`;
+  return `${start.toLocaleDateString('en-NG', dateOpts)}, ${start.toLocaleTimeString('en-NG', timeOpts)} to ${end.toLocaleTimeString('en-NG', timeOpts)}`;
 };
+
+/**
+ * Single window shown to renter + lister: checkout RETURN shipment first (matches availability/checkout),
+ * else the ReturnRequest slot from the return flow.
+ */
+function resolveReturnWindowForDisplay(args: {
+  returnShipment: {
+    scheduledWindowStart: Date | null;
+    scheduledWindowEnd: Date | null;
+  } | null;
+  returnRequest: {
+    pickupWindowStart: Date | null;
+    pickupWindowEnd: Date | null;
+  } | null;
+}): { start: Date; end: Date; summary: string } | null {
+  const ship = args.returnShipment;
+  if (ship?.scheduledWindowStart && ship?.scheduledWindowEnd) {
+    const start = new Date(ship.scheduledWindowStart);
+    const end = new Date(ship.scheduledWindowEnd);
+    return { start, end, summary: formatPickupWindowLagos(start, end) };
+  }
+  const rr = args.returnRequest;
+  if (rr?.pickupWindowStart && rr?.pickupWindowEnd) {
+    const start = new Date(rr.pickupWindowStart);
+    const end = new Date(rr.pickupWindowEnd);
+    return { start, end, summary: formatPickupWindowLagos(start, end) };
+  }
+  return null;
+}
+
+/**
+ * RETURN shipment rows are created at checkout with Topship charges in kobo.
+ * `processReturnWithShipping` passes NGN into Topship helpers via `toKobo()` — same as when the renter picked a tier at checkout.
+ */
+function selectedRateFromCheckoutReturnShipment(s: {
+  pricingTier: string | null;
+  pickupPartner: string | null;
+  shipmentCharge: number | null;
+  pickupCharge: number | null;
+  vatCharge: number | null;
+}): SelectedReturnRateDto | null {
+  const koboToNgn = (k: number | null | undefined) =>
+    k != null && Number.isFinite(Number(k)) ? Number(k) / 100 : 0;
+  const shipmentCharge = koboToNgn(s.shipmentCharge);
+  const pickupCharge = koboToNgn(s.pickupCharge);
+  const vatCharge = koboToNgn(s.vatCharge);
+  const tier = s.pricingTier?.trim();
+  const partner = s.pickupPartner?.trim();
+  if (!tier && !partner && shipmentCharge <= 0 && pickupCharge <= 0 && vatCharge <= 0) {
+    return null;
+  }
+  const totalCharge = shipmentCharge + pickupCharge + vatCharge;
+  return {
+    pickupPartner: partner || 'Standard',
+    shipmentCharge,
+    pickupCharge,
+    vatCharge,
+    pricingTier: tier || 'chowdeck',
+    totalCharge,
+  };
+}
 
 function returnLegStatusLabel(status: string): string {
   switch (status) {
     case 'PENDING':
-      return 'Awaiting dispatch window';
+      return 'Pickup not scheduled yet';
     case 'DISPATCHING':
-      return 'Booking carrier';
+      return 'Booking with carrier';
     case 'DISPATCHED':
-      return 'Scheduled for dispatch (pickup not started)';
+      return 'Pickup scheduled';
     case 'IN_TRANSIT':
-      return 'Return in transit';
+      return 'On the way back to the lister';
     case 'COMPLETED':
       return 'Delivered to lister';
     case 'DISPATCH_FAILED':
-      return 'Dispatch failed — support will retry';
+      return 'Dispatch failed. Support will retry.';
     case 'CANCELLED':
       return 'Cancelled';
     default:
@@ -1474,6 +1539,17 @@ export class RentersService {
 
     const typedOrder = order as any;
     const latestRr = typedOrder.returnRequests?.[0] ?? null;
+    const returnShipments = (typedOrder.shipments ?? []).filter(
+      (s: { type: string }) => s.type === 'RETURN',
+    );
+    const latestReturnLeg =
+      returnShipments.length > 0
+        ? returnShipments[returnShipments.length - 1]
+        : null;
+    const unifiedReturnWindow = resolveReturnWindowForDisplay({
+      returnShipment: latestReturnLeg,
+      returnRequest: latestRr,
+    });
     const returnPickup =
       latestRr &&
       (latestRr.pickupWindowStart ||
@@ -1484,24 +1560,24 @@ export class RentersService {
             requestStatus: latestRr.status,
             trackingNumber: latestRr.trackingNumber ?? null,
             carrierShipmentId: latestRr.shipmentId ?? null,
-            pickupWindowStart: latestRr.pickupWindowStart?.toISOString?.() ?? null,
-            pickupWindowEnd: latestRr.pickupWindowEnd?.toISOString?.() ?? null,
+            pickupWindowStart:
+              unifiedReturnWindow?.start.toISOString() ??
+              latestRr.pickupWindowStart?.toISOString?.() ??
+              null,
+            pickupWindowEnd:
+              unifiedReturnWindow?.end.toISOString() ??
+              latestRr.pickupWindowEnd?.toISOString?.() ??
+              null,
             pickupScheduledAt: latestRr.pickupScheduledAt?.toISOString?.() ?? null,
             pickupWindowSummary:
-              latestRr.pickupWindowStart && latestRr.pickupWindowEnd
+              unifiedReturnWindow?.summary ??
+              (latestRr.pickupWindowStart && latestRr.pickupWindowEnd
                 ? formatPickupWindowLagos(
                     new Date(latestRr.pickupWindowStart),
                     new Date(latestRr.pickupWindowEnd),
                   )
-                : null,
+                : null),
           }
-        : null;
-    const returnShipments = (typedOrder.shipments ?? []).filter(
-      (s: { type: string }) => s.type === 'RETURN',
-    );
-    const latestReturnLeg =
-      returnShipments.length > 0
-        ? returnShipments[returnShipments.length - 1]
         : null;
     const returnLeg = latestReturnLeg
       ? {
@@ -1510,13 +1586,14 @@ export class RentersService {
           trackingId: latestReturnLeg.trackingId ?? null,
           providerTrackingUrl: latestReturnLeg.providerTrackingUrl ?? null,
           windowSummary:
-            latestReturnLeg.scheduledWindowStart &&
+            unifiedReturnWindow?.summary ??
+            (latestReturnLeg.scheduledWindowStart &&
             latestReturnLeg.scheduledWindowEnd
               ? formatPickupWindowLagos(
                   new Date(latestReturnLeg.scheduledWindowStart),
                   new Date(latestReturnLeg.scheduledWindowEnd),
                 )
-              : null,
+              : null),
         }
       : null;
     const totalAmount =
@@ -2872,57 +2949,63 @@ export class RentersService {
         ]
       : [
           {
-            milestone: 'order_placed',
-            label: 'Order placed',
-            description: 'Your rental order is confirmed',
-            doneAtRank: 0,
-            timestamp: order.createdAt,
-          },
-          {
             milestone: 'lister_accepted',
             label: 'Lister accepted',
-            description: 'The lister accepted your rental dates',
+            description: 'The lister approved your rental dates.',
             doneAtRank: 1,
             timestamp: order.approvedAt,
           },
           {
-            milestone: 'dispatch_booked',
-            label: 'Dispatch booked',
-            description: 'Pickup or drop-off window is scheduled',
+            milestone: 'rental_confirmed',
+            label: 'Rental confirmed',
+            description:
+              'Your payment went through and your booking is confirmed.',
             doneAtRank: 2,
-            timestamp: order.dispatchedAt,
+            timestamp: order.createdAt,
           },
           {
             milestone: 'in_transit',
             label: 'In transit',
-            description: 'Your item is on the way to you',
+            description: 'Your item is on the way to you.',
             doneAtRank: 3,
             timestamp: order.dispatchedAt,
           },
           {
             milestone: 'with_you',
             label: 'With you',
-            description: 'Rental period is active',
+            description: 'Rental period is active. Enjoy your rental.',
             doneAtRank: 5,
             timestamp: order.deliveredAt,
           },
           {
             milestone: 'return_due',
             label: 'Return',
-            description: 'Return window or return shipment',
+            description:
+              'Return the item by the due date. When you are ready, start a return in the app to schedule pickup if needed.',
             doneAtRank: 6,
             timestamp: order.returnDueAt,
           },
           {
             milestone: 'returned',
             label: 'Returned',
-            description: 'Item is back with the lister',
+            description:
+              'The carrier shows the item delivered back to the lister, or the lister has confirmed receipt.',
             doneAtRank: 7,
             timestamp: returnedAt,
           },
         ];
 
     const latestRrProg = order.returnRequests?.[0];
+    /** Progress query only loads RETURN legs (`shipments.where.type`). */
+    const progReturnShipments = order.shipments ?? [];
+    const latestProgReturnLeg =
+      progReturnShipments.length > 0
+        ? progReturnShipments[progReturnShipments.length - 1]
+        : null;
+    const unifiedProgWindow = resolveReturnWindowForDisplay({
+      returnShipment: latestProgReturnLeg,
+      returnRequest: latestRrProg,
+    });
     const returnSchedulingProg =
       latestRrProg &&
       (latestRrProg.pickupWindowStart ||
@@ -2933,26 +3016,26 @@ export class RentersService {
             requestStatus: latestRrProg.status,
             trackingNumber: latestRrProg.trackingNumber ?? null,
             pickupWindowStart:
-              latestRrProg.pickupWindowStart?.toISOString() ?? null,
+              unifiedProgWindow?.start.toISOString() ??
+              latestRrProg.pickupWindowStart?.toISOString() ??
+              null,
             pickupWindowEnd:
-              latestRrProg.pickupWindowEnd?.toISOString() ?? null,
+              unifiedProgWindow?.end.toISOString() ??
+              latestRrProg.pickupWindowEnd?.toISOString() ??
+              null,
             pickupScheduledAt:
               latestRrProg.pickupScheduledAt?.toISOString() ?? null,
             summary:
-              latestRrProg.pickupWindowStart && latestRrProg.pickupWindowEnd
+              unifiedProgWindow?.summary ??
+              (latestRrProg.pickupWindowStart && latestRrProg.pickupWindowEnd
                 ? formatPickupWindowLagos(
                     new Date(latestRrProg.pickupWindowStart),
                     new Date(latestRrProg.pickupWindowEnd),
                   )
-                : null,
+                : null),
           }
         : null;
 
-    const progReturnLegs = order.shipments ?? [];
-    const latestProgReturnLeg =
-      progReturnLegs.length > 0
-        ? progReturnLegs[progReturnLegs.length - 1]
-        : null;
     const returnLegProg = latestProgReturnLeg
       ? {
           status: latestProgReturnLeg.status,
@@ -2960,13 +3043,14 @@ export class RentersService {
           trackingId: latestProgReturnLeg.trackingId ?? null,
           providerTrackingUrl: latestProgReturnLeg.providerTrackingUrl ?? null,
           windowSummary:
-            latestProgReturnLeg.scheduledWindowStart &&
+            unifiedProgWindow?.summary ??
+            (latestProgReturnLeg.scheduledWindowStart &&
             latestProgReturnLeg.scheduledWindowEnd
               ? formatPickupWindowLagos(
                   new Date(latestProgReturnLeg.scheduledWindowStart),
                   new Date(latestProgReturnLeg.scheduledWindowEnd),
                 )
-              : null,
+              : null),
         }
       : null;
 
@@ -3036,7 +3120,7 @@ export class RentersService {
       if (idx >= 0) {
         timeline[idx] = {
           ...timeline[idx],
-          description: `${timeline[idx].description} Carrier pickup window: ${returnSchedulingProg.summary}.`,
+          description: `${timeline[idx].description} Your return pickup window: ${returnSchedulingProg.summary}.`,
         };
       }
     }
@@ -3336,6 +3420,7 @@ export class RentersService {
           },
         },
         returnRequests: true,
+        shipments: true,
       },
     });
 
@@ -3373,8 +3458,19 @@ export class RentersService {
       );
     }
 
-    if (!data.selectedRate) {
-      bad('Please select a pickup rate before requesting a return.');
+    const checkoutReturnShipment = (order.shipments as any[])?.find(
+      (sh) => sh.type === 'RETURN',
+    );
+    const fromCheckout = checkoutReturnShipment
+      ? selectedRateFromCheckoutReturnShipment(checkoutReturnShipment)
+      : null;
+    /** New flow: pricing tier + charges were chosen and paid at checkout — never require a fresh rate quote here. */
+    const selectedRate =
+      fromCheckout ?? data.selectedRate ?? null;
+    if (!selectedRate) {
+      bad(
+        'Return shipping for this order is missing. For older orders, contact support.',
+      );
     }
 
     const pickupWindow = this.resolveReturnPickupWindow(data.pickupWindow);
@@ -3412,9 +3508,16 @@ export class RentersService {
       `[RentersService] Pickup window date: ${pickupDate.toDateString()}, today: ${today.toDateString()}, booking immediately: ${shouldBookImmediately}`,
     );
 
-    // Book Topship pickup shipment only if pickup is scheduled for today
-    let shipmentId: string | null = null;
-    let trackingNumber: string | null = null;
+    const toKobo = (amount: number | undefined | null) => {
+      const value = Number(amount || 0);
+      if (!Number.isFinite(value) || value <= 0) return 0;
+      if (value > 100000) return Math.round(value);
+      return Math.round(value * 100);
+    };
+
+    // Topship internal shipment row id (not Prisma Shipment.id)
+    let topshipProviderShipmentId: string | null = null;
+    let topshipTrackingNumber: string | null = null;
     let pickupScheduledAt: Date | null = pickupWindow.start;
 
     if (shouldBookImmediately) {
@@ -3422,13 +3525,6 @@ export class RentersService {
         console.log(
           `[RentersService] Booking Topship pickup for order ${orderId}`,
         );
-
-      const toKobo = (amount: number | undefined | null) => {
-        const value = Number(amount || 0);
-        if (!Number.isFinite(value) || value <= 0) return 0;
-        if (value > 100000) return Math.round(value);
-        return Math.round(value * 100);
-      };
 
       const firstItem = order.orderItems[0];
       const curatorProfile = firstItem.product.curator.profile;
@@ -3484,18 +3580,18 @@ export class RentersService {
               country: 'Nigeria',
               postalCode: curatorAddress?.zipCode,
             },
-            pricingTier: data.selectedRate.pricingTier,
+            pricingTier: selectedRate.pricingTier,
             insuranceType: 'None',
             itemCollectionMode: 'PickUp',
             shipmentRoute: 'Domestic',
             insuranceCharge: 0,
-            shipmentCharge: toKobo(data.selectedRate.shipmentCharge),
+            shipmentCharge: toKobo(selectedRate.shipmentCharge),
             // Topship save-shipment: only pickupDate; pickupWindow is kept on ReturnRequest below.
             pickupDate: pickupWindow.start.toISOString(),
             pickupId: `RETURN-PICKUP-${Date.now()}`,
-            pickupPartner: data.selectedRate.pickupPartner,
-            pickupCharge: toKobo(data.selectedRate.pickupCharge),
-            valueAddedTaxCharge: toKobo(data.selectedRate.vatCharge),
+            pickupPartner: selectedRate.pickupPartner,
+            pickupCharge: toKobo(selectedRate.pickupCharge),
+            valueAddedTaxCharge: toKobo(selectedRate.vatCharge),
             discount: 0,
             deliveryLocation: listerAddress || 'Lagos, Nigeria',
             items: [
@@ -3517,27 +3613,28 @@ export class RentersService {
 
       const responseData = shipmentResult?.[0] || shipmentResult?.data?.[0];
       if (responseData?.id || responseData?.shipmentId) {
-        shipmentId = responseData?.id || responseData?.shipmentId;
-        trackingNumber =
+        topshipProviderShipmentId =
+          responseData?.id || responseData?.shipmentId;
+        topshipTrackingNumber =
           responseData?.trackingId || responseData?.trackingNumber;
         pickupScheduledAt = pickupWindow.start;
         console.log(
-          `[RentersService] Topship shipment booked: ${shipmentId}, tracking: ${trackingNumber}`,
+          `[RentersService] Topship shipment booked: ${topshipProviderShipmentId}, tracking: ${topshipTrackingNumber}`,
         );
 
         // Trigger Payment for the return shipment
-        if (shipmentId) {
+        if (topshipProviderShipmentId) {
           console.log(
-            `[RentersService] Paying for return shipment ${shipmentId}...`,
+            `[RentersService] Paying for return shipment ${topshipProviderShipmentId}...`,
           );
           try {
-            await this.topshipService.payForShipment(shipmentId);
+            await this.topshipService.payForShipment(topshipProviderShipmentId);
             console.log(
-              `[RentersService] Return shipment ${shipmentId} paid successfully.`,
+              `[RentersService] Return shipment ${topshipProviderShipmentId} paid successfully.`,
             );
           } catch (payErr: any) {
             console.error(
-              `[RentersService] Payment for return shipment ${shipmentId} failed:`,
+              `[RentersService] Payment for return shipment ${topshipProviderShipmentId} failed:`,
               payErr.message,
             );
           }
@@ -3563,7 +3660,30 @@ export class RentersService {
     // Process in transaction
     console.log(`[RentersService] Starting transaction for order ${orderId}`);
     const result = await this.prisma.$transaction(async (tx) => {
-      // Create return request
+      const returnLeg = await tx.shipment.findFirst({
+        where: { orderId: order.id, type: 'RETURN' },
+      });
+
+      if (returnLeg && topshipProviderShipmentId) {
+        await tx.shipment.update({
+          where: { id: returnLeg.id },
+          data: {
+            providerShipmentId: topshipProviderShipmentId,
+            trackingId: topshipTrackingNumber,
+            providerTrackingUrl: 'https://ship.topship.africa/tracking',
+            status: 'DISPATCHED',
+            dispatchedAt: new Date(),
+            shipmentCharge: toKobo(selectedRate.shipmentCharge),
+            pickupCharge: toKobo(selectedRate.pickupCharge),
+            vatCharge: toKobo(selectedRate.vatCharge),
+            pricingTier: selectedRate.pricingTier,
+            pickupPartner: selectedRate.pickupPartner,
+          },
+        });
+      }
+
+      const prismaReturnShipmentId = returnLeg?.id ?? null;
+
       const returnRequest = await tx.returnRequest.create({
         data: {
           orderId: order.id,
@@ -3571,8 +3691,8 @@ export class RentersService {
           damageNotes: data.damageNotes,
           imageUrls,
           status: 'PENDING_PICKUP',
-          shipmentId,
-          trackingNumber,
+          shipmentId: prismaReturnShipmentId,
+          trackingNumber: topshipTrackingNumber,
           pickupAddress: renterAddress,
           pickupScheduledAt,
           pickupWindowStart: pickupWindow.start,
@@ -3598,6 +3718,30 @@ export class RentersService {
       `[RentersService] Transaction completed successfully for order ${orderId}`,
     );
 
+    try {
+      await syncOrderStatusFromShipments(this.prisma, order.id);
+    } catch (syncErr: any) {
+      console.warn(
+        `[RentersService] Order shipment sync after return booking failed for ${order.id}: ${syncErr?.message ?? syncErr}`,
+      );
+    }
+
+    const rr = result;
+    const returnShipRow = (order.shipments as any[])?.find(
+      (s) => s.type === 'RETURN',
+    );
+    const unifiedAfterReturn = resolveReturnWindowForDisplay({
+      returnShipment: returnShipRow,
+      returnRequest: rr,
+    });
+    const returnWindowSummary = unifiedAfterReturn?.summary;
+    const windowSummary = returnWindowSummary ?? null;
+
+    const clientUrl = process.env.CLIENT_URL || '';
+    const listerOrderPageUrl = clientUrl
+      ? `${clientUrl}/listers/orders/${order.id}`
+      : '';
+
     // Notify all listers about return (for multi-lister orders)
     const uniqueListers = new Map(
       order.orderItems
@@ -3609,8 +3753,8 @@ export class RentersService {
     for (const lister of uniqueListers.values()) {
       await this.notificationService.createNotification({
         userId: lister.id,
-        title: 'Return Request Initiated',
-        message: `A return has been initiated for order ${order.orderId}. Please coordinate pickup with the renter.`,
+        title: 'Return started',
+        message: `Return started for order ${order.orderId}. Check your email for the window and condition.`,
         type: 'RETURN_INITIATED',
         metadata: {
           orderId: order.id,
@@ -3632,32 +3776,25 @@ export class RentersService {
           itemCondition: data.itemCondition,
           damageNotes: data.damageNotes,
           platformName: 'Relisted',
+          returnWindowSummary,
+          orderPageUrl: listerOrderPageUrl || undefined,
         },
       });
     }
 
-    const rr = result;
-    const windowSummary =
-      rr.pickupWindowStart && rr.pickupWindowEnd
-        ? formatPickupWindowLagos(
-            new Date(rr.pickupWindowStart),
-            new Date(rr.pickupWindowEnd),
-          )
-        : null;
-
     await this.notificationService.createNotification({
       userId: order.userId,
-      title: shipmentId
+      title: topshipProviderShipmentId
         ? 'Return pickup scheduled'
         : 'Return request submitted',
       message: windowSummary
         ? `Your carrier pickup is scheduled for: ${windowSummary}. Have your item ready during this window. You will get another update when the rider collects the package.`
-        : shipmentId
+        : topshipProviderShipmentId
           ? 'Your return has been booked with the carrier. You will get another update when pickup starts.'
           : shouldBookImmediately
             ? 'Your return request has been submitted. We will book your return shipment when the pickup window approaches.'
             : 'Your return request has been submitted. We will book your return shipment closer to the return date.',
-      type: shipmentId
+      type: topshipProviderShipmentId
         ? 'RETURN_PICKUP_SCHEDULED'
         : 'RETURN_REQUEST_SUBMITTED',
       metadata: {
@@ -3669,21 +3806,21 @@ export class RentersService {
         email: order.user.email,
         userName: order.user.name,
         orderId: order.orderId,
-        status: shipmentId
+        status: topshipProviderShipmentId
           ? 'Return pickup scheduled (not collected yet)'
           : 'Return request submitted',
-        emailSubject: shipmentId
+        emailSubject: topshipProviderShipmentId
           ? 'Return pickup scheduled'
           : 'Return request submitted',
-        emailHeading: shipmentId
+        emailHeading: topshipProviderShipmentId
           ? 'Return pickup scheduled'
           : 'Return request submitted',
-        trackingNumber: trackingNumber ?? undefined,
+        trackingNumber: topshipTrackingNumber ?? undefined,
         pickupWindowSummary: windowSummary ?? undefined,
-        extraNote: shipmentId
-          ? '"Scheduled for dispatch" means the carrier is booked for your pickup window — the package is not yet on the way to the lister until you see an in-transit update.'
+        extraNote: topshipProviderShipmentId
+          ? 'The carrier is booked for your pickup window. The package is not yet on the way to the lister until you see an in-transit update.'
           : !isSameDay
-            ? 'We will automatically book your return shipment closer to the return date. You will receive a confirmation email when the pickup is scheduled.'
+            ? 'Shipping was paid at checkout. We’ll confirm pickup before your window. Watch for another email once it’s booked.'
             : undefined,
       },
     });

@@ -536,7 +536,7 @@ export class OrderService {
           rentalAmount = 0;
           collateralAmount = 0;
           cleaningFee = 0;
-          vatAmount = Math.round(item.product.resalePrice * 0.2);
+          vatAmount = Math.round(item.product.resalePrice * 0.075);
           serviceCharge = Math.round(item.product.resalePrice * 0.1);
           listerPurchaseTotal += item.product.resalePrice;
           listerRentalTotal += 0; // No rental fee for resale
@@ -551,7 +551,7 @@ export class OrderService {
               item.product.collateralPrice || item.product.originalValue,
             ) || 0;
           cleaningFee = DEFAULT_CLEANING_FEE_NGN;
-          vatAmount = Math.round(rentalAmount * 0.2);
+          vatAmount = Math.round(rentalAmount * 0.075);
           serviceCharge = Math.round(rentalAmount * 0.1);
           listerRentalTotal += rentalAmount;
         }
@@ -1028,7 +1028,7 @@ export class OrderService {
           rentalAmount = 0;
           collateralAmount = 0;
           cleaningFee = 0;
-          vatAmount = Math.round(item.product.resalePrice * 0.2);
+          vatAmount = Math.round(item.product.resalePrice * 0.075);
           serviceCharge = Math.round(item.product.resalePrice * 0.1);
           itemTotal = item.product.resalePrice + vatAmount + serviceCharge;
         } else if (item.product.listingType === 'RENT_OR_RESALE') {
@@ -1044,7 +1044,7 @@ export class OrderService {
                 item.product.collateralPrice || item.product.originalValue,
               ) || 0;
             cleaningFee = DEFAULT_CLEANING_FEE_NGN;
-            vatAmount = Math.round(rentalAmount * 0.2);
+            vatAmount = Math.round(rentalAmount * 0.075);
             serviceCharge = Math.round(rentalAmount * 0.1);
             itemTotal =
               rentalAmount +
@@ -1063,7 +1063,7 @@ export class OrderService {
             rentalAmount = 0;
             collateralAmount = 0;
             cleaningFee = 0;
-            vatAmount = Math.round(item.product.resalePrice * 0.2);
+            vatAmount = Math.round(item.product.resalePrice * 0.075);
             serviceCharge = Math.round(item.product.resalePrice * 0.1);
             itemTotal = item.product.resalePrice + vatAmount + serviceCharge;
           }
@@ -1081,7 +1081,7 @@ export class OrderService {
               item.product.collateralPrice || item.product.originalValue,
             ) || 0;
           cleaningFee = DEFAULT_CLEANING_FEE_NGN;
-          vatAmount = Math.round(rentalAmount * 0.2);
+          vatAmount = Math.round(rentalAmount * 0.075);
           serviceCharge = Math.round(rentalAmount * 0.1);
           itemTotal =
             rentalAmount +

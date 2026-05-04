@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+        }
+
+        .container {
+            width: 80%;
+            margin: 20px auto;
+            border: 1px solid #eee;
+            padding: 20px;
+            border-radius: 10px;
+        }
+
+        .header {
+            background: #f8f9fa;
+            padding: 10px;
+            text-align: center;
+            border-bottom: 2px solid #555;
+        }
+
+        .content {
+            padding: 20px;
+        }
+
+        .cta {
+            display: inline-block;
+            margin-top: 16px;
+            padding: 12px 20px;
+            background: #111;
+            color: #fff !important;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+        }
+
+        .footer {
+            font-size: 12px;
+            color: #777;
+            margin-top: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>Return on its way to you</h2>
+        </div>
+        <div class="content">
+            <p>Hello {{curatorName}},</p>
+            <p>The carrier has picked up the renter&apos;s return for order <strong>{{orderNumber}}</strong>. It is now <strong>in transit</strong> to your address.</p>
+
+            {{#if trackingNumber}}
+            <p><strong>Tracking reference:</strong> {{trackingNumber}}</p>
+            <p>You can track on Topship: <a href="https://ship.topship.africa/tracking" target="_blank">ship.topship.africa/tracking</a></p>
+            {{/if}}
+
+            <p>When the parcel arrives and you have inspected the item, open your order on {{platformName}} and complete <strong>Confirm return receipt</strong> to close the rental.</p>
+
+            <p><a class="cta" href="{{orderPageUrl}}" target="_blank">Open order</a></p>
+
+            <p>Thank you for using {{platformName}}.</p>
+        </div>
+        <div class="footer">
+            <p>&copy; {{currentYear}} {{platformName}}. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+
+</html>

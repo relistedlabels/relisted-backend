@@ -16,6 +16,9 @@ import {
   ReturnDueReminderDto,
   ReturnRequestReminderDto,
   EscrowReleaseNotificationDto,
+  ListerReturnInTransitDto,
+  ListerReturnDeliveredConfirmDto,
+  ListerReturnWindowPassedDto,
 } from './mail.type';
 import { Auth_Otp_Token_Subject } from '../../module/auth/auth.types';
 import { writeFile, mkdir } from 'fs/promises';
@@ -268,6 +271,68 @@ export class MailService {
     });
   }
 
+  async SendListerReturnInTransitMail(dto: ListerReturnInTransitDto) {
+    const { email, ...rest } = dto;
+    console.log(`[EMAIL] Sending lister-return-in-transit to ${email}`);
+    if (this.devBypass) {
+      await this.handleDevBypass(
+        'lister-return-in-transit',
+        'Return is on its way to you',
+        rest,
+        email,
+      );
+      return;
+    }
+    await this.mailerService.sendMail({
+      to: email,
+      template: './lister-return-in-transit',
+      subject: 'Return on its way to you',
+      context: rest,
+    });
+  }
+
+  async SendListerReturnDeliveredConfirmMail(
+    dto: ListerReturnDeliveredConfirmDto,
+  ) {
+    const { email, ...rest } = dto;
+    console.log(`[EMAIL] Sending lister-return-delivered-confirm to ${email}`);
+    if (this.devBypass) {
+      await this.handleDevBypass(
+        'lister-return-delivered-confirm',
+        'Confirm return receipt. Order almost complete.',
+        rest,
+        email,
+      );
+      return;
+    }
+    await this.mailerService.sendMail({
+      to: email,
+      template: './lister-return-delivered-confirm',
+      subject: 'Confirm return receipt. Finish this rental.',
+      context: rest,
+    });
+  }
+
+  async SendListerReturnWindowPassedMail(dto: ListerReturnWindowPassedDto) {
+    const { email, ...rest } = dto;
+    console.log(`[EMAIL] Sending lister-return-window-passed to ${email}`);
+    if (this.devBypass) {
+      await this.handleDevBypass(
+        'lister-return-window-passed',
+        'Return pickup window has ended',
+        rest,
+        email,
+      );
+      return;
+    }
+    await this.mailerService.sendMail({
+      to: email,
+      template: './lister-return-window-passed',
+      subject: 'Return pickup window has ended',
+      context: rest,
+    });
+  }
+
   async SendReturnInitiatedMail(dto: ReturnInitiatedDto) {
     const { email, ...rest } = dto;
     console.log(`[EMAIL] Sending return-initiated to ${email}`);
@@ -275,7 +340,7 @@ export class MailService {
     if (this.devBypass) {
       await this.handleDevBypass(
         'return-initiated',
-        'Return Request Initiated',
+        `Return started. Order ${rest.orderId}.`,
         rest,
         email,
       );
@@ -285,7 +350,7 @@ export class MailService {
     await this.mailerService.sendMail({
       to: email,
       template: './return-initiated',
-      subject: 'Return Request Initiated',
+      subject: `Return started. Order ${rest.orderId}.`,
       context: rest,
     });
   }
@@ -619,7 +684,7 @@ export class MailService {
     </div>
     <div style="padding:20px;">
       <p style="margin:0 0 12px;color:#374151;">Hi ${safeName},</p>
-      <p style="margin:0 0 16px;color:#374151;">The item you asked us to watch — <strong>${safeProduct}</strong> — is available to rent again on Relisted.</p>
+      <p style="margin:0 0 16px;color:#374151;">The item you asked us to watch, <strong>${safeProduct}</strong>, is available to rent again on Relisted.</p>
       <a href="${productUrl}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">View listing</a>
       <p style="margin:20px 0 0;font-size:12px;color:#6b7280;">You received this because you tapped &quot;Notify me when available&quot; while this piece was on rental.</p>
     </div>

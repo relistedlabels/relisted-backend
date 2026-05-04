@@ -195,6 +195,54 @@ export class ShippingDto {
   extraNote?: string;
 }
 
+/** Lister: return picked up and moving toward lister */
+export class ListerReturnInTransitDto {
+  @IsEmail()
+  email: string;
+  @IsString()
+  curatorName: string;
+  @IsString()
+  orderNumber: string;
+  @IsString()
+  orderPageUrl: string;
+  @IsString()
+  platformName: string;
+  @IsString()
+  @IsOptional()
+  trackingNumber?: string;
+}
+
+/** Lister: carrier shows delivered — prompt confirm receipt flow */
+export class ListerReturnDeliveredConfirmDto {
+  @IsEmail()
+  email: string;
+  @IsString()
+  curatorName: string;
+  @IsString()
+  orderNumber: string;
+  @IsString()
+  orderPageUrl: string;
+  @IsString()
+  platformName: string;
+  @IsString()
+  @IsOptional()
+  trackingNumber?: string;
+}
+
+/** Lister: pickup window ended without completed return leg */
+export class ListerReturnWindowPassedDto {
+  @IsEmail()
+  email: string;
+  @IsString()
+  curatorName: string;
+  @IsString()
+  orderNumber: string;
+  @IsString()
+  orderPageUrl: string;
+  @IsString()
+  platformName: string;
+}
+
 export class ReturnInitiatedDto {
   @IsEmail()
   email: string;
@@ -217,6 +265,13 @@ export class ReturnInitiatedDto {
   damageNotes?: string;
   @IsString()
   platformName: string;
+  /** RETURN shipment window (checkout / availability flow). */
+  @IsString()
+  @IsOptional()
+  returnWindowSummary?: string;
+  @IsString()
+  @IsOptional()
+  orderPageUrl?: string;
 }
 
 export class ReturnCompletedDto {

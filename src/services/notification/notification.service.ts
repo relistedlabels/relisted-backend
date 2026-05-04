@@ -83,15 +83,28 @@ export class NotificationService {
         case 'SHIPMENT_DISPATCHED':
         case 'RETURN_DISPATCHED':
         case 'RETURN_PICKUP_SCHEDULED':
+        case 'RETURN_REQUEST_SUBMITTED':
           await this.mailService.SendShippingUpdateMail(data);
           break;
         case 'SHIPMENT_IN_TRANSIT':
         case 'RETURN_IN_TRANSIT':
           await this.mailService.SendShippingUpdateMail(data);
           break;
+        case 'RETURN_DELIVERED_TO_LISTER':
+          await this.mailService.SendShippingUpdateMail(data);
+          break;
         case 'SHIPMENT_DELIVERED':
         case 'RETURN_CONFIRMED':
           await this.mailService.SendShippingUpdateMail(data);
+          break;
+        case 'LISTER_RETURN_IN_TRANSIT':
+          await this.mailService.SendListerReturnInTransitMail(data);
+          break;
+        case 'LISTER_RETURN_DELIVERED_CONFIRM':
+          await this.mailService.SendListerReturnDeliveredConfirmMail(data);
+          break;
+        case 'LISTER_RETURN_WINDOW_PASSED':
+          await this.mailService.SendListerReturnWindowPassedMail(data);
           break;
         case 'SHIPPING_UPDATE':
           await this.mailService.SendShippingUpdateMail(data);

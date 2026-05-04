@@ -1,87 +1,54 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="en">
 <head>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-        }
-
-        .container {
-            width: 80%;
-            margin: 20px auto;
-            border: 1px solid #eee;
-            padding: 20px;
-            border-radius: 10px;
-        }
-
-        .header {
-            background: #f8f9fa;
-            padding: 10px;
-            text-align: center;
-            border-bottom: 2px solid #555;
-        }
-
-        .content {
-            padding: 20px;
-        }
-
-        .contact-info {
-            background: #f9f9f9;
-            padding: 15px;
-            border-radius: 5px;
-            margin: 15px 0;
-        }
-
-        .contact-info p {
-            margin: 5px 0;
-        }
-
-        .footer {
-            font-size: 12px;
-            color: #777;
-            margin-top: 20px;
-            text-align: center;
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <title>Return started</title>
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+    .container { max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 10px; overflow: hidden; }
+    .header { background: #f8f9fa; padding: 12px 20px; text-align: center; border-bottom: 2px solid #555; }
+    .content { padding: 20px; }
+    .box { background: #f8f9fa; padding: 14px 16px; border-radius: 6px; margin: 16px 0; border-left: 4px solid #1d72b8; }
+    .contact-table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
+    .contact-table td { padding: 8px 0; vertical-align: top; }
+    .contact-table td:first-child { color: #555; width: 88px; font-weight: bold; }
+    .button { display: inline-block; padding: 12px 24px; margin: 16px 0 8px; background: #111; color: #fff !important; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 15px; }
+    .footer { font-size: 12px; color: #777; margin-top: 20px; text-align: center; padding: 0 20px 20px; }
+  </style>
 </head>
-
 <body>
-    <div class="container">
-        <div class="header">
-            <h2>Return Request Initiated</h2>
-        </div>
-        <div class="content">
-            <p>Hello {{curatorName}},</p>
-            <p>A return has been initiated for order <strong>{{orderId}}</strong>.</p>
-            
-            <p><strong>Renter Details:</strong></p>
-            <ul>
-                <li><strong>Name:</strong> {{renterName}}</li>
-                <li><strong>Email:</strong> {{renterEmail}}</li>
-                <li><strong>Phone:</strong> {{renterPhone}}</li>
-            </ul>
-
-            <div class="contact-info">
-                <p><strong>Renter Address:</strong></p>
-                <p>{{renterAddress}}</p>
-            </div>
-
-            <p><strong>Item Condition Reported:</strong> {{itemCondition}}</p>
-
-            {{#if damageNotes}}
-            <p><strong>Damage Notes:</strong> {{damageNotes}}</p>
-            {{/if}}
-
-            <p>Please coordinate pickup with the renter using the contact information above.</p>
-            <p>Thank you for choosing {{platformName}}!</p>
-        </div>
-        <div class="footer">
-            <p>&copy; {{currentYear}} {{platformName}}. All rights reserved.</p>
-        </div>
+  <div class="container">
+    <div class="header">
+      <h2 style="margin:0;font-size:20px;">Return started</h2>
     </div>
-</body>
+    <div class="content">
+      <p>Hello {{curatorName}},</p>
+      <p><strong>{{renterName}}</strong> started a return for order <strong>{{orderId}}</strong>. Return shipping was paid at checkout; our courier will collect from them.</p>
 
+      {{#if returnWindowSummary}}
+      <div class="box">
+        <strong>Return window</strong><br />
+        {{returnWindowSummary}}
+      </div>
+      {{/if}}
+
+      <p><strong>Condition reported:</strong> {{itemCondition}}</p>
+      {{#if damageNotes}}<p><strong>Notes:</strong> {{damageNotes}}</p>{{/if}}
+
+      <p style="margin-top:20px;"><strong>Renter</strong></p>
+      <table class="contact-table" cellpadding="0" cellspacing="0">
+        <tr><td>Name</td><td>{{renterName}}</td></tr>
+        <tr><td>Email</td><td><a href="mailto:{{renterEmail}}" style="color:#111;">{{renterEmail}}</a></td></tr>
+        {{#if renterPhone}}<tr><td>Phone</td><td>{{renterPhone}}</td></tr>{{/if}}
+      </table>
+
+      {{#if orderPageUrl}}
+      <p style="margin:24px 0 8px;">
+        <a href="{{orderPageUrl}}" class="button" target="_blank" rel="noopener noreferrer">View order</a>
+      </p>
+      {{/if}}
+    </div>
+    <div class="footer">&copy; {{currentYear}} {{platformName}}</div>
+  </div>
+</body>
 </html>

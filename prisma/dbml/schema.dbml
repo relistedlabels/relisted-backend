@@ -344,6 +344,8 @@ Table Order {
   returnShippingFee Int
   returnPickupPartner String
   externalTrackingUrl String
+  returnRequestReminderSentAt DateTime
+  returnRequestPastDueSentAt DateTime
   shipmentId String
   trackingId String
   deliveryFee Int
@@ -691,6 +693,9 @@ Table ReturnRequest {
   pickupScheduledAt DateTime
   pickupWindowStart DateTime
   pickupWindowEnd DateTime
+  reminder24hSentAt DateTime
+  reminderDayOfSentAt DateTime
+  listerReturnWindowPassedNotifiedAt DateTime [note: 'One-shot email to lister when return pickup window ended but return leg not yet completed (fallback if tracking lags).']
   shippedAt DateTime
   deliveredAt DateTime
   createdAt DateTime [default: `now()`, not null]

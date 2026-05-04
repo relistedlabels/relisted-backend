@@ -31,7 +31,7 @@ function formatDispatchWindowLagos(start: Date, end: Date): string {
     minute: '2-digit',
     hour12: true,
   };
-  return `${start.toLocaleDateString('en-NG', dateOpts)}, ${start.toLocaleTimeString('en-NG', timeOpts)} – ${end.toLocaleTimeString('en-NG', timeOpts)}`;
+  return `${start.toLocaleDateString('en-NG', dateOpts)}, ${start.toLocaleTimeString('en-NG', timeOpts)} to ${end.toLocaleTimeString('en-NG', timeOpts)}`;
 }
 
 @Processor('shipment-dispatch')
@@ -78,6 +78,22 @@ export class ShipmentDispatchProcessor {
         `[Worker] Shipment ${shipmentId} is CANCELLED — skipping`,
       );
       return;
+    }
+
+    if (shipment.type === 'RETURN') {
+      const returnRequest = await this.prisma.returnRequest.findFirst({
+        where: { orderId: shipment.orderId },
+      });
+      if (!returnRequest) {
+        this.logger.log(
+          `[Worker] RETURN shipment ${shipmentId}: no renter return request yet — releasing DISPATCHING lock`,
+        );
+        await this.prisma.shipment.update({
+          where: { id: shipmentId },
+          data: { status: 'PENDING' },
+        });
+        return;
+      }
     }
 
     const attemptNumber = shipment.dispatchAttempts + 1;
@@ -234,8 +250,8 @@ export class ShipmentDispatchProcessor {
         wStart && wEnd
           ? ` Pickup window: ${formatDispatchWindowLagos(wStart, wEnd)}.`
           : '';
-      title = '📦 Return scheduled for dispatch';
-      message = `Your return is scheduled for carrier pickup (booked with Topship).${windowLine} Have the item ready during your window — you will get another update when the package is on the way.`;
+      title = '📦 Return booked. Get your item ready.';
+      message = `Your return is booked with the carrier.${windowLine} Have the package ready during your pickup window. You’ll get another update when the rider collects it or when it’s on the way to the lister.`;
       notificationType = 'RETURN_DISPATCHED';
       status = 'Scheduled for dispatch (pickup not started yet)';
     } else {
@@ -264,21 +280,21 @@ export class ShipmentDispatchProcessor {
         shipment.scheduledWindowStart &&
         shipment.scheduledWindowEnd
           ? {
-              emailSubject: 'Return pickup scheduled',
-              emailHeading: 'Return pickup scheduled',
+              emailSubject: 'Your return is booked. Have your item ready.',
+              emailHeading: 'Return booked with courier',
               pickupWindowSummary: formatDispatchWindowLagos(
                 new Date(shipment.scheduledWindowStart),
                 new Date(shipment.scheduledWindowEnd),
               ),
               extraNote:
-                '"Scheduled for dispatch" means the carrier has been booked for your pickup window. It does not mean the rider has already collected the package — watch for an in-transit update next.',
+                'The carrier is booked for this window. The rider may not have picked up yet. Watch for an in-transit update next.',
             }
           : isReturn
             ? {
-                emailSubject: 'Return pickup scheduled',
-                emailHeading: 'Return pickup scheduled',
+                emailSubject: 'Your return is booked. Have your item ready.',
+                emailHeading: 'Return booked with courier',
                 extraNote:
-                  'The carrier has been booked for your return. You will get another update when pickup starts.',
+                  'Have your item ready for pickup. You’ll get another update when collection starts or when the parcel is in transit.',
               }
             : {}),
       },
