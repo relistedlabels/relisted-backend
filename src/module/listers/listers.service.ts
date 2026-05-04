@@ -1800,6 +1800,85 @@ export class ListersService {
           disputeHold: false,
         };
       });
+
+    // Send email notifications after transaction completes
+    const clientUrl = process.env.CLIENT_URL || 'https://relisted.com';
+
+    // Send notification to renter about collateral release
+    if (result.collateralReleased > 0 && order.user?.email) {
+      const firstItem = order.orderItems[0] as any;
+      const productName = firstItem?.product?.name;
+      const orderLink = `${clientUrl}/renters/orders/${order.orderId}`;
+      try {
+        await this.notificationService.createNotification({
+          userId: order.user.id,
+          title: 'Collateral Released',
+          message: `Your collateral of NGN ${result.collateralReleased.toLocaleString()} has been released to your wallet for order ${order.orderId}.`,
+          type: 'ESCROW_RELEASE',
+          sendEmail: true,
+          emailData: {
+            email: order.user.email,
+            userName: order.user.name || 'there',
+            orderId: order.orderId,
+            orderLink,
+            amountReleased: result.collateralReleased,
+            userType: 'renter',
+            productName,
+          },
+        });
+        console.log(
+          `[ListersService] Sent escrow release notification to renter for order ${order.orderId}`,
+        );
+      } catch (err: any) {
+        console.error(
+          `[ListersService] Failed to send escrow release notification to renter for order ${order.orderId}: ${err.message}`,
+        );
+      }
+    }
+
+    // Send notification to listers about rental payment release
+    for (const escrow of order.escrows) {
+      const rentalAmount = escrow.rentalAmount || 0;
+      const cleaningFee = escrow.cleaningFee || 0;
+      const resaleAmount = escrow.resaleAmount || 0;
+      const totalListerPayout = rentalAmount + cleaningFee + resaleAmount;
+
+      if (totalListerPayout > 0) {
+        const lister = await this.prisma.user.findUnique({
+          where: { id: escrow.listerId },
+        });
+        if (lister?.email) {
+          const firstItem = order.orderItems[0] as any;
+          const productName = firstItem?.product?.name;
+          const orderLink = `${clientUrl}/listers/orders/${order.orderId}`;
+          try {
+            await this.notificationService.createNotification({
+              userId: lister.id,
+              title: 'Payment Released',
+              message: `Your payment of NGN ${totalListerPayout.toLocaleString()} has been released to your wallet for order ${order.orderId}.`,
+              type: 'ESCROW_RELEASE',
+              sendEmail: true,
+              emailData: {
+                email: lister.email,
+                userName: lister.name || 'there',
+                orderId: order.orderId,
+                orderLink,
+                amountReleased: totalListerPayout,
+                userType: 'lister',
+                productName,
+              },
+            });
+            console.log(
+              `[ListersService] Sent escrow release notification to lister ${lister.id} for order ${order.orderId}`,
+            );
+          } catch (err: any) {
+            console.error(
+              `[ListersService] Failed to send escrow release notification to lister ${lister.id} for order ${order.orderId}: ${err.message}`,
+            );
+          }
+        }
+      }
+    }
       console.log(
         `[ListersService] Transaction completed successfully for order ${orderId}, released NGN ${result.collateralReleased} collateral`,
       );

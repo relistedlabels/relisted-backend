@@ -1,6 +1,10 @@
 import 'dotenv/config';
+import { mkdir } from 'fs/promises';
+import { join } from 'path';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
+import { isLocalFileUploadMode } from './config/upload-mode';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { inspect } from 'util';
@@ -125,9 +129,11 @@ function loggingMiddleware(req: any, res: any, next: () => void) {
       responseForLog = data;
     }
     console.log(
-      `📤 ${method} ${originalUrl} ${res.statusCode} (${duration}ms) ${formatForLog({
-        response: responseForLog,
-      })}`,
+      `📤 ${method} ${originalUrl} ${res.statusCode} (${duration}ms) ${formatForLog(
+        {
+          response: responseForLog,
+        },
+      )}`,
     );
     return originalSend.call(this, data);
   };
@@ -137,9 +143,19 @@ function loggingMiddleware(req: any, res: any, next: () => void) {
 
 async function bootstrap() {
   console.log('DB URL:', process.env.DATABASE_URL);
-  const app = await NestFactory.create(AppModule, {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: ['error', 'warn', 'log', 'debug', 'verbose'],
   });
+
+  if (isLocalFileUploadMode()) {
+    const localDir = join(process.cwd(), 'uploads', 'local');
+    await mkdir(localDir, { recursive: true });
+    app.useStaticAssets(localDir, { prefix: '/local-uploads/' });
+    console.log(
+      `📁 Local file uploads enabled — files under ./uploads/local → GET /local-uploads/`,
+    );
+    console.log(`   Public URLs use API_PUBLIC_URL=${process.env.API_PUBLIC_URL ?? '(default localhost:' + (process.env.PORT ?? '4000') + ')'}`);
+  }
 
   app.use(loggingMiddleware);
 

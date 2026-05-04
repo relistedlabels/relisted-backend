@@ -340,3 +340,74 @@ export class DisputeMessageDto {
   @IsOptional()
   threadLink?: string;
 }
+
+export class ReturnDueReminderDto {
+  @IsEmail()
+  email: string;
+
+  @IsString()
+  userName: string;
+
+  @IsString()
+  orderId: string;
+
+  @IsString()
+  orderLink: string;
+
+  @IsString()
+  dueDate: string;
+
+  @IsString()
+  @IsOptional()
+  productName?: string;
+
+  @IsString()
+  @IsOptional()
+  reminderType?: '24_hours' | 'morning_of';
+}
+
+export class ReturnRequestReminderDto {
+  @IsEmail()
+  email: string;
+
+  @IsString()
+  userName: string;
+
+  @IsString()
+  orderId: string;
+
+  @IsString()
+  orderLink: string;
+
+  @IsString()
+  productName: string;
+
+  @IsString()
+  @IsOptional()
+  reminderType?: 'end_date_reached' | 'past_due';
+}
+
+export class EscrowReleaseNotificationDto {
+  @IsEmail()
+  email: string;
+
+  @IsString()
+  userName: string;
+
+  @IsString()
+  orderId: string;
+
+  @IsString()
+  orderLink: string;
+
+  @IsNumber()
+  @IsOptional()
+  amountReleased: number;
+
+  @IsString()
+  userType: 'renter' | 'lister';
+
+  @IsString()
+  @IsOptional()
+  productName?: string;
+}

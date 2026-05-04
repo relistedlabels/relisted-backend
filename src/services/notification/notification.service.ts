@@ -111,6 +111,9 @@ export class NotificationService {
         case 'DISPUTE_MESSAGE':
           await this.mailService.SendDisputeMessageMail(data);
           break;
+        case 'ESCROW_RELEASE':
+          await this.mailService.sendEscrowReleaseNotification(data);
+          break;
         default:
           console.warn(`No mail handler for notification type: ${type}`);
       }

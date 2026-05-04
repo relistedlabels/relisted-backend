@@ -3402,15 +3402,26 @@ export class RentersService {
       ? `${order.user.profile.address.street}, ${order.user.profile.address.city}, ${order.user.profile.address.state}`
       : '';
 
-    // Book Topship pickup shipment
+    // Check if pickup window is scheduled for today to determine if we should book immediately
+    const today = new Date();
+    const pickupDate = new Date(pickupWindow.start);
+    const isSameDay = today.toDateString() === pickupDate.toDateString();
+    const shouldBookImmediately = isSameDay;
+
+    console.log(
+      `[RentersService] Pickup window date: ${pickupDate.toDateString()}, today: ${today.toDateString()}, booking immediately: ${shouldBookImmediately}`,
+    );
+
+    // Book Topship pickup shipment only if pickup is scheduled for today
     let shipmentId: string | null = null;
     let trackingNumber: string | null = null;
     let pickupScheduledAt: Date | null = pickupWindow.start;
 
-    try {
-      console.log(
-        `[RentersService] Booking Topship pickup for order ${orderId}`,
-      );
+    if (shouldBookImmediately) {
+      try {
+        console.log(
+          `[RentersService] Booking Topship pickup for order ${orderId}`,
+        );
 
       const toKobo = (amount: number | undefined | null) => {
         const value = Number(amount || 0);
@@ -3543,6 +3554,11 @@ export class RentersService {
         `[RentersService] Continuing with return request without shipping`,
       );
     }
+    } else {
+      console.log(
+        `[RentersService] Pickup window is not scheduled for today, skipping immediate booking. Return request will be created and shipment will be booked by cron when due.`,
+      );
+    }
 
     // Process in transaction
     console.log(`[RentersService] Starting transaction for order ${orderId}`);
@@ -3631,30 +3647,44 @@ export class RentersService {
 
     await this.notificationService.createNotification({
       userId: order.userId,
-      title: 'Return pickup scheduled',
+      title: shipmentId
+        ? 'Return pickup scheduled'
+        : 'Return request submitted',
       message: windowSummary
         ? `Your carrier pickup is scheduled for: ${windowSummary}. Have your item ready during this window. You will get another update when the rider collects the package.`
         : shipmentId
           ? 'Your return has been booked with the carrier. You will get another update when pickup starts.'
-          : 'Your return request was recorded.',
-      type: shipmentId ? 'RETURN_PICKUP_SCHEDULED' : 'SHIPPING_UPDATE',
+          : shouldBookImmediately
+            ? 'Your return request has been submitted. We will book your return shipment when the pickup window approaches.'
+            : 'Your return request has been submitted. We will book your return shipment closer to the return date.',
+      type: shipmentId
+        ? 'RETURN_PICKUP_SCHEDULED'
+        : 'RETURN_REQUEST_SUBMITTED',
       metadata: {
         orderId: order.orderId,
         returnRequestId: rr.id,
       },
-      sendEmail: !!shipmentId,
+      sendEmail: true,
       emailData: {
         email: order.user.email,
         userName: order.user.name,
         orderId: order.orderId,
-        status: 'Return pickup scheduled (not collected yet)',
-        emailSubject: 'Return pickup scheduled',
-        emailHeading: 'Return pickup scheduled',
+        status: shipmentId
+          ? 'Return pickup scheduled (not collected yet)'
+          : 'Return request submitted',
+        emailSubject: shipmentId
+          ? 'Return pickup scheduled'
+          : 'Return request submitted',
+        emailHeading: shipmentId
+          ? 'Return pickup scheduled'
+          : 'Return request submitted',
         trackingNumber: trackingNumber ?? undefined,
         pickupWindowSummary: windowSummary ?? undefined,
         extraNote: shipmentId
           ? '"Scheduled for dispatch" means the carrier is booked for your pickup window — the package is not yet on the way to the lister until you see an in-transit update.'
-          : undefined,
+          : !isSameDay
+            ? 'We will automatically book your return shipment closer to the return date. You will receive a confirmation email when the pickup is scheduled.'
+            : undefined,
       },
     });
 

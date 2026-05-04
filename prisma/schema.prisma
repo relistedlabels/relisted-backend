@@ -14,46 +14,46 @@ datasource db {
 }
 
 model User {
-  id                    String                @id @default(uuid())
-  email                 String                @unique
-  password              String
-  name                  String
-  provider              String?
-  isVerified            Boolean               @default(false)
-  role                  Role                  @default(RENTER)
-  createdAt             DateTime              @default(now())
-  updatedAt             DateTime              @updatedAt
-  tokenVersion          Int                   @default(0)
-  isSuspended           Boolean               @default(false)
-  adminRoleId           String?
-  auditLogs             AuditLog[]            @relation("AdminAuditLogs")
-  tokens                AuthOtpToken[]
-  listerRequests        AvailabilityRequest[] @relation("ListerAvailability")
-  requestedAvailability AvailabilityRequest[] @relation("RequestedAvailability")
-  bankAccounts          BankAccount[]
-  brands                Brand[]
-  cart                  Cart?
-  disputes              Dispute[]
-  favourites            Favourite[]
-  notifications         Notification[]
-  notificationSettings  NotificationSettings?
-  orders                Order[]
-  products              Product[]             @relation("CuratedProducts")
-  productCategory       ProductCategory[]
-  profile               Profile?
-  sentMessages          Message[]             @relation("MessageSender")
-  rentalsCurated        Rental[]              @relation("Curator")
-  rentalsRented         Rental[]              @relation("Rentee")
-  orderListers          OrderLister[]         @relation("OrderListers")
-  curatorReviews        Review[]              @relation("CuratorReviews")
-  reviewsWritten        Review[]
-  tags                  Tag[]
-  transactions          Transaction[]
-  uploads               Upload[]
-  adminRole             AdminRole?            @relation(fields: [adminRoleId], references: [id])
-  virtualAccounts       VirtualAccount[]
-  wallet                Wallet?
-  withdrawalRequests    WithdrawalRequest[]
+  id                               String                            @id @default(uuid())
+  email                            String                            @unique
+  password                         String
+  name                             String
+  provider                         String?
+  isVerified                       Boolean                           @default(false)
+  role                             Role                              @default(RENTER)
+  createdAt                        DateTime                          @default(now())
+  updatedAt                        DateTime                          @updatedAt
+  tokenVersion                     Int                               @default(0)
+  isSuspended                      Boolean                           @default(false)
+  adminRoleId                      String?
+  auditLogs                        AuditLog[]                        @relation("AdminAuditLogs")
+  tokens                           AuthOtpToken[]
+  listerRequests                   AvailabilityRequest[]             @relation("ListerAvailability")
+  requestedAvailability            AvailabilityRequest[]             @relation("RequestedAvailability")
+  bankAccounts                     BankAccount[]
+  brands                           Brand[]
+  cart                             Cart?
+  disputes                         Dispute[]
+  favourites                       Favourite[]
+  notifications                    Notification[]
+  notificationSettings             NotificationSettings?
+  orders                           Order[]
+  products                         Product[]                         @relation("CuratedProducts")
+  productCategory                  ProductCategory[]
+  profile                          Profile?
+  sentMessages                     Message[]                         @relation("MessageSender")
+  rentalsCurated                   Rental[]                          @relation("Curator")
+  rentalsRented                    Rental[]                          @relation("Rentee")
+  orderListers                     OrderLister[]                     @relation("OrderListers")
+  curatorReviews                   Review[]                          @relation("CuratorReviews")
+  reviewsWritten                   Review[]
+  tags                             Tag[]
+  transactions                     Transaction[]
+  uploads                          Upload[]
+  adminRole                        AdminRole?                        @relation(fields: [adminRoleId], references: [id])
+  virtualAccounts                  VirtualAccount[]
+  wallet                           Wallet?
+  withdrawalRequests               WithdrawalRequest[]
   closets                          Closet[]
   productAvailabilityNotifications ProductAvailabilityNotification[]
 }
@@ -157,51 +157,51 @@ model Closet {
 }
 
 model Product {
-  id                            String                @id @default(uuid())
-  name                          String
-  subText                       String
-  description                   String
-  condition                     String
-  dailyPrice                    Int?
-  isActive                      Boolean               @default(true)
-  listingType                   ListingType           @default(RENTAL)
-  resalePrice                   Int?
-  rentalCount                   Int                   @default(0)
-  composition                   String?
-  measurement                   String
-  originalValue                 Int
-  warning                       String?
-  color                         String
-  brandId                       String?
-  categoryId                    String?
-  closetId                      String?
-  curatorId                     String
-  receiveSmsNotifications       Boolean?              @default(false)
-  receiveEmailNotifications     Boolean?              @default(true)
-  receiveProductRecommendations Boolean?              @default(false)
-  careInstruction               String
-  careSteps                     String
-  stylingTip                    String
-  createdAt                     DateTime              @default(now())
-  updatedAt                     DateTime              @updatedAt
-  productVerified               Boolean               @default(false)
-  quantity                      Int?
-  status                        ProductStatus         @default(PENDING)
-  rejectionComment              String?
-  material                      String?
-  collateralPrice               Int?
-  attachments                   Attachments?
-  AvailabilityRequests          AvailabilityRequest[]
-  cartItems                     CartItem[]
-  favourites                    Favourite[]
-  items                         OrderItem[]
-  brand                         Brand?                @relation(fields: [brandId], references: [id])
-  category                      ProductCategory?      @relation(fields: [categoryId], references: [id])
-  closet                        Closet?               @relation(fields: [closetId], references: [id], onDelete: SetNull)
-  curator                       User                  @relation("CuratedProducts", fields: [curatorId], references: [id])
-  rentals                       Rental[]
-  reviews                       Review[]
-  tags                          Tag[]                 @relation("ProductToTag")
+  id                               String                            @id @default(uuid())
+  name                             String
+  subText                          String
+  description                      String
+  condition                        String
+  dailyPrice                       Int?
+  isActive                         Boolean                           @default(true)
+  listingType                      ListingType                       @default(RENTAL)
+  resalePrice                      Int?
+  rentalCount                      Int                               @default(0)
+  composition                      String?
+  measurement                      String
+  originalValue                    Int
+  warning                          String?
+  color                            String
+  brandId                          String?
+  categoryId                       String?
+  closetId                         String?
+  curatorId                        String
+  receiveSmsNotifications          Boolean?                          @default(false)
+  receiveEmailNotifications        Boolean?                          @default(true)
+  receiveProductRecommendations    Boolean?                          @default(false)
+  careInstruction                  String
+  careSteps                        String
+  stylingTip                       String
+  createdAt                        DateTime                          @default(now())
+  updatedAt                        DateTime                          @updatedAt
+  productVerified                  Boolean                           @default(false)
+  quantity                         Int?
+  status                           ProductStatus                     @default(PENDING)
+  rejectionComment                 String?
+  material                         String?
+  collateralPrice                  Int?
+  attachments                      Attachments?
+  AvailabilityRequests             AvailabilityRequest[]
+  cartItems                        CartItem[]
+  favourites                       Favourite[]
+  items                            OrderItem[]
+  brand                            Brand?                            @relation(fields: [brandId], references: [id])
+  category                         ProductCategory?                  @relation(fields: [categoryId], references: [id])
+  closet                           Closet?                           @relation(fields: [closetId], references: [id], onDelete: SetNull)
+  curator                          User                              @relation("CuratedProducts", fields: [curatorId], references: [id])
+  rentals                          Rental[]
+  reviews                          Review[]
+  tags                             Tag[]                             @relation("ProductToTag")
   productAvailabilityNotifications ProductAvailabilityNotification[]
 
   @@index([listingType])
@@ -338,46 +338,48 @@ model AvailabilityRequest {
 }
 
 model Order {
-  id                    String              @id @default(uuid())
-  orderId               String              @unique
-  status                OrderStatus         @default(PROCESSING)
-  listingType           ListingType         @default(RENTAL)
-  userId                String
-  createdAt             DateTime            @default(now())
-  expiresAt             DateTime?
-  approvedAt            DateTime?
-  updatedAt             DateTime            @updatedAt
-  trackingNumber        String?
-  estimatedDeliveryDate DateTime?
-  dispatchedAt          DateTime?
-  deliveredAt           DateTime?
-  returnDueAt           DateTime?
-  returnShipmentId      String?
-  returnTrackingId      String?
-  returnShippingTier    String?
-  returnShippingFee     Int?
-  returnPickupPartner   String?
-  externalTrackingUrl   String?
-  shipmentId            String?
-  trackingId            String?
-  deliveryFee           Int?
-  listerBusinessName    String?
-  listerImage           String?
-  listerRating          Float?
-  serviceFee            Int?
-  totalAmountPaid       Int?
-  vatAmount             Int?
-  disputes              Dispute[]
-  escrows               Escrow[]
-  user                  User                @relation(fields: [userId], references: [id])
-  orderItems            OrderItem[]
-  rentals               Rental[]
-  returnRequests        ReturnRequest[]
-  payments              Transaction[]
-  virtualAccount        VirtualAccount?
-  walletTransactions    WalletTransaction[]
-  shipments             Shipment[]
-  orderListers          OrderLister[]
+  id                          String              @id @default(uuid())
+  orderId                     String              @unique
+  status                      OrderStatus         @default(PROCESSING)
+  listingType                 ListingType         @default(RENTAL)
+  userId                      String
+  createdAt                   DateTime            @default(now())
+  expiresAt                   DateTime?
+  approvedAt                  DateTime?
+  updatedAt                   DateTime            @updatedAt
+  trackingNumber              String?
+  estimatedDeliveryDate       DateTime?
+  dispatchedAt                DateTime?
+  deliveredAt                 DateTime?
+  returnDueAt                 DateTime?
+  returnShipmentId            String?
+  returnTrackingId            String?
+  returnShippingTier          String?
+  returnShippingFee           Int?
+  returnPickupPartner         String?
+  externalTrackingUrl         String?
+  returnRequestReminderSentAt DateTime?
+  returnRequestPastDueSentAt  DateTime?
+  shipmentId                  String?
+  trackingId                  String?
+  deliveryFee                 Int?
+  listerBusinessName          String?
+  listerImage                 String?
+  listerRating                Float?
+  serviceFee                  Int?
+  totalAmountPaid             Int?
+  vatAmount                   Int?
+  disputes                    Dispute[]
+  escrows                     Escrow[]
+  user                        User                @relation(fields: [userId], references: [id])
+  orderItems                  OrderItem[]
+  rentals                     Rental[]
+  returnRequests              ReturnRequest[]
+  payments                    Transaction[]
+  virtualAccount              VirtualAccount?
+  walletTransactions          WalletTransaction[]
+  shipments                   Shipment[]
+  orderListers                OrderLister[]
 
   @@index([listingType])
 }
@@ -701,6 +703,8 @@ model ReturnRequest {
   pickupScheduledAt        DateTime?
   pickupWindowStart        DateTime?
   pickupWindowEnd          DateTime?
+  reminder24hSentAt        DateTime?
+  reminderDayOfSentAt      DateTime?
   shippedAt                DateTime?
   deliveredAt              DateTime?
   createdAt                DateTime       @default(now())

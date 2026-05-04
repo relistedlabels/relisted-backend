@@ -13,6 +13,9 @@ import {
   DisputeCreatedDto,
   DisputeStatusDto,
   DisputeMessageDto,
+  ReturnDueReminderDto,
+  ReturnRequestReminderDto,
+  EscrowReleaseNotificationDto,
 } from './mail.type';
 import { Auth_Otp_Token_Subject } from '../../module/auth/auth.types';
 import { writeFile, mkdir } from 'fs/promises';
@@ -619,6 +622,180 @@ export class MailService {
       <p style="margin:0 0 16px;color:#374151;">The item you asked us to watch — <strong>${safeProduct}</strong> — is available to rent again on Relisted.</p>
       <a href="${productUrl}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">View listing</a>
       <p style="margin:20px 0 0;font-size:12px;color:#6b7280;">You received this because you tapped &quot;Notify me when available&quot; while this piece was on rental.</p>
+    </div>
+  </div>
+</div>`;
+
+    if (this.devBypass) {
+      await this.handleDevBypassHtml(subject, html, email);
+      return;
+    }
+
+    await this.mailerService.sendMail({
+      to: email,
+      subject,
+      html,
+    });
+  }
+
+  async sendReturnDueReminderMail(dto: ReturnDueReminderDto) {
+    const { email, userName, orderId, orderLink, dueDate, productName, reminderType } = dto;
+    const is24Hour = reminderType === '24_hours';
+    const subject = is24Hour
+      ? 'Your rental return pickup is scheduled soon'
+      : 'Your rental return pickup is today';
+    const safeName = (userName || 'there').replace(/</g, '');
+    const safeProduct = (productName || 'your rental item').replace(/</g, '');
+
+    const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f6f7fb;padding:24px;">
+  <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
+    <div style="padding:18px 20px;background:#111827;color:#ffffff;">
+      <div style="font-size:14px;opacity:0.9;">Relisted</div>
+      <div style="font-size:18px;font-weight:700;margin-top:6px;">${is24Hour ? 'Return Pickup Soon' : 'Return Pickup Today'}</div>
+    </div>
+    <div style="padding:20px;">
+      <p style="margin:0 0 12px;color:#374151;">Hi ${safeName},</p>
+      <p style="margin:0 0 16px;color:#374151;">
+        ${is24Hour
+          ? `Your return pickup for <strong>${safeProduct}</strong> is scheduled within the next 24 hours.`
+          : `Your return pickup for <strong>${safeProduct}</strong> is scheduled for today.`
+        }
+      </p>
+      <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;margin:16px 0;">
+        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Order ID</div>
+        <div style="font-weight:600;color:#111827;">${orderId}</div>
+        <div style="font-size:12px;color:#6b7280;margin:16px 0 4px;">Pickup Date</div>
+        <div style="font-weight:600;color:#111827;">${dueDate}</div>
+      </div>
+      <div style="margin:20px 0;">
+        <a href="${orderLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">View Order</a>
+        <div style="margin-top:10px;font-size:12px;color:#6b7280;">
+          If the button doesn't work, open: <span style="color:#111827;">${orderLink}</span>
+        </div>
+      </div>
+      <p style="margin:16px 0 0;color:#374151;">Please ensure your item is ready for return pickup during the scheduled window to avoid any issues.</p>
+    </div>
+  </div>
+</div>`;
+
+    if (this.devBypass) {
+      await this.handleDevBypassHtml(subject, html, email);
+      return;
+    }
+
+    await this.mailerService.sendMail({
+      to: email,
+      subject,
+      html,
+    });
+  }
+
+  async sendReturnRequestReminderMail(dto: ReturnRequestReminderDto) {
+    const { email, userName, orderId, orderLink, productName, reminderType } = dto;
+    const isEndDateReached = reminderType === 'end_date_reached';
+    const subject = isEndDateReached
+      ? 'Your rental period has ended - Start your return'
+      : 'Action required: Complete your return request';
+    const safeName = (userName || 'there').replace(/</g, '');
+    const safeProduct = (productName || 'your rental item').replace(/</g, '');
+
+    const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f6f7fb;padding:24px;">
+  <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
+    <div style="padding:18px 20px;background:#111827;color:#ffffff;">
+      <div style="font-size:14px;opacity:0.9;">Relisted</div>
+      <div style="font-size:18px;font-weight:700;margin-top:6px;">${isEndDateReached ? 'Time to Return' : 'Return Request Overdue'}</div>
+    </div>
+    <div style="padding:20px;">
+      <p style="margin:0 0 12px;color:#374151;">Hi ${safeName},</p>
+      <p style="margin:0 0 16px;color:#374151;">
+        ${isEndDateReached
+          ? `Your rental period for <strong>${safeProduct}</strong> has ended. Please initiate your return to schedule pickup.`
+          : `Your rental return for <strong>${safeProduct}</strong> is overdue. Please complete your return request immediately to avoid additional charges.`
+        }
+      </p>
+      <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;margin:16px 0;">
+        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Order ID</div>
+        <div style="font-weight:600;color:#111827;">${orderId}</div>
+      </div>
+      <div style="margin:20px 0;">
+        <a href="${orderLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">View Order & Start Return</a>
+        <div style="margin-top:10px;font-size:12px;color:#6b7280;">
+          If the button doesn't work, open: <span style="color:#111827;">${orderLink}</span>
+        </div>
+      </div>
+      <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin:16px 0;">
+        <p style="margin:0 0 8px;color:#374151;font-weight:600;">How to complete your return:</p>
+        <ol style="margin:0;padding-left:20px;color:#374151;font-size:14px;">
+          <li style="margin-bottom:6px;">Click the button above to view your order</li>
+          <li style="margin-bottom:6px;">Scroll down to the "Ready to Return?" section</li>
+          <li style="margin-bottom:6px;">Click the <strong>"Start Return Process"</strong> button</li>
+          <li>Upload photos of the item's current condition and submit</li>
+        </ol>
+      </div>
+      ${!isEndDateReached ? '<p style="margin:16px 0 0;color:#dc2626;font-weight:600;">Late returns may incur additional rental charges. Please act now.</p>' : ''}
+    </div>
+  </div>
+</div>`;
+
+    if (this.devBypass) {
+      await this.handleDevBypassHtml(subject, html, email);
+      return;
+    }
+
+    await this.mailerService.sendMail({
+      to: email,
+      subject,
+      html,
+    });
+  }
+
+  async sendEscrowReleaseNotification(dto: EscrowReleaseNotificationDto) {
+    const { email, userName, orderId, orderLink, amountReleased, userType, productName } = dto;
+    const isRenter = userType === 'renter';
+    const subject = isRenter
+      ? 'Your collateral is now available'
+      : 'Your payment is now available';
+    const safeName = (userName || 'there').replace(/</g, '');
+    const safeProduct = (productName || 'your order').replace(/</g, '');
+    const amountStr = amountReleased
+      ? `NGN ${amountReleased.toLocaleString()}`
+      : 'Your funds';
+
+    const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f6f7fb;padding:24px;">
+  <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
+    <div style="padding:18px 20px;background:#111827;color:#ffffff;">
+      <div style="font-size:14px;opacity:0.9;">Relisted</div>
+      <div style="font-size:18px;font-weight:700;margin-top:6px;">${isRenter ? 'Collateral Available' : 'Payment Available'}</div>
+    </div>
+    <div style="padding:20px;">
+      <p style="margin:0 0 12px;color:#374151;">Hi ${safeName},</p>
+      <p style="margin:0 0 16px;color:#374151;">
+        ${isRenter
+          ? `Your collateral for <strong>${safeProduct}</strong> has been returned and is now available in your wallet.`
+          : `Your rental payment for <strong>${safeProduct}</strong> has been processed and is now available in your wallet.`
+        }
+      </p>
+      <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;margin:16px 0;">
+        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Order ID</div>
+        <div style="font-weight:600;color:#111827;">${orderId}</div>
+        <div style="font-size:12px;color:#6b7280;margin:16px 0 4px;">${isRenter ? 'Collateral Returned' : 'Payment Received'}</div>
+        <div style="font-weight:600;color:#111827;">${amountStr}</div>
+      </div>
+      <div style="margin:20px 0;">
+        <a href="${orderLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">View Order</a>
+        <div style="margin-top:10px;font-size:12px;color:#6b7280;">
+          If the button doesn't work, open: <span style="color:#111827;">${orderLink}</span>
+        </div>
+      </div>
+      <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin:16px 0;">
+        <p style="margin:0 0 8px;color:#374151;font-weight:600;">How to withdraw your funds:</p>
+        <ol style="margin:0;padding-left:20px;color:#374151;font-size:14px;">
+          <li style="margin-bottom:6px;">Go to your wallet dashboard</li>
+          <li style="margin-bottom:6px;">Click on "Withdraw Funds"</li>
+          <li style="margin-bottom:6px;">Select your preferred withdrawal method</li>
+          <li>Enter the amount and confirm the withdrawal</li>
+        </ol>
+      </div>
     </div>
   </div>
 </div>`;
