@@ -93,11 +93,20 @@ export function buildDefaultDispatchWindow(baseDate: Date): DispatchWindowRange 
     bounds = getDailyWindowBounds(reference);
   }
 
-  let start = reference < bounds.start ? bounds.start : reference;
+  // Round to nearest hour: if minutes >= 30, round up; else round down
+  const minutes = reference.getMinutes();
+  const roundedHour = minutes >= 30 ? addHours(reference, 1) : reference;
+  const start = new Date(roundedHour);
+  start.setMinutes(0, 0, 0);
+
+  // Ensure start is within operating hours
+  if (start < bounds.start) {
+    start.setTime(bounds.start.getTime());
+  }
   if (start >= bounds.end) {
     reference = addDays(startOfDay(start), 1);
     bounds = getDailyWindowBounds(reference);
-    start = bounds.start;
+    start.setTime(bounds.start.getTime());
   }
 
   let end = new Date(
@@ -110,7 +119,7 @@ export function buildDefaultDispatchWindow(baseDate: Date): DispatchWindowRange 
   if (differenceInMinutes(end, start) < MIN_DISPATCH_WINDOW_MINUTES) {
     reference = addDays(startOfDay(start), 1);
     bounds = getDailyWindowBounds(reference);
-    start = bounds.start;
+    start.setTime(bounds.start.getTime());
     end = new Date(
       Math.min(
         bounds.end.getTime(),
