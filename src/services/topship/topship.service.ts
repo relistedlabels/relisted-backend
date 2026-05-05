@@ -1,15 +1,94 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import axios from 'axios';
+import http from 'http';
+import https from 'https';
 
 @Injectable()
 export class TopshipService {
   private readonly baseUrl: string;
   private readonly apiKey: string;
+  /** Hard cap per HTTP call so checkout summary cannot hang on a stalled upstream (axios default is no timeout). */
+  private readonly httpTimeoutMs: number;
+  /**
+   * Reuse TCP/TLS across concurrent quote GETs and repeat checkout summaries.
+   * Set TOPSHIP_QUOTE_CACHE_TTL_MS>0 to cache pickup/shipment rate arrays briefly across requests (same payload key).
+   */
+  private readonly quoteCacheTtlMs: number;
+  private readonly quoteCache = new Map<
+    string,
+    { expiresAt: number; promise: Promise<any[]> }
+  >();
+
+  private readonly httpAgent = new http.Agent({
+    keepAlive: true,
+    maxSockets: 50,
+    maxFreeSockets: 10,
+  });
+  private readonly httpsAgent = new https.Agent({
+    keepAlive: true,
+    maxSockets: 50,
+    maxFreeSockets: 10,
+  });
 
   constructor() {
     this.baseUrl =
       process.env.TOPSHIP_API_URL || 'https://topship-staging.africa/api';
     this.apiKey = process.env.TOPSHIP_API_KEY || '';
+    this.httpTimeoutMs = Math.max(
+      1000,
+      Number(process.env.TOPSHIP_HTTP_TIMEOUT_MS ?? 45_000),
+    );
+    this.quoteCacheTtlMs = Math.max(
+      0,
+      Number(process.env.TOPSHIP_QUOTE_CACHE_TTL_MS ?? 0),
+    );
+  }
+
+  private quoteAxiosOpts() {
+    return {
+      timeout: this.httpTimeoutMs,
+      httpAgent: this.httpAgent,
+      httpsAgent: this.httpsAgent,
+    };
+  }
+
+  private wrapQuotedRates(
+    kind: 'pickup' | 'ship',
+    payload: unknown,
+    compute: () => Promise<any[]>,
+  ): Promise<any[]> {
+    if (this.quoteCacheTtlMs <= 0) return compute();
+
+    let key: string;
+    try {
+      key = `${kind}:${
+        typeof payload === 'string' ? payload : JSON.stringify(payload)
+      }`;
+    } catch {
+      key = `${kind}:fallback`;
+    }
+
+    const now = Date.now();
+    const hit = this.quoteCache.get(key);
+    if (hit && hit.expiresAt > now) return hit.promise;
+
+    const promise = compute().catch((err: unknown) => {
+      this.quoteCache.delete(key);
+      throw err;
+    });
+
+    this.quoteCache.set(key, {
+      expiresAt: now + this.quoteCacheTtlMs,
+      promise,
+    });
+
+    if (this.quoteCache.size > 400) {
+      for (const [k, v] of this.quoteCache) {
+        if (v.expiresAt <= now) this.quoteCache.delete(k);
+      }
+    }
+
+    return promise;
   }
 
   private get headers() {
@@ -109,14 +188,18 @@ export class TopshipService {
 
   async getShipmentRate(data: any): Promise<any[]> {
     try {
-      const response = await axios.get(`${this.baseUrl}/get-shipment-rate`, {
-        headers: this.headers,
-        params: {
-          shipmentDetail:
-            typeof data === 'string' ? data : JSON.stringify(data),
-        },
+      const rows = await this.wrapQuotedRates('ship', data, async () => {
+        const response = await axios.get(`${this.baseUrl}/get-shipment-rate`, {
+          headers: this.headers,
+          ...this.quoteAxiosOpts(),
+          params: {
+            shipmentDetail:
+              typeof data === 'string' ? data : JSON.stringify(data),
+          },
+        });
+        return this.filterShipmentRates(response.data);
       });
-      return this.filterShipmentRates(response.data);
+      return rows;
     } catch (error: any) {
       this.handleError(error);
       return [];
@@ -127,6 +210,7 @@ export class TopshipService {
     try {
       const response = await axios.get(`${this.baseUrl}/get-shopnship-rates`, {
         headers: this.headers,
+        timeout: this.httpTimeoutMs,
         params: {
           input: typeof data === 'string' ? data : JSON.stringify(data),
         },
@@ -139,13 +223,17 @@ export class TopshipService {
 
   async getPickupRates(data: any) {
     try {
-      const response = await axios.get(`${this.baseUrl}/get-pickup-rates`, {
-        headers: this.headers,
-        params: {
-          input: typeof data === 'string' ? data : JSON.stringify(data),
-        },
+      const rows = await this.wrapQuotedRates('pickup', data, async () => {
+        const response = await axios.get(`${this.baseUrl}/get-pickup-rates`, {
+          headers: this.headers,
+          ...this.quoteAxiosOpts(),
+          params: {
+            input: typeof data === 'string' ? data : JSON.stringify(data),
+          },
+        });
+        return this.filterPickupRates(response.data);
       });
-      return this.filterPickupRates(response.data);
+      return rows;
     } catch (error: any) {
       this.handleError(error);
     }
@@ -155,6 +243,7 @@ export class TopshipService {
     try {
       const response = await axios.get(`${this.baseUrl}/get-shipments`, {
         headers: this.headers,
+        timeout: this.httpTimeoutMs,
         params: { filter },
       });
       return response.data;
@@ -167,6 +256,7 @@ export class TopshipService {
     try {
       const response = await axios.get(`${this.baseUrl}/get-shipment/${id}`, {
         headers: this.headers,
+        timeout: this.httpTimeoutMs,
       });
       return response.data;
     } catch (error: any) {
@@ -179,7 +269,7 @@ export class TopshipService {
       const response = await axios.post(
         `${this.baseUrl}/cancel-shipment`,
         { id },
-        { headers: this.headers },
+        { headers: this.headers, timeout: this.httpTimeoutMs },
       );
       return response.data;
     } catch (error: any) {
@@ -192,6 +282,7 @@ export class TopshipService {
     try {
       const response = await axios.get(`${this.baseUrl}/track-shipment`, {
         headers: this.headers,
+        timeout: this.httpTimeoutMs,
         params: { trackingId },
       });
       return response.data;
@@ -204,6 +295,7 @@ export class TopshipService {
     try {
       const response = await axios.get(`${this.baseUrl}/get-countries`, {
         headers: this.headers,
+        timeout: this.httpTimeoutMs,
       });
       return response.data;
     } catch (error: any) {
@@ -215,6 +307,7 @@ export class TopshipService {
     try {
       const response = await axios.get(`${this.baseUrl}/get-states`, {
         headers: this.headers,
+        timeout: this.httpTimeoutMs,
         params: { countryCode },
       });
       return response.data;
@@ -227,6 +320,7 @@ export class TopshipService {
     try {
       const response = await axios.get(`${this.baseUrl}/get-cities`, {
         headers: this.headers,
+        timeout: this.httpTimeoutMs,
         params: { countryCode },
       });
       return response.data;
@@ -243,6 +337,7 @@ export class TopshipService {
         body,
         {
           headers: this.headers,
+          timeout: this.httpTimeoutMs,
         },
       );
       return response.data;
@@ -258,6 +353,7 @@ export class TopshipService {
         data,
         {
           headers: this.headers,
+          timeout: this.httpTimeoutMs,
         },
       );
       return response.data;
@@ -271,7 +367,7 @@ export class TopshipService {
       const response = await axios.post(
         `${this.baseUrl}/pay-from-wallet`,
         { detail: { shipmentId } },
-        { headers: this.headers },
+        { headers: this.headers, timeout: this.httpTimeoutMs },
       );
       return response.data;
     } catch (error: any) {
@@ -280,7 +376,15 @@ export class TopshipService {
   }
 
   private handleError(error: any) {
-    console.error('Topship API error:', error.response?.data || error.message);
+    const hint =
+      error?.code === 'ECONNABORTED'
+        ? ` (timeout after ${this.httpTimeoutMs}ms, set TOPSHIP_HTTP_TIMEOUT_MS if needed)`
+        : '';
+    console.error(
+      'Topship API error:',
+      error.response?.data || error.message,
+      hint,
+    );
     throw new InternalServerErrorException(
       error.response?.data?.message || 'Topship API request failed',
     );

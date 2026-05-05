@@ -30,6 +30,77 @@ const IMMEDIATE_DISPATCH_THRESHOLD_MINUTES = Number(
   process.env.IMMEDIATE_DISPATCH_THRESHOLD_MINUTES ?? 60,
 );
 
+/**
+ * Dedupes identical Topship quote calls within one GET /order/summary (shared lister
+ * legs, same renter return address, same city pairs). Cuts duplicate HTTP when cart
+ * splits into multiple buckets for the same curator.
+ */
+function createCheckoutSummaryTopshipMemo(topship: TopshipService) {
+  const pickups = new Map<string, Promise<any[]>>();
+  const ships = new Map<string, Promise<any[]>>();
+
+  const pickupPayloadKey = (payload: {
+    senderDetail: Record<string, unknown>;
+    pickupDate?: string;
+  }) =>
+    JSON.stringify({
+      street: payload.senderDetail?.addressLine1,
+      city: payload.senderDetail?.city,
+      state: payload.senderDetail?.state,
+      country: payload.senderDetail?.country,
+      countryCode: payload.senderDetail?.countryCode,
+      day:
+        typeof payload.pickupDate === 'string'
+          ? payload.pickupDate.slice(0, 10)
+          : '',
+    });
+
+  const shipPayloadKey = (payload: unknown) => JSON.stringify(payload);
+
+  async function pickupRates(payload: any): Promise<any[]> {
+    const k = pickupPayloadKey(payload);
+    let pr = pickups.get(k);
+    if (!pr) {
+      const city = String(payload?.senderDetail?.city ?? '?');
+      pr = topship
+        .getPickupRates(payload)
+        .then((r) => (Array.isArray(r) ? r : []))
+        .catch((err: any) => {
+          console.warn(
+            `Pickup calculation failed for ${city}. Reason:`,
+            err?.message ?? err,
+          );
+          return [];
+        });
+      pickups.set(k, pr);
+    }
+    return pr;
+  }
+
+  async function shipRates(payload: any): Promise<any[]> {
+    const k = shipPayloadKey(payload);
+    let sr = ships.get(k);
+    if (!sr) {
+      const from = String(payload?.senderDetails?.cityName ?? '?');
+      const to = String(payload?.receiverDetails?.cityName ?? '?');
+      sr = topship
+        .getShipmentRate(payload)
+        .then((r) => (Array.isArray(r) ? r : []))
+        .catch((err: any) => {
+          console.warn(
+            `Shipping calculation failed between ${from} and ${to}. Reason:`,
+            err?.message ?? err,
+          );
+          return [];
+        });
+      ships.set(k, sr);
+    }
+    return sr;
+  }
+
+  return { pickupRates, shipRates };
+}
+
 @Injectable()
 export class OrderService {
   constructor(
@@ -200,16 +271,134 @@ export class OrderService {
     return t;
   }
 
+  /** Group cart lines into shipment buckets (same lister, same resolved dispatch windows). */
+  private buildShipmentBucketsForLister(
+    items: any[],
+    dispatchWindowsInput?: DispatchWindowsInput,
+  ): Array<{
+    bucketMode: 'RENTAL' | 'RESALE';
+    items: any[];
+    outboundWindow: { start: Date; end: Date } | null;
+    returnWindow: { start: Date; end: Date } | null;
+    resaleWindow: { start: Date; end: Date } | null;
+  }> {
+    const rentalItems = items.filter(
+      (it) =>
+        it.days > 0 &&
+        (it.product.listingType === 'RENTAL' ||
+          it.product.listingType === 'RENT_OR_RESALE'),
+    );
+    const resaleItems = items.filter(
+      (it) =>
+        it.product.listingType === 'RESALE' ||
+        (it.product.listingType === 'RENT_OR_RESALE' && it.days === 0),
+    );
+
+    const rentalGroups = new Map<string, any[]>();
+    for (const it of rentalItems) {
+      const rentalStart = it.startDate ? new Date(it.startDate) : new Date();
+      const rentalEnd = it.endDate
+        ? new Date(it.endDate)
+        : addDays(rentalStart, it.days ?? 1);
+      const ob = this.resolveDispatchWindow(
+        'OUTBOUND',
+        rentalStart,
+        dispatchWindowsInput,
+        it.dispatchWindows?.OUTBOUND,
+      );
+      const ret = this.resolveDispatchWindow(
+        'RETURN',
+        rentalEnd,
+        dispatchWindowsInput,
+        it.dispatchWindows?.RETURN,
+      );
+      const key = `${ob.start.toISOString()}::${ob.end.toISOString()}::${ret.start.toISOString()}::${ret.end.toISOString()}`;
+      if (!rentalGroups.has(key)) rentalGroups.set(key, []);
+      rentalGroups.get(key)!.push(it);
+    }
+
+    const resaleGroups = new Map<string, any[]>();
+    for (const it of resaleItems) {
+      const rw = this.resolveDispatchWindow(
+        'RESALE',
+        new Date(),
+        dispatchWindowsInput,
+        it.dispatchWindows?.RESALE,
+      );
+      const key = `${rw.start.toISOString()}::${rw.end.toISOString()}`;
+      if (!resaleGroups.has(key)) resaleGroups.set(key, []);
+      resaleGroups.get(key)!.push(it);
+    }
+
+    const out: Array<{
+      bucketMode: 'RENTAL' | 'RESALE';
+      items: any[];
+      outboundWindow: { start: Date; end: Date } | null;
+      returnWindow: { start: Date; end: Date } | null;
+      resaleWindow: { start: Date; end: Date } | null;
+    }> = [];
+
+    for (const [, bucketItems] of rentalGroups) {
+      const sample = bucketItems[0];
+      const rentalStart = sample.startDate
+        ? new Date(sample.startDate)
+        : new Date();
+      const rentalEnd = sample.endDate
+        ? new Date(sample.endDate)
+        : addDays(rentalStart, sample.days ?? 1);
+      const outboundWindow = this.resolveDispatchWindow(
+        'OUTBOUND',
+        rentalStart,
+        dispatchWindowsInput,
+        sample.dispatchWindows?.OUTBOUND,
+      );
+      const returnWindow = this.resolveDispatchWindow(
+        'RETURN',
+        rentalEnd,
+        dispatchWindowsInput,
+        sample.dispatchWindows?.RETURN,
+      );
+      out.push({
+        bucketMode: 'RENTAL',
+        items: bucketItems,
+        outboundWindow,
+        returnWindow,
+        resaleWindow: null,
+      });
+    }
+
+    for (const [, bucketItems] of resaleGroups) {
+      const sample = bucketItems[0];
+      const resaleWindow = this.resolveDispatchWindow(
+        'RESALE',
+        new Date(),
+        dispatchWindowsInput,
+        sample.dispatchWindows?.RESALE,
+      );
+      out.push({
+        bucketMode: 'RESALE',
+        items: bucketItems,
+        outboundWindow: null,
+        returnWindow: null,
+        resaleWindow,
+      });
+    }
+
+    return out;
+  }
+
   /**
-   * Persist Shipment rows for cron / immediate dispatch. One lister leg per rental
-   * (OUTBOUND + RETURN) or one RESALE leg for resale-only bundles.
+   * Persist Shipment rows for cron / immediate dispatch.
+   * Rental bucket: OUTBOUND + RETURN. Resale-only bucket: RESALE.
    */
   private async createCheckoutShipments(
     tx: any,
     orderId: string,
     ld: any,
     renterSnapshot: Record<string, any>,
-  ): Promise<Array<{ id: string; immediate: boolean }>> {
+  ): Promise<
+    Array<{ id: string; type: 'OUTBOUND' | 'RETURN' | 'RESALE'; immediate: boolean }>
+  > {
     const curator = ld.items[0]?.product?.curator;
     if (!curator) return [];
 
@@ -227,19 +416,14 @@ export class OrderService {
     };
 
     const tier = this.normalizeTopshipTier(ld.usedPricingTier);
-    const out: Array<{ id: string; immediate: boolean }> = [];
+    const out: Array<{
+      id: string;
+      type: 'OUTBOUND' | 'RETURN' | 'RESALE';
+      immediate: boolean;
+    }> = [];
 
-    const hasRental = ld.items.some(
-      (it: any) =>
-        it.days > 0 &&
-        (it.product.listingType === 'RENTAL' ||
-          it.product.listingType === 'RENT_OR_RESALE'),
-    );
-    const hasResaleOnly = ld.items.some(
-      (it: any) =>
-        it.product.listingType === 'RESALE' ||
-        (it.product.listingType === 'RENT_OR_RESALE' && it.days === 0),
-    );
+    const hasRental = ld.bucketMode === 'RENTAL';
+    const hasResaleOnly = ld.bucketMode === 'RESALE';
 
     if (hasRental && ld.outboundWindow?.start && ld.outboundWindow?.end) {
       const s = await tx.shipment.create({
@@ -264,6 +448,7 @@ export class OrderService {
       });
       out.push({
         id: s.id,
+        type: 'OUTBOUND',
         immediate: this.shouldDispatchImmediately(ld.outboundWindow.start),
       });
     }
@@ -291,11 +476,12 @@ export class OrderService {
       });
       out.push({
         id: s.id,
+        type: 'RETURN',
         immediate: this.shouldDispatchImmediately(ld.returnWindow.start),
       });
     }
 
-    if (!hasRental && hasResaleOnly && ld.resaleWindow?.start && ld.resaleWindow?.end) {
+    if (hasResaleOnly && ld.resaleWindow?.start && ld.resaleWindow?.end) {
       const s = await tx.shipment.create({
         data: {
           orderId,
@@ -318,6 +504,7 @@ export class OrderService {
       });
       out.push({
         id: s.id,
+        type: 'RESALE',
         immediate: this.shouldDispatchImmediately(ld.resaleWindow.start),
       });
     }
@@ -393,17 +580,42 @@ export class OrderService {
     user: userEntity,
     returnPickupAddressOverride?: Partial<ReturnPickupAddressDto>,
   ) {
-    if (returnPickupAddressOverride) {
+    if (
+      process.env.NODE_ENV !== 'production' &&
+      returnPickupAddressOverride
+    ) {
       console.log(
         '[CheckoutSummary] Return pickup address override:',
         JSON.stringify(returnPickupAddressOverride),
       );
     }
 
-    const renterProfile = await this.prisma.profile.findUnique({
-      where: { userId: user.id },
-      include: { address: true },
-    });
+    const [renterProfile, cart] = await Promise.all([
+      this.prisma.profile.findUnique({
+        where: { userId: user.id },
+        include: { address: true },
+      }),
+      this.prisma.cart.findUnique({
+        where: { userId: user.id },
+        include: {
+          items: {
+            include: {
+              product: {
+                include: {
+                  curator: {
+                    include: {
+                      profile: {
+                        include: { address: true, businessInfo: true },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+    ]);
 
     if (!renterProfile?.address) {
       bad('Please add a delivery address to your profile before checkout.');
@@ -418,29 +630,12 @@ export class OrderService {
         returnPickupAddressOverride,
       );
 
-    console.log(
-      '[CheckoutSummary] Final return pickup address:',
-      JSON.stringify(returnPickupAddressSnapshot),
-    );
-
-    const cart = await this.prisma.cart.findUnique({
-      where: { userId: user.id },
-      include: {
-        items: {
-          include: {
-            product: {
-              include: {
-                curator: {
-                  include: {
-                    profile: { include: { address: true, businessInfo: true } },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    });
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(
+        '[CheckoutSummary] Final return pickup address:',
+        JSON.stringify(returnPickupAddressSnapshot),
+      );
+    }
 
     if (!cart || cart.items.length === 0) {
       bad('Cart is empty');
@@ -576,89 +771,187 @@ export class OrderService {
       });
     }
 
-    // Batch external API calls for all listers in parallel
-    const shippingPromises = listerData.map(async (data) => {
-      const senderCity = data.curatorAddress?.city || 'Lagos';
-      const receiverCity = renterDeliveryAddressSnapshot.city || 'Lagos';
+    const preferredTierOrderSummary = ['chowdeck', 'glovo'];
+    const pickPreferredRateSummary = (rates: any[]) => {
+      const list = Array.isArray(rates) ? rates : [];
+      for (const name of preferredTierOrderSummary) {
+        const found = list.find(
+          (r) =>
+            String(r?.pricingTier ?? '')
+              .trim()
+              .toLowerCase() === name,
+        );
+        if (found) return found;
+      }
+      return (
+        list
+          .slice()
+          .sort((a, b) => Number(a?.cost ?? 0) - Number(b?.cost ?? 0))[0] ||
+        null
+      );
+    };
 
-      let pickupChargeRaw = 0;
-      try {
+    type CheckoutBucketCtx = {
+      listerId: string;
+      listerName: string;
+      curatorAddress: any;
+      bucketMode: 'RENTAL' | 'RESALE';
+      items: any[];
+      outboundWindow: { start: Date; end: Date } | null;
+      returnWindow: { start: Date; end: Date } | null;
+      resaleWindow: { start: Date; end: Date } | null;
+    };
+
+    const bucketContexts: CheckoutBucketCtx[] = [];
+    for (const ld of listerData) {
+      const buckets = this.buildShipmentBucketsForLister(ld.items, undefined);
+      for (const b of buckets) {
+        bucketContexts.push({
+          listerId: ld.listerId,
+          listerName: ld.items[0]?.product?.curator?.name || 'Unknown',
+          curatorAddress: ld.curatorAddress,
+          bucketMode: b.bucketMode,
+          items: b.items,
+          outboundWindow: b.outboundWindow,
+          returnWindow: b.returnWindow,
+          resaleWindow: b.resaleWindow,
+        });
+      }
+    }
+
+    const accumulateTierCosts = (rates: any[]) => {
+      for (const rate of rates) {
+        if (!rate?.pricingTier) continue;
+        const tierCost = Math.ceil((rate.cost || 300000) / 100);
+        const existingTier = shippingTiersMap.get(rate.pricingTier);
+        if (existingTier) {
+          existingTier.totalShippingCost += tierCost;
+        } else {
+          shippingTiersMap.set(rate.pricingTier, {
+            name: rate.pricingTier,
+            totalShippingCost: tierCost,
+          });
+        }
+      }
+    };
+
+    const quoteMemo = createCheckoutSummaryTopshipMemo(this.topshipService);
+    const summaryReceiverCity = renterDeliveryAddressSnapshot.city || 'Lagos';
+
+    /** One parallel burst: avoids sequencing outbound quotes before return quotes per bucket (~2× latency). */
+    const sharedReturnPickupPayload = bucketContexts.some(
+      (c) => c.bucketMode === 'RENTAL',
+    )
+      ? {
+          senderDetail: {
+            addressLine1: returnPickupAddressSnapshot.street || 'Lagos',
+            addressLine2: '',
+            country: returnPickupAddressSnapshot.country || 'Nigeria',
+            countryCode: 'NG',
+            state: returnPickupAddressSnapshot.state || 'Lagos',
+            city: returnPickupAddressSnapshot.city || 'Lagos',
+          },
+          pickupDate: new Date().toISOString(),
+        }
+      : null;
+
+    const topShipWarmup: Promise<any[]>[] = [];
+    for (const ctx of bucketContexts) {
+      const senderCity = ctx.curatorAddress?.city || 'Lagos';
+      const pickupPayload = {
+        senderDetail: {
+          addressLine1: ctx.curatorAddress?.street || 'Lagos',
+          addressLine2: '',
+          country: ctx.curatorAddress?.country || 'Nigeria',
+          countryCode: 'NG',
+          state: ctx.curatorAddress?.state || 'Lagos',
+          city: senderCity,
+        },
+        pickupDate: new Date().toISOString(),
+      };
+      const ratePayload = {
+        senderDetails: { cityName: senderCity, countryCode: 'NG' },
+        receiverDetails: {
+          cityName: summaryReceiverCity,
+          countryCode: 'NG',
+        },
+        totalWeight: 1,
+      };
+      topShipWarmup.push(quoteMemo.pickupRates(pickupPayload));
+      topShipWarmup.push(quoteMemo.shipRates(ratePayload));
+      if (ctx.bucketMode === 'RENTAL' && sharedReturnPickupPayload) {
+        topShipWarmup.push(
+          quoteMemo.pickupRates(sharedReturnPickupPayload),
+        );
+        topShipWarmup.push(
+          quoteMemo.shipRates({
+            senderDetails: {
+              cityName: returnPickupAddressSnapshot.city || 'Lagos',
+              countryCode: 'NG',
+            },
+            receiverDetails: { cityName: senderCity, countryCode: 'NG' },
+            totalWeight: 1,
+          }),
+        );
+      }
+    }
+    await Promise.all(topShipWarmup);
+
+    const shippingResults = await Promise.all(
+      bucketContexts.map(async (ctx) => {
+        const senderCity = ctx.curatorAddress?.city || 'Lagos';
+
         const pickupPayload = {
           senderDetail: {
-            addressLine1: data.curatorAddress?.street || 'Lagos',
+            addressLine1: ctx.curatorAddress?.street || 'Lagos',
             addressLine2: '',
-            country: data.curatorAddress?.country || 'Nigeria',
+            country: ctx.curatorAddress?.country || 'Nigeria',
             countryCode: 'NG',
-            state: data.curatorAddress?.state || 'Lagos',
+            state: ctx.curatorAddress?.state || 'Lagos',
             city: senderCity,
           },
           pickupDate: new Date().toISOString(),
         };
-        const pickupData =
-          await this.topshipService.getPickupRates(pickupPayload);
+        const ratePayload = {
+          senderDetails: { cityName: senderCity, countryCode: 'NG' },
+          receiverDetails: {
+            cityName: summaryReceiverCity,
+            countryCode: 'NG',
+          },
+          totalWeight: 1,
+        };
+
+        const [pickupData, rateDataRaw] = await Promise.all([
+          quoteMemo.pickupRates(pickupPayload),
+          quoteMemo.shipRates(ratePayload),
+        ]);
+
+        let pickupChargeRaw = 0;
         if (pickupData && pickupData.length > 0) {
           pickupChargeRaw = Number(pickupData[0].pickupCharge) || 0;
         }
-      } catch (err: any) {
-        console.warn(
-          `Pickup calculation failed for ${senderCity}. Reason:`,
-          err.message,
-        );
-      }
-      const pickupChargeNGN = Math.ceil(pickupChargeRaw / 100);
 
-      let rateData: any[] = [];
-      try {
-        const ratePayload = {
-          senderDetails: { cityName: senderCity, countryCode: 'NG' },
-          receiverDetails: { cityName: receiverCity, countryCode: 'NG' },
-          totalWeight: 1,
-        };
-        rateData = await this.topshipService.getShipmentRate(ratePayload);
-      } catch (err: any) {
-        console.warn(
-          `Shipping calculation failed between ${senderCity} and ${receiverCity}. Reason:`,
-          err.message,
-        );
-      }
+        let rateData =
+          Array.isArray(rateDataRaw) && rateDataRaw.length > 0
+            ? rateDataRaw
+            : [];
 
-      if (!rateData || !rateData.length) {
-        rateData = [
-          { pricingTier: 'Budget', name: 'Standard (Fallback)', cost: 300000 },
-        ];
-      }
+        const pickupChargeNGN = Math.ceil(pickupChargeRaw / 100);
 
-      let returnPickupChargeRaw = 0;
-      let returnRateData: any[] = [];
-      if (data.hasRentalItems) {
-        try {
-          const returnPickupPayload = {
-            senderDetail: {
-              addressLine1: returnPickupAddressSnapshot.street || 'Lagos',
-              addressLine2: '',
-              country: returnPickupAddressSnapshot.country || 'Nigeria',
-              countryCode: 'NG',
-              state: returnPickupAddressSnapshot.state || 'Lagos',
-              city: returnPickupAddressSnapshot.city || 'Lagos',
+        if (!rateData.length) {
+          rateData = [
+            {
+              pricingTier: 'Budget',
+              name: 'Standard (Fallback)',
+              cost: 300000,
             },
-            pickupDate: new Date().toISOString(),
-          };
-          const returnPickupData =
-            await this.topshipService.getPickupRates(returnPickupPayload);
-          if (returnPickupData && returnPickupData.length > 0) {
-            returnPickupChargeRaw =
-              Number(returnPickupData[0].pickupCharge) || 0;
-          }
-        } catch (err: any) {
-          console.warn(
-            `Return pickup calculation failed for renter city ${
-              returnPickupAddressSnapshot.city || 'Lagos'
-            }. Reason:`,
-            err.message,
-          );
+          ];
         }
 
-        try {
+        let returnRateData: any[] = [];
+        let returnPickupChargeNGN = 0;
+
+        if (ctx.bucketMode === 'RENTAL') {
           const returnRatePayload = {
             senderDetails: {
               cityName: returnPickupAddressSnapshot.city || 'Lagos',
@@ -667,135 +960,127 @@ export class OrderService {
             receiverDetails: { cityName: senderCity, countryCode: 'NG' },
             totalWeight: 1,
           };
-          returnRateData = await this.topshipService.getShipmentRate(
-            returnRatePayload,
-          );
-        } catch (err: any) {
-          console.warn(
-            `Return shipping calculation failed between ${
-              returnPickupAddressSnapshot.city || 'Lagos'
-            } and ${senderCity}. Reason:`,
-            err.message,
-          );
-        }
 
-        if (!returnRateData || !returnRateData.length) {
-          returnRateData = [
-            {
-              pricingTier: 'Budget',
-              name: 'Standard (Fallback)',
-              cost: 300000,
-            },
-          ];
-        }
-      }
+          const [returnPickupArr, returnRateArrRaw] = await Promise.all([
+            quoteMemo.pickupRates(sharedReturnPickupPayload!),
+            quoteMemo.shipRates(returnRatePayload),
+          ]);
 
-      const returnPickupChargeNGN = Math.ceil(returnPickupChargeRaw / 100);
+          if (returnPickupArr && returnPickupArr.length > 0) {
+            const raw = Number(returnPickupArr[0].pickupCharge) || 0;
+            returnPickupChargeNGN = Math.ceil(raw / 100);
+          }
 
-      return {
-        listerId: data.listerId,
-        pickupChargeNGN,
-        rateData,
-        returnPickupChargeNGN,
-        returnRateData,
-      };
-    });
+          returnRateData =
+            Array.isArray(returnRateArrRaw) && returnRateArrRaw.length > 0
+              ? returnRateArrRaw
+              : [];
 
-    const shippingResults = await Promise.all(shippingPromises);
-
-    // Process shipping results and calculate final totals
-    for (const result of shippingResults) {
-      const lister = listerData.find((l) => l.listerId === result.listerId);
-      if (!lister) continue;
-
-      const { pickupChargeNGN, rateData, returnPickupChargeNGN, returnRateData } =
-        result;
-      const preferredTierOrder = ['chowdeck', 'glovo'];
-      const preferredTierIndex = new Map(
-        preferredTierOrder.map((t, i) => [t, i] as const),
-      );
-      const pickPreferredRate = (rates: any[]) => {
-        const list = Array.isArray(rates) ? rates : [];
-        for (const name of preferredTierOrder) {
-          const found = list.find(
-            (r) =>
-              String(r?.pricingTier ?? '')
-                .trim()
-                .toLowerCase() === name,
-          );
-          if (found) return found;
-        }
-        return (
-          list
-            .slice()
-            .sort((a, b) => Number(a?.cost ?? 0) - Number(b?.cost ?? 0))[0] ||
-          null
-        );
-      };
-      const preferredRate = pickPreferredRate(rateData);
-      const preferredShipping = Math.ceil(
-        (preferredRate?.cost || 300000) / 100,
-      );
-      const hasRentalItems = lister.hasRentalItems;
-      let preferredReturnShipping = 0;
-      if (hasRentalItems) {
-        const preferredReturnRate =
-          this.findRateByTier(returnRateData, preferredRate?.pricingTier) ||
-          pickPreferredRate(returnRateData);
-        preferredReturnShipping = Math.ceil(
-          (preferredReturnRate?.cost || 300000) / 100,
-        );
-      }
-      const totalShippingCostForLister =
-        preferredShipping + preferredReturnShipping;
-      const totalPickupCostForLister =
-        pickupChargeNGN + (hasRentalItems ? returnPickupChargeNGN : 0);
-
-      // Aggregate shipping tiers globally
-      const accumulateTierCosts = (rates: any[]) => {
-        for (const rate of rates) {
-          if (!rate?.pricingTier) continue;
-          const tierCost = Math.ceil((rate.cost || 300000) / 100);
-          const existingTier = shippingTiersMap.get(rate.pricingTier);
-          if (existingTier) {
-            existingTier.totalShippingCost += tierCost;
-          } else {
-            shippingTiersMap.set(rate.pricingTier, {
-              name: rate.pricingTier,
-              totalShippingCost: tierCost,
-            });
+          if (!returnRateData.length) {
+            returnRateData = [
+              {
+                pricingTier: 'Budget',
+                name: 'Standard (Fallback)',
+                cost: 300000,
+              },
+            ];
           }
         }
-      };
 
-      accumulateTierCosts(rateData);
-      if (hasRentalItems) {
-        accumulateTierCosts(returnRateData);
-      }
+        const preferredRate = pickPreferredRateSummary(rateData);
+        const preferredShipping = Math.ceil(
+          (preferredRate?.cost || 300000) / 100,
+        );
 
-      const listerGrandTotal =
-        lister.listerRentalTotal +
-        lister.listerCollateralTotal +
-        lister.listerCleaningTotal +
-        lister.listerPurchaseTotal +
-        totalShippingCostForLister +
-        totalPickupCostForLister +
-        lister.listerVatTotal +
-        lister.listerServiceChargeTotal;
+        let preferredReturnShipping = 0;
+        if (ctx.bucketMode === 'RENTAL') {
+          const preferredReturnRate =
+            this.findRateByTier(returnRateData, preferredRate?.pricingTier) ||
+            pickPreferredRateSummary(returnRateData);
+          preferredReturnShipping = Math.ceil(
+            (preferredReturnRate?.cost || 300000) / 100,
+          );
+        }
 
+        return {
+          listerId: ctx.listerId,
+          listerName: ctx.listerName,
+          bucketMode: ctx.bucketMode,
+          productIds: ctx.items.map((i: any) => i.product?.id),
+          outboundDeliveryWindow:
+            ctx.outboundWindow &&
+            ({
+              start: ctx.outboundWindow.start.toISOString(),
+              end: ctx.outboundWindow.end.toISOString(),
+            } as const),
+          returnPickupWindow:
+            ctx.returnWindow &&
+            ({
+              start: ctx.returnWindow.start.toISOString(),
+              end: ctx.returnWindow.end.toISOString(),
+            } as const),
+          resaleDeliveryWindow:
+            ctx.resaleWindow &&
+            ({
+              start: ctx.resaleWindow.start.toISOString(),
+              end: ctx.resaleWindow.end.toISOString(),
+            } as const),
+          pickupChargeNGN,
+          preferredShipping,
+          preferredReturnShipping,
+          returnPickupChargeNGN,
+          rateData,
+          returnRateData,
+        };
+      }),
+    );
+
+    const shipmentBuckets = shippingResults.map((r) => ({
+      listerId: r.listerId,
+      listerName: r.listerName,
+      bucketMode: r.bucketMode,
+      productIds: r.productIds,
+      outboundDeliveryWindow: r.outboundDeliveryWindow,
+      returnPickupWindow: r.returnPickupWindow,
+      resaleDeliveryWindow: r.resaleDeliveryWindow,
+      outboundShippingCost: r.preferredShipping,
+      returnShippingCost:
+        r.bucketMode === 'RENTAL' ? r.preferredReturnShipping : 0,
+      outboundPickupCost: r.pickupChargeNGN,
+      returnPickupCost:
+        r.bucketMode === 'RENTAL' ? r.returnPickupChargeNGN : 0,
+    }));
+
+    for (const lister of listerData) {
       globalRentalTotal += lister.listerRentalTotal;
       globalCollateralTotal += lister.listerCollateralTotal;
       globalCleaningTotal += lister.listerCleaningTotal;
-      globalPickupTotal += totalPickupCostForLister;
-      globalOutboundShippingTotal += preferredShipping;
-      globalReturnShippingTotal += preferredReturnShipping;
-      globalOutboundPickupTotal += pickupChargeNGN;
-      globalReturnPickupTotal += hasRentalItems ? returnPickupChargeNGN : 0;
       globalVatTotal += lister.listerVatTotal;
       globalServiceChargeTotal += lister.listerServiceChargeTotal;
       globalPurchaseTotal += lister.listerPurchaseTotal;
+    }
 
-      listerBreakdowns.push({
+    const breakdownByLister = new Map<
+      string,
+      {
+        listerId: string;
+        listerName: string;
+        itemsCount: number;
+        rentalTotal: number;
+        collateralTotal: number;
+        cleaningTotal: number;
+        purchaseTotal: number;
+        outboundShippingCost: number;
+        returnShippingCost: number;
+        outboundPickupCost: number;
+        returnPickupCost: number;
+        serviceCharge: number;
+        vatAmount: number;
+      }
+    >();
+
+    for (const lister of listerData) {
+      breakdownByLister.set(lister.listerId, {
         listerId: lister.listerId,
         listerName: lister.items[0]?.product?.curator?.name || 'Unknown',
         itemsCount: lister.items.length,
@@ -803,15 +1088,72 @@ export class OrderService {
         collateralTotal: lister.listerCollateralTotal,
         cleaningTotal: lister.listerCleaningTotal,
         purchaseTotal: lister.listerPurchaseTotal,
-        shippingCost: totalShippingCostForLister,
-        pickupCost: totalPickupCostForLister,
-        outboundShippingCost: preferredShipping,
-        returnShippingCost: preferredReturnShipping,
-        outboundPickupCost: pickupChargeNGN,
-        returnPickupCost: hasRentalItems ? returnPickupChargeNGN : 0,
+        outboundShippingCost: 0,
+        returnShippingCost: 0,
+        outboundPickupCost: 0,
+        returnPickupCost: 0,
         serviceCharge: lister.listerServiceChargeTotal,
         vatAmount: lister.listerVatTotal,
-        listerGrandTotal,
+      });
+    }
+
+    for (const result of shippingResults) {
+      accumulateTierCosts(result.rateData);
+      if (result.bucketMode === 'RENTAL') {
+        accumulateTierCosts(result.returnRateData);
+      }
+
+      globalPickupTotal +=
+        result.pickupChargeNGN +
+        (result.bucketMode === 'RENTAL' ? result.returnPickupChargeNGN : 0);
+      globalOutboundShippingTotal += result.preferredShipping;
+      globalReturnShippingTotal +=
+        result.bucketMode === 'RENTAL' ? result.preferredReturnShipping : 0;
+      globalOutboundPickupTotal += result.pickupChargeNGN;
+      globalReturnPickupTotal +=
+        result.bucketMode === 'RENTAL' ? result.returnPickupChargeNGN : 0;
+
+      const agg = breakdownByLister.get(result.listerId);
+      if (agg) {
+        agg.outboundShippingCost += result.preferredShipping;
+        agg.returnShippingCost +=
+          result.bucketMode === 'RENTAL' ? result.preferredReturnShipping : 0;
+        agg.outboundPickupCost += result.pickupChargeNGN;
+        agg.returnPickupCost +=
+          result.bucketMode === 'RENTAL' ? result.returnPickupChargeNGN : 0;
+      }
+    }
+
+    for (const lister of listerData) {
+      const row = breakdownByLister.get(lister.listerId)!;
+      const shippingCost =
+        row.outboundShippingCost + row.returnShippingCost;
+      const pickupCost = row.outboundPickupCost + row.returnPickupCost;
+      listerBreakdowns.push({
+        listerId: row.listerId,
+        listerName: row.listerName,
+        itemsCount: row.itemsCount,
+        rentalTotal: row.rentalTotal,
+        collateralTotal: row.collateralTotal,
+        cleaningTotal: row.cleaningTotal,
+        purchaseTotal: row.purchaseTotal,
+        shippingCost,
+        pickupCost,
+        outboundShippingCost: row.outboundShippingCost,
+        returnShippingCost: row.returnShippingCost,
+        outboundPickupCost: row.outboundPickupCost,
+        returnPickupCost: row.returnPickupCost,
+        serviceCharge: row.serviceCharge,
+        vatAmount: row.vatAmount,
+        listerGrandTotal:
+          row.rentalTotal +
+          row.collateralTotal +
+          row.cleaningTotal +
+          row.purchaseTotal +
+          shippingCost +
+          pickupCost +
+          row.vatAmount +
+          row.serviceCharge,
       });
     }
 
@@ -870,6 +1212,7 @@ export class OrderService {
         },
         shippingTiers,
         listerBreakdowns,
+        shipmentBuckets,
       },
     };
   }
@@ -984,22 +1327,24 @@ export class OrderService {
     let totalCollateral = 0;
     const listerOrdersData: any[] = [];
 
-    // Calculate totals and shipping for each lister
+    // Calculate totals and shipping per schedule bucket (multiple legs per lister when dates differ)
     for (const [listerId, items] of itemsByLister.entries()) {
-      let listerItemsTotal = 0;
-      let listerRentalAndCleaning = 0;
-      let listerCollateralTotal = 0;
-      let listerVatTotal = 0;
-      let listerServiceChargeTotal = 0;
-      let curatorAddress: any = null;
-      const hasRentalItems = items.some(
-        (item) =>
-          item.days > 0 &&
-          (item.product.listingType === 'RENTAL' ||
-            item.product.listingType === 'RENT_OR_RESALE'),
+      const scheduleBuckets = this.buildShipmentBucketsForLister(
+        items,
+        dispatchWindowsInput,
       );
 
-      for (const item of items) {
+      for (const bucket of scheduleBuckets) {
+        const bucketItems = bucket.items;
+        let listerItemsTotal = 0;
+        let listerRentalAndCleaning = 0;
+        let listerCollateralTotal = 0;
+        let listerVatTotal = 0;
+        let listerServiceChargeTotal = 0;
+        let curatorAddress: any = null;
+        const hasRentalBucket = bucket.bucketMode === 'RENTAL';
+
+      for (const item of bucketItems) {
         // Check product is active, verified, and not sold
         if (!item.product.isActive) bad(`${item.product.name} is not active`);
         if (!item.product.productVerified)
@@ -1099,55 +1444,9 @@ export class OrderService {
       }
       totalCollateral += listerCollateralTotal;
 
-      let outboundWindow: { start: Date; end: Date } | null = null;
-      let returnWindow: { start: Date; end: Date } | null = null;
-      let resaleWindow: { start: Date; end: Date } | null = null;
-
-      const firstWithWindows = items.find((it: any) => it.dispatchWindows);
-      const dispatchMap = firstWithWindows?.dispatchWindows as
-        | DispatchWindowRangeMap
-        | undefined;
-      const rentalLine = items.find(
-        (it: any) =>
-          it.days > 0 &&
-          (it.product.listingType === 'RENTAL' ||
-            it.product.listingType === 'RENT_OR_RESALE'),
-      );
-      const rentalStart = rentalLine?.startDate
-        ? new Date(rentalLine.startDate)
-        : new Date();
-      const rentalEnd = rentalLine?.endDate
-        ? new Date(rentalLine.endDate)
-        : addDays(rentalStart, rentalLine?.days ?? 1);
-
-      if (hasRentalItems) {
-        outboundWindow = this.resolveDispatchWindow(
-          'OUTBOUND',
-          rentalStart,
-          dispatchWindowsInput,
-          dispatchMap?.OUTBOUND,
-        );
-        returnWindow = this.resolveDispatchWindow(
-          'RETURN',
-          rentalEnd,
-          dispatchWindowsInput,
-          dispatchMap?.RETURN,
-        );
-      } else {
-        const hasResaleLines = items.some(
-          (it: any) =>
-            it.product.listingType === 'RESALE' ||
-            (it.product.listingType === 'RENT_OR_RESALE' && it.days === 0),
-        );
-        if (hasResaleLines) {
-          resaleWindow = this.resolveDispatchWindow(
-            'RESALE',
-            new Date(),
-            dispatchWindowsInput,
-            dispatchMap?.RESALE,
-          );
-        }
-      }
+      const outboundWindow = bucket.outboundWindow;
+      const returnWindow = bucket.returnWindow;
+      const resaleWindow = bucket.resaleWindow;
 
       // Calculate shipping & pickup
       // Provide fallback cities if missing in testing
@@ -1235,7 +1534,7 @@ export class OrderService {
       let returnPickupCostNGN = 0;
       let returnPickupId = '';
       let returnPickupPartner = 'Standard';
-      if (hasRentalItems) {
+      if (hasRentalBucket) {
         try {
           const returnPickupPayload = {
             senderDetail: {
@@ -1299,8 +1598,8 @@ export class OrderService {
             } and ${senderCity}. Reason:`,
             err.message,
           );
-          returnShippingCost = hasRentalItems ? 3000 : 0;
-          if (hasRentalItems) {
+          returnShippingCost = hasRentalBucket ? 3000 : 0;
+          if (hasRentalBucket) {
             returnShipmentChargeRaw = 300000;
             returnShipmentVatChargeRaw = Math.ceil(returnShipmentChargeRaw * 0.075);
           }
@@ -1317,7 +1616,8 @@ export class OrderService {
 
       listerOrdersData.push({
         listerId,
-        items,
+        bucketMode: bucket.bucketMode,
+        items: bucketItems,
         listerGrandTotal,
         listerRentalAndCleaning,
         listerCollateralTotal,
@@ -1343,6 +1643,7 @@ export class OrderService {
         returnWindow,
         resaleWindow,
       });
+      }
     }
 
     if (wallet.mainBalance < grandTotal) {
@@ -1574,6 +1875,8 @@ export class OrderService {
           },
         });
 
+        const cartItemIdToOrderItemId = new Map<string, string>();
+
         // Create order items for all items
         for (const item of eligibleItems) {
           const isResalePurchase =
@@ -1585,7 +1888,7 @@ export class OrderService {
                 item.product.collateralPrice || item.product.originalValue,
               ) || 0;
 
-          await tx.orderItem.create({
+          const createdOi = await tx.orderItem.create({
             data: {
               orderId: order.id,
               productId: item.product.id,
@@ -1599,6 +1902,7 @@ export class OrderService {
               collateralFee,
             } as any,
           });
+          cartItemIdToOrderItemId.set(item.id, createdOi.id);
         }
 
         for (const item of eligibleItems) {
@@ -1659,8 +1963,33 @@ export class OrderService {
           }
         }
 
-        // Create escrows per lister (one escrow per lister per order)
-        for (const listerData of listerOrdersData) {
+        // Create escrows per lister (one escrow per lister per order); merge shipment buckets per curator
+        const escrowMergedByLister = new Map<
+          string,
+          {
+            listerId: string;
+            items: any[];
+            listerRentalAndCleaning: number;
+            listerCollateralTotal: number;
+          }
+        >();
+        for (const ld of listerOrdersData) {
+          let row = escrowMergedByLister.get(ld.listerId);
+          if (!row) {
+            row = {
+              listerId: ld.listerId,
+              items: [],
+              listerRentalAndCleaning: 0,
+              listerCollateralTotal: 0,
+            };
+            escrowMergedByLister.set(ld.listerId, row);
+          }
+          row.items.push(...ld.items);
+          row.listerRentalAndCleaning += ld.listerRentalAndCleaning ?? 0;
+          row.listerCollateralTotal += ld.listerCollateralTotal ?? 0;
+        }
+
+        for (const listerData of escrowMergedByLister.values()) {
           const isResaleOrder = listerData.items.some(
             (item) =>
               item.product.listingType === 'RESALE' ||
@@ -1754,14 +2083,44 @@ export class OrderService {
         }
 
         for (const ld of listerOrdersData) {
-          shipmentDispatchPlan.push(
-            ...(await this.createCheckoutShipments(
-              tx,
-              order.id,
-              ld,
-              renterDeliveryAddressSnapshot,
-            )),
+          const createdShipments = await this.createCheckoutShipments(
+            tx,
+            order.id,
+            ld,
+            renterDeliveryAddressSnapshot,
           );
+          shipmentDispatchPlan.push(
+            ...createdShipments.map((s) => ({
+              id: s.id,
+              immediate: s.immediate,
+            })),
+          );
+
+          const outboundId = createdShipments.find((s) => s.type === 'OUTBOUND')
+            ?.id;
+          const returnId = createdShipments.find((s) => s.type === 'RETURN')
+            ?.id;
+          const resaleId = createdShipments.find((s) => s.type === 'RESALE')
+            ?.id;
+
+          for (const cartLine of ld.items) {
+            const oiId = cartItemIdToOrderItemId.get(cartLine.id);
+            if (!oiId) continue;
+            await tx.orderItem.update({
+              where: { id: oiId },
+              data: {
+                ...(ld.bucketMode === 'RENTAL'
+                  ? {
+                      outboundShipmentId: outboundId ?? null,
+                      returnShipmentId: returnId ?? null,
+                    }
+                  : {}),
+                ...(ld.bucketMode === 'RESALE'
+                  ? { resaleShipmentId: resaleId ?? null }
+                  : {}),
+              },
+            });
+          }
         }
       });
 
@@ -1789,10 +2148,25 @@ export class OrderService {
     }
 
     try {
-      for (const listerData of listerOrdersData) {
-        const lister = listerData.items[0]?.product?.curator;
+      const notifyMergedByLister = new Map<
+        string,
+        { items: any[]; listerRentalAndCleaning: number }
+      >();
+      for (const ld of listerOrdersData) {
+        let row = notifyMergedByLister.get(ld.listerId);
+        if (!row) {
+          row = { items: [], listerRentalAndCleaning: 0 };
+          notifyMergedByLister.set(ld.listerId, row);
+        }
+        row.items.push(...ld.items);
+        row.listerRentalAndCleaning += ld.listerRentalAndCleaning ?? 0;
+      }
+
+      for (const listerNotify of notifyMergedByLister.values()) {
+        const mergedItems = listerNotify.items;
+        const lister = mergedItems[0]?.product?.curator;
         if (lister?.email) {
-          const rentalLines = listerData.items.filter(
+          const rentalLines = mergedItems.filter(
             (item: any) =>
               item.days > 0 &&
               (item.product.listingType === 'RENTAL' ||
@@ -1802,10 +2176,10 @@ export class OrderService {
             rentalLines.length * DEFAULT_CLEANING_FEE_NGN;
           const listerRentalSubtotal = Math.max(
             0,
-            (listerData.listerRentalAndCleaning || 0) -
+            (listerNotify.listerRentalAndCleaning || 0) -
               listerCleaningFeesTotal,
           );
-          const listerResaleSubtotal = listerData.items.reduce(
+          const listerResaleSubtotal = mergedItems.reduce(
             (sum: number, item: any) => {
               const isResale =
                 item.product.listingType === 'RESALE' ||
@@ -1822,11 +2196,11 @@ export class OrderService {
 
           const hasRentalForLister = rentalLines.length > 0;
           const outboundWin = hasRentalForLister
-            ? this.pickRequestedWindow(listerData.items, 'OUTBOUND')
+            ? this.pickRequestedWindow(mergedItems, 'OUTBOUND')
             : null;
           const resaleWin =
             !hasRentalForLister &&
-            this.pickRequestedWindow(listerData.items, 'RESALE');
+            this.pickRequestedWindow(mergedItems, 'RESALE');
           const dispatchWin = outboundWin || resaleWin || null;
           let dispatchWindowTitle = '';
           let dispatchWindowText: string | null = null;
@@ -1880,7 +2254,7 @@ export class OrderService {
           await this.notificationService.createNotification({
             userId: lister.id,
             title: 'New Order Received',
-            message: `You have a new order: ${order.orderId}. ${listerData.items.length} item(s) rented/purchased.`,
+            message: `You have a new order: ${order.orderId}. ${mergedItems.length} item(s) rented/purchased.`,
             type: 'ORDER_CONFIRMED',
             metadata: { orderId: order.id, orderNumber: order.orderId },
             sendEmail: true,
@@ -1899,7 +2273,7 @@ export class OrderService {
               listerMerchandiseTotal,
               dispatchWindowTitle,
               dispatchWindowText,
-              items: listerData.items.map((item: any) => {
+              items: mergedItems.map((item: any) => {
                 const daily = item.product?.dailyPrice || 0;
                 const resale = item.product?.resalePrice || 0;
                 const isRental =
