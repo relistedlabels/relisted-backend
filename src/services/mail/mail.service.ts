@@ -576,6 +576,69 @@ export class MailService {
     });
   }
 
+  async sendAdminManualFulfillmentShipmentAlert(dto: {
+    to: string;
+    humanOrderId: string;
+    shipmentId: string;
+    adminShipmentUrl: string;
+  }) {
+    const { to, humanOrderId, shipmentId, adminShipmentUrl } = dto;
+    console.log(
+      `[EMAIL] Sending admin manual fulfillment alert to ${to} for shipment ${shipmentId}`,
+    );
+
+    const linkBlock = adminShipmentUrl
+      ? `<div style="margin-top:18px;">
+        <a href="${adminShipmentUrl}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">
+          Open shipment in admin
+        </a>
+        <div style="margin-top:10px;font-size:12px;color:#6b7280;">
+          If the button does not work, open: <span style="color:#111827;">${adminShipmentUrl}</span>
+        </div>
+      </div>`
+      : '';
+
+    const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f6f7fb;padding:24px;">
+  <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
+    <div style="padding:18px 20px;background:#1d4ed8;color:#ffffff;">
+      <div style="font-size:14px;opacity:0.9;">Relisted Admin</div>
+      <div style="font-size:18px;font-weight:700;margin-top:6px;">Manual dispatch needed</div>
+    </div>
+    <div style="padding:20px;">
+      <p style="margin:0 0 16px;color:#374151;">A renter checked out with <strong>Relisted dispatch</strong> (no automated Topship quote for this route). Arrange pickup or a rider, then mark the shipment as dispatched in admin.</p>
+      <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Order</div>
+            <div style="font-weight:600;">${humanOrderId}</div>
+          </div>
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Shipment ID</div>
+            <div style="font-weight:600;">${shipmentId}</div>
+          </div>
+        </div>
+      </div>
+      ${linkBlock}
+    </div>
+  </div>
+</div>`;
+
+    if (this.devBypass) {
+      await this.handleDevBypassHtml(
+        `Manual dispatch: ${humanOrderId}`,
+        html,
+        to,
+      );
+      return;
+    }
+
+    await this.mailerService.sendMail({
+      to,
+      subject: `Manual dispatch: order ${humanOrderId}`,
+      html,
+    });
+  }
+
   async sendAdminShipmentCancelledAlert(dto: {
     to: string;
     shipmentId: string;

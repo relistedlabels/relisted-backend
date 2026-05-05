@@ -1,8 +1,9 @@
-import { Controller, Get, Post, Param, Query } from '@nestjs/common';
+import { Body, Controller, Get, Post, Param, Query } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { ShipmentService } from './shipment.service';
 import { ListShipmentsDto } from './dto/list-shipments.dto';
-import { Auth, AuthUser } from '../auth/decorator/auth.decorator';
+import { ManualCompleteShipmentDto } from './dto/manual-complete-shipment.dto';
+import { Auth } from '../auth/decorator/auth.decorator';
 
 @Controller()
 export class ShipmentController {
@@ -48,5 +49,14 @@ export class ShipmentController {
   @Post('shipments/:id/redispatch')
   redispatch(@Param('id') id: string) {
     return this.shipmentService.redispatch(id);
+  }
+
+  @Auth([Role.ADMIN])
+  @Post('shipments/:id/manual-complete')
+  completeManualFulfillment(
+    @Param('id') id: string,
+    @Body() dto: ManualCompleteShipmentDto,
+  ) {
+    return this.shipmentService.completeManualFulfillment(id, dto);
   }
 }

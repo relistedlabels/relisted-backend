@@ -80,6 +80,19 @@ export class ShipmentDispatchProcessor {
       return;
     }
 
+    if (shipment.manualFulfillment) {
+      this.logger.warn(
+        `[Worker] Shipment ${shipmentId} is manual Relisted dispatch — skipping Topship (reset DISPATCHING if needed)`,
+      );
+      if (shipment.status === 'DISPATCHING') {
+        await this.prisma.shipment.update({
+          where: { id: shipmentId },
+          data: { status: 'PENDING' },
+        });
+      }
+      return;
+    }
+
     if (shipment.type === 'RETURN') {
       const returnRequest = await this.prisma.returnRequest.findFirst({
         where: { orderId: shipment.orderId },

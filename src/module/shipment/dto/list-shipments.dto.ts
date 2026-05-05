@@ -1,5 +1,6 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsEnum,
   IsOptional,
   IsString,
@@ -30,6 +31,15 @@ export class ListShipmentsDto {
   @IsOptional()
   @IsString()
   orderId?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === 'true' || value === true) return true;
+    if (value === 'false' || value === false) return false;
+    return undefined;
+  })
+  @IsBoolean()
+  manualFulfillment?: boolean;
 
   @IsOptional()
   @Type(() => Number)
