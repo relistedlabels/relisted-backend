@@ -1323,6 +1323,93 @@ export class ListersService {
     }
   }
 
+  /**
+   * POST /api/listers/orders/:orderId/nudge-renter
+   * In-app ping when an availability request is EXPIRED so the renter can re-request or hear the item is still available.
+   */
+  async nudgeRenterForAvailabilityRequest(
+    user: userEntity,
+    requestId: string,
+    intent: 'rerequest' | 'now_available',
+  ) {
+    if (intent !== 'rerequest' && intent !== 'now_available') {
+      throw new BadRequestException(
+        'intent must be "rerequest" or "now_available"',
+      );
+    }
+
+    try {
+      const request = await this.prisma.availabilityRequest.findUnique({
+        where: { id: requestId },
+        include: { product: true, requester: true },
+      });
+
+      if (!request) {
+        throw new NotFoundException('Request not found');
+      }
+      if (request.listerId !== user.id) {
+        throw new ForbiddenException('You do not have access to this request');
+      }
+      if (request.status !== 'EXPIRED') {
+        throw new BadRequestException(
+          'Reminders can only be sent for expired availability requests.',
+        );
+      }
+
+      const productName = request.product?.name ?? 'this item';
+      const isPurchaseRequest = (request.rentalDays ?? 0) === 0;
+      const listerName = user.name || 'The curator';
+
+      if (intent === 'rerequest') {
+        await this.notificationService.createNotification({
+          userId: request.requesterId,
+          title: isPurchaseRequest
+            ? 'Curator asked you to send a new purchase request'
+            : 'Curator asked you to send a new rental request',
+          message: `${listerName} could not respond in time earlier. If you still want ${productName}, open your cart and tap Request approval again.`,
+          type: 'AVAILABILITY_REQUEST_REMINDER',
+          metadata: {
+            requestId: request.id,
+            productId: request.productId,
+            intent: 'rerequest',
+          },
+          sendEmail: false,
+        });
+      } else {
+        await this.notificationService.createNotification({
+          userId: request.requesterId,
+          title: isPurchaseRequest
+            ? 'Curator says the item may still be available'
+            : 'Curator says the rental may still be available',
+          message: `${listerName} is ready when you are. If you still want ${productName}, open your cart and send a new availability request.`,
+          type: 'AVAILABILITY_REQUEST_REMINDER',
+          metadata: {
+            requestId: request.id,
+            productId: request.productId,
+            intent: 'now_available',
+          },
+          sendEmail: false,
+        });
+      }
+
+      return {
+        success: true,
+        message: 'Renter notified',
+        data: { requestId: request.id, intent },
+      };
+    } catch (e) {
+      if (
+        e instanceof NotFoundException ||
+        e instanceof ForbiddenException ||
+        e instanceof BadRequestException
+      ) {
+        throw e;
+      }
+      console.error('nudgeRenterForAvailabilityRequest error:', e);
+      throw new InternalServerErrorException('Failed to notify renter');
+    }
+  }
+
   /** PUT /api/listers/orders/:orderId/status
    *  Generic status update through the order lifecycle.
    *  Dispatch / tracking integration is left as a placeholder.

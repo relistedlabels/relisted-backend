@@ -262,6 +262,40 @@ export class ListersController {
     return this.listersService.rejectOrder(user, orderId, body);
   }
 
+  @Auth([Role.LISTER, Role.ADMIN])
+  @Post('orders/:orderId/nudge-renter')
+  @ApiOperation({
+    summary:
+      'Notify renter about an expired availability request (re-request vs still available)',
+  })
+  @ApiParam({ name: 'orderId', description: 'Availability request id (REQ row)' })
+  @ApiBody({
+    schema: {
+      properties: {
+        intent: {
+          type: 'string',
+          enum: ['rerequest', 'now_available'],
+        },
+      },
+      required: ['intent'],
+    },
+  })
+  @ApiResponse({ status: 200, description: 'In-app notification created' })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  @ApiForbiddenResponse({ description: 'Forbidden' })
+  @ApiNotFoundResponse({ description: 'Request not found' })
+  nudgeRenterForAvailabilityRequest(
+    @AuthUser() user: userEntity,
+    @Param('orderId') orderId: string,
+    @Body() body: { intent: 'rerequest' | 'now_available' },
+  ) {
+    return this.listersService.nudgeRenterForAvailabilityRequest(
+      user,
+      orderId,
+      body?.intent,
+    );
+  }
+
   // 11. Update order status through lifecycle
   @Auth([Role.LISTER, Role.ADMIN])
   @Put('orders/:orderId/status')

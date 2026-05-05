@@ -16,6 +16,7 @@ import {
   DispatchWindowsInput,
   applyRangeMapToData,
   availabilityRequestWindowFieldMap,
+  buildDefaultDispatchWindow,
   extractRangeMapFromEntity,
   isWindowExpired,
   parseDispatchWindowFromInput,
@@ -76,6 +77,43 @@ export class CartService {
     return required;
   }
 
+  /** Prefer rental dates when still in the future; otherwise anchor defaults to now. */
+  private basesForReactivatedDispatchWindows(
+    existing: { startDate: Date | null; endDate: Date | null },
+    now: Date,
+  ) {
+    const start = existing.startDate;
+    const end = existing.endDate;
+    return {
+      outbound: start && start.getTime() > now.getTime() ? start : now,
+      returnLeg: end && end.getTime() > now.getTime() ? end : now,
+      resale: now,
+    };
+  }
+
+  /** Stale windows trip renter-side expiry (window end in the past); refresh before PENDING. */
+  private refreshExpiredDispatchWindowsOnReactivate(
+    requiredTypes: DispatchWindowType[],
+    windowMap: DispatchWindowRangeMap,
+    bases: { outbound: Date; returnLeg: Date; resale: Date },
+    now: Date,
+  ): DispatchWindowRangeMap {
+    const next: DispatchWindowRangeMap = { ...windowMap };
+    for (const type of requiredTypes) {
+      const w = next[type];
+      if (!w || isWindowExpired(w, now)) {
+        if (type === 'OUTBOUND') {
+          next[type] = buildDefaultDispatchWindow(bases.outbound);
+        } else if (type === 'RETURN') {
+          next[type] = buildDefaultDispatchWindow(bases.returnLeg);
+        } else {
+          next[type] = buildDefaultDispatchWindow(bases.resale);
+        }
+      }
+    }
+    return next;
+  }
+
   private buildDispatchWindowRangeMapForRequest(
     requiredTypes: DispatchWindowType[],
     manual?: DispatchWindowsInput,
@@ -134,16 +172,23 @@ export class CartService {
 
     if (existingExpired) {
       // Reactivate expired request - reset to PENDING with new timer
-      const expiresAt = addMinutes(new Date(), 15);
+      const now = new Date();
+      const expiresAt = addMinutes(now, 15);
 
       const persistedWindows = extractRangeMapFromEntity(
         existingExpired,
         availabilityRequestWindowFieldMap,
       );
-      const windowMap = this.buildDispatchWindowRangeMapForRequest(
+      let windowMap = this.buildDispatchWindowRangeMapForRequest(
         requiredWindowTypes,
         dispatchWindowsInput,
         persistedWindows,
+      );
+      windowMap = this.refreshExpiredDispatchWindowsOnReactivate(
+        requiredWindowTypes,
+        windowMap,
+        this.basesForReactivatedDispatchWindows(existingExpired, now),
+        now,
       );
       const windowData = applyRangeMapToData(
         windowMap,
