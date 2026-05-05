@@ -403,8 +403,17 @@ model OrderItem {
   collateralFee Int?
   imageUrl      String?
   rentalFee     Int?
-  order         Order   @relation(fields: [orderId], references: [id])
-  product       Product @relation(fields: [productId], references: [id])
+  /// Checkout shipment leg for rental outbound (lister → renter).
+  outboundShipmentId String?
+  /// Checkout shipment leg for rental return (renter → lister).
+  returnShipmentId   String?
+  /// Checkout shipment leg for resale delivery (lister → buyer).
+  resaleShipmentId   String?
+  order              Order    @relation(fields: [orderId], references: [id])
+  product            Product  @relation(fields: [productId], references: [id])
+  outboundShipment   Shipment? @relation("OrderItemOutboundShipment", fields: [outboundShipmentId], references: [id])
+  returnShipment     Shipment? @relation("OrderItemReturnShipment", fields: [returnShipmentId], references: [id])
+  resaleShipment     Shipment? @relation("OrderItemResaleShipment", fields: [resaleShipmentId], references: [id])
 }
 
 model Rental {
@@ -866,6 +875,8 @@ model Shipment {
   pickupId             String?
   /// Single-line receiver address captured at checkout (for admin / Topship); not the pickup-partner hub string from rate APIs
   deliveryLocation     String?
+  /// Relisted dispatch fallback: skip automated Topship booking until an admin marks dispatched.
+  manualFulfillment    Boolean              @default(false)
   dispatchAttempts     Int                  @default(0)
   dispatchedAt         DateTime?
   createdAt            DateTime             @default(now())
@@ -873,6 +884,9 @@ model Shipment {
   order                Order                @relation(fields: [orderId], references: [id])
   attemptLogs          DispatchAttemptLog[]
   returnRequests       ReturnRequest[]
+  orderItemsOutbound   OrderItem[] @relation("OrderItemOutboundShipment")
+  orderItemsReturn     OrderItem[] @relation("OrderItemReturnShipment")
+  orderItemsResale     OrderItem[] @relation("OrderItemResaleShipment")
 
   @@index([scheduledDate, status])
 }

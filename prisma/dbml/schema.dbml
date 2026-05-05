@@ -389,8 +389,14 @@ Table OrderItem {
   collateralFee Int
   imageUrl String
   rentalFee Int
+  outboundShipmentId String [note: 'Checkout shipment leg for rental outbound (lister → renter).']
+  returnShipmentId String [note: 'Checkout shipment leg for rental return (renter → lister).']
+  resaleShipmentId String [note: 'Checkout shipment leg for resale delivery (lister → buyer).']
   order Order [not null]
   product Product [not null]
+  outboundShipment Shipment
+  returnShipment Shipment
+  resaleShipment Shipment
 }
 
 Table Rental {
@@ -725,6 +731,7 @@ Table Shipment {
   pickupPartner String [note: 'Topship pickup partner captured at checkout (e.g. \'chowdeck\')']
   pickupId String [note: 'Topship pickupId captured at checkout']
   deliveryLocation String [note: 'Single-line receiver address captured at checkout (for admin / Topship); not the pickup-partner hub string from rate APIs']
+  manualFulfillment Boolean [not null, default: false, note: 'Relisted dispatch fallback: skip automated Topship booking until an admin marks dispatched.']
   dispatchAttempts Int [not null, default: 0]
   dispatchedAt DateTime
   createdAt DateTime [default: `now()`, not null]
@@ -732,6 +739,9 @@ Table Shipment {
   order Order [not null]
   attemptLogs DispatchAttemptLog [not null]
   returnRequests ReturnRequest [not null]
+  orderItemsOutbound OrderItem [not null]
+  orderItemsReturn OrderItem [not null]
+  orderItemsResale OrderItem [not null]
 }
 
 Table DispatchAttemptLog {
@@ -943,6 +953,12 @@ Ref: OrderLister.listerId > User.id [delete: Cascade]
 Ref: OrderItem.orderId > Order.id
 
 Ref: OrderItem.productId > Product.id
+
+Ref: OrderItem.outboundShipmentId > Shipment.id
+
+Ref: OrderItem.returnShipmentId > Shipment.id
+
+Ref: OrderItem.resaleShipmentId > Shipment.id
 
 Ref: Rental.curatorId > User.id
 

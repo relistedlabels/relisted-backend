@@ -9,6 +9,7 @@ import { NotificationService } from 'src/services/notification/notification.serv
 import { MailService } from 'src/services/mail/mail.service';
 import { syncOrderStatusFromShipments } from 'src/module/order/order-shipment-status.sync';
 import { fetchAdminAlertRecipients } from 'src/module/shipment/shipment-admin-alert-recipients';
+import { buildAdminShipmentsPageUrl } from 'src/module/shipment/build-admin-shipments-page-url';
 
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAYS_MS = [
@@ -315,10 +316,8 @@ export class ShipmentDispatchProcessor {
   }
 
   private async notifyAdminOfFailure(shipment: any, errorMessage: string) {
-    const adminUrl = process.env.ADMIN_URL ?? '';
-    const redispatchUrl = adminUrl
-      ? `${adminUrl}/shipments/${shipment.id}`
-      : '';
+    const redispatchUrl =
+      buildAdminShipmentsPageUrl({ shipmentId: shipment.id }) || '';
 
     const admins = await fetchAdminAlertRecipients(this.prisma);
     if (admins.length === 0) {
