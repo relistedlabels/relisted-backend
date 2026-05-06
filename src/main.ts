@@ -13,6 +13,17 @@ import cookieParser from 'cookie-parser';
 import { AllExceptionsFilter } from './utils/all-exceptions.filter';
 import { applySwaggerBasicAuth } from './swagger/apply-swagger-basic-auth';
 
+function redactDatabaseUrl(url: string | undefined): string {
+  if (!url) return '(not set)';
+  try {
+    const u = new URL(url);
+    if (u.password) u.password = '***';
+    return u.toString();
+  } catch {
+    return '(invalid DATABASE_URL)';
+  }
+}
+
 function maskSensitiveFields(obj: any): any {
   if (obj == null || typeof obj !== 'object') return obj;
 
@@ -42,7 +53,17 @@ function maskSensitiveFields(obj: any): any {
   return masked;
 }
 
-/** Single-line-safe logging for hosts that truncate multi-arg console.inspect depth (e.g. [Object]). */
+/** Compact logs on Render/prod; full bodies locally unless HTTP_LOG_VERBOSE=false. */
+const httpLogProductionLike =
+  process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
+const HTTP_LOG_VERBOSE = httpLogProductionLike
+  ? process.env.HTTP_LOG_VERBOSE === 'true'
+  : process.env.HTTP_LOG_VERBOSE !== 'false';
+const HTTP_LOG_MAX_JSON_CHARS = Number(
+  process.env.HTTP_LOG_MAX_JSON_CHARS ?? 4096,
+);
+
+/** Compact JSON for logs (avoid multi-KiB indented blobs). */
 function formatForLog(data: unknown): string {
   if (data === undefined || data === null) return String(data);
   if (typeof data === 'string') return data;
@@ -50,16 +71,27 @@ function formatForLog(data: unknown): string {
     return JSON.stringify(
       data,
       (_key, value) => (typeof value === 'bigint' ? value.toString() : value),
-      2,
     );
   } catch {
     return inspect(data, {
-      depth: null,
+      depth: 4,
       colors: false,
-      maxArrayLength: 200,
+      maxArrayLength: 20,
       breakLength: 120,
     });
   }
+}
+
+function truncateLogPayload(s: string, maxChars: number): string {
+  if (s.length <= maxChars) return s;
+  return `${s.slice(0, maxChars)} …[truncated ${s.length - maxChars} chars]`;
+}
+
+function responseByteLength(data: unknown): number {
+  if (data === undefined || data === null) return 0;
+  if (Buffer.isBuffer(data)) return data.length;
+  if (typeof data === 'string') return Buffer.byteLength(data, 'utf8');
+  return 0;
 }
 
 function loggingMiddleware(req: any, res: any, next: () => void) {
@@ -97,8 +129,8 @@ function loggingMiddleware(req: any, res: any, next: () => void) {
     logBody = formData;
   }
 
-  console.log(
-    `📥 ${method} ${originalUrl} ${formatForLog({
+  const inboundPayload = truncateLogPayload(
+    formatForLog({
       query: query && Object.keys(query).length ? query : undefined,
       headers: {
         authorization: headers.authorization ? 'Bearer [HIDDEN]' : undefined,
@@ -106,34 +138,51 @@ function loggingMiddleware(req: any, res: any, next: () => void) {
         'user-agent': headers['user-agent'],
       },
       body: logBody,
-    })}`,
+    }),
+    HTTP_LOG_MAX_JSON_CHARS,
   );
+  console.log(`📥 ${method} ${originalUrl} ${inboundPayload}`);
 
   const originalSend = res.send;
   res.send = function (data: any) {
     const duration = Date.now() - start;
+    const bytes = responseByteLength(data);
+
+    if (!HTTP_LOG_VERBOSE) {
+      const sizePart = bytes > 0 ? ` ${bytes} bytes` : '';
+      console.log(
+        `📤 ${method} ${originalUrl} ${res.statusCode} (${duration}ms)${sizePart}`,
+      );
+      return originalSend.call(this, data);
+    }
+
     let responseForLog: unknown;
     if (data === undefined || data === null) {
       responseForLog = data;
     } else if (Buffer.isBuffer(data)) {
       responseForLog = `[Buffer ${data.length} bytes]`;
     } else if (typeof data === 'string') {
-      try {
-        responseForLog = maskSensitiveFields(JSON.parse(data));
-      } catch {
-        responseForLog = `[non-JSON body, ${data.length} chars]`;
+      if (bytes > HTTP_LOG_MAX_JSON_CHARS) {
+        responseForLog = `[JSON/string body ${bytes} bytes, omitting payload]`;
+      } else {
+        try {
+          responseForLog = maskSensitiveFields(JSON.parse(data));
+        } catch {
+          responseForLog = `[non-JSON body, ${data.length} chars]`;
+        }
       }
     } else if (typeof data === 'object') {
       responseForLog = maskSensitiveFields(data);
     } else {
       responseForLog = data;
     }
+
+    const out = truncateLogPayload(
+      formatForLog({ response: responseForLog }),
+      HTTP_LOG_MAX_JSON_CHARS,
+    );
     console.log(
-      `📤 ${method} ${originalUrl} ${res.statusCode} (${duration}ms) ${formatForLog(
-        {
-          response: responseForLog,
-        },
-      )}`,
+      `📤 ${method} ${originalUrl} ${res.statusCode} (${duration}ms) ${out}`,
     );
     return originalSend.call(this, data);
   };
@@ -142,9 +191,16 @@ function loggingMiddleware(req: any, res: any, next: () => void) {
 }
 
 async function bootstrap() {
-  console.log('DB URL:', process.env.DATABASE_URL);
+  const leanLogs =
+    process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
+  if (!leanLogs) {
+    console.log('Database:', redactDatabaseUrl(process.env.DATABASE_URL));
+  }
+
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
-    logger: ['error', 'warn', 'log', 'debug', 'verbose'],
+    logger: leanLogs
+      ? ['error', 'warn', 'log']
+      : ['error', 'warn', 'log', 'debug', 'verbose'],
   });
 
   if (isLocalFileUploadMode()) {
@@ -152,7 +208,7 @@ async function bootstrap() {
     await mkdir(localDir, { recursive: true });
     app.useStaticAssets(localDir, { prefix: '/local-uploads/' });
     console.log(
-      `📁 Local file uploads enabled — files under ./uploads/local → GET /local-uploads/`,
+      `📁 Local file uploads enabled: files under ./uploads/local, served at GET /local-uploads/`,
     );
     console.log(`   Public URLs use API_PUBLIC_URL=${process.env.API_PUBLIC_URL ?? '(default localhost:' + (process.env.PORT ?? '4000') + ')'}`);
   }
@@ -202,11 +258,12 @@ async function bootstrap() {
 
     .build();
 
-  const isProduction = process.env.NODE_ENV === 'production';
   const hasSwaggerCreds =
     process.env.SWAGGER_USERNAME && process.env.SWAGGER_PASSWORD;
 
   const swaggerPath = 'swagger';
+
+  const isProduction = process.env.NODE_ENV === 'production';
 
   // Only mount Swagger in dev OR if credentials are provided
   if (!isProduction || hasSwaggerCreds) {

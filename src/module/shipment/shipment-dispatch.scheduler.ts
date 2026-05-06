@@ -44,7 +44,7 @@ export class ShipmentDispatchScheduler {
    * `scheduledWindowStart` / `scheduledWindowEnd` are Relisted-only; the worker maps
    * them to Topship’s single `pickupDate` when booking, not as partner-facing windows.
    */
-@Cron(process.env.DISPATCH_CRON || '0 * * * *', { timeZone: 'Africa/Lagos' })
+  @Cron(process.env.DISPATCH_CRON || '0 * * * *', { timeZone: 'Africa/Lagos' })
   async dispatchDueShipments() {
     const now = new Date();
     const today = startOfDay(now);
@@ -160,7 +160,7 @@ export class ShipmentDispatchScheduler {
     let updated = 0;
     for (const shipment of shipments) {
       try {
-        this.logger.log(
+        this.logger.debug(
           `[Polling] Checking shipment ${shipment.id} (providerShipmentId=${shipment.providerShipmentId}, trackingId=${shipment.trackingId ?? 'none'}, currentStatus=${shipment.status})`,
         );
         const provider = this.delivery.forShipment(shipment as any);
@@ -170,7 +170,7 @@ export class ShipmentDispatchScheduler {
         });
 
         const providerStatus = (tracking.status || 'UNKNOWN').trim();
-        this.logger.log(
+        this.logger.debug(
           `[Polling] Topship returned status for shipment ${shipment.id}: ${providerStatus}, message=${tracking.message ?? 'n/a'}`,
         );
 
@@ -251,8 +251,8 @@ export class ShipmentDispatchScheduler {
           data: { status: mappedStatus },
         });
 
-        this.logger.log(
-          `[Polling] ✅ Updated shipment ${shipment.id}: ${shipment.status} → ${mappedStatus}`,
+        this.logger.debug(
+          `[Polling] Updated shipment ${shipment.id}: ${shipment.status} → ${mappedStatus}`,
         );
         updated++;
 
