@@ -99,8 +99,8 @@ export class AdminService {
       PENDING_REVIEW: DisputeStatus.PENDING,
       IN_REVIEW: DisputeStatus.IN_REVIEW,
       REVIEWING: DisputeStatus.IN_REVIEW,
-      RESOLVED: DisputeStatus.RESELOVED,
-      RESELOVED: DisputeStatus.RESELOVED,
+      RESOLVED: DisputeStatus.RESOLVED,
+      RESELOVED: DisputeStatus.RESOLVED,
       REJECTED: DisputeStatus.REJECTED,
       WITHDRAW: DisputeStatus.WITHDRAW,
       WITHDRAWN: DisputeStatus.WITHDRAW,
@@ -597,7 +597,7 @@ export class AdminService {
       this.prisma.dispute.count(),
       this.prisma.dispute.count({ where: { status: 'PENDING' } }),
       this.prisma.dispute.count({ where: { status: 'IN_REVIEW' } }),
-      this.prisma.dispute.count({ where: { status: 'RESELOVED' } }),
+      this.prisma.dispute.count({ where: { status: 'RESOLVED' } }),
       this.prisma.dispute.count({ where: { status: 'REJECTED' } }),
     ]);
 
@@ -626,8 +626,11 @@ export class AdminService {
           PENDING_REVIEW: 'PENDING',
           IN_REVIEW: 'IN_REVIEW',
           REVIEWING: 'IN_REVIEW',
-          RESOLVED: 'RESELOVED',
-          RESELOVED: 'RESELOVED',
+          // Admin UI sends kebab-case ?status=under-review
+          'UNDER-REVIEW': 'IN_REVIEW',
+          UNDER_REVIEW: 'IN_REVIEW',
+          RESOLVED: 'RESOLVED',
+          RESELOVED: 'RESOLVED',
           REJECTED: 'REJECTED',
           WITHDRAW: 'WITHDRAW',
           WITHDRAWN: 'WITHDRAW',
@@ -1004,7 +1007,7 @@ export class AdminService {
     const updated = await this.prisma.dispute.update({
       where: { id: dispute.id },
       data: {
-        status: 'RESELOVED',
+        status: DisputeStatus.RESOLVED,
       },
     });
 
@@ -1081,7 +1084,7 @@ export class AdminService {
       const updatedDispute = await tx.dispute.update({
         where: { id: dispute.id },
         data: {
-          status: 'RESELOVED' as any,
+          status: DisputeStatus.RESOLVED,
           resolutionDetails: data.resolutionDetails?.trim() || null,
         },
       });
@@ -1318,7 +1321,7 @@ export class AdminService {
       message: 'Dispute resolved successfully',
       data: {
         disputeId: dispute.disputeId,
-        status: 'RESELOVED',
+        status: 'RESOLVED',
         refundAmount: rawRefundAmount,
         listerPayoutReleased: listerPayoutToRelease,
         collateralWithheldToLister,

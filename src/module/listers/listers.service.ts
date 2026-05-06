@@ -2931,7 +2931,7 @@ export class ListersService {
         (d) => d.status === DisputeStatus.IN_REVIEW,
       ).length;
       const resolvedDisputes = allDisputes.filter(
-        (d) => d.status === DisputeStatus.RESELOVED,
+        (d) => d.status === DisputeStatus.RESOLVED,
       ).length;
       const rejectedDisputes = allDisputes.filter(
         (d) => d.status === DisputeStatus.REJECTED,
@@ -2939,7 +2939,7 @@ export class ListersService {
 
       // Average resolution time for resolved disputes
       const resolved = allDisputes.filter(
-        (d) => d.status === DisputeStatus.RESELOVED,
+        (d) => d.status === DisputeStatus.RESOLVED,
       );
       let averageResolutionTime = 'N/A';
       if (resolved.length > 0) {
@@ -3007,7 +3007,7 @@ export class ListersService {
             where.status = DisputeStatus.IN_REVIEW;
             break;
           case 'resolved':
-            where.status = DisputeStatus.RESELOVED;
+            where.status = DisputeStatus.RESOLVED;
             break;
           case 'rejected':
             where.status = DisputeStatus.REJECTED;
@@ -3466,7 +3466,7 @@ export class ListersService {
             timeline,
             resolution: {
               status:
-                dispute.status === DisputeStatus.RESELOVED
+                dispute.status === DisputeStatus.RESOLVED
                   ? 'resolved'
                   : 'reviewing',
               resolutionDetails: null,
@@ -3583,7 +3583,7 @@ export class ListersService {
       });
     }
 
-    if (dispute.status === DisputeStatus.RESELOVED) {
+    if (dispute.status === DisputeStatus.RESOLVED) {
       events.push({
         eventId: `${dispute.id}-resolved`,
         status: 'Resolved',
@@ -3925,7 +3925,7 @@ export class ListersService {
         return 'pending_review';
       case DisputeStatus.IN_REVIEW:
         return 'in_review';
-      case DisputeStatus.RESELOVED:
+      case DisputeStatus.RESOLVED:
         return 'resolved';
       case DisputeStatus.REJECTED:
         return 'rejected';
