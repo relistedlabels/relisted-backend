@@ -2382,7 +2382,7 @@ export class RentersService {
         where: { order: { is: { userId } }, status: 'IN_REVIEW' },
       }),
       this.prisma.dispute.count({
-        where: { order: { is: { userId } }, status: 'RESELOVED' },
+        where: { order: { is: { userId } }, status: 'RESOLVED' },
       }),
     ]);
 
@@ -2413,7 +2413,7 @@ export class RentersService {
       const map: Record<string, string> = {
         pending: 'PENDING',
         in_review: 'IN_REVIEW',
-        resolved: 'RESELOVED',
+        resolved: 'RESOLVED',
       };
       const mappedStatus = map[status];
       if (mappedStatus) where.status = mappedStatus;
@@ -2759,18 +2759,18 @@ export class RentersService {
       data: {
         resolution: {
           status:
-            dispute.status === 'RESELOVED'
+            dispute.status === 'RESOLVED'
               ? 'Resolved'
               : dispute.status === 'IN_REVIEW'
                 ? 'Reviewing'
                 : 'Reviewing',
           resolutionDetails:
-            dispute.status === 'RESELOVED'
+            dispute.status === 'RESOLVED'
               ? 'Dispute resolved in favor of renter. Full refund approved.'
               : 'Your dispute is currently being reviewed by our team',
-          refundAmount: dispute.status === 'RESELOVED' ? 8500 : null,
+          refundAmount: dispute.status === 'RESOLVED' ? 8500 : null,
           refundDate:
-            dispute.status === 'RESELOVED' ? new Date().toISOString() : null,
+            dispute.status === 'RESOLVED' ? new Date().toISOString() : null,
         },
       },
     };

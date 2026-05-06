@@ -780,7 +780,7 @@ enum DisputeStatus {
   IN_REVIEW
   PENDING
   WITHDRAW
-  RESELOVED
+  RESOLVED
   REJECTED
 }
 
