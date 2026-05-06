@@ -376,6 +376,7 @@ export class OrderService {
       returnWindow: { start: Date; end: Date } | null;
       resaleWindow: { start: Date; end: Date } | null;
     }> = [];
+    const rentalBucketIndexByOutboundKey = new Map<string, number>();
 
     for (const [, bucketItems] of rentalGroups) {
       const sample = bucketItems[0];
@@ -404,6 +405,8 @@ export class OrderService {
         returnWindow,
         resaleWindow: null,
       });
+      const outboundKey = `${outboundWindow.start.toISOString()}::${outboundWindow.end.toISOString()}`;
+      rentalBucketIndexByOutboundKey.set(outboundKey, out.length - 1);
     }
 
     for (const [, bucketItems] of resaleGroups) {
@@ -414,6 +417,14 @@ export class OrderService {
         dispatchWindowsInput,
         sample.dispatchWindows?.RESALE,
       );
+      const resaleKey = `${resaleWindow.start.toISOString()}::${resaleWindow.end.toISOString()}`;
+      const rentalBucketIndex =
+        rentalBucketIndexByOutboundKey.get(resaleKey) ?? -1;
+      if (rentalBucketIndex >= 0) {
+        // Same lister + same outbound window: share one outbound shipment.
+        out[rentalBucketIndex].items.push(...bucketItems);
+        continue;
+      }
       out.push({
         bucketMode: 'RESALE',
         items: bucketItems,
@@ -2133,7 +2144,15 @@ export class OrderService {
               {};
             if (ld.bucketMode === 'RENTAL') {
               orderItemShipmentData.outboundShipmentId = outboundId ?? null;
-              orderItemShipmentData.returnShipmentId = returnId ?? null;
+              const lineIsRental =
+                cartLine.days > 0 &&
+                (cartLine.product.listingType === 'RENTAL' ||
+                  cartLine.product.listingType === 'RENT_OR_RESALE');
+              if (lineIsRental) {
+                orderItemShipmentData.returnShipmentId = returnId ?? null;
+              } else {
+                orderItemShipmentData.returnShipmentId = null;
+              }
             } else if (ld.bucketMode === 'RESALE') {
               orderItemShipmentData.resaleShipmentId = resaleId ?? null;
             }
