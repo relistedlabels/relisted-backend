@@ -57,7 +57,7 @@ export class ProductPublicController {
     name: 'onlyWithCloset',
     required: false,
     description:
-      'If true and closetId is omitted, exclude products not assigned to a closet',
+      'If true and closetId is omitted, only products in any closet (closet drops). If both are omitted, only products not in a closet (main shop).',
   })
   @ApiResponse({
     status: 200,

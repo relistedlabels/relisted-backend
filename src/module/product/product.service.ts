@@ -756,6 +756,10 @@ export class ProductService {
         where.closetId = query.closetId;
       } else if (query.onlyWithCloset) {
         where.closetId = { not: null };
+      } else {
+        // Main shop and generic lists: closet inventory only appears when
+        // `closetId` or `onlyWithCloset` is set (closet page / closet drops).
+        where.closetId = null;
       }
 
       if (query.category) {
