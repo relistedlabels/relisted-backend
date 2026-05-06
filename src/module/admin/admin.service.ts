@@ -2037,8 +2037,20 @@ export class AdminService {
           brand: true,
           category: true,
           tags: true,
-          curator: { select: { name: true, email: true } },
-          attachments: true,
+          curator: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              profile: {
+                select: {
+                  avatar: true,
+                  avatarUpload: { select: { url: true } },
+                },
+              },
+            },
+          },
+          attachments: { include: { uploads: { select: { id: true, url: true } } } },
         },
       }),
     ]);
@@ -2128,7 +2140,20 @@ export class AdminService {
   /* USERS */
   async getAllUsers() {
     const users = await this.prisma.user.findMany({
-      select: { id: true, name: true, email: true, role: true, profile: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        isSuspended: true,
+        profile: {
+          select: {
+            createdAt: true,
+            avatar: true,
+            avatarUpload: { select: { url: true } },
+          },
+        },
+      },
     });
     return { success: true, data: { users, total: users.length } };
   }
