@@ -7,6 +7,7 @@ import {
   Param,
   Body,
   Query,
+  Header,
 } from '@nestjs/common';
 import { ProductService } from './product.service';
 import {
@@ -100,6 +101,7 @@ export class ProductController {
   //  Get all products created
 
   @Auth()
+  @Header('Cache-Control', 'private, no-store, must-revalidate')
   @Get('user-products')
   @ApiOperation({ summary: 'Get products created by the logged-in user' })
   @ApiQuery({
