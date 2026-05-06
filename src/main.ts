@@ -193,6 +193,9 @@ function loggingMiddleware(req: any, res: any, next: () => void) {
 async function bootstrap() {
   const leanLogs =
     process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
+  /** Render (and most hosts) already emit access logs; skip duplicate request/response console lines unless debugging. */
+  const enableHttpAccessLog =
+    !leanLogs || process.env.HTTP_ENABLE_ACCESS_LOG === 'true';
   if (!leanLogs) {
     console.log('Database:', redactDatabaseUrl(process.env.DATABASE_URL));
   }
@@ -213,7 +216,9 @@ async function bootstrap() {
     console.log(`   Public URLs use API_PUBLIC_URL=${process.env.API_PUBLIC_URL ?? '(default localhost:' + (process.env.PORT ?? '4000') + ')'}`);
   }
 
-  app.use(loggingMiddleware);
+  if (enableHttpAccessLog) {
+    app.use(loggingMiddleware);
+  }
 
   app.enableCors({
     origin: (origin, callback) => {
