@@ -1,8 +1,18 @@
-import { PartialType } from '@nestjs/swagger';
+import { ApiPropertyOptional, OmitType, PartialType } from '@nestjs/swagger';
 import { CreateProductDto } from './create-product.dto';
-import { IsArray, IsOptional } from 'class-validator';
+import { Allow, IsArray, IsOptional } from 'class-validator';
 
-export class UpdateProductDto extends PartialType(CreateProductDto) {
+export class UpdateProductDto extends PartialType(
+  OmitType(CreateProductDto, ['closetId'] as const),
+) {
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Set null or empty string to remove closet assignment',
+  })
+  @Allow()
+  @IsOptional()
+  closetId?: string | null;
+
   @IsArray()
   @IsOptional()
   removeImages?: string[];

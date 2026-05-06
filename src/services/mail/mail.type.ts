@@ -58,6 +58,11 @@ export class VerifyOrderDto {
   @IsString()
   @IsOptional()
   requestType?: string;
+
+  /** When true, lister email is a paid order confirmation (no approval / expiry copy). */
+  @IsOptional()
+  @IsBoolean()
+  listerNewOrderConfirmed?: boolean;
 }
 
 export class ResetPasswordDto {
@@ -130,6 +135,9 @@ export class RentalResponseDto {
   reason?: string;
   @IsString()
   @IsOptional()
+  notes?: string;
+  @IsString()
+  @IsOptional()
   checkoutLink?: string;
 
   @IsString()
@@ -171,6 +179,68 @@ export class ShippingDto {
   @IsString()
   @IsOptional()
   estimatedDelivery?: string;
+  /** Overrides default "Shipping Status Update" subject when set */
+  @IsString()
+  @IsOptional()
+  emailSubject?: string;
+  /** Optional <h2> title inside the shipping-update template */
+  @IsString()
+  @IsOptional()
+  emailHeading?: string;
+  @IsString()
+  @IsOptional()
+  pickupWindowSummary?: string;
+  @IsString()
+  @IsOptional()
+  extraNote?: string;
+}
+
+/** Lister: return picked up and moving toward lister */
+export class ListerReturnInTransitDto {
+  @IsEmail()
+  email: string;
+  @IsString()
+  curatorName: string;
+  @IsString()
+  orderNumber: string;
+  @IsString()
+  orderPageUrl: string;
+  @IsString()
+  platformName: string;
+  @IsString()
+  @IsOptional()
+  trackingNumber?: string;
+}
+
+/** Lister: carrier shows delivered — prompt confirm receipt flow */
+export class ListerReturnDeliveredConfirmDto {
+  @IsEmail()
+  email: string;
+  @IsString()
+  curatorName: string;
+  @IsString()
+  orderNumber: string;
+  @IsString()
+  orderPageUrl: string;
+  @IsString()
+  platformName: string;
+  @IsString()
+  @IsOptional()
+  trackingNumber?: string;
+}
+
+/** Lister: pickup window ended without completed return leg */
+export class ListerReturnWindowPassedDto {
+  @IsEmail()
+  email: string;
+  @IsString()
+  curatorName: string;
+  @IsString()
+  orderNumber: string;
+  @IsString()
+  orderPageUrl: string;
+  @IsString()
+  platformName: string;
 }
 
 export class ReturnInitiatedDto {
@@ -195,6 +265,13 @@ export class ReturnInitiatedDto {
   damageNotes?: string;
   @IsString()
   platformName: string;
+  /** RETURN shipment window (checkout / availability flow). */
+  @IsString()
+  @IsOptional()
+  returnWindowSummary?: string;
+  @IsString()
+  @IsOptional()
+  orderPageUrl?: string;
 }
 
 export class ReturnCompletedDto {
@@ -292,6 +369,46 @@ export class DisputeStatusDto {
   @IsNumber()
   @IsOptional()
   compensationToLister?: number;
+
+  @IsString()
+  @IsOptional()
+  disputeRecipient?: 'renter' | 'lister';
+
+  @IsString()
+  @IsOptional()
+  resolutionDetails?: string;
+
+  @IsNumber()
+  @IsOptional()
+  refundAmount?: number;
+
+  @IsNumber()
+  @IsOptional()
+  renterWalletCreditTotal?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  showRenterWithdrawSteps?: boolean;
+
+  @IsNumber()
+  @IsOptional()
+  listerEscrowPayout?: number;
+
+  @IsNumber()
+  @IsOptional()
+  listerCollateralCompensation?: number;
+
+  @IsNumber()
+  @IsOptional()
+  listerWalletCreditTotal?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  showListerWithdrawSteps?: boolean;
+
+  @IsString()
+  @IsOptional()
+  walletWithdrawLink?: string;
 }
 
 export class DisputeMessageDto {
@@ -317,4 +434,75 @@ export class DisputeMessageDto {
   @IsString()
   @IsOptional()
   threadLink?: string;
+}
+
+export class ReturnDueReminderDto {
+  @IsEmail()
+  email: string;
+
+  @IsString()
+  userName: string;
+
+  @IsString()
+  orderId: string;
+
+  @IsString()
+  orderLink: string;
+
+  @IsString()
+  dueDate: string;
+
+  @IsString()
+  @IsOptional()
+  productName?: string;
+
+  @IsString()
+  @IsOptional()
+  reminderType?: '24_hours' | 'morning_of';
+}
+
+export class ReturnRequestReminderDto {
+  @IsEmail()
+  email: string;
+
+  @IsString()
+  userName: string;
+
+  @IsString()
+  orderId: string;
+
+  @IsString()
+  orderLink: string;
+
+  @IsString()
+  productName: string;
+
+  @IsString()
+  @IsOptional()
+  reminderType?: 'end_date_reached' | 'past_due';
+}
+
+export class EscrowReleaseNotificationDto {
+  @IsEmail()
+  email: string;
+
+  @IsString()
+  userName: string;
+
+  @IsString()
+  orderId: string;
+
+  @IsString()
+  orderLink: string;
+
+  @IsNumber()
+  @IsOptional()
+  amountReleased: number;
+
+  @IsString()
+  userType: 'renter' | 'lister';
+
+  @IsString()
+  @IsOptional()
+  productName?: string;
 }

@@ -67,6 +67,9 @@ export class NotificationService {
         case 'ORDER_CONFIRMATION':
           await this.mailService.SendVerificationOrderMail(data);
           break;
+        case 'ORDER_CONFIRMED':
+          await this.mailService.SendVerificationOrderMail(data);
+          break;
         case 'WITHDRAWAL_REQUEST':
         case 'WITHDRAWAL_APPROVED':
         case 'WITHDRAWAL_REJECTED':
@@ -76,6 +79,32 @@ export class NotificationService {
         case 'RENTAL_REQUEST_SENT':
         case 'PURCHASE_REQUEST_SENT':
           // No email for this one usually, but we check just in case
+          break;
+        case 'SHIPMENT_DISPATCHED':
+        case 'RETURN_DISPATCHED':
+        case 'RETURN_PICKUP_SCHEDULED':
+        case 'RETURN_REQUEST_SUBMITTED':
+          await this.mailService.SendShippingUpdateMail(data);
+          break;
+        case 'SHIPMENT_IN_TRANSIT':
+        case 'RETURN_IN_TRANSIT':
+          await this.mailService.SendShippingUpdateMail(data);
+          break;
+        case 'RETURN_DELIVERED_TO_LISTER':
+          await this.mailService.SendShippingUpdateMail(data);
+          break;
+        case 'SHIPMENT_DELIVERED':
+        case 'RETURN_CONFIRMED':
+          await this.mailService.SendShippingUpdateMail(data);
+          break;
+        case 'LISTER_RETURN_IN_TRANSIT':
+          await this.mailService.SendListerReturnInTransitMail(data);
+          break;
+        case 'LISTER_RETURN_DELIVERED_CONFIRM':
+          await this.mailService.SendListerReturnDeliveredConfirmMail(data);
+          break;
+        case 'LISTER_RETURN_WINDOW_PASSED':
+          await this.mailService.SendListerReturnWindowPassedMail(data);
           break;
         case 'SHIPPING_UPDATE':
           await this.mailService.SendShippingUpdateMail(data);
@@ -94,6 +123,9 @@ export class NotificationService {
           break;
         case 'DISPUTE_MESSAGE':
           await this.mailService.SendDisputeMessageMail(data);
+          break;
+        case 'ESCROW_RELEASE':
+          await this.mailService.sendEscrowReleaseNotification(data);
           break;
         default:
           console.warn(`No mail handler for notification type: ${type}`);

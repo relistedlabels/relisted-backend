@@ -1,7 +1,17 @@
-import { Injectable } from '@nestjs/common';
+import {
+  HttpException,
+  Injectable,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import cloudinary, { handleUpload } from 'src/config/cloudinary.config';
+import { isLocalFileUploadMode } from 'src/config/upload-mode';
 import { PrismaService } from 'src/services/prisma/prisma.service';
 import { bad } from 'src/utils/error';
+import {
+  isLocalPublicId,
+  removeLocalUploadFile,
+  saveUploadToLocalDisk,
+} from 'src/utils/local-disk-upload';
 import { userEntity } from '../auth/auth.types';
 
 @Injectable()
@@ -44,41 +54,73 @@ export class UploadService {
     user: userEntity,
     isChatImage = false,
   ) {
-    this.validateFile(file);
+    try {
+      this.validateFile(file);
 
-    const uploadResult: any = await handleUpload(file.buffer);
-    if (!uploadResult?.secure_url || !uploadResult?.public_id) {
-      bad('Upload failed');
-    }
+      const fieldName = (file.fieldname?.trim() || 'file').slice(0, 120);
 
-    const isImage = String(file.mimetype || '').startsWith('image/');
-    const thumbnailUrl = isImage
-      ? this.getThumbnailUrl(uploadResult.secure_url)
-      : null;
+      let fileUrl: string;
+      let filePublicId: string;
 
-    const data = await this.prisma.upload.create({
-      data: {
-        id,
-        name: file.originalname,
-        url: uploadResult.secure_url,
-        publicId: uploadResult.public_id,
-        type: file.mimetype,
-        fieldName: file.fieldname,
-        size: file.size,
-        user: {
-          connect: {
-            id: user.id,
+      if (isLocalFileUploadMode()) {
+        const local = await saveUploadToLocalDisk({
+          buffer: file.buffer,
+          uploadId: id,
+          mimetype: file.mimetype,
+        });
+        fileUrl = local.url;
+        filePublicId = local.publicId;
+      } else {
+        let uploadResult: any;
+        try {
+          uploadResult = await handleUpload(file.buffer);
+        } catch (err: unknown) {
+          const msg =
+            err instanceof Error ? err.message : JSON.stringify(err);
+          throw new InternalServerErrorException(
+            `Cloudinary upload failed (${msg}). For local testing without Cloudinary, set UPLOAD_STORAGE=local and API_PUBLIC_URL in .env`,
+          );
+        }
+        if (!uploadResult?.secure_url || !uploadResult?.public_id) {
+          bad('Upload failed');
+        }
+        fileUrl = uploadResult.secure_url;
+        filePublicId = uploadResult.public_id;
+      }
+
+      const isImage = String(file.mimetype || '').startsWith('image/');
+      const thumbnailUrl = isImage ? this.getThumbnailUrl(fileUrl) : null;
+
+      const data = await this.prisma.upload.create({
+        data: {
+          id,
+          name: file.originalname.slice(0, 255),
+          url: fileUrl,
+          publicId: filePublicId,
+          type: file.mimetype,
+          fieldName,
+          size: file.size,
+          user: {
+            connect: {
+              id: user.id,
+            },
           },
         },
-      },
-    });
+      });
 
-    return {
-      ...data,
-      thumbnailUrl,
-      isImage,
-      isChatImage: Boolean(isChatImage),
-    };
+      return {
+        ...data,
+        thumbnailUrl,
+        isImage,
+        isChatImage: Boolean(isChatImage),
+      };
+    } catch (e: unknown) {
+      if (e instanceof HttpException) throw e;
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new InternalServerErrorException(
+        `Upload failed: ${msg}`,
+      );
+    }
   }
 
   async uploadIds(ids: string[]) {
@@ -109,7 +151,9 @@ export class UploadService {
     });
 
     for (const upload of uploads) {
-      if (upload.publicId) {
+      if (isLocalPublicId(upload.publicId)) {
+        await removeLocalUploadFile(upload.publicId);
+      } else if (upload.publicId) {
         await cloudinary.uploader.destroy(upload.publicId);
       }
     }

@@ -478,9 +478,11 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { connectId } from 'prisma/prisma.utils'; // REMOVE createAttachments from import
 import { PrismaService } from 'src/services/prisma/prisma.service';
@@ -489,16 +491,22 @@ import { userEntity } from '../auth/auth.types';
 import {
   CreateFavouriteDto,
   CreateProductDto,
+  GetUserProductsQueryDto,
   ListProductQuery,
   queryDto,
   UpdateProductStatusDto,
 } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductStatus } from '@prisma/client';
+import { ClosetService } from '../closet/closet.service';
 
 @Injectable()
 export class ProductService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => ClosetService))
+    private readonly closetService: ClosetService,
+  ) {}
 
   async create(dto: CreateProductDto, user: userEntity) {
     try {
@@ -617,6 +625,10 @@ export class ProductService {
         }
       }
 
+      if (dto.closetId) {
+        await this.closetService.assertClosetAssignable(dto.closetId, user.id);
+      }
+
       if (dto.attachments?.length) {
         const existingUploads = await this.prisma.upload.findMany({
           where: {
@@ -678,6 +690,7 @@ export class ProductService {
               },
             },
           }),
+          ...(dto.closetId && { closetId: dto.closetId }),
         },
         include: {
           attachments: {
@@ -688,6 +701,9 @@ export class ProductService {
           brand: true,
           category: true,
           tags: true,
+          closet: {
+            select: { id: true, name: true, slug: true, imageUrl: true },
+          },
         },
       });
 
@@ -710,10 +726,37 @@ export class ProductService {
       const skip = (page - 1) * limit;
 
       // 1. Build where clause
-      const where: any = {
-        status: { in: [ProductStatus.APPROVED, ProductStatus.RENTED] },
-        isActive: true, // Exclude sold/inactive products
-      };
+      const inClosetListContext = Boolean(
+        query.closetId || query.onlyWithCloset,
+      );
+      const liveShopStatuses: ProductStatus[] = [
+        ProductStatus.AVAILABLE,
+        ProductStatus.APPROVED,
+        ProductStatus.RENTED,
+      ];
+
+      const where: any = {};
+
+      if (inClosetListContext) {
+        // Closet / "closet drops" views: keep sold resale items visible (greyed on client)
+        where.AND = [
+          {
+            OR: [
+              { status: { in: liveShopStatuses }, isActive: true },
+              { status: ProductStatus.SOLD },
+            ],
+          },
+        ];
+      } else {
+        where.status = { in: liveShopStatuses };
+        where.isActive = true;
+      }
+
+      if (query.closetId) {
+        where.closetId = query.closetId;
+      } else if (query.onlyWithCloset) {
+        where.closetId = { not: null };
+      }
 
       if (query.category) {
         where.categoryId = query.category;
@@ -785,9 +828,13 @@ export class ProductService {
             { name: { contains: query.search, mode: 'insensitive' } },
             { description: { contains: query.search, mode: 'insensitive' } },
             { subText: { contains: query.search, mode: 'insensitive' } },
-            { brand: { name: { contains: query.search, mode: 'insensitive' } } },
             {
-              category: { name: { contains: query.search, mode: 'insensitive' } },
+              brand: { name: { contains: query.search, mode: 'insensitive' } },
+            },
+            {
+              category: {
+                name: { contains: query.search, mode: 'insensitive' },
+              },
             },
             {
               tags: {
@@ -901,6 +948,9 @@ export class ProductService {
                   select: { id: true, url: true },
                 },
               },
+            },
+            closet: {
+              select: { id: true, name: true, slug: true, imageUrl: true },
             },
             _count: {
               select: { favourites: true, reviews: true },
@@ -1025,12 +1075,31 @@ export class ProductService {
   }
 
   // Get user all products with their statuses (for dashboard)
-  async getUserProducts(user: userEntity) {
+  async getUserProducts(
+    user: userEntity,
+    filters?: GetUserProductsQueryDto,
+  ) {
     try {
+      if (filters?.closetId && filters?.uncategorized) {
+        throw new BadRequestException(
+          'Use either closetId or uncategorized, not both',
+        );
+      }
+
+      const where: {
+        curatorId: string;
+        closetId?: string | null;
+      } = {
+        curatorId: user.id,
+      };
+      if (filters?.uncategorized) {
+        where.closetId = null;
+      } else if (filters?.closetId) {
+        where.closetId = filters.closetId;
+      }
+
       const products = await this.prisma.product.findMany({
-        where: {
-          curatorId: user.id,
-        },
+        where,
         orderBy: { createdAt: 'desc' },
         select: {
           id: true,
@@ -1048,6 +1117,7 @@ export class ProductService {
           listingType: true,
           resalePrice: true,
           rentalCount: true,
+          closetId: true,
           attachments: {
             include: {
               uploads: {
@@ -1063,6 +1133,9 @@ export class ProductService {
           },
           tags: {
             select: { id: true, name: true },
+          },
+          closet: {
+            select: { id: true, name: true, slug: true, imageUrl: true },
           },
         },
       });
@@ -1085,6 +1158,9 @@ export class ProductService {
       };
     } catch (error) {
       console.error('Get user products error:', error);
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
       throw new InternalServerErrorException(
         'Failed to retrieve user products',
       );
@@ -1290,6 +1366,9 @@ export class ProductService {
           brand: true,
           category: true,
           tags: true,
+          closet: {
+            select: { id: true, name: true, slug: true, imageUrl: true },
+          },
         },
       });
 
@@ -1298,7 +1377,10 @@ export class ProductService {
       }
 
       if (!product.isActive) {
-        throw new BadRequestException('This product is currently unavailable');
+        // Resale completion sets SOLD + isActive false; still allow PDP for sold-out display
+        if (product.status !== ProductStatus.SOLD) {
+          throw new BadRequestException('This product is currently unavailable');
+        }
       }
 
       return {
@@ -1562,17 +1644,32 @@ export class ProductService {
         updateData.rejectionComment = null;
       }
 
-      // Sanitize optional foreign key fields: remove empty strings so Prisma doesn't
-      // try to set an empty string as a FK value (causes constraint violations).
-      const optionalFkFields = ['brandId', 'categoryId'];
-      for (const field of optionalFkFields) {
-        if (
-          updateData[field] === '' ||
-          updateData[field] === null ||
-          updateData[field] === undefined
-        ) {
-          delete updateData[field];
+      // Map brand/category FK scalars to relation writes (Prisma ProductUpdateInput does not
+      // accept `brandId` / `categoryId` alongside nested `attachments` updates in v7).
+      if (dto.brandId !== undefined) {
+        delete updateData.brandId;
+        if (dto.brandId === null || dto.brandId === '') {
+          updateData.brand = { disconnect: true };
+        } else {
+          updateData.brand = {
+            connect: { id: String(dto.brandId).trim() },
+          };
         }
+      } else {
+        delete updateData.brandId;
+      }
+
+      if (dto.categoryId !== undefined) {
+        delete updateData.categoryId;
+        if (dto.categoryId === null || dto.categoryId === '') {
+          updateData.category = { disconnect: true };
+        } else {
+          updateData.category = {
+            connect: { id: String(dto.categoryId).trim() },
+          };
+        }
+      } else {
+        delete updateData.categoryId;
       }
 
       if (dto.attachments) {
@@ -1603,6 +1700,23 @@ export class ProductService {
         delete updateData.tagids;
       }
 
+      delete updateData.removeImages;
+      delete updateData.addImages;
+      delete updateData.keepImages;
+      delete updateData.closetId;
+
+      if (dto.closetId !== undefined) {
+        if (dto.closetId === null || dto.closetId === '') {
+          updateData.closet = { disconnect: true };
+        } else {
+          await this.closetService.assertClosetAssignable(
+            dto.closetId,
+            product.curatorId,
+          );
+          updateData.closet = { connect: { id: dto.closetId } };
+        }
+      }
+
       const updatedProduct = await this.prisma.product.update({
         where: { id },
         data: updateData,
@@ -1615,6 +1729,9 @@ export class ProductService {
           brand: true,
           category: true,
           tags: true,
+          closet: {
+            select: { id: true, name: true, slug: true, imageUrl: true },
+          },
         },
       });
 

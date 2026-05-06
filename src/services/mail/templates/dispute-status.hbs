@@ -52,6 +52,67 @@
         {{/if}}
       </div>
 
+      {{#if (eq status "resolved")}}
+        {{#if resolutionDetails}}
+          <div style="margin-top:14px; border:1px solid #eef0f5; border-radius:10px; padding:14px 16px; background:#f9fafb;">
+            <div style="font-size:12px; color:#6b7280;">Decision</div>
+            <div style="margin-top:8px; color:#111827; line-height:1.45; white-space:pre-wrap;">{{resolutionDetails}}</div>
+          </div>
+        {{/if}}
+
+        {{#if (eq disputeRecipient "renter")}}
+          <div style="margin-top:14px;">
+            {{#if (gt refundAmount 0)}}
+              <p style="margin:0 0 6px;"><strong>Refund credited to your wallet:</strong> ₦{{refundAmount}}</p>
+            {{/if}}
+            {{#if (gt collateralReturnedToRenter 0)}}
+              <p style="margin:0 0 6px;"><strong>Collateral released to your wallet:</strong> ₦{{collateralReturnedToRenter}}</p>
+            {{/if}}
+            {{#if (gt collateralWithheldToLister 0)}}
+              <p style="margin:0 0 6px; color:#6b7280; font-size:13px;">Collateral withheld for the curator (per decision): ₦{{collateralWithheldToLister}}</p>
+            {{/if}}
+          </div>
+          {{#if showRenterWithdrawSteps}}
+            <div style="margin-top:14px; padding:12px 14px; background:#fbfbfe; border:1px solid #eef0f5; border-radius:10px;">
+              <div style="font-weight:600; margin-bottom:8px;">Withdraw funds</div>
+              <ol style="margin:0; padding-left:18px; color:#374151; font-size:13px; line-height:1.5;">
+                <li>Open your wallet in Relisted.</li>
+                <li>Request a withdrawal to your bank account.</li>
+              </ol>
+              {{#if walletWithdrawLink}}
+                <div style="margin-top:12px;">
+                  <a href="{{walletWithdrawLink}}" style="display:inline-block; background:#111827; color:#ffffff; text-decoration:none; padding:10px 14px; border-radius:10px; font-weight:600;">Open wallet</a>
+                </div>
+              {{/if}}
+            </div>
+          {{/if}}
+        {{/if}}
+
+        {{#if (eq disputeRecipient "lister")}}
+          <div style="margin-top:14px;">
+            {{#if (gt listerEscrowPayout 0)}}
+              <p style="margin:0 0 6px;"><strong>Rental / order payout to your wallet:</strong> ₦{{listerEscrowPayout}}</p>
+            {{/if}}
+            {{#if (gt listerCollateralCompensation 0)}}
+              <p style="margin:0 0 6px;"><strong>Compensation from renter collateral:</strong> ₦{{listerCollateralCompensation}}</p>
+            {{/if}}
+          </div>
+          {{#if showListerWithdrawSteps}}
+            <div style="margin-top:14px; padding:12px 14px; background:#fbfbfe; border:1px solid #eef0f5; border-radius:10px;">
+              <div style="font-weight:600; margin-bottom:8px;">Withdraw funds</div>
+              <ol style="margin:0; padding-left:18px; color:#374151; font-size:13px; line-height:1.5;">
+                <li>Open your wallet in Relisted.</li>
+                <li>Request a withdrawal to your bank account.</li>
+              </ol>
+              {{#if walletWithdrawLink}}
+                <div style="margin-top:12px;">
+                  <a href="{{walletWithdrawLink}}" style="display:inline-block; background:#111827; color:#ffffff; text-decoration:none; padding:10px 14px; border-radius:10px; font-weight:600;">Open wallet</a>
+                </div>
+              {{/if}}
+            </div>
+          {{/if}}
+        {{/if}}
+      {{else}}
       {{#if compensationToLister}}
         <p style="margin:14px 0 0;"><strong>Compensation awarded to you:</strong> {{compensationToLister}}</p>
         <div style="margin-top:6px; color:#6b7280; font-size:12px; line-height:1.45;">
@@ -64,6 +125,7 @@
       {{/if}}
       {{#if collateralReturnedToRenter}}
         <p style="margin:10px 0 0;"><strong>Collateral returned:</strong> {{collateralReturnedToRenter}}</p>
+      {{/if}}
       {{/if}}
 
       {{#if disputeLink}}

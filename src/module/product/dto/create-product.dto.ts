@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
@@ -11,6 +11,7 @@ import {
   Min,
   IsNotEmpty,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { PaginationQuery } from 'src/utils/paginate-query';
 import { ListingType } from '@prisma/client';
 
@@ -147,7 +148,15 @@ export class CreateProductDto {
   @Min(0, { message: 'Resale price must be 0 or greater' })
   @Type(() => Number)
   resalePrice?: number;
+
+  @ApiPropertyOptional({
+    description: 'Optional closet (must be owned by curator)',
+  })
+  @IsOptional()
+  @IsUUID('4')
+  closetId?: string;
 }
+
 export class ListProductQuery extends PaginationQuery {
   @IsOptional()
   @IsString()
@@ -189,6 +198,34 @@ export class ListProductQuery extends PaginationQuery {
   @IsOptional()
   @IsString()
   tags?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  closetId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'When true and closetId is omitted, only products assigned to any closet',
+  })
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  onlyWithCloset?: boolean;
+}
+
+export class GetUserProductsQueryDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID('4')
+  closetId?: string;
+
+  @ApiPropertyOptional({
+    description: 'If true, only products without a closet',
+  })
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  uncategorized?: boolean;
 }
 
 export class UpdateProductStatusDto {

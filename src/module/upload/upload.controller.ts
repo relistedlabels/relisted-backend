@@ -6,10 +6,15 @@ import {
   Param,
   Post,
   UploadedFile,
-  UseInterceptors
+  UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBearerAuth, ApiBody, ApiConsumes, ApiResponse } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiResponse,
+} from '@nestjs/swagger';
 import { bad } from 'src/utils/error';
 import { userEntity } from '../auth/auth.types';
 import { Auth, AuthUser } from '../auth/decorator/auth.decorator';
@@ -19,9 +24,9 @@ import { UploadService } from './upload.service';
 export class UploadController {
   constructor(private readonly uploadService: UploadService) {}
   @Auth()
-  @Post(":id")
+  @Post(':id')
   @UseInterceptors(FileInterceptor('file'))
-  @ApiConsumes('multipart/form-data') 
+  @ApiConsumes('multipart/form-data')
   @ApiBody({
     description: 'File to upload',
     required: true,
@@ -39,10 +44,8 @@ export class UploadController {
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
     @AuthUser() user: userEntity,
-  
   ) {
-    
-    return await this.uploadService.uploadFile(id,file, user);
+    return await this.uploadService.uploadFile(id, file, user);
   }
 
   @Post('bulk')

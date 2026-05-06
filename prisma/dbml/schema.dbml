@@ -30,8 +30,10 @@ Table User {
   products Product [not null]
   productCategory ProductCategory [not null]
   profile Profile
+  sentMessages Message [not null]
   rentalsCurated Rental [not null]
   rentalsRented Rental [not null]
+  orderListers OrderLister [not null]
   curatorReviews Review [not null]
   reviewsWritten Review [not null]
   tags Tag [not null]
@@ -41,11 +43,15 @@ Table User {
   virtualAccounts VirtualAccount [not null]
   wallet Wallet
   withdrawalRequests WithdrawalRequest [not null]
+  closets Closet [not null]
+  productAvailabilityNotifications ProductAvailabilityNotification [not null]
 }
 
 Table Profile {
   id String [pk]
   userId String [unique, not null]
+  fullName String
+  businessName String
   phoneNumber String [not null]
   bvn String
   isApproved Boolean [not null, default: false]
@@ -60,6 +66,7 @@ Table Profile {
   address Address
   businessInfo BusinessInfo
   emergencyContact EmergencyContact
+  avatar String
   avatarUpload Upload
   idDocumentUpload Upload
   ninUpload Upload
@@ -121,14 +128,32 @@ Table AuthOtpToken {
   user User [not null]
 }
 
+Table Closet {
+  id String [pk]
+  ownerId String [not null]
+  name String [not null]
+  slug String [unique, not null]
+  description String
+  imageUrl String
+  isActive Boolean [not null, default: true]
+  sortOrder Int [not null, default: 0]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+  owner User [not null]
+  products Product [not null]
+}
+
 Table Product {
   id String [pk]
   name String [not null]
   subText String [not null]
   description String [not null]
   condition String [not null]
-  dailyPrice Int [not null]
+  dailyPrice Int
   isActive Boolean [not null, default: true]
+  listingType ListingType [not null, default: 'RENTAL']
+  resalePrice Int
+  rentalCount Int [not null, default: 0]
   composition String
   measurement String [not null]
   originalValue Int [not null]
@@ -136,6 +161,7 @@ Table Product {
   color String [not null]
   brandId String
   categoryId String
+  closetId String
   curatorId String [not null]
   receiveSmsNotifications Boolean [default: false]
   receiveEmailNotifications Boolean [default: true]
@@ -158,10 +184,12 @@ Table Product {
   items OrderItem [not null]
   brand Brand
   category ProductCategory
+  closet Closet
   curator User [not null]
   rentals Rental [not null]
   reviews Review [not null]
   tags Tag [not null]
+  productAvailabilityNotifications ProductAvailabilityNotification [not null]
 }
 
 Table Brand {
@@ -210,6 +238,7 @@ Table Upload {
   profileAsNin Profile
   attachment Attachments
   user User [not null]
+  messages Message [not null]
 }
 
 Table Attachments {
@@ -252,6 +281,21 @@ Table Favourite {
   }
 }
 
+Table ProductAvailabilityNotification {
+  id String [pk]
+  productId String [not null]
+  userId String [not null]
+  createdAt DateTime [default: `now()`, not null]
+  product Product [not null]
+  user User [not null]
+
+  indexes {
+    (productId, userId) [unique]
+  }
+
+  Note: 'Renters who asked to be emailed when a RENTED product is available again'
+}
+
 Table AvailabilityRequest {
   id String [pk]
   productId String [not null]
@@ -262,11 +306,18 @@ Table AvailabilityRequest {
   expiresAt DateTime [not null]
   createdAt DateTime [default: `now()`, not null]
   autoPay Boolean [not null, default: false]
+  rejectionReason String
   deliveryAddressId String
   endDate DateTime
   rentalDays Int
   startDate DateTime
   totalPrice Int
+  outboundWindowStart DateTime
+  outboundWindowEnd DateTime
+  returnWindowStart DateTime
+  returnWindowEnd DateTime
+  resaleWindowStart DateTime
+  resaleWindowEnd DateTime
   lister User [not null]
   product Product [not null]
   requester User [not null]
@@ -276,6 +327,7 @@ Table Order {
   id String [pk]
   orderId String [unique, not null]
   status OrderStatus [not null, default: 'PROCESSING']
+  listingType ListingType [not null, default: 'RENTAL']
   userId String [not null]
   createdAt DateTime [default: `now()`, not null]
   expiresAt DateTime
@@ -286,26 +338,45 @@ Table Order {
   dispatchedAt DateTime
   deliveredAt DateTime
   returnDueAt DateTime
+  returnShipmentId String
+  returnTrackingId String
+  returnShippingTier String
+  returnShippingFee Int
+  returnPickupPartner String
   externalTrackingUrl String
+  returnRequestReminderSentAt DateTime
+  returnRequestPastDueSentAt DateTime
   shipmentId String
   trackingId String
   deliveryFee Int
   listerBusinessName String
-  listerId String
   listerImage String
   listerRating Float
   serviceFee Int
   totalAmountPaid Int
   vatAmount Int
   disputes Dispute [not null]
-  escrows Escrow
+  escrows Escrow [not null]
   user User [not null]
   orderItems OrderItem [not null]
   rentals Rental [not null]
-  returnRequest ReturnRequest
+  returnRequests ReturnRequest [not null]
   payments Transaction [not null]
   virtualAccount VirtualAccount
   walletTransactions WalletTransaction [not null]
+  shipments Shipment [not null]
+  orderListers OrderLister [not null]
+}
+
+Table OrderLister {
+  orderId String [not null]
+  listerId String [not null]
+  order Order [not null]
+  lister User [not null]
+
+  indexes {
+    (orderId, listerId) [pk]
+  }
 }
 
 Table OrderItem {
@@ -318,8 +389,14 @@ Table OrderItem {
   collateralFee Int
   imageUrl String
   rentalFee Int
+  outboundShipmentId String [note: 'Checkout shipment leg for rental outbound (lister → renter).']
+  returnShipmentId String [note: 'Checkout shipment leg for rental return (renter → lister).']
+  resaleShipmentId String [note: 'Checkout shipment leg for resale delivery (lister → buyer).']
   order Order [not null]
   product Product [not null]
+  outboundShipment Shipment
+  returnShipment Shipment
+  resaleShipment Shipment
 }
 
 Table Rental {
@@ -370,6 +447,7 @@ Table Dispute {
   userId String [not null]
   issueCategory String [not null]
   description String [not null]
+  preferredResolution String
   status DisputeStatus [not null, default: 'PENDING']
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
@@ -397,6 +475,8 @@ Table Message {
   createdAt DateTime [default: `now()`, not null]
   chatRoomId String [not null]
   chatRoom ChatRoom [not null]
+  sender User [not null]
+  uploads Upload [not null]
 }
 
 Table Transaction {
@@ -456,16 +536,21 @@ Table WalletTransaction {
 
 Table Escrow {
   id String [pk]
-  orderId String [unique, not null]
+  orderId String [not null]
+  listerId String [not null]
   renterId String [not null]
-  curatorId String [not null]
   rentalAmount Int [not null]
+  resaleAmount Int
   collateralAmount Int [not null]
   cleaningFee Int [not null]
   status EscrowStatus [not null, default: 'LOCKED']
   releasedAt DateTime
   createdAt DateTime [default: `now()`, not null]
   order Order [not null]
+
+  indexes {
+    (orderId, listerId) [unique]
+  }
 }
 
 Table VirtualAccount {
@@ -600,19 +685,85 @@ Table Newsletter {
 
 Table ReturnRequest {
   id String [pk]
-  orderId String [unique, not null]
+  orderId String [not null]
+  shipmentId String
   itemCondition ItemCondition [not null]
   damageNotes String
   imageUrls String[] [not null]
-  status String [not null, default: 'PENDING']
+  listerCondition ItemCondition
+  listerDamageNotes String
+  listerConfirmationImages String[] [not null]
+  status String [not null, default: 'PENDING_PICKUP']
+  trackingNumber String
+  pickupAddress String
+  pickupScheduledAt DateTime
+  pickupWindowStart DateTime
+  pickupWindowEnd DateTime
+  reminder24hSentAt DateTime
+  reminderDayOfSentAt DateTime
+  listerReturnWindowPassedNotifiedAt DateTime [note: 'One-shot email to lister when return pickup window ended but return leg not yet completed (fallback if tracking lags).']
+  shippedAt DateTime
+  deliveredAt DateTime
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
   order Order [not null]
+  shipment Shipment
+}
+
+Table Shipment {
+  id String [pk]
+  orderId String [not null]
+  listerId String
+  type ShipmentType [not null]
+  status ShipmentStatus [not null, default: 'PENDING']
+  scheduledDate DateTime [not null, note: 'Calendar day for dispatch eligibility when no finer window is set (see scheduler)']
+  scheduledWindowStart DateTime [note: 'Relisted-only: when this leg may enter dispatch (cron/queue). Not sent to Topship as a window.']
+  scheduledWindowEnd DateTime [note: 'Relisted-only: end of the dispatch window for UX / future rules. Not sent to Topship as a window.']
+  pickupAddress Json [not null, note: 'Full sender address snapshot captured at order creation time (JSON)']
+  deliveryAddress Json [not null, note: 'Full receiver address snapshot captured at order creation time (JSON)']
+  providerShipmentId String [note: 'Topship shipment ID — populated after successful dispatch']
+  providerTrackingUrl String [note: 'Topship tracking URL — populated after successful dispatch']
+  trackingId String
+  pricingTier String [note: 'Topship pricingTier selected by the renter at checkout (e.g. \'chowdeck\', \'glovo\')']
+  shipmentCharge Int [note: 'Topship shipment charge in kobo captured at checkout']
+  pickupCharge Int [note: 'Topship pickup charge in kobo captured at checkout']
+  vatCharge Int [note: 'Topship VAT charge in kobo captured at checkout']
+  pickupPartner String [note: 'Topship pickup partner captured at checkout (e.g. \'chowdeck\')']
+  pickupId String [note: 'Topship pickupId captured at checkout']
+  deliveryLocation String [note: 'Single-line receiver address captured at checkout (for admin / Topship); not the pickup-partner hub string from rate APIs']
+  manualFulfillment Boolean [not null, default: false, note: 'Relisted dispatch fallback: skip automated Topship booking until an admin marks dispatched.']
+  dispatchAttempts Int [not null, default: 0]
+  dispatchedAt DateTime
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+  order Order [not null]
+  attemptLogs DispatchAttemptLog [not null]
+  returnRequests ReturnRequest [not null]
+  orderItemsOutbound OrderItem [not null]
+  orderItemsReturn OrderItem [not null]
+  orderItemsResale OrderItem [not null]
+}
+
+Table DispatchAttemptLog {
+  id String [pk]
+  shipmentId String [not null]
+  attemptNumber Int [not null]
+  attemptedAt DateTime [default: `now()`, not null]
+  success Boolean [not null]
+  errorCode String
+  errorMessage String
+  durationMs Int
+  shipment Shipment [not null]
 }
 
 Table ProductToTag {
   tagsId String [ref: > Tag.id]
   productsId String [ref: > Product.id]
+}
+
+Table MessageToUpload {
+  messagesId String [ref: > Message.id]
+  uploadsId String [ref: > Upload.id]
 }
 
 Enum Role {
@@ -635,6 +786,7 @@ Enum ProductStatus {
   APPROVED
   REJECTED
   UNAVAILABLE
+  SOLD
 }
 
 Enum WalletTransactionStatus {
@@ -650,6 +802,7 @@ Enum OrderStatus {
   DELIVERED
   ACTIVE
   RETURN_DUE
+  IN_DISPUTE
   RETURNED
   COMPLETED
   CANCELLED
@@ -675,6 +828,7 @@ Enum DisputeStatus {
 Enum AvailabilityStatus {
   PENDING
   ACCEPTED
+  ORDERED
   REJECTED
   EXPIRED
   CANCELLED_BY_RENTER
@@ -706,6 +860,28 @@ Enum ItemCondition {
   POOR
 }
 
+Enum ListingType {
+  RENTAL
+  RESALE
+  RENT_OR_RESALE
+}
+
+Enum ShipmentType {
+  OUTBOUND
+  RETURN
+  RESALE
+}
+
+Enum ShipmentStatus {
+  PENDING
+  DISPATCHING
+  DISPATCH_FAILED
+  DISPATCHED
+  IN_TRANSIT
+  COMPLETED
+  CANCELLED
+}
+
 Ref: User.adminRoleId > AdminRole.id
 
 Ref: Profile.avatarUploadId - Upload.id
@@ -724,9 +900,13 @@ Ref: Address.profileId - Profile.id
 
 Ref: AuthOtpToken.userId > User.id
 
+Ref: Closet.ownerId > User.id [delete: Cascade]
+
 Ref: Product.brandId > Brand.id
 
 Ref: Product.categoryId > ProductCategory.id
+
+Ref: Product.closetId > Closet.id [delete: Set Null]
 
 Ref: Product.curatorId > User.id
 
@@ -754,6 +934,10 @@ Ref: Favourite.productId > Product.id
 
 Ref: Favourite.userId > User.id
 
+Ref: ProductAvailabilityNotification.productId > Product.id [delete: Cascade]
+
+Ref: ProductAvailabilityNotification.userId > User.id [delete: Cascade]
+
 Ref: AvailabilityRequest.listerId > User.id
 
 Ref: AvailabilityRequest.productId > Product.id
@@ -762,9 +946,19 @@ Ref: AvailabilityRequest.requesterId > User.id
 
 Ref: Order.userId > User.id
 
+Ref: OrderLister.orderId > Order.id [delete: Cascade]
+
+Ref: OrderLister.listerId > User.id [delete: Cascade]
+
 Ref: OrderItem.orderId > Order.id
 
 Ref: OrderItem.productId > Product.id
+
+Ref: OrderItem.outboundShipmentId > Shipment.id
+
+Ref: OrderItem.returnShipmentId > Shipment.id
+
+Ref: OrderItem.resaleShipmentId > Shipment.id
 
 Ref: Rental.curatorId > User.id
 
@@ -790,6 +984,8 @@ Ref: ChatRoom.disputeId - Dispute.id
 
 Ref: Message.chatRoomId > ChatRoom.id
 
+Ref: Message.senderId > User.id
+
 Ref: Transaction.orderId > Order.id
 
 Ref: Transaction.userId > User.id
@@ -802,7 +998,7 @@ Ref: WalletTransaction.orderId > Order.id
 
 Ref: WalletTransaction.walletId > Wallet.id
 
-Ref: Escrow.orderId - Order.id
+Ref: Escrow.orderId > Order.id
 
 Ref: VirtualAccount.orderId - Order.id
 
@@ -820,4 +1016,10 @@ Ref: AuditLog.performedBy > User.id
 
 Ref: Notification.userId > User.id
 
-Ref: ReturnRequest.orderId - Order.id
+Ref: ReturnRequest.orderId > Order.id
+
+Ref: ReturnRequest.shipmentId > Shipment.id
+
+Ref: Shipment.orderId > Order.id
+
+Ref: DispatchAttemptLog.shipmentId > Shipment.id

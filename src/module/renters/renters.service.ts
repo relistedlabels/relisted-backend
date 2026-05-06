@@ -7,10 +7,15 @@ import {
 import { PrismaService } from '../../services/prisma/prisma.service';
 import { UploadService } from '../upload/upload.service';
 import { WemaServiceService } from '../../services/wema-service/wema-service.service';
+import {
+  TOPSHIP_DESCRIPTION_MAX_LEN,
+  topshipCombinedOrderItemsDescription,
+  topshipProductDetailLine,
+} from '../../services/topship/topship-description';
 import { TopshipService } from '../../services/topship/topship.service';
 import { randomUUID } from 'crypto';
-import { OrderStatus, Role } from '@prisma/client';
-import { addMinutes } from 'date-fns';
+import { ListingType, OrderStatus, Role } from '@prisma/client';
+import { addMinutes, addDays } from 'date-fns';
 import { createAttachments } from 'prisma/prisma.utils';
 
 import { NotificationService } from '../../services/notification/notification.service';
@@ -18,9 +23,221 @@ import { assertNoOpenAvailabilityRequestForProduct } from '../../utils/assert-no
 import { DEFAULT_CLEANING_FEE_NGN } from '../../constants/rental-pricing';
 import { bad } from '../../utils/error';
 import {
+  CreateReturnRequestDto,
+  SelectedReturnRateDto,
+} from './dto/return-request.dto';
+import {
+  DispatchWindowRange,
+  DispatchWindowRangeMap,
+  DispatchWindowType,
+  DispatchWindowsInput,
+  availabilityRequestWindowFieldMap,
+  buildDefaultDispatchWindow,
+  isWindowExpired,
+  parseDispatchWindowFromInput,
+  applyRangeMapToData,
+} from '../../utils/dispatch-windows';
+import {
   buildListerWithdrawRentalRequestEmailContext,
   type ListerWithdrawNotify,
 } from '../cart-items/withdraw-availability-for-cart-item';
+import { syncOrderStatusFromShipments } from '../order/order-shipment-status.sync';
+
+/** Renter progress ordering (subset of shipment-driven flow; excludes terminal edge cases). */
+const RENTER_PROGRESS_RANK: OrderStatus[] = [
+  OrderStatus.PROCESSING,
+  OrderStatus.ACCEPTED,
+  OrderStatus.CONFIRMED,
+  OrderStatus.IN_TRANSIT,
+  OrderStatus.DELIVERED,
+  OrderStatus.ACTIVE,
+  OrderStatus.RETURN_DUE,
+  OrderStatus.RETURNED,
+  OrderStatus.COMPLETED,
+];
+
+function renterProgressRank(status: OrderStatus): number {
+  if (status === OrderStatus.IN_DISPUTE) {
+    return RENTER_PROGRESS_RANK.indexOf(OrderStatus.ACTIVE);
+  }
+  const i = RENTER_PROGRESS_RANK.indexOf(status);
+  return i === -1 ? -1 : i;
+}
+
+/**
+ * Checkout debits the wallet before creating the order, but rental rows were stored as PROCESSING.
+ * Renter UX should treat paid orders as confirmed (lister already accepted pre-checkout).
+ */
+function renterDisplayOrderStatus(
+  status: OrderStatus,
+  totalAmountPaid: number | null | undefined,
+): OrderStatus {
+  if (
+    status === OrderStatus.PROCESSING &&
+    totalAmountPaid != null &&
+    Number(totalAmountPaid) > 0
+  ) {
+    return OrderStatus.CONFIRMED;
+  }
+  return status;
+}
+
+/** Topship booking in flight or completed (outbound leg no longer waiting for provider id). */
+const OUTBOUND_BOOKED_STATUSES = new Set([
+  'DISPATCHING',
+  'DISPATCHED',
+  'IN_TRANSIT',
+  'COMPLETED',
+]);
+
+function allOutboundLegsBooked(
+  outboundLegs: ReadonlyArray<{ status: string }>,
+): boolean {
+  if (outboundLegs.length === 0) return false;
+  return outboundLegs.every((l) => OUTBOUND_BOOKED_STATUSES.has(l.status));
+}
+
+/**
+ * Integer threshold used with rental milestone `doneAtRank` (1..7).
+ * Aligns "In transit" with Topship outbound booked, not only OrderStatus.CONFIRMED.
+ */
+function computeRentalTimelineRank(
+  status: OrderStatus,
+  totalAmountPaid: number | null | undefined,
+  outboundLegs: ReadonlyArray<{ status: string }>,
+): number {
+  const display = renterDisplayOrderStatus(status, totalAmountPaid);
+  if (display === OrderStatus.IN_DISPUTE) {
+    return 4;
+  }
+  const booked = allOutboundLegsBooked(outboundLegs);
+  switch (display) {
+    case OrderStatus.PROCESSING:
+      return 0;
+    case OrderStatus.ACCEPTED:
+      return 1;
+    case OrderStatus.CONFIRMED:
+      return booked ? 3 : 2;
+    case OrderStatus.IN_TRANSIT:
+      return 3;
+    case OrderStatus.DELIVERED:
+    case OrderStatus.ACTIVE:
+      return 4;
+    case OrderStatus.RETURN_DUE:
+      return 5;
+    case OrderStatus.RETURNED:
+      return 6;
+    case OrderStatus.COMPLETED:
+      return 7;
+    default:
+      return Math.max(0, renterProgressRank(display));
+  }
+}
+
+/** Calendar date in Lagos (aligned with lister dispatch window formatting). */
+const formatLocalDate = (value: Date | string) =>
+  new Date(value).toLocaleDateString('en-CA', {
+    timeZone: 'Africa/Lagos',
+  });
+
+const formatPickupWindowLagos = (start: Date, end: Date): string => {
+  const tz = 'Africa/Lagos';
+  const dateOpts: Intl.DateTimeFormatOptions = {
+    timeZone: tz,
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  };
+  const timeOpts: Intl.DateTimeFormatOptions = {
+    timeZone: tz,
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  };
+  return `${start.toLocaleDateString('en-NG', dateOpts)}, ${start.toLocaleTimeString('en-NG', timeOpts)} to ${end.toLocaleTimeString('en-NG', timeOpts)}`;
+};
+
+/**
+ * Single window shown to renter + lister: checkout RETURN shipment first (matches availability/checkout),
+ * else the ReturnRequest slot from the return flow.
+ */
+function resolveReturnWindowForDisplay(args: {
+  returnShipment: {
+    scheduledWindowStart: Date | null;
+    scheduledWindowEnd: Date | null;
+  } | null;
+  returnRequest: {
+    pickupWindowStart: Date | null;
+    pickupWindowEnd: Date | null;
+  } | null;
+}): { start: Date; end: Date; summary: string } | null {
+  const ship = args.returnShipment;
+  if (ship?.scheduledWindowStart && ship?.scheduledWindowEnd) {
+    const start = new Date(ship.scheduledWindowStart);
+    const end = new Date(ship.scheduledWindowEnd);
+    return { start, end, summary: formatPickupWindowLagos(start, end) };
+  }
+  const rr = args.returnRequest;
+  if (rr?.pickupWindowStart && rr?.pickupWindowEnd) {
+    const start = new Date(rr.pickupWindowStart);
+    const end = new Date(rr.pickupWindowEnd);
+    return { start, end, summary: formatPickupWindowLagos(start, end) };
+  }
+  return null;
+}
+
+/**
+ * RETURN shipment rows are created at checkout with Topship charges in kobo.
+ * `processReturnWithShipping` passes NGN into Topship helpers via `toKobo()` — same as when the renter picked a tier at checkout.
+ */
+function selectedRateFromCheckoutReturnShipment(s: {
+  pricingTier: string | null;
+  pickupPartner: string | null;
+  shipmentCharge: number | null;
+  pickupCharge: number | null;
+  vatCharge: number | null;
+}): SelectedReturnRateDto | null {
+  const koboToNgn = (k: number | null | undefined) =>
+    k != null && Number.isFinite(Number(k)) ? Number(k) / 100 : 0;
+  const shipmentCharge = koboToNgn(s.shipmentCharge);
+  const pickupCharge = koboToNgn(s.pickupCharge);
+  const vatCharge = koboToNgn(s.vatCharge);
+  const tier = s.pricingTier?.trim();
+  const partner = s.pickupPartner?.trim();
+  if (!tier && !partner && shipmentCharge <= 0 && pickupCharge <= 0 && vatCharge <= 0) {
+    return null;
+  }
+  const totalCharge = shipmentCharge + pickupCharge + vatCharge;
+  return {
+    pickupPartner: partner || 'Standard',
+    shipmentCharge,
+    pickupCharge,
+    vatCharge,
+    pricingTier: tier || 'chowdeck',
+    totalCharge,
+  };
+}
+
+function returnLegStatusLabel(status: string): string {
+  switch (status) {
+    case 'PENDING':
+      return 'Pickup not scheduled yet';
+    case 'DISPATCHING':
+      return 'Booking with carrier';
+    case 'DISPATCHED':
+      return 'Pickup scheduled';
+    case 'IN_TRANSIT':
+      return 'On the way back to the lister';
+    case 'COMPLETED':
+      return 'Delivered to lister';
+    case 'DISPATCH_FAILED':
+      return 'Dispatch failed. Support will retry.';
+    case 'CANCELLED':
+      return 'Cancelled';
+    default:
+      return status;
+  }
+}
 
 @Injectable()
 export class RentersService {
@@ -52,15 +269,35 @@ export class RentersService {
     return d;
   }
 
-  /** PENDING + past expiresAt should read as EXPIRED (same idea as lister order list). */
+  /** PENDING/ACCEPTED requests whose timers or dispatch windows elapsed are marked as EXPIRED. */
   private async expireStalePendingAvailabilityRequestsForRequester(
     requesterId: string,
   ) {
+    const now = new Date();
+    const windowExpiryFilters = Object.values(
+      availabilityRequestWindowFieldMap,
+    ).map(({ end }) => ({
+      [end]: { not: null, lte: now },
+    }));
+
+    const orClauses: any[] = [
+      {
+        status: 'PENDING',
+        expiresAt: { lte: now },
+      },
+    ];
+
+    if (windowExpiryFilters.length > 0) {
+      orClauses.push({
+        status: { in: ['PENDING', 'ACCEPTED'] },
+        OR: windowExpiryFilters,
+      });
+    }
+
     await this.prisma.availabilityRequest.updateMany({
       where: {
         requesterId,
-        status: 'PENDING',
-        expiresAt: { lte: new Date() },
+        OR: orClauses,
       },
       data: { status: 'EXPIRED' },
     });
@@ -81,6 +318,73 @@ export class RentersService {
       default:
         return dbStatus.toLowerCase();
     }
+  }
+
+  private resolveReturnPickupWindow(
+    pickupWindow?: CreateReturnRequestDto['pickupWindow'],
+  ): DispatchWindowRange {
+    const reference = new Date();
+    const resolved = pickupWindow
+      ? parseDispatchWindowFromInput('RETURN', {
+          start: pickupWindow.start,
+          end: pickupWindow.end,
+        })
+      : buildDefaultDispatchWindow(reference);
+
+    if (isWindowExpired(resolved, reference)) {
+      bad('Return pickup window must be in the future.');
+    }
+
+    return resolved;
+  }
+
+  /**
+   * Multiple RETURN legs per order use scheduled windows from checkout.
+   * Prefer explicit `shipmentId`, then match pickup window to a leg, else earliest window.
+   */
+  private resolveReturnShipmentLeg<T extends { id: string; type: string }>(
+    orderShipments: T[],
+    opts: {
+      shipmentId?: string | null;
+      pickupWindow: DispatchWindowRange;
+    },
+  ): T | null {
+    type Row = T & {
+      scheduledWindowStart?: Date | string | null;
+      scheduledWindowEnd?: Date | string | null;
+    };
+    const returns = (orderShipments as Row[])
+      .filter((s) => s.type === 'RETURN')
+      .sort((a, b) => {
+        const ta = a.scheduledWindowStart
+          ? new Date(a.scheduledWindowStart).getTime()
+          : Number.POSITIVE_INFINITY;
+        const tb = b.scheduledWindowStart
+          ? new Date(b.scheduledWindowStart).getTime()
+          : Number.POSITIVE_INFINITY;
+        if (ta !== tb) return ta - tb;
+        return a.id.localeCompare(b.id);
+      });
+
+    if (opts.shipmentId) {
+      const hit = returns.find((s) => s.id === opts.shipmentId);
+      if (hit) return hit as T;
+      bad('Invalid return shipment for this order.');
+    }
+
+    const tolMs = 2 * 60 * 1000;
+    const ps = opts.pickupWindow.start.getTime();
+    const pe = opts.pickupWindow.end.getTime();
+    for (const r of returns) {
+      if (!r.scheduledWindowStart || !r.scheduledWindowEnd) continue;
+      const rs = new Date(r.scheduledWindowStart).getTime();
+      const re = new Date(r.scheduledWindowEnd).getTime();
+      if (Math.abs(rs - ps) <= tolMs && Math.abs(re - pe) <= tolMs) {
+        return r as T;
+      }
+    }
+
+    return (returns[0] as T) ?? null;
   }
 
   async getDashboardSummary(userId: string, timeframe: string = 'month') {
@@ -762,6 +1066,53 @@ export class RentersService {
     }
 
     const expiresAt = addMinutes(new Date(), 15);
+
+    const dispatchWindowsInput = data.dispatchWindows as
+      | DispatchWindowsInput
+      | undefined;
+
+    const requiredWindowTypes: DispatchWindowType[] = [];
+    if (data.rentalDays && data.rentalDays > 0) {
+      requiredWindowTypes.push('OUTBOUND', 'RETURN');
+    }
+    if (data.rentalDays === 0) {
+      requiredWindowTypes.push('RESALE');
+    }
+
+    const now = new Date();
+    const outboundBase =
+      startDate && startDate.getTime() > now.getTime() ? startDate : now;
+    const returnBase =
+      endDate && endDate.getTime() > now.getTime() ? endDate : now;
+
+    let windowMap: Partial<Record<DispatchWindowType, DispatchWindowRange>> =
+      {};
+    for (const type of requiredWindowTypes) {
+      if (dispatchWindowsInput?.[type]) {
+        windowMap[type] = parseDispatchWindowFromInput(
+          type,
+          dispatchWindowsInput[type]!,
+        );
+      }
+    }
+    for (const type of requiredWindowTypes) {
+      const w = windowMap[type];
+      if (!w || isWindowExpired(w, now)) {
+        if (type === 'OUTBOUND') {
+          windowMap[type] = buildDefaultDispatchWindow(outboundBase);
+        } else if (type === 'RETURN') {
+          windowMap[type] = buildDefaultDispatchWindow(returnBase);
+        } else {
+          windowMap[type] = buildDefaultDispatchWindow(now);
+        }
+      }
+    }
+
+    const windowData = applyRangeMapToData(
+      windowMap as DispatchWindowRangeMap,
+      availabilityRequestWindowFieldMap,
+    );
+
     const request = await this.prisma.availabilityRequest.create({
       data: {
         productId: data.productId,
@@ -776,6 +1127,7 @@ export class RentersService {
         totalPrice: data.estimatedRentalPrice,
         deliveryAddressId: data.deliveryAddressId,
         autoPay: data.autoPay || false,
+        ...windowData,
       },
       include: {
         product: { include: { curator: true } },
@@ -813,6 +1165,13 @@ export class RentersService {
         endDate: request.endDate ? request.endDate.toDateString() : 'N/A',
         viewLink: `${process.env.CLIENT_URL}/listers/orders/${request.id}`,
         requestType: isResaleRequest ? 'purchase' : 'rental',
+        dispatchWindows: Object.entries(windowMap).map(([type, window]) => ({
+          type,
+          window: {
+            start: window!.start.toISOString(),
+            end: window!.end.toISOString(),
+          },
+        })),
       },
     });
 
@@ -896,6 +1255,23 @@ export class RentersService {
         0,
         Math.floor((new Date(r.expiresAt).getTime() - Date.now()) / 1000),
       );
+      const selectedWindows =
+        r.rentalDays === 0
+          ? {
+              resaleWindow: r.resaleWindowStart && r.resaleWindowEnd
+                ? { start: r.resaleWindowStart, end: r.resaleWindowEnd }
+                : null,
+            }
+          : {
+              outboundDeliveryWindow:
+                r.outboundWindowStart && r.outboundWindowEnd
+                  ? { start: r.outboundWindowStart, end: r.outboundWindowEnd }
+                  : null,
+              returnPickupWindow:
+                r.returnWindowStart && r.returnWindowEnd
+                  ? { start: r.returnWindowStart, end: r.returnWindowEnd }
+                  : null,
+            };
       return {
         requestId: r.id,
         cartItemId: r.cartItemId,
@@ -918,6 +1294,7 @@ export class RentersService {
         expiresAt: r.expiresAt,
         timeRemainingSeconds: diff,
         timeRemainingMinutes: Math.ceil(diff / 60),
+        selectedWindows,
       };
     });
 
@@ -1254,7 +1631,7 @@ export class RentersService {
                 i.imageUrl || i.product?.attachments?.uploads?.[0]?.url || null,
             })),
             totalAmount: totalAmount,
-            status: o.status,
+            status: renterDisplayOrderStatus(o.status, o.totalAmountPaid),
             date: o.createdAt,
             image: image,
             listerName: o.listerBusinessName || 'Unknown',
@@ -1271,6 +1648,7 @@ export class RentersService {
     const order = await this.prisma.order.findUnique({
       where: { orderId },
       include: {
+        orderListers: true,
         orderItems: {
           include: {
             product: {
@@ -1285,6 +1663,13 @@ export class RentersService {
           },
         },
         rentals: true,
+        shipments: {
+          orderBy: { createdAt: 'asc' },
+        },
+        returnRequests: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
         user: { include: { profile: { include: { address: true } } } },
       } as any,
     });
@@ -1293,6 +1678,64 @@ export class RentersService {
       throw new NotFoundException('Order not found');
 
     const typedOrder = order as any;
+    const latestRr = typedOrder.returnRequests?.[0] ?? null;
+    const returnShipments = (typedOrder.shipments ?? []).filter(
+      (s: { type: string }) => s.type === 'RETURN',
+    );
+    const latestReturnLeg =
+      returnShipments.length > 0
+        ? returnShipments[returnShipments.length - 1]
+        : null;
+    const unifiedReturnWindow = resolveReturnWindowForDisplay({
+      returnShipment: latestReturnLeg,
+      returnRequest: latestRr,
+    });
+    const returnPickup =
+      latestRr &&
+      (latestRr.pickupWindowStart ||
+        latestRr.pickupWindowEnd ||
+        latestRr.trackingNumber ||
+        latestRr.shipmentId)
+        ? {
+            requestStatus: latestRr.status,
+            trackingNumber: latestRr.trackingNumber ?? null,
+            carrierShipmentId: latestRr.shipmentId ?? null,
+            pickupWindowStart:
+              unifiedReturnWindow?.start.toISOString() ??
+              latestRr.pickupWindowStart?.toISOString?.() ??
+              null,
+            pickupWindowEnd:
+              unifiedReturnWindow?.end.toISOString() ??
+              latestRr.pickupWindowEnd?.toISOString?.() ??
+              null,
+            pickupScheduledAt: latestRr.pickupScheduledAt?.toISOString?.() ?? null,
+            pickupWindowSummary:
+              unifiedReturnWindow?.summary ??
+              (latestRr.pickupWindowStart && latestRr.pickupWindowEnd
+                ? formatPickupWindowLagos(
+                    new Date(latestRr.pickupWindowStart),
+                    new Date(latestRr.pickupWindowEnd),
+                  )
+                : null),
+          }
+        : null;
+    const returnLeg = latestReturnLeg
+      ? {
+          status: latestReturnLeg.status,
+          label: returnLegStatusLabel(String(latestReturnLeg.status)),
+          trackingId: latestReturnLeg.trackingId ?? null,
+          providerTrackingUrl: latestReturnLeg.providerTrackingUrl ?? null,
+          windowSummary:
+            unifiedReturnWindow?.summary ??
+            (latestReturnLeg.scheduledWindowStart &&
+            latestReturnLeg.scheduledWindowEnd
+              ? formatPickupWindowLagos(
+                  new Date(latestReturnLeg.scheduledWindowStart),
+                  new Date(latestReturnLeg.scheduledWindowEnd),
+                )
+              : null),
+        }
+      : null;
     const totalAmount =
       typedOrder.totalAmountPaid ||
       typedOrder.rentals?.[0]?.totalAmount ||
@@ -1308,7 +1751,7 @@ export class RentersService {
           .filter(Boolean),
       ),
     ] as string[];
-    const availRows =
+    const availabilityRequests =
       productIds.length > 0
         ? await this.prisma.availabilityRequest.findMany({
             where: {
@@ -1317,30 +1760,77 @@ export class RentersService {
               status: 'ACCEPTED',
             },
             orderBy: { createdAt: 'desc' },
-            select: { productId: true, startDate: true, endDate: true },
           })
         : [];
     const availByProduct = new Map<
       string,
-      { startDate: Date | null; endDate: Date | null }
+      {
+        startDate: Date | null;
+        endDate: Date | null;
+        returnWindowStart: Date | null;
+      }
     >();
-    for (const row of availRows) {
+    for (const row of availabilityRequests) {
       if (!availByProduct.has(row.productId)) {
         availByProduct.set(row.productId, {
           startDate: row.startDate,
           endDate: row.endDate,
+          returnWindowStart: row.returnWindowStart ?? null,
         });
       }
     }
 
     const rentals: any[] = typedOrder.rentals ?? [];
+    const dispatchWindows = this.mergeRenterDispatchWindows(
+      typedOrder,
+      availabilityRequests,
+    );
+
+    const rentalSubtotal = typedOrder.orderItems.reduce(
+      (sum: number, oi: any) => {
+        const isResaleItem =
+          oi.days === 0 &&
+          (oi.product?.listingType === 'RESALE' ||
+            oi.product?.listingType === 'RENT_OR_RESALE');
+        if (isResaleItem) return sum;
+        return (
+          sum +
+          (oi.pricePerDay ?? oi.product?.dailyPrice ?? 0) * (oi.days ?? 0)
+        );
+      },
+      0,
+    );
+    const cleaningFeesTotal = typedOrder.orderItems.reduce(
+      (sum: number, oi: any) => sum + (oi.cleaningFee ?? 0),
+      0,
+    );
+    const resaleSubtotal = typedOrder.orderItems.reduce(
+      (sum: number, oi: any) => {
+        const isResaleItem =
+          oi.days === 0 &&
+          (oi.product?.listingType === 'RESALE' ||
+            oi.product?.listingType === 'RENT_OR_RESALE');
+        return isResaleItem ? sum + (oi.product?.resalePrice || 0) : sum;
+      },
+      0,
+    );
+    const merchandiseBreakdown = {
+      rentalSubtotal,
+      cleaningFeesTotal,
+      resaleSubtotal,
+      total: rentalSubtotal + cleaningFeesTotal + resaleSubtotal,
+    };
 
     return {
       success: true,
       data: {
         order: {
           orderId: typedOrder.orderId,
-          status: typedOrder.status,
+          status: renterDisplayOrderStatus(
+            typedOrder.status,
+            typedOrder.totalAmountPaid,
+          ),
+          listingType: typedOrder.listingType,
           createdAt: typedOrder.createdAt,
           totalAmount: totalAmount,
           rentalId: rentals.length === 1 ? (rentals[0]?.id ?? null) : null,
@@ -1358,9 +1848,14 @@ export class RentersService {
           rentalEndDate: rentals[0]?.endDate || null,
           deliveryFee: typedOrder.deliveryFee || 0,
           serviceFee: typedOrder.serviceFee || 0,
+          vatAmount: typedOrder.vatAmount ?? 0,
+          dispatchWindows,
+          merchandiseBreakdown,
+          returnPickup,
+          returnLeg,
           lister: {
             userId:
-              typedOrder.listerId ||
+              (typedOrder.orderListers && typedOrder.orderListers[0]?.listerId) ||
               typedOrder.orderItems?.[0]?.product?.curator?.id,
             businessName:
               typedOrder.listerBusinessName ||
@@ -1380,6 +1875,12 @@ export class RentersService {
             const rentalStartDate =
               rentalRow?.startDate ?? avail?.startDate ?? null;
             const rentalEndDate = rentalRow?.endDate ?? avail?.endDate ?? null;
+            let returnDueDate: string | null = null;
+            if (avail?.returnWindowStart) {
+              returnDueDate = new Date(avail.returnWindowStart).toISOString();
+            } else if (rentalEndDate) {
+              returnDueDate = addDays(new Date(rentalEndDate), 1).toISOString();
+            }
 
             const cleaningFee = i.cleaningFee ?? DEFAULT_CLEANING_FEE_NGN;
             const collateralFee =
@@ -1408,11 +1909,15 @@ export class RentersService {
               collateral: collateralFee,
               rentalStartDate,
               rentalEndDate,
+              returnDueDate,
             };
           }),
           shippingAddress: typedOrder.user.profile?.address || null,
           tracking: {
-            status: typedOrder.status,
+            status: renterDisplayOrderStatus(
+              typedOrder.status,
+              typedOrder.totalAmountPaid,
+            ),
             updates: [],
           },
         },
@@ -1425,6 +1930,185 @@ export class RentersService {
       success: true,
       message: 'Order updated',
     };
+  }
+
+  private formatDispatchWindowsFromShipments(order: any) {
+    const shipments = Array.isArray(order.shipments) ? order.shipments : [];
+    const byType = new Map<string, any>();
+
+    for (const shipment of shipments) {
+      if (shipment?.type) byType.set(shipment.type, shipment);
+    }
+
+    const dispatchWindows: Array<{
+      type: DispatchWindowType;
+      window: { start: string; end: string };
+      mode: 'DEFAULT' | 'CUSTOM';
+      scheduledDate: string;
+      baseDate: string;
+    }> = [];
+
+    for (const type of ['OUTBOUND', 'RETURN', 'RESALE'] as DispatchWindowType[]) {
+      const shipment = byType.get(type);
+      if (!shipment?.scheduledWindowStart || !shipment?.scheduledWindowEnd) continue;
+
+      const baseDate = shipment.scheduledDate
+        ? new Date(shipment.scheduledDate)
+        : new Date(shipment.scheduledWindowStart);
+      const defaultWindow = buildDefaultDispatchWindow(baseDate);
+      const isDefaultMode =
+        new Date(shipment.scheduledWindowStart).getTime() ===
+          defaultWindow.start.getTime() &&
+        new Date(shipment.scheduledWindowEnd).getTime() ===
+          defaultWindow.end.getTime();
+
+      dispatchWindows.push({
+        type,
+        window: {
+          start: new Date(shipment.scheduledWindowStart).toISOString(),
+          end: new Date(shipment.scheduledWindowEnd).toISOString(),
+        },
+        mode: isDefaultMode ? 'DEFAULT' : 'CUSTOM',
+        scheduledDate: formatLocalDate(
+          shipment.scheduledDate ?? shipment.scheduledWindowStart,
+        ),
+        baseDate: formatLocalDate(baseDate),
+      });
+    }
+
+    return dispatchWindows;
+  }
+
+  private formatDispatchWindowsFromAvailabilityRequest(req: any) {
+    const dispatchWindows: Array<{
+      type: DispatchWindowType;
+      window: { start: string; end: string };
+      mode: 'DEFAULT' | 'CUSTOM';
+      scheduledDate: string;
+      baseDate: string;
+    }> = [];
+
+    const pushWindow = (
+      type: DispatchWindowType,
+      start?: Date | string | null,
+      end?: Date | string | null,
+      baseDate?: Date | string | null,
+    ) => {
+      if (!start || !end || !baseDate) return;
+      dispatchWindows.push({
+        type,
+        window: {
+          start: new Date(start).toISOString(),
+          end: new Date(end).toISOString(),
+        },
+        mode: 'CUSTOM',
+        scheduledDate: formatLocalDate(baseDate),
+        baseDate: formatLocalDate(baseDate),
+      });
+    };
+
+    pushWindow(
+      'OUTBOUND',
+      req.outboundWindowStart,
+      req.outboundWindowEnd,
+      req.startDate,
+    );
+    pushWindow(
+      'RETURN',
+      req.returnWindowStart,
+      req.returnWindowEnd,
+      req.returnWindowStart ?? req.endDate,
+    );
+    pushWindow(
+      'RESALE',
+      req.resaleWindowStart,
+      req.resaleWindowEnd,
+      req.createdAt,
+    );
+
+    return dispatchWindows;
+  }
+
+  private consolidateRenterDispatchWindowsByTypeAndDay(
+    windows: Array<{
+      type: DispatchWindowType;
+      window: { start: string; end: string };
+      mode: 'DEFAULT' | 'CUSTOM';
+      scheduledDate: string;
+      baseDate: string;
+    }>,
+  ) {
+    type W = (typeof windows)[0];
+    if (windows.length <= 1) return windows;
+
+    const groups = new Map<string, W[]>();
+    for (const w of windows) {
+      const day = formatLocalDate(new Date(w.window.start));
+      const key = `${w.type}|${day}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(w);
+    }
+
+    const out: W[] = [];
+    for (const group of groups.values()) {
+      if (group.length === 1) {
+        out.push(group[0]);
+        continue;
+      }
+      const tStart = Math.min(
+        ...group.map((g) => new Date(g.window.start).getTime()),
+      );
+      const tEnd = Math.max(
+        ...group.map((g) => new Date(g.window.end).getTime()),
+      );
+      const head = group[0];
+      out.push({
+        ...head,
+        window: {
+          start: new Date(tStart).toISOString(),
+          end: new Date(tEnd).toISOString(),
+        },
+        scheduledDate: formatLocalDate(new Date(tStart)),
+        baseDate: formatLocalDate(new Date(tStart)),
+        mode: 'CUSTOM',
+      });
+    }
+
+    const orderRank = (t: DispatchWindowType) =>
+      t === 'OUTBOUND' ? 0 : t === 'RETURN' ? 1 : 2;
+    out.sort(
+      (a, b) =>
+        orderRank(a.type) - orderRank(b.type) ||
+        new Date(a.window.start).getTime() -
+          new Date(b.window.start).getTime(),
+    );
+    return out;
+  }
+
+  private mergeRenterDispatchWindows(order: any, availabilityRequests: any[]) {
+    const fromShipments = this.formatDispatchWindowsFromShipments(order);
+    if (fromShipments.length > 0) return fromShipments;
+
+    if (!availabilityRequests?.length) return [];
+
+    const merged: Array<{
+      type: DispatchWindowType;
+      window: { start: string; end: string };
+      mode: 'DEFAULT' | 'CUSTOM';
+      scheduledDate: string;
+      baseDate: string;
+    }> = [];
+    for (const req of availabilityRequests) {
+      merged.push(...this.formatDispatchWindowsFromAvailabilityRequest(req));
+    }
+    const seen = new Set<string>();
+    const deduped = merged.filter((w) => {
+      const key = `${w.type}|${w.window.start}|${w.window.end}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    return this.consolidateRenterDispatchWindowsByTypeAndDay(deduped);
   }
 
   async getFavorites(userId: string, query: any) {
@@ -1826,6 +2510,7 @@ export class RentersService {
     const orderWithLister = await this.prisma.order.findUnique({
       where: { id: order.id },
       include: {
+        orderListers: true,
         rentals: { select: { curatorId: true } },
         orderItems: {
           take: 1,
@@ -1837,7 +2522,7 @@ export class RentersService {
     const listerUserId =
       (orderWithLister as any)?.rentals?.[0]?.curatorId ??
       (orderWithLister as any)?.orderItems?.[0]?.product?.curator?.id ??
-      order.listerId ??
+      (orderWithLister?.orderListers && orderWithLister.orderListers[0]?.listerId) ??
       null;
 
     const listerUser = listerUserId
@@ -2280,40 +2965,431 @@ export class RentersService {
   async getOrderProgress(userId: string, orderId: string) {
     const order = await this.prisma.order.findUnique({
       where: { orderId },
-      include: { rentals: true } as any,
+      select: {
+        userId: true,
+        status: true,
+        totalAmountPaid: true,
+        listingType: true,
+        createdAt: true,
+        approvedAt: true,
+        dispatchedAt: true,
+        deliveredAt: true,
+        returnDueAt: true,
+        updatedAt: true,
+        rentals: { select: { returnedAt: true } },
+        returnRequests: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: {
+            status: true,
+            trackingNumber: true,
+            shipmentId: true,
+            pickupWindowStart: true,
+            pickupWindowEnd: true,
+            pickupScheduledAt: true,
+          },
+        },
+        shipments: {
+          orderBy: [{ scheduledDate: 'asc' }, { createdAt: 'asc' }],
+          select: {
+            id: true,
+            type: true,
+            status: true,
+            listerId: true,
+            scheduledDate: true,
+            scheduledWindowStart: true,
+            scheduledWindowEnd: true,
+            trackingId: true,
+            providerTrackingUrl: true,
+            dispatchedAt: true,
+          },
+        },
+      },
     });
 
     if (!order || order.userId !== userId)
       throw new NotFoundException('Order not found');
 
-    return {
-      success: true,
-      data: {
-        timeline: [
+    const status = order.status;
+    if (
+      status === OrderStatus.CANCELLED ||
+      status === OrderStatus.REJECTED
+    ) {
+      return {
+        success: true,
+        data: {
+          timeline: [
+            {
+              milestone: 'order_placed',
+              label: 'Order placed',
+              timestamp: order.createdAt.toISOString(),
+              status: 'completed' as const,
+              description: 'Your order was created',
+            },
+            {
+              milestone: 'cancelled',
+              label: 'Cancelled',
+              timestamp: order.updatedAt.toISOString(),
+              status: 'current' as const,
+              description:
+                status === OrderStatus.REJECTED
+                  ? 'This order was declined'
+                  : 'This order was cancelled',
+            },
+          ],
+          currentMilestone: 'cancelled',
+          percentComplete: 100,
+          returnScheduling: null,
+          returnLeg: null,
+        },
+      };
+    }
+
+    const resale = order.listingType === ListingType.RESALE;
+
+    const outboundShipments = (order.shipments ?? []).filter(
+      (s) => s.type === 'OUTBOUND',
+    );
+    const returnShipmentsProg = (order.shipments ?? []).filter(
+      (s) => s.type === 'RETURN',
+    );
+
+    const rank = resale
+      ? renterProgressRank(
+          renterDisplayOrderStatus(status, order.totalAmountPaid),
+        )
+      : computeRentalTimelineRank(
+          status,
+          order.totalAmountPaid,
+          outboundShipments,
+        );
+    const returnedAt =
+      order.rentals?.length > 0
+        ? order.rentals.reduce(
+            (latest: Date | null, r: { returnedAt: Date | null }) => {
+              if (!r.returnedAt) return latest;
+              if (!latest || r.returnedAt > latest) return r.returnedAt;
+              return latest;
+            },
+            null as Date | null,
+          )
+        : null;
+
+    type MilestoneRow = {
+      milestone: string;
+      label: string;
+      description: string;
+      doneAtRank: number;
+      timestamp: Date | null;
+    };
+
+    const milestones: MilestoneRow[] = resale
+      ? [
           {
             milestone: 'order_placed',
-            label: 'Order Placed',
-            timestamp: order.createdAt.toISOString(),
-            status: 'completed',
-            description: 'Your rental order has been confirmed',
+            label: 'Order placed',
+            description: 'Your purchase is confirmed',
+            doneAtRank: 0,
+            timestamp: order.createdAt,
           },
           {
-            milestone: 'in_transit',
-            label: 'In Transit',
-            timestamp: null,
-            status: 'current',
-            description: 'Your item is on the way',
+            milestone: 'shipped',
+            label: 'Shipped',
+            description: 'Seller has booked dispatch; item is on the way',
+            doneAtRank: 2,
+            timestamp: order.dispatchedAt,
           },
           {
             milestone: 'delivered',
             label: 'Delivered',
-            timestamp: null,
-            status: 'pending',
-            description: 'Item will be delivered to you',
+            description: 'Carrier shows delivery completed',
+            doneAtRank: 4,
+            timestamp: order.deliveredAt,
           },
-        ],
-        currentMilestone: 'in_transit',
-        percentComplete: 50,
+          {
+            milestone: 'completed',
+            label: 'Completed',
+            description: 'Order is fully closed',
+            doneAtRank: 8,
+            timestamp: null,
+          },
+        ]
+      : [
+          {
+            milestone: 'lister_accepted',
+            label: 'Lister accepted',
+            description: 'The lister approved your rental dates.',
+            doneAtRank: 1,
+            timestamp: order.approvedAt,
+          },
+          {
+            milestone: 'rental_confirmed',
+            label: 'Rental confirmed',
+            description:
+              'Your payment went through and your booking is confirmed.',
+            doneAtRank: 2,
+            timestamp: order.createdAt,
+          },
+          {
+            milestone: 'preparing_dispatch',
+            label: 'Processing order',
+            description:
+              'We are confirming pickup slots with carriers for each seller. Nothing has shipped yet.',
+            doneAtRank: 3,
+            timestamp: null,
+          },
+          {
+            milestone: 'in_transit',
+            label: 'In transit',
+            description:
+              'Carrier pickup is booked with Topship and your item is on the way.',
+            doneAtRank: 4,
+            timestamp: order.dispatchedAt,
+          },
+          {
+            milestone: 'with_you',
+            label: 'With you',
+            description: 'Rental period is active. Enjoy your rental.',
+            doneAtRank: 5,
+            timestamp: order.deliveredAt,
+          },
+          {
+            milestone: 'return_due',
+            label: 'Return',
+            description:
+              'Return the item by the due date. When you are ready, start a return in the app to schedule pickup if needed.',
+            doneAtRank: 6,
+            timestamp: order.returnDueAt,
+          },
+          {
+            milestone: 'returned',
+            label: 'Returned',
+            description:
+              'The carrier shows the item delivered back to the lister, or the lister has confirmed receipt.',
+            doneAtRank: 7,
+            timestamp: returnedAt,
+          },
+        ];
+
+    const latestRrProg = order.returnRequests?.[0];
+    const progReturnShipments = returnShipmentsProg;
+    const latestProgReturnLeg =
+      progReturnShipments.length > 0
+        ? progReturnShipments[progReturnShipments.length - 1]
+        : null;
+    const unifiedProgWindow = resolveReturnWindowForDisplay({
+      returnShipment: latestProgReturnLeg,
+      returnRequest: latestRrProg,
+    });
+    const returnSchedulingProg =
+      latestRrProg &&
+      (latestRrProg.pickupWindowStart ||
+        latestRrProg.pickupWindowEnd ||
+        latestRrProg.trackingNumber ||
+        latestRrProg.shipmentId)
+        ? {
+            requestStatus: latestRrProg.status,
+            trackingNumber: latestRrProg.trackingNumber ?? null,
+            pickupWindowStart:
+              unifiedProgWindow?.start.toISOString() ??
+              latestRrProg.pickupWindowStart?.toISOString() ??
+              null,
+            pickupWindowEnd:
+              unifiedProgWindow?.end.toISOString() ??
+              latestRrProg.pickupWindowEnd?.toISOString() ??
+              null,
+            pickupScheduledAt:
+              latestRrProg.pickupScheduledAt?.toISOString() ?? null,
+            summary:
+              unifiedProgWindow?.summary ??
+              (latestRrProg.pickupWindowStart && latestRrProg.pickupWindowEnd
+                ? formatPickupWindowLagos(
+                    new Date(latestRrProg.pickupWindowStart),
+                    new Date(latestRrProg.pickupWindowEnd),
+                  )
+                : null),
+          }
+        : null;
+
+    const returnLegProg = latestProgReturnLeg
+      ? {
+          status: latestProgReturnLeg.status,
+          label: returnLegStatusLabel(String(latestProgReturnLeg.status)),
+          trackingId: latestProgReturnLeg.trackingId ?? null,
+          providerTrackingUrl: latestProgReturnLeg.providerTrackingUrl ?? null,
+          windowSummary:
+            unifiedProgWindow?.summary ??
+            (latestProgReturnLeg.scheduledWindowStart &&
+            latestProgReturnLeg.scheduledWindowEnd
+              ? formatPickupWindowLagos(
+                  new Date(latestProgReturnLeg.scheduledWindowStart),
+                  new Date(latestProgReturnLeg.scheduledWindowEnd),
+                )
+              : null),
+        }
+      : null;
+
+    const listerIdsForOutbound = [
+      ...new Set(
+        outboundShipments
+          .map((s) => s.listerId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const listerNameById = new Map<string, string>();
+    if (listerIdsForOutbound.length > 0) {
+      const users = await this.prisma.user.findMany({
+        where: { id: { in: listerIdsForOutbound } },
+        select: {
+          id: true,
+          name: true,
+          profile: { select: { fullName: true, businessName: true } },
+        },
+      });
+      for (const u of users) {
+        const label =
+          u.profile?.businessName?.trim() ||
+          u.profile?.fullName?.trim() ||
+          u.name?.trim() ||
+          'Seller';
+        listerNameById.set(u.id, label);
+      }
+    }
+
+    const outboundLegsPayload =
+      resale || outboundShipments.length === 0
+        ? []
+        : outboundShipments.map((s) => ({
+            shipmentId: s.id,
+            listerId: s.listerId,
+            listerName: s.listerId
+              ? listerNameById.get(s.listerId) ?? null
+              : null,
+            status: s.status,
+            scheduledDate: s.scheduledDate.toISOString(),
+            windowSummary:
+              s.scheduledWindowStart && s.scheduledWindowEnd
+                ? formatPickupWindowLagos(
+                    new Date(s.scheduledWindowStart),
+                    new Date(s.scheduledWindowEnd),
+                  )
+                : null,
+            trackingId: s.trackingId,
+            providerTrackingUrl: s.providerTrackingUrl,
+            isBooked: OUTBOUND_BOOKED_STATUSES.has(s.status),
+          }));
+
+    const outboundSummary =
+      resale || outboundShipments.length === 0
+        ? { total: 0, bookedCount: 0 }
+        : {
+            total: outboundShipments.length,
+            bookedCount: outboundShipments.filter((s) =>
+              OUTBOUND_BOOKED_STATUSES.has(s.status),
+            ).length,
+          };
+
+    if (rank === -1) {
+      return {
+        success: true,
+        data: {
+          timeline: milestones.map((m) => ({
+            milestone: m.milestone,
+            label: m.label,
+            timestamp: m.timestamp?.toISOString() ?? null,
+            status: 'pending' as const,
+            description: m.description,
+          })),
+          currentMilestone: milestones[0].milestone,
+          percentComplete: 0,
+          returnScheduling: returnSchedulingProg,
+          returnLeg: returnLegProg,
+          outboundLegs: outboundLegsPayload,
+          outboundSummary,
+        },
+      };
+    }
+
+    let currentMilestone = milestones[milestones.length - 1].milestone;
+    let completedSteps = 0;
+
+    let timeline = milestones.map((m, i) => {
+      const done = rank >= m.doneAtRank;
+      const prevDone = i === 0 ? true : rank >= milestones[i - 1].doneAtRank;
+      let rowStatus: 'completed' | 'current' | 'pending';
+      if (done) {
+        rowStatus = 'completed';
+        completedSteps += 1;
+      } else if (prevDone) {
+        rowStatus = 'current';
+        currentMilestone = m.milestone;
+      } else {
+        rowStatus = 'pending';
+      }
+      let ts: Date | null = m.timestamp;
+      if (done && !ts && m.milestone === 'completed' && resale) {
+        ts = order.updatedAt;
+      }
+      if (done && !ts && m.milestone === 'returned' && !resale) {
+        ts = returnedAt ?? order.updatedAt;
+      }
+      const showTs = done || rowStatus === 'current';
+      return {
+        milestone: m.milestone,
+        label: m.label,
+        timestamp: showTs && ts ? ts.toISOString() : null,
+        status: rowStatus,
+        description: m.description,
+      };
+    });
+
+    const allDone = completedSteps === milestones.length;
+    const percentComplete = allDone
+      ? 100
+      : Math.round((completedSteps / (milestones.length - 1)) * 100);
+
+    if (
+      !resale &&
+      returnSchedulingProg?.summary &&
+      timeline.some((t) => t.milestone === 'return_due')
+    ) {
+      const idx = timeline.findIndex((t) => t.milestone === 'return_due');
+      if (idx >= 0) {
+        timeline[idx] = {
+          ...timeline[idx],
+          description: `${timeline[idx].description} Your return pickup window: ${returnSchedulingProg.summary}.`,
+        };
+      }
+    }
+
+    if (
+      !resale &&
+      outboundSummary.total > 1 &&
+      timeline.some((t) => t.milestone === 'preparing_dispatch')
+    ) {
+      const idxPrep = timeline.findIndex(
+        (t) => t.milestone === 'preparing_dispatch',
+      );
+      if (idxPrep >= 0 && timeline[idxPrep].status === 'current') {
+        timeline[idxPrep] = {
+          ...timeline[idxPrep],
+          description: `${timeline[idxPrep].description} Carrier bookings: ${outboundSummary.bookedCount} of ${outboundSummary.total} seller shipments.`,
+        };
+      }
+    }
+
+    return {
+      success: true,
+      data: {
+        timeline,
+        currentMilestone: allDone
+          ? milestones[milestones.length - 1].milestone
+          : currentMilestone,
+        percentComplete,
+        returnScheduling: returnSchedulingProg,
+        returnLeg: returnLegProg,
+        outboundLegs: outboundLegsPayload,
+        outboundSummary,
       },
     };
   }
@@ -2356,8 +3432,12 @@ export class RentersService {
     const order = await this.prisma.order.findUnique({
       where: { orderId }, // Use orderId mapping
       include: {
-        returnRequest: true,
+        returnRequests: true,
         orderItems: { include: { product: true } },
+        shipments: {
+          where: { type: 'RETURN' },
+          orderBy: [{ scheduledWindowStart: 'asc' }, { createdAt: 'asc' }],
+        },
       },
     });
 
@@ -2369,7 +3449,7 @@ export class RentersService {
       throw new BadRequestException('Unauthorized to return this order');
     }
 
-    if (order.returnRequest) {
+    if (order.returnRequests && order.returnRequests.length > 0) {
       throw new BadRequestException(
         'Return request already exists for this order',
       );
@@ -2398,10 +3478,30 @@ export class RentersService {
       }
     }
 
+    let returnShipmentId = data.shipmentId ?? null;
+    if (returnShipmentId) {
+      const onOrder = order.shipments?.some((s) => s.id === returnShipmentId);
+      if (!onOrder) {
+        throw new BadRequestException('Invalid shipment ID for this order');
+      }
+    } else if (order.shipments?.length) {
+      returnShipmentId = order.shipments[0].id;
+    }
+
+    if (returnShipmentId) {
+      const shipment = await this.prisma.shipment.findUnique({
+        where: { id: returnShipmentId },
+      });
+      if (!shipment || shipment.orderId !== order.id) {
+        throw new BadRequestException('Invalid shipment ID for this order');
+      }
+    }
+
     const [returnRequest] = await this.prisma.$transaction([
       this.prisma.returnRequest.create({
         data: {
           orderId: order.id,
+          shipmentId: returnShipmentId,
           itemCondition: (data.itemCondition || 'GOOD').toUpperCase(),
           damageNotes: data.damageNotes,
           imageUrls,
@@ -2427,7 +3527,7 @@ export class RentersService {
     const order = await this.prisma.order.findUnique({
       where: { orderId },
       include: {
-        returnRequest: true,
+        returnRequests: true,
         orderItems: {
           include: {
             product: {
@@ -2442,14 +3542,14 @@ export class RentersService {
       throw new NotFoundException('Order not found or access denied');
     }
 
-    if (!order.returnRequest) {
+    if (!order.returnRequests || order.returnRequests.length === 0) {
       throw new NotFoundException('No return request found for this order');
     }
 
     return {
       success: true,
       data: {
-        ...order.returnRequest,
+        ...order.returnRequests[0],
         orderStatus: order.status,
         items: order.orderItems.map((oi: any) => ({
           id: oi.product.id,
@@ -2520,7 +3620,7 @@ export class RentersService {
         weight: 1,
         items: order.orderItems.map((oi) => ({
           category: 'ClothingAndTextile',
-          description: oi.product.name,
+          description: topshipProductDetailLine(oi.product),
           weight: 1,
           quantity: 1,
           value:
@@ -2544,19 +3644,7 @@ export class RentersService {
   async processReturnWithShipping(
     userId: string,
     orderId: string,
-    data: {
-      itemCondition: string;
-      damageNotes?: string;
-      images?: string[];
-      selectedRate?: {
-        pickupPartner: string;
-        shipmentCharge: number;
-        pickupCharge: number;
-        vatCharge: number;
-        totalCharge: number;
-        pricingTier: string;
-      };
-    },
+    data: CreateReturnRequestDto,
   ) {
     console.log(
       `[RentersService] Processing return request for order ${orderId}`,
@@ -2586,7 +3674,8 @@ export class RentersService {
             },
           },
         },
-        returnRequest: true,
+        returnRequests: true,
+        shipments: true,
       },
     });
 
@@ -2602,7 +3691,7 @@ export class RentersService {
       throw new BadRequestException('Not authorized to return this order');
     }
 
-    if (order.returnRequest) {
+    if (order.returnRequests && order.returnRequests.length > 0) {
       console.log(
         `[RentersService] Return request already exists for order ${orderId}`,
       );
@@ -2612,7 +3701,7 @@ export class RentersService {
     }
 
     // Block return requests for purchase orders (only if ALL items are purchases, not mixed orders)
-    const isPurchaseOrder = order.orderItems.every(
+    const isPurchaseOrder = (order.orderItems as any[]).every(
       (item: any) => item.days === 0,
     );
     if (isPurchaseOrder) {
@@ -2621,6 +3710,34 @@ export class RentersService {
       );
       throw new BadRequestException(
         'Return requests are not available for purchase orders',
+      );
+    }
+
+    const pickupWindow = this.resolveReturnPickupWindow(data.pickupWindow);
+
+    let returnShipmentRow = this.resolveReturnShipmentLeg(
+      order.shipments as any[],
+      {
+        shipmentId: data.shipmentId,
+        pickupWindow,
+      },
+    );
+    if (!returnShipmentRow) {
+      returnShipmentRow = await this.prisma.shipment.findFirst({
+        where: { orderId: order.id, type: 'RETURN' },
+        orderBy: [{ scheduledWindowStart: 'asc' }, { createdAt: 'asc' }],
+      });
+    }
+
+    const fromCheckout = returnShipmentRow
+      ? selectedRateFromCheckoutReturnShipment(returnShipmentRow)
+      : null;
+    /** New flow: pricing tier + charges were chosen and paid at checkout — never require a fresh rate quote here. */
+    const selectedRate =
+      fromCheckout ?? data.selectedRate ?? null;
+    if (!selectedRate) {
+      bad(
+        'Return shipping for this order is missing. For older orders, contact support.',
       );
     }
 
@@ -2647,22 +3764,33 @@ export class RentersService {
       ? `${order.user.profile.address.street}, ${order.user.profile.address.city}, ${order.user.profile.address.state}`
       : '';
 
-    // Book Topship pickup shipment
-    let shipmentId: string | null = null;
-    let trackingNumber: string | null = null;
-    let pickupScheduledAt: Date | null = null;
+    // Check if pickup window is scheduled for today to determine if we should book immediately
+    const today = new Date();
+    const pickupDate = new Date(pickupWindow.start);
+    const isSameDay = today.toDateString() === pickupDate.toDateString();
+    const shouldBookImmediately = isSameDay;
 
-    try {
-      console.log(
-        `[RentersService] Booking Topship pickup for order ${orderId}`,
-      );
+    console.log(
+      `[RentersService] Pickup window date: ${pickupDate.toDateString()}, today: ${today.toDateString()}, booking immediately: ${shouldBookImmediately}`,
+    );
 
-      const toKobo = (amount: number | undefined | null) => {
-        const value = Number(amount || 0);
-        if (!Number.isFinite(value) || value <= 0) return 0;
-        if (value > 100000) return Math.round(value);
-        return Math.round(value * 100);
-      };
+    const toKobo = (amount: number | undefined | null) => {
+      const value = Number(amount || 0);
+      if (!Number.isFinite(value) || value <= 0) return 0;
+      if (value > 100000) return Math.round(value);
+      return Math.round(value * 100);
+    };
+
+    // Topship internal shipment row id (not Prisma Shipment.id)
+    let topshipProviderShipmentId: string | null = null;
+    let topshipTrackingNumber: string | null = null;
+    let pickupScheduledAt: Date | null = pickupWindow.start;
+
+    if (shouldBookImmediately) {
+      try {
+        console.log(
+          `[RentersService] Booking Topship pickup for order ${orderId}`,
+        );
 
       const firstItem = order.orderItems[0];
       const curatorProfile = firstItem.product.curator.profile;
@@ -2672,13 +3800,6 @@ export class RentersService {
       const listerCity =
         curatorBusiness?.businessCity || curatorAddress?.city || 'Lagos';
       const renterCity = order.user.profile?.address?.city || 'Lagos';
-
-      const description = order.orderItems
-        .map((i: any) => {
-          const p = i.product;
-          return `${p.brand?.name || ''} ${p.name} (${p.color}, ${p.material || ''}, ${p.measurement}, ${p.category?.name || ''})`.trim();
-        })
-        .join(', ');
 
       const value = order.orderItems.reduce(
         (acc: number, i: any) =>
@@ -2718,23 +3839,28 @@ export class RentersService {
               country: 'Nigeria',
               postalCode: curatorAddress?.zipCode,
             },
-            pricingTier: data.selectedRate?.pricingTier || 'Budget',
+            pricingTier: selectedRate.pricingTier,
             insuranceType: 'None',
             itemCollectionMode: 'PickUp',
             shipmentRoute: 'Domestic',
             insuranceCharge: 0,
-            shipmentCharge: toKobo(data.selectedRate?.shipmentCharge),
+            shipmentCharge: toKobo(selectedRate.shipmentCharge),
+            // Topship save-shipment: only pickupDate; pickupWindow is kept on ReturnRequest below.
+            pickupDate: pickupWindow.start.toISOString(),
             pickupId: `RETURN-PICKUP-${Date.now()}`,
-            pickupPartner: data.selectedRate?.pickupPartner || 'Standard',
-            pickupCharge: toKobo(data.selectedRate?.pickupCharge),
-            valueAddedTaxCharge: toKobo(data.selectedRate?.vatCharge),
+            pickupPartner: selectedRate.pickupPartner,
+            pickupCharge: toKobo(selectedRate.pickupCharge),
+            valueAddedTaxCharge: toKobo(selectedRate.vatCharge),
             discount: 0,
             deliveryLocation: listerAddress || 'Lagos, Nigeria',
             items: [
               {
                 category: 'ClothingAndTextile',
-                description:
-                  description.substring(0, 200) || 'Return Clothing Item',
+                description: topshipCombinedOrderItemsDescription(
+                  order.orderItems as any[],
+                  TOPSHIP_DESCRIPTION_MAX_LEN,
+                  'Relisted return shipment',
+                ),
                 weight: 1,
                 quantity: order.orderItems.length,
                 value: Number(value) * 100 || 1000000,
@@ -2749,29 +3875,28 @@ export class RentersService {
 
       const responseData = shipmentResult?.[0] || shipmentResult?.data?.[0];
       if (responseData?.id || responseData?.shipmentId) {
-        shipmentId = responseData?.id || responseData?.shipmentId;
-        trackingNumber =
+        topshipProviderShipmentId =
+          responseData?.id || responseData?.shipmentId;
+        topshipTrackingNumber =
           responseData?.trackingId || responseData?.trackingNumber;
-        pickupScheduledAt = new Date();
-        pickupScheduledAt.setHours(pickupScheduledAt.getHours() + 24); // Schedule pickup for 24 hours from now
-
+        pickupScheduledAt = pickupWindow.start;
         console.log(
-          `[RentersService] Topship shipment booked: ${shipmentId}, tracking: ${trackingNumber}`,
+          `[RentersService] Topship shipment booked: ${topshipProviderShipmentId}, tracking: ${topshipTrackingNumber}`,
         );
 
         // Trigger Payment for the return shipment
-        if (shipmentId) {
+        if (topshipProviderShipmentId) {
           console.log(
-            `[RentersService] Paying for return shipment ${shipmentId}...`,
+            `[RentersService] Paying for return shipment ${topshipProviderShipmentId}...`,
           );
           try {
-            await this.topshipService.payForShipment(shipmentId);
+            await this.topshipService.payForShipment(topshipProviderShipmentId);
             console.log(
-              `[RentersService] Return shipment ${shipmentId} paid successfully.`,
+              `[RentersService] Return shipment ${topshipProviderShipmentId} paid successfully.`,
             );
           } catch (payErr: any) {
             console.error(
-              `[RentersService] Payment for return shipment ${shipmentId} failed:`,
+              `[RentersService] Payment for return shipment ${topshipProviderShipmentId} failed:`,
               payErr.message,
             );
           }
@@ -2788,11 +3913,44 @@ export class RentersService {
         `[RentersService] Continuing with return request without shipping`,
       );
     }
+    } else {
+      console.log(
+        `[RentersService] Pickup window is not scheduled for today, skipping immediate booking. Return request will be created and shipment will be booked by cron when due.`,
+      );
+    }
 
     // Process in transaction
     console.log(`[RentersService] Starting transaction for order ${orderId}`);
     const result = await this.prisma.$transaction(async (tx) => {
-      // Create return request
+      const returnLeg = returnShipmentRow
+        ? await tx.shipment.findUnique({
+            where: { id: returnShipmentRow.id },
+          })
+        : await tx.shipment.findFirst({
+            where: { orderId: order.id, type: 'RETURN' },
+            orderBy: [{ scheduledWindowStart: 'asc' }, { createdAt: 'asc' }],
+          });
+
+      if (returnLeg && topshipProviderShipmentId) {
+        await tx.shipment.update({
+          where: { id: returnLeg.id },
+          data: {
+            providerShipmentId: topshipProviderShipmentId,
+            trackingId: topshipTrackingNumber,
+            providerTrackingUrl: 'https://ship.topship.africa/tracking',
+            status: 'DISPATCHED',
+            dispatchedAt: new Date(),
+            shipmentCharge: toKobo(selectedRate.shipmentCharge),
+            pickupCharge: toKobo(selectedRate.pickupCharge),
+            vatCharge: toKobo(selectedRate.vatCharge),
+            pricingTier: selectedRate.pricingTier,
+            pickupPartner: selectedRate.pickupPartner,
+          },
+        });
+      }
+
+      const prismaReturnShipmentId = returnLeg?.id ?? null;
+
       const returnRequest = await tx.returnRequest.create({
         data: {
           orderId: order.id,
@@ -2800,10 +3958,12 @@ export class RentersService {
           damageNotes: data.damageNotes,
           imageUrls,
           status: 'PENDING_PICKUP',
-          shipmentId,
-          trackingNumber,
+          shipmentId: prismaReturnShipmentId,
+          trackingNumber: topshipTrackingNumber,
           pickupAddress: renterAddress,
           pickupScheduledAt,
+          pickupWindowStart: pickupWindow.start,
+          pickupWindowEnd: pickupWindow.end,
         },
       });
       console.log(
@@ -2825,13 +3985,46 @@ export class RentersService {
       `[RentersService] Transaction completed successfully for order ${orderId}`,
     );
 
-    // Notify lister about return
-    const lister = order.orderItems[0]?.product?.curator;
-    if (lister) {
+    try {
+      await syncOrderStatusFromShipments(this.prisma, order.id);
+    } catch (syncErr: any) {
+      console.warn(
+        `[RentersService] Order shipment sync after return booking failed for ${order.id}: ${syncErr?.message ?? syncErr}`,
+      );
+    }
+
+    const rr = result;
+    const returnShipRow =
+      (order.shipments as any[])?.find((s) => s.id === rr.shipmentId) ??
+      this.resolveReturnShipmentLeg(order.shipments as any[], {
+        shipmentId: null,
+        pickupWindow,
+      });
+    const unifiedAfterReturn = resolveReturnWindowForDisplay({
+      returnShipment: returnShipRow,
+      returnRequest: rr,
+    });
+    const returnWindowSummary = unifiedAfterReturn?.summary;
+    const windowSummary = returnWindowSummary ?? null;
+
+    const clientUrl = process.env.CLIENT_URL || '';
+    const listerOrderPageUrl = clientUrl
+      ? `${clientUrl}/listers/orders/${order.id}`
+      : '';
+
+    // Notify all listers about return (for multi-lister orders)
+    const uniqueListers = new Map(
+      order.orderItems
+        .map((item: any) => item.product?.curator)
+        .filter((curator: any) => curator)
+        .map((curator: any) => [curator.id, curator]),
+    );
+
+    for (const lister of uniqueListers.values()) {
       await this.notificationService.createNotification({
         userId: lister.id,
-        title: 'Return Request Initiated',
-        message: `A return has been initiated for order ${order.orderId}. Please coordinate pickup with the renter.`,
+        title: 'Return started',
+        message: `Return started for order ${order.orderId}. Check your email for the window and condition.`,
         type: 'RETURN_INITIATED',
         metadata: {
           orderId: order.id,
@@ -2853,9 +4046,54 @@ export class RentersService {
           itemCondition: data.itemCondition,
           damageNotes: data.damageNotes,
           platformName: 'Relisted',
+          returnWindowSummary,
+          orderPageUrl: listerOrderPageUrl || undefined,
         },
       });
     }
+
+    await this.notificationService.createNotification({
+      userId: order.userId,
+      title: topshipProviderShipmentId
+        ? 'Return pickup scheduled'
+        : 'Return request submitted',
+      message: windowSummary
+        ? `Your carrier pickup is scheduled for: ${windowSummary}. Have your item ready during this window. You will get another update when the rider collects the package.`
+        : topshipProviderShipmentId
+          ? 'Your return has been booked with the carrier. You will get another update when pickup starts.'
+          : shouldBookImmediately
+            ? 'Your return request has been submitted. We will book your return shipment when the pickup window approaches.'
+            : 'Your return request has been submitted. We will book your return shipment closer to the return date.',
+      type: topshipProviderShipmentId
+        ? 'RETURN_PICKUP_SCHEDULED'
+        : 'RETURN_REQUEST_SUBMITTED',
+      metadata: {
+        orderId: order.orderId,
+        returnRequestId: rr.id,
+      },
+      sendEmail: true,
+      emailData: {
+        email: order.user.email,
+        userName: order.user.name,
+        orderId: order.orderId,
+        status: topshipProviderShipmentId
+          ? 'Return pickup scheduled (not collected yet)'
+          : 'Return request submitted',
+        emailSubject: topshipProviderShipmentId
+          ? 'Return pickup scheduled'
+          : 'Return request submitted',
+        emailHeading: topshipProviderShipmentId
+          ? 'Return pickup scheduled'
+          : 'Return request submitted',
+        trackingNumber: topshipTrackingNumber ?? undefined,
+        pickupWindowSummary: windowSummary ?? undefined,
+        extraNote: topshipProviderShipmentId
+          ? 'The carrier is booked for your pickup window. The package is not yet on the way to the lister until you see an in-transit update.'
+          : !isSameDay
+            ? 'Shipping was paid at checkout. We’ll confirm pickup before your window. Watch for another email once it’s booked.'
+            : undefined,
+      },
+    });
 
     return {
       success: true,

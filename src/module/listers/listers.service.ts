@@ -9,6 +9,7 @@ import { PrismaService } from 'src/services/prisma/prisma.service';
 import { userEntity } from '../auth/auth.types';
 import {
   DisputeStatus,
+  ListingType,
   Message,
   OrderStatus,
   ProductStatus,
@@ -22,14 +23,26 @@ import {
   subYears,
   startOfYear,
   endOfYear,
+  format,
 } from 'date-fns';
 import { randomUUID } from 'crypto';
 import { WemaServiceService } from 'src/services/wema-service/wema-service.service';
 import { NotificationService } from 'src/services/notification/notification.service';
 import { UploadService } from '../upload/upload.service';
+import {
+  buildDefaultDispatchWindow,
+  DispatchWindowRangeMap,
+  DispatchWindowType,
+} from 'src/utils/dispatch-windows';
+import { releaseRentalEscrowOnOutboundDelivery } from '../order/release-rental-escrow-on-delivery';
+import { ProductAvailabilityNotifyService } from 'src/services/product-availability-notify/product-availability-notify.service';
 
 const CURRENCY = 'NGN';
-const APPROVAL_WINDOW_MINUTES = 15;
+
+const formatLocalDate = (value: Date | string) =>
+  new Date(value).toLocaleDateString('en-CA', {
+    timeZone: 'Africa/Lagos',
+  });
 
 // Order status mapping for listers API
 const ORDER_STATUS_TO_LABEL: Record<OrderStatus, string> = {
@@ -39,9 +52,9 @@ const ORDER_STATUS_TO_LABEL: Record<OrderStatus, string> = {
   [OrderStatus.IN_TRANSIT]: 'In Transit',
   [OrderStatus.DELIVERED]: 'Delivered',
   [OrderStatus.ACTIVE]: 'Active',
-  [OrderStatus.RETURN_DUE]: 'Return Due',
+  [OrderStatus.RETURN_DUE]: 'Awaiting return',
   [OrderStatus.IN_DISPUTE]: 'In Dispute',
-  [OrderStatus.RETURNED]: 'Completed',
+  [OrderStatus.RETURNED]: 'Return received',
   [OrderStatus.COMPLETED]: 'Completed',
   [OrderStatus.CANCELLED]: 'Cancelled',
   [OrderStatus.REJECTED]: 'Rejected',
@@ -56,7 +69,7 @@ const ORDER_STATUS_TO_API: Record<OrderStatus, string> = {
   [OrderStatus.ACTIVE]: 'active',
   [OrderStatus.RETURN_DUE]: 'return_due',
   [OrderStatus.IN_DISPUTE]: 'in_dispute',
-  [OrderStatus.RETURNED]: 'completed',
+  [OrderStatus.RETURNED]: 'returned',
   [OrderStatus.COMPLETED]: 'completed',
   [OrderStatus.CANCELLED]: 'cancelled',
   [OrderStatus.REJECTED]: 'rejected',
@@ -64,10 +77,10 @@ const ORDER_STATUS_TO_API: Record<OrderStatus, string> = {
 
 const RENTAL_STATUS_TO_LABEL: Record<string, string> = {
   DELIVERED: 'Delivered',
-  RETURN_DUE: 'Return Due',
+  RETURN_DUE: 'Awaiting return',
   ACTIVE: 'Active',
   COMPLETED: 'Completed',
-  RETURNED: 'Returned',
+  RETURNED: 'Return received',
 };
 
 const RENTAL_STATUS_TO_TYPE: Record<string, string> = {
@@ -105,17 +118,75 @@ const PROGRESS_STEPS = [
   },
   {
     id: 5,
-    label: 'Return Due',
+    label: 'Awaiting return',
     icon: 'reply',
     orderStatus: OrderStatus.RETURN_DUE,
   },
   {
     id: 6,
+    label: 'Return received',
+    icon: 'check-circle',
+    orderStatus: OrderStatus.RETURNED,
+  },
+  {
+    id: 7,
     label: 'Completed',
     icon: 'smile',
     orderStatus: OrderStatus.COMPLETED,
   },
 ];
+
+/** Matches rental UI: Topship booking not finished vs carrier booked (listers OrderProgress). */
+const LISTER_OUTBOUND_BOOKED = new Set([
+  'DISPATCHING',
+  'DISPATCHED',
+  'IN_TRANSIT',
+  'COMPLETED',
+]);
+
+function listerRentalProgressStepIndex(
+  status: OrderStatus,
+  myOutboundLegs: ReadonlyArray<{ status: string }>,
+): number {
+  const myBooked =
+    myOutboundLegs.length > 0 &&
+    myOutboundLegs.every((l) => LISTER_OUTBOUND_BOOKED.has(l.status));
+  switch (status) {
+    case OrderStatus.PROCESSING:
+      return 0;
+    case OrderStatus.ACCEPTED:
+      return 1;
+    case OrderStatus.CONFIRMED:
+      return myBooked ? 4 : 3;
+    case OrderStatus.IN_TRANSIT:
+      return 4;
+    case OrderStatus.DELIVERED:
+    case OrderStatus.ACTIVE:
+      return 5;
+    case OrderStatus.RETURN_DUE:
+      return 6;
+    case OrderStatus.RETURNED:
+      return 7;
+    case OrderStatus.COMPLETED:
+      return 8;
+    case OrderStatus.IN_DISPUTE:
+      return 5;
+    default:
+      return 0;
+  }
+}
+
+const RENTAL_LISTER_PROGRESS_UI = [
+  { label: 'Pending', icon: 'clock' },
+  { label: 'Approved', icon: 'check-circle' },
+  { label: 'Dispatched', icon: 'truck' },
+  { label: 'Processing pickup', icon: 'package' },
+  { label: 'In transit', icon: 'truck' },
+  { label: 'Delivered', icon: 'home' },
+  { label: 'Awaiting return', icon: 'reply' },
+  { label: 'Return received', icon: 'check-circle' },
+  { label: 'Completed', icon: 'smile' },
+] as const;
 
 @Injectable()
 export class ListersService {
@@ -124,7 +195,14 @@ export class ListersService {
     private readonly wemaService: WemaServiceService,
     private readonly notificationService: NotificationService,
     private readonly uploadService: UploadService,
+    private readonly productAvailabilityNotifyService: ProductAvailabilityNotifyService,
   ) {}
+
+  private buildExternalTrackingUrl(trackingNumber: string) {
+    const trimmed = trackingNumber.trim();
+    if (!trimmed) return null;
+    return `https://ship.topship.africa/tracking/${encodeURIComponent(trimmed)}`;
+  }
 
   /** GET /api/listers/inventory/top-items */
   async getTopItems(user: userEntity, limit: number = 5) {
@@ -715,7 +793,6 @@ export class ListersService {
       }
 
       // 3. Sort and Paginate
-      const sortField = sort?.startsWith('-') ? sort.slice(1) : sort;
       const isDesc = sort?.startsWith('-');
       allItems.sort((a, b) => {
         const dateA = new Date(a.createdAt).getTime();
@@ -773,7 +850,16 @@ export class ListersService {
         where: { id: orderId },
         include: {
           rentals: true,
-          returnRequest: true,
+          returnRequests: true,
+          shipments: {
+            select: {
+              type: true,
+              scheduledDate: true,
+              scheduledWindowStart: true,
+              scheduledWindowEnd: true,
+            },
+            orderBy: { scheduledDate: 'asc' },
+          },
           user: {
             select: {
               id: true,
@@ -793,6 +879,7 @@ export class ListersService {
                   measurement: true,
                   color: true,
                   originalValue: true,
+                  collateralPrice: true,
                   dailyPrice: true,
                   listingType: true,
                   resalePrice: true,
@@ -808,10 +895,30 @@ export class ListersService {
         },
       });
       if (!order) throw new NotFoundException('Order not found');
+      const productIds = [
+        ...new Set(
+          order.orderItems.map((oi: any) => String(oi.productId)),
+        ),
+      ] as string[];
+      const availabilityRequests =
+        productIds.length > 0
+          ? await this.prisma.availabilityRequest.findMany({
+              where: {
+                requesterId: order.userId,
+                productId: { in: productIds },
+                status: 'ACCEPTED',
+              },
+              orderBy: { createdAt: 'desc' },
+            })
+          : [];
       const reviewsCount = await this.prisma.review.count({
         where: { userId: order.userId },
       });
-      const orderFormatted = this.formatOrderDetail(order, reviewsCount);
+      const orderFormatted = this.formatOrderDetail(
+        order,
+        reviewsCount,
+        availabilityRequests,
+      );
       return { success: true, data: { order: orderFormatted } };
     } catch (e) {
       if (e instanceof NotFoundException || e instanceof ForbiddenException)
@@ -911,9 +1018,11 @@ export class ListersService {
           purchasePrice: req.product.resalePrice || 0,
           rentalFee: req.totalPrice || 0,
           itemValue: req.product.originalValue || 0,
-          returnDue: req.endDate
-            ? new Date(req.endDate).toISOString().split('T')[0]
-            : null,
+          returnDue: req.returnWindowEnd
+            ? formatLocalDate(req.returnWindowEnd)
+            : req.endDate
+              ? formatLocalDate(req.endDate)
+              : null,
           status: meta.status,
           statusLabel: meta.label,
         },
@@ -922,8 +1031,10 @@ export class ListersService {
       canReject: req.status === 'PENDING' || req.status === 'EXPIRED',
       approvalRequired: req.status === 'PENDING' || req.status === 'EXPIRED',
       approvalExpiredAt: req.expiresAt.toISOString(),
+      rejectionReason: req.rejectionReason ?? null,
+      dispatchWindows: this.formatDispatchWindowsFromRequest(req),
       timeline: {
-        dateOrdered: req.createdAt.toISOString().split('T')[0],
+        dateOrdered: formatLocalDate(req.createdAt),
         itemsCount: 1,
         itemsDelivered: 0,
         currentStep: meta.step,
@@ -932,7 +1043,9 @@ export class ListersService {
       escrow: {
         rentalFeeTotal: req.rentalDays === 0 ? 0 : req.totalPrice || 0,
         itemValueHeld:
-          req.rentalDays === 0 ? 0 : req.product.originalValue || 0,
+          req.rentalDays === 0
+            ? 0
+            : this.rentalDepositNgn({ product: req.product }),
         purchasePrice:
           req.rentalDays === 0
             ? req.product.resalePrice || req.totalPrice || 0
@@ -940,7 +1053,8 @@ export class ListersService {
         totalHeld:
           req.rentalDays === 0
             ? req.product.resalePrice || req.totalPrice || 0
-            : (req.totalPrice || 0) + (req.product.originalValue || 0),
+            : (req.totalPrice || 0) +
+              this.rentalDepositNgn({ product: req.product }),
         currency: CURRENCY,
         releaseCondition:
           req.rentalDays === 0
@@ -1047,29 +1161,83 @@ export class ListersService {
       await this.ensureOrderBelongsToLister(user.id, orderId);
       const order = await this.prisma.order.findUnique({
         where: { id: orderId },
-        select: { id: true, status: true, createdAt: true },
+        select: {
+          id: true,
+          status: true,
+          createdAt: true,
+          listingType: true,
+          shipments: {
+            where: { type: 'OUTBOUND', listerId: user.id },
+            select: {
+              id: true,
+              status: true,
+              scheduledDate: true,
+              scheduledWindowStart: true,
+              scheduledWindowEnd: true,
+              trackingId: true,
+              providerTrackingUrl: true,
+              dispatchedAt: true,
+            },
+          },
+        },
       });
       if (!order) throw new NotFoundException('Order not found');
       const currentStep =
         ORDER_STATUS_TO_API[order.status] ?? order.status.toLowerCase();
-      const stepIndex = PROGRESS_STEPS.findIndex(
-        (s) =>
-          s.orderStatus === order.status ||
-          s.label.toLowerCase().replace(' ', '_') === currentStep,
-      );
-      const currentStepIndex =
-        order.status === OrderStatus.PROCESSING ? 0 : Math.max(0, stepIndex);
-      const steps = PROGRESS_STEPS.map((s, i) => ({
-        id: s.id,
-        label: s.label,
-        icon: s.icon,
-        completed: i < currentStepIndex,
-        current: i === currentStepIndex,
-        timestamp: null,
-      }));
-      const progressPercentage = Math.round(
-        (currentStepIndex / (PROGRESS_STEPS.length - 1)) * 100,
-      );
+
+      const isPureResale =
+        order.listingType === ListingType.RESALE ||
+        order.listingType === ListingType.RENT_OR_RESALE;
+
+      let currentStepIndex: number;
+      let steps: Array<{
+        id: number;
+        label: string;
+        icon: string;
+        completed: boolean;
+        current: boolean;
+        timestamp: null;
+      }>;
+      let progressPercentage: number;
+
+      if (isPureResale && order.listingType === ListingType.RESALE) {
+        const stepIndex = PROGRESS_STEPS.findIndex(
+          (s) =>
+            s.orderStatus === order.status ||
+            s.label.toLowerCase().replace(' ', '_') === currentStep,
+        );
+        currentStepIndex =
+          order.status === OrderStatus.PROCESSING ? 0 : Math.max(0, stepIndex);
+        steps = PROGRESS_STEPS.map((s, i) => ({
+          id: s.id,
+          label: s.label,
+          icon: s.icon,
+          completed: i < currentStepIndex,
+          current: i === currentStepIndex,
+          timestamp: null,
+        }));
+        progressPercentage = Math.round(
+          (currentStepIndex / (PROGRESS_STEPS.length - 1)) * 100,
+        );
+      } else {
+        const myOutbound = order.shipments ?? [];
+        currentStepIndex = listerRentalProgressStepIndex(
+          order.status,
+          myOutbound,
+        );
+        steps = RENTAL_LISTER_PROGRESS_UI.map((s, i) => ({
+          id: i + 1,
+          label: s.label,
+          icon: s.icon,
+          completed: i < currentStepIndex,
+          current: i === currentStepIndex,
+          timestamp: null,
+        }));
+        progressPercentage = Math.round(
+          (currentStepIndex / (RENTAL_LISTER_PROGRESS_UI.length - 1)) * 100,
+        );
+      }
+
       return {
         success: true,
         data: {
@@ -1078,6 +1246,17 @@ export class ListersService {
           steps,
           progressPercentage,
           orderId: order.id,
+          myOutboundShipments:
+            order.listingType === ListingType.RESALE
+              ? []
+              : (order.shipments ?? []).map((s) => ({
+                  shipmentId: s.id,
+                  status: s.status,
+                  scheduledDate: s.scheduledDate.toISOString(),
+                  trackingId: s.trackingId,
+                  providerTrackingUrl: s.providerTrackingUrl,
+                  isBooked: LISTER_OUTBOUND_BOOKED.has(s.status),
+                })),
         },
       };
     } catch (e) {
@@ -1106,7 +1285,6 @@ export class ListersService {
         throw new ForbiddenException('You do not have access to this request');
       }
 
-      const now = new Date();
       if (
         !['PENDING', 'EXPIRED'].includes(request.status) ||
         !request.expiresAt
@@ -1196,7 +1374,6 @@ export class ListersService {
         throw new ForbiddenException('You do not have access to this request');
       }
 
-      const now = new Date();
       if (
         !['PENDING', 'EXPIRED'].includes(request.status) ||
         !request.expiresAt
@@ -1210,6 +1387,7 @@ export class ListersService {
         where: { id: orderId },
         data: {
           status: 'REJECTED',
+          rejectionReason: body.notes || body.reason,
         },
       });
 
@@ -1220,7 +1398,7 @@ export class ListersService {
         title: isPurchaseRequest
           ? 'Purchase Request Declined'
           : 'Rental Request Declined',
-        message: `Unfortunately, your ${isPurchaseRequest ? 'purchase' : 'rental'} request for ${(request as any).product?.name} was declined. Reason: ${body.reason}`,
+        message: `Unfortunately, your ${isPurchaseRequest ? 'purchase' : 'rental'} request for ${(request as any).product?.name} was declined. Reason: ${body.reason}${body.notes ? `. Notes: ${body.notes}` : ''}`,
         type: 'RENTAL_RESPONSE',
         metadata: {
           requestId: request.id,
@@ -1234,7 +1412,8 @@ export class ListersService {
           productName: (request as any).product?.name,
           status: 'rejected',
           requestId: request.id,
-          reason: body.notes || body.reason,
+          reason: body.reason,
+          notes: body.notes || body.reason || 'No additional notes provided.',
           requestType: isPurchaseRequest ? 'purchase' : 'rental',
         },
       });
@@ -1259,6 +1438,93 @@ export class ListersService {
       }
       console.error('rejectOrder error:', e);
       throw new InternalServerErrorException('Failed to reject order');
+    }
+  }
+
+  /**
+   * POST /api/listers/orders/:orderId/nudge-renter
+   * In-app ping when an availability request is EXPIRED so the renter can re-request or hear the item is still available.
+   */
+  async nudgeRenterForAvailabilityRequest(
+    user: userEntity,
+    requestId: string,
+    intent: 'rerequest' | 'now_available',
+  ) {
+    if (intent !== 'rerequest' && intent !== 'now_available') {
+      throw new BadRequestException(
+        'intent must be "rerequest" or "now_available"',
+      );
+    }
+
+    try {
+      const request = await this.prisma.availabilityRequest.findUnique({
+        where: { id: requestId },
+        include: { product: true, requester: true },
+      });
+
+      if (!request) {
+        throw new NotFoundException('Request not found');
+      }
+      if (request.listerId !== user.id) {
+        throw new ForbiddenException('You do not have access to this request');
+      }
+      if (request.status !== 'EXPIRED') {
+        throw new BadRequestException(
+          'Reminders can only be sent for expired availability requests.',
+        );
+      }
+
+      const productName = request.product?.name ?? 'this item';
+      const isPurchaseRequest = (request.rentalDays ?? 0) === 0;
+      const listerName = user.name || 'The curator';
+
+      if (intent === 'rerequest') {
+        await this.notificationService.createNotification({
+          userId: request.requesterId,
+          title: isPurchaseRequest
+            ? 'Curator asked you to send a new purchase request'
+            : 'Curator asked you to send a new rental request',
+          message: `${listerName} could not respond in time earlier. If you still want ${productName}, open your cart and tap Request approval again.`,
+          type: 'AVAILABILITY_REQUEST_REMINDER',
+          metadata: {
+            requestId: request.id,
+            productId: request.productId,
+            intent: 'rerequest',
+          },
+          sendEmail: false,
+        });
+      } else {
+        await this.notificationService.createNotification({
+          userId: request.requesterId,
+          title: isPurchaseRequest
+            ? 'Curator says the item may still be available'
+            : 'Curator says the rental may still be available',
+          message: `${listerName} is ready when you are. If you still want ${productName}, open your cart and send a new availability request.`,
+          type: 'AVAILABILITY_REQUEST_REMINDER',
+          metadata: {
+            requestId: request.id,
+            productId: request.productId,
+            intent: 'now_available',
+          },
+          sendEmail: false,
+        });
+      }
+
+      return {
+        success: true,
+        message: 'Renter notified',
+        data: { requestId: request.id, intent },
+      };
+    } catch (e) {
+      if (
+        e instanceof NotFoundException ||
+        e instanceof ForbiddenException ||
+        e instanceof BadRequestException
+      ) {
+        throw e;
+      }
+      console.error('nudgeRenterForAvailabilityRequest error:', e);
+      throw new InternalServerErrorException('Failed to notify renter');
     }
   }
 
@@ -1293,16 +1559,6 @@ export class ListersService {
         throw new ForbiddenException('Unsupported status transition');
       }
 
-      // We generally expect the \"approved\" transition to happen via approve endpoint
-      if (
-        mapped === OrderStatus.ACCEPTED &&
-        order.status !== OrderStatus.PROCESSING
-      ) {
-        throw new ForbiddenException(
-          'Order cannot be approved from its current status',
-        );
-      }
-
       const now = new Date();
 
       const updateData: any = {
@@ -1321,66 +1577,20 @@ export class ListersService {
       }
       if (mapped === OrderStatus.DELIVERED) {
         updateData.deliveredAt = now;
-
-        // Release escrow for rental orders when delivered (but NOT resale amount)
-        const escrow = await this.prisma.escrow.findUnique({
-          where: { orderId: orderId },
-        });
-
-        if (
-          escrow &&
-          escrow.status === 'LOCKED' &&
-          (escrow.rentalAmount || 0) > 0
-        ) {
-          // Only release rental amount on delivery; resale amount stays locked until buyer confirms
-          const releaseAmount = escrow.rentalAmount;
-          const hasResaleAmount = (escrow.resaleAmount || 0) > 0;
-
-          await this.prisma.$transaction(async (tx) => {
-            // Credit lister wallet with rental amount only
-            const listerWallet = await tx.wallet.upsert({
-              where: { userId: escrow.curatorId },
-              create: {
-                userId: escrow.curatorId,
-                mainBalance: releaseAmount,
-                availableBalance: releaseAmount,
-              },
-              update: {
-                mainBalance: { increment: releaseAmount },
-                availableBalance: { increment: releaseAmount },
-              },
-            });
-
-            await tx.walletTransaction.create({
-              data: {
-                walletId: listerWallet.id,
-                amount: releaseAmount,
-                type: 'MAIN',
-                status: 'SUCCESS',
-                note: hasResaleAmount
-                  ? `Rental payment released for order ${orderId} (resale amount pending buyer confirmation)`
-                  : `Escrow release for order ${orderId}`,
-                orderId: orderId,
-              },
-            });
-
-            // Update escrow status: always PARTIALLY_RELEASED at delivery for rentals
-            // because collateral and cleaning fees are held until return.
-            // For mixed orders, resaleAmount is also still held until buyer confirmation.
-            await tx.escrow.update({
-              where: { id: escrow.id },
-              data: {
-                status: 'PARTIALLY_RELEASED',
-                releasedAt: null,
-              },
-            });
-          });
-        }
+        await releaseRentalEscrowOnOutboundDelivery(
+          this.prisma,
+          orderId,
+          order.orderId,
+        );
       }
       if (mapped === OrderStatus.RETURN_DUE) {
         updateData.returnDueAt = now;
       }
       if (mapped === OrderStatus.CANCELLED || mapped === OrderStatus.REJECTED) {
+        await this.prisma.rental.deleteMany({
+          where: { orderId },
+        });
+
         // Restore product status when order is cancelled or rejected
         for (const item of order.orderItems as any[]) {
           await this.prisma.product.update({
@@ -1410,6 +1620,17 @@ export class ListersService {
           orderItems: { include: { product: true } },
         },
       });
+
+      if (
+        mapped === OrderStatus.CANCELLED ||
+        mapped === OrderStatus.REJECTED
+      ) {
+        for (const item of order.orderItems as { productId: string }[]) {
+          await this.productAvailabilityNotifyService.notifyWatchersProductAvailable(
+            item.productId,
+          );
+        }
+      }
 
       const timeline = {
         approvedAt: updated.approvedAt?.toISOString() ?? null,
@@ -1528,13 +1749,14 @@ export class ListersService {
       const order = await this.prisma.order.findUnique({
         where: { id: orderId },
         include: {
-          returnRequest: true,
+          returnRequests: true,
           user: true,
           orderItems: {
             include: {
               product: {
                 select: {
                   curatorId: true,
+                  listingType: true,
                 },
               },
             },
@@ -1543,37 +1765,35 @@ export class ListersService {
         },
       });
 
-      if (!order || !order.returnRequest) {
+      if (
+        !order ||
+        !order.returnRequests ||
+        order.returnRequests.length === 0
+      ) {
         throw new NotFoundException('Order or return request not found');
       }
 
-      // Calculate total collateral to release from escrow if available, otherwise fallback to order items
-      let totalCollateral = 0;
-      let escrowToReleaseId: string | null = null;
-
-      if (order.escrows) {
-        if (
-          order.escrows.status === 'RELEASED' ||
-          order.status === 'COMPLETED'
-        ) {
-          throw new BadRequestException(
-            'Collateral and cleaning fee already released for this order',
-          );
+      if (order.escrows && order.escrows.length > 0) {
+        // Find escrow for this lister
+        const listerEscrow = order.escrows.find((e) => e.listerId === listerId);
+        if (listerEscrow) {
+          if (
+            listerEscrow.status === 'RELEASED' ||
+            order.status === 'COMPLETED'
+          ) {
+            throw new BadRequestException(
+              'Collateral and cleaning fee already released for this order',
+            );
+          }
         }
-        totalCollateral = order.escrows.collateralAmount;
-        escrowToReleaseId = order.escrows.id;
-      } else {
-        totalCollateral = (order.orderItems as any[]).reduce(
-          (sum, item) => sum + (item.collateralFee || 0),
-          0,
-        );
       }
 
       // Verify lister owns the product
       const isListerProduct =
         (order as any).listerId === listerId ||
         order.orderItems.some(
-          (item: any) => item.product?.curatorId === listerId,
+          (item: { product?: { curatorId?: string } | null }) =>
+            item.product?.curatorId === listerId,
         );
       if (!isListerProduct) {
         console.log(
@@ -1582,7 +1802,7 @@ export class ListersService {
         throw new BadRequestException('Not authorized to confirm this return');
       }
 
-      if (order.returnRequest.status === 'COMPLETED') {
+      if (order.returnRequests[0].status === 'COMPLETED') {
         console.log(
           `[ListersService] Return already confirmed for order ${orderId}`,
         );
@@ -1607,9 +1827,18 @@ export class ListersService {
         `[ListersService] Starting transaction to confirm return for order ${orderId}`,
       );
       const result = await this.prisma.$transaction(async (tx) => {
+        // Get the return request (since unique constraint on orderId was removed)
+        const returnRequest = await tx.returnRequest.findFirst({
+          where: { orderId: order.id },
+        });
+
+        if (!returnRequest) {
+          throw new NotFoundException('Return request not found');
+        }
+
         // Update return request status
         const updatedReturn = await tx.returnRequest.update({
-          where: { orderId: order.id },
+          where: { id: returnRequest.id },
           data: {
             status: 'COMPLETED',
             deliveredAt: new Date(),
@@ -1653,12 +1882,33 @@ export class ListersService {
           `[ListersService] Order status updated to COMPLETED for order ${orderId}`,
         );
 
-        // Release collateral to renter
-        let collateralReleased = 0;
-        if (order.escrows) {
-          collateralReleased = order.escrows.collateralAmount;
+        for (const item of order.orderItems as {
+          productId: string;
+          days: number;
+          product?: { listingType?: string } | null;
+        }[]) {
+          const isRentalItem =
+            item.days > 0 &&
+            (item.product?.listingType === 'RENTAL' ||
+              item.product?.listingType === 'RENT_OR_RESALE');
+          if (isRentalItem) {
+            await tx.product.update({
+              where: { id: item.productId },
+              data: { status: ProductStatus.AVAILABLE },
+            });
+          }
+        }
+
+        // Release collateral to renter and lister payouts (per-lister escrows)
+        let totalCollateralReleased = 0;
+        if (order.escrows && order.escrows.length > 0) {
+          // Calculate total collateral across all escrows
+          totalCollateralReleased = order.escrows.reduce(
+            (sum, escrow) => sum + escrow.collateralAmount,
+            0,
+          );
           console.log(
-            `[ListersService] Releasing collateral NGN ${collateralReleased} for order ${orderId}`,
+            `[ListersService] Releasing total collateral NGN ${totalCollateralReleased} for order ${orderId}`,
           );
 
           // 1. Credit renter wallet (Collateral Release)
@@ -1668,7 +1918,7 @@ export class ListersService {
 
           if (renterWallet) {
             const actualCollateralToRelease = Math.min(
-              collateralReleased,
+              totalCollateralReleased,
               renterWallet.collateralBalance,
             );
 
@@ -1694,54 +1944,59 @@ export class ListersService {
             }
           }
 
-          // 2. Credit lister wallet (Rental + Cleaning + Resale)
-          const rentalAmount = order.escrows.rentalAmount || 0;
-          const cleaningFee = order.escrows.cleaningFee || 0;
-          const resaleAmount = order.escrows.resaleAmount || 0;
-          const totalListerPayout = rentalAmount + cleaningFee + resaleAmount;
+          // 2. Credit each lister wallet (Rental + Cleaning + Resale)
+          for (const escrow of order.escrows) {
+            const rentalAmount = escrow.rentalAmount || 0;
+            const cleaningFee = escrow.cleaningFee || 0;
+            const resaleAmount = escrow.resaleAmount || 0;
+            const totalListerPayout = rentalAmount + cleaningFee + resaleAmount;
 
-          if (totalListerPayout > 0) {
-            console.log(
-              `[ListersService] Releasing NGN ${totalListerPayout} (Rental: ${rentalAmount}, Cleaning: ${cleaningFee}, Resale: ${resaleAmount}) to lister ${order.escrows.curatorId}`,
-            );
-            const listerWallet = await tx.wallet.upsert({
-              where: { userId: order.escrows.curatorId },
-              create: {
-                userId: order.escrows.curatorId,
-                mainBalance: totalListerPayout,
-                availableBalance: totalListerPayout,
-              },
-              update: {
-                mainBalance: { increment: totalListerPayout },
-                availableBalance: { increment: totalListerPayout },
-              },
-            });
+            if (totalListerPayout > 0) {
+              console.log(
+                `[ListersService] Releasing NGN ${totalListerPayout} (Rental: ${rentalAmount}, Cleaning: ${cleaningFee}, Resale: ${resaleAmount}) to lister ${escrow.listerId}`,
+              );
+              const listerWallet = await tx.wallet.upsert({
+                where: { userId: escrow.listerId },
+                create: {
+                  userId: escrow.listerId,
+                  mainBalance: totalListerPayout,
+                  availableBalance: totalListerPayout,
+                },
+                update: {
+                  mainBalance: { increment: totalListerPayout },
+                  availableBalance: { increment: totalListerPayout },
+                },
+              });
 
-            // Create wallet transaction for lister
-            const payoutNote = `Final payout released for completed order ${order.orderId} (Rental + Cleaning + Resale)`;
+              // Create wallet transaction for lister
+              const payoutNote = `Final payout released for completed order ${order.orderId} (Rental + Cleaning + Resale)`;
 
-            await tx.walletTransaction.create({
-              data: {
-                walletId: listerWallet.id,
-                amount: totalListerPayout,
-                type: 'MAIN',
-                status: 'SUCCESS',
-                note: payoutNote,
-                orderId: order.id,
-              },
-            });
+              await tx.walletTransaction.create({
+                data: {
+                  walletId: listerWallet.id,
+                  amount: totalListerPayout,
+                  type: 'MAIN',
+                  status: 'SUCCESS',
+                  note: payoutNote,
+                  orderId: order.id,
+                },
+              });
+            }
           }
 
           // 3. Finalize Escrow Status (Audit: Everything has been released)
-          await tx.escrow.update({
-            where: { orderId: order.id },
-            data: {
-              status: 'RELEASED',
-              releasedAt: new Date(),
-            },
-          });
+          // Update all escrows for this order to RELEASED
+          for (const escrow of order.escrows) {
+            await tx.escrow.update({
+              where: { id: escrow.id },
+              data: {
+                status: 'RELEASED',
+                releasedAt: new Date(),
+              },
+            });
+          }
           console.log(
-            `[ListersService] Escrow fully settled and released for order ${orderId}`,
+            `[ListersService] Escrows fully settled and released for order ${orderId}`,
           );
         } else {
           console.error(
@@ -1752,13 +2007,114 @@ export class ListersService {
 
         return {
           returnRequest: updatedReturn,
-          collateralReleased,
+          collateralReleased: totalCollateralReleased,
           disputeHold: false,
         };
       });
+
+    // Send email notifications after transaction completes
+    const clientUrl = process.env.CLIENT_URL || 'https://relisted.com';
+
+    // Send notification to renter about collateral release
+    if (result.collateralReleased > 0 && order.user?.email) {
+      const firstItem = order.orderItems[0] as any;
+      const productName = firstItem?.product?.name;
+      const orderLink = `${clientUrl}/renters/orders/${order.orderId}`;
+      try {
+        await this.notificationService.createNotification({
+          userId: order.user.id,
+          title: 'Collateral Released',
+          message: `Your collateral of NGN ${result.collateralReleased.toLocaleString()} has been released to your wallet for order ${order.orderId}.`,
+          type: 'ESCROW_RELEASE',
+          sendEmail: true,
+          emailData: {
+            email: order.user.email,
+            userName: order.user.name || 'there',
+            orderId: order.orderId,
+            orderLink,
+            amountReleased: result.collateralReleased,
+            userType: 'renter',
+            productName,
+          },
+        });
+        console.log(
+          `[ListersService] Sent escrow release notification to renter for order ${order.orderId}`,
+        );
+      } catch (err: any) {
+        console.error(
+          `[ListersService] Failed to send escrow release notification to renter for order ${order.orderId}: ${err.message}`,
+        );
+      }
+    }
+
+    // Send notification to listers about rental payment release
+    for (const escrow of order.escrows) {
+      const rentalAmount = escrow.rentalAmount || 0;
+      const cleaningFee = escrow.cleaningFee || 0;
+      const resaleAmount = escrow.resaleAmount || 0;
+      const totalListerPayout = rentalAmount + cleaningFee + resaleAmount;
+
+      if (totalListerPayout > 0) {
+        const lister = await this.prisma.user.findUnique({
+          where: { id: escrow.listerId },
+        });
+        if (lister?.email) {
+          const firstItem = order.orderItems[0] as any;
+          const productName = firstItem?.product?.name;
+          const orderLink = `${clientUrl}/listers/orders/${order.id}`;
+          try {
+            await this.notificationService.createNotification({
+              userId: lister.id,
+              title: 'Payment Released',
+              message: `Your payment of NGN ${totalListerPayout.toLocaleString()} has been released to your wallet for order ${order.orderId}.`,
+              type: 'ESCROW_RELEASE',
+              sendEmail: true,
+              emailData: {
+                email: lister.email,
+                userName: lister.name || 'there',
+                orderId: order.orderId,
+                orderLink,
+                amountReleased: totalListerPayout,
+                userType: 'lister',
+                productName,
+              },
+            });
+            console.log(
+              `[ListersService] Sent escrow release notification to lister ${lister.id} for order ${order.orderId}`,
+            );
+          } catch (err: any) {
+            console.error(
+              `[ListersService] Failed to send escrow release notification to lister ${lister.id} for order ${order.orderId}: ${err.message}`,
+            );
+          }
+        }
+      }
+    }
       console.log(
         `[ListersService] Transaction completed successfully for order ${orderId}, released NGN ${result.collateralReleased} collateral`,
       );
+
+      if (!result.disputeHold) {
+        const rentalProductIds = (
+          order.orderItems as {
+            productId: string;
+            days: number;
+            product?: { listingType?: string } | null;
+          }[]
+        )
+          .filter(
+            (item) =>
+              item.days > 0 &&
+              (item.product?.listingType === 'RENTAL' ||
+                item.product?.listingType === 'RENT_OR_RESALE'),
+          )
+          .map((item) => item.productId);
+        for (const pid of rentalProductIds) {
+          await this.productAvailabilityNotifyService.notifyWatchersProductAvailable(
+            pid,
+          );
+        }
+      }
 
       if (result.disputeHold) {
         await this.notificationService.createNotification({
@@ -1836,14 +2192,18 @@ export class ListersService {
 
       const order = await this.prisma.order.findUnique({
         where: { id: orderId },
-        include: { returnRequest: true, user: true },
+        include: { returnRequests: true, user: true },
       });
 
-      if (!order || !order.returnRequest) {
+      if (
+        !order ||
+        !order.returnRequests ||
+        order.returnRequests.length === 0
+      ) {
         throw new NotFoundException('Order or return request not found');
       }
 
-      const returnRequestId = order.returnRequest.id;
+      const returnRequestId = order.returnRequests[0].id;
 
       const result = await this.prisma.$transaction(async (tx) => {
         const updatedReturnRequest = await tx.returnRequest.update({
@@ -1888,26 +2248,30 @@ export class ListersService {
   }
 
   /** PATCH /api/listers/orders/:orderId/return/reject */
-  async rejectReturn(user: userEntity, orderId: string, reason: string) {
+  async rejectReturn(user: userEntity, orderId: string, reason?: string) {
     try {
       await this.ensureOrderBelongsToLister(user.id, orderId);
 
       const order = await this.prisma.order.findUnique({
         where: { id: orderId },
-        include: { returnRequest: true, user: true },
+        include: { returnRequests: true, user: true },
       });
 
-      if (!order || !order.returnRequest) {
+      if (
+        !order ||
+        !order.returnRequests ||
+        order.returnRequests.length === 0
+      ) {
         throw new NotFoundException('Order or return request not found');
       }
 
       const updated = await this.prisma.returnRequest.update({
-        where: { id: order.returnRequest.id },
+        where: { id: order.returnRequests[0].id },
         data: {
           status: 'REJECTED',
           damageNotes: reason
-            ? `Lister Rejection: ${reason}\nPrevious Notes: ${order.returnRequest.damageNotes || ''}`
-            : order.returnRequest.damageNotes,
+            ? `Lister Rejection: ${reason}\nPrevious Notes: ${order.returnRequests[0].damageNotes || ''}`
+            : order.returnRequests[0].damageNotes,
         },
       });
 
@@ -1979,6 +2343,8 @@ export class ListersService {
         return OrderStatus.DELIVERED;
       case 'return_due':
         return OrderStatus.RETURN_DUE;
+      case 'returned':
+        return OrderStatus.RETURNED;
       case 'completed':
         return OrderStatus.COMPLETED;
       default:
@@ -2099,13 +2465,42 @@ export class ListersService {
     };
   }
 
-  private formatOrderDetail(order: any, reviewsCount: number) {
+  /**
+   * Rental security deposit (collateral) for escrow: order line snapshot first,
+   * then product `collateralPrice`, else 30% of `originalValue` (matches lister pricing UI).
+   */
+  private rentalDepositNgn(oi: {
+    collateralFee?: number | null;
+    product?: {
+      collateralPrice?: number | null;
+      originalValue?: number | null;
+    };
+  }): number {
+    const fromOrder = oi.collateralFee;
+    if (fromOrder != null && Number.isFinite(Number(fromOrder))) {
+      return Math.round(Number(fromOrder));
+    }
+    const cp = Number(oi.product?.collateralPrice ?? 0);
+    if (cp > 0) return Math.round(cp);
+    const ov = Number(oi.product?.originalValue ?? 0);
+    if (ov > 0) return Math.round(ov * 0.3);
+    return 0;
+  }
+
+  private formatOrderDetail(
+    order: any,
+    reviewsCount: number,
+    availabilityRequests?: any[],
+  ) {
     const expiresAt = order.expiresAt;
     const now = new Date();
     const timeRemainingSeconds =
       order.status === OrderStatus.PROCESSING && expiresAt && expiresAt > now
         ? Math.max(0, differenceInSeconds(expiresAt, now))
         : 0;
+    const rentalByProduct = new Map<string, any>(
+      (order.rentals ?? []).map((r: any) => [r.productId, r]),
+    );
     const totalAmount = order.orderItems.reduce((sum: number, oi: any) => {
       // For resale items (days === 0 for RESALE/RENT_OR_RESALE), use resalePrice
       const isResaleItem =
@@ -2118,14 +2513,11 @@ export class ListersService {
       // For rental items, use pricePerDay * days
       return sum + (oi.pricePerDay ?? 0) * (oi.days ?? 0);
     }, 0);
-    const itemValueTotal = order.orderItems.reduce(
-      (sum: number, oi: any) => sum + (oi.product?.originalValue ?? 0),
-      0,
-    );
     const statusColors: Record<string, { bg: string; text: string }> = {
       pending_approval: { bg: '#FFF9E5', text: '#D4A017' },
       processing: { bg: '#FFF9E5', text: '#D4A017' },
       ongoing: { bg: '#E8F4FD', text: '#1E88E5' },
+      returned: { bg: '#E8F5E9', text: '#2E7D32' },
       completed: { bg: '#E8F5E9', text: '#2E7D32' },
       cancelled: { bg: '#FFEBEE', text: '#C62828' },
     };
@@ -2134,6 +2526,38 @@ export class ListersService {
       bg: '#F5F5F5',
       text: '#616161',
     };
+    const primaryReturnRequest =
+      order.returnRequests?.length > 0 ? order.returnRequests[0] : null;
+
+    const listerRentalSubtotal = order.orderItems.reduce(
+      (sum: number, oi: any) => {
+        const isResaleItem =
+          oi.days === 0 &&
+          (oi.product?.listingType === 'RESALE' ||
+            oi.product?.listingType === 'RENT_OR_RESALE');
+        if (isResaleItem) return sum;
+        return (
+          sum +
+          (oi.pricePerDay ?? oi.product?.dailyPrice ?? 0) * (oi.days ?? 0)
+        );
+      },
+      0,
+    );
+    const listerCleaningFeesTotal = order.orderItems.reduce(
+      (sum: number, oi: any) => sum + (oi.cleaningFee ?? 0),
+      0,
+    );
+    const listerResaleSubtotal = order.orderItems.reduce(
+      (sum: number, oi: any) => {
+        const isResaleItem =
+          oi.days === 0 &&
+          (oi.product?.listingType === 'RESALE' ||
+            oi.product?.listingType === 'RENT_OR_RESALE');
+        return isResaleItem ? sum + (oi.product?.resalePrice || 0) : sum;
+      },
+      0,
+    );
+
     return {
       id: order.id,
       orderNumber: order.orderId,
@@ -2158,41 +2582,51 @@ export class ListersService {
         reviews: reviewsCount,
         memberSince: order.user.createdAt.toISOString().split('T')[0],
       },
-      items: order.orderItems.map((oi: any) => ({
-        id: oi.product.id,
-        name: oi.product.name,
-        image:
-          oi.product.attachments?.uploads?.[0]?.url ??
-          'https://via.placeholder.com/300?text=No+Image',
-        size: oi.product.measurement ?? 'N/A',
-        color: oi.product.color ?? 'N/A',
-        days: oi.days,
-        listingType: oi.product.listingType,
-        purchasePrice: oi.product.resalePrice || 0,
-        returnDue:
+      items: order.orderItems.map((oi: any) => {
+        const rental = rentalByProduct.get(oi.productId);
+        const isResaleLine =
           oi.days === 0 &&
           (oi.product.listingType === 'RESALE' ||
-            oi.product.listingType === 'RENT_OR_RESALE')
-            ? null
-            : order.rental
-              ? order.rental.endDate.toISOString().split('T')[0]
-              : new Date().toISOString().split('T')[0],
-        rentalFee:
-          oi.days === 0 &&
-          (oi.product.listingType === 'RESALE' ||
-            oi.product.listingType === 'RENT_OR_RESALE')
-            ? oi.product.resalePrice || 0
-            : (oi.pricePerDay ?? oi.product.dailyPrice) * oi.days,
-        itemValue: oi.product.originalValue ?? 0,
-        itemValueHeld:
-          oi.days === 0 &&
-          (oi.product.listingType === 'RESALE' ||
-            oi.product.listingType === 'RENT_OR_RESALE')
-            ? oi.product.resalePrice || 0
-            : (oi.product.collateralPrice ?? oi.product.originalValue ?? 0),
-        status: order.status.toLowerCase(),
-        statusLabel: ORDER_STATUS_TO_LABEL[order.status] ?? order.status,
-      })),
+            oi.product.listingType === 'RENT_OR_RESALE');
+        const endStr = rental?.endDate
+          ? rental.endDate.toISOString().split('T')[0]
+          : new Date().toISOString().split('T')[0];
+        return {
+          id: oi.product.id,
+          name: oi.product.name,
+          image:
+            oi.product.attachments?.uploads?.[0]?.url ??
+            'https://via.placeholder.com/300?text=No+Image',
+          size: oi.product.measurement ?? 'N/A',
+          color: oi.product.color ?? 'N/A',
+          days: oi.days,
+          listingType: oi.product.listingType,
+          purchasePrice: oi.product.resalePrice || 0,
+          returnDue: isResaleLine ? null : endStr,
+          rentalStartDate: rental?.startDate
+            ? rental.startDate.toISOString().split('T')[0]
+            : undefined,
+          rentalEndDate: rental?.endDate
+            ? rental.endDate.toISOString().split('T')[0]
+            : undefined,
+          rentalFee:
+            oi.days === 0 &&
+            (oi.product.listingType === 'RESALE' ||
+              oi.product.listingType === 'RENT_OR_RESALE')
+              ? oi.product.resalePrice || 0
+              : (oi.pricePerDay ?? oi.product.dailyPrice) * oi.days,
+          cleaningFee: oi.cleaningFee ?? 0,
+          itemValue: oi.product.originalValue ?? 0,
+          itemValueHeld:
+            oi.days === 0 &&
+            (oi.product.listingType === 'RESALE' ||
+              oi.product.listingType === 'RENT_OR_RESALE')
+              ? oi.product.resalePrice || 0
+              : this.rentalDepositNgn(oi),
+          status: order.status.toLowerCase(),
+          statusLabel: ORDER_STATUS_TO_LABEL[order.status] ?? order.status,
+        };
+      }),
       timeline: {
         dateOrdered: order.createdAt.toISOString().split('T')[0],
         itemsCount: order.orderItems.length,
@@ -2200,17 +2634,30 @@ export class ListersService {
           order.status === OrderStatus.DELIVERED ? order.orderItems.length : 0,
         currentStep: apiStatus,
       },
-      returnRequest: order.returnRequest
+      returnRequest: primaryReturnRequest
         ? {
-            id: order.returnRequest.id,
+            id: primaryReturnRequest.id,
             orderId: order.orderId,
-            itemCondition: order.returnRequest.itemCondition,
-            damageNotes: order.returnRequest.damageNotes,
-            imageUrls: order.returnRequest.imageUrls,
-            status: order.returnRequest.status,
-            createdAt: order.returnRequest.createdAt.toISOString(),
+            itemCondition: primaryReturnRequest.itemCondition,
+            damageNotes: primaryReturnRequest.damageNotes,
+            imageUrls: primaryReturnRequest.imageUrls,
+            status: primaryReturnRequest.status,
+            createdAt: primaryReturnRequest.createdAt.toISOString(),
           }
         : null,
+      dispatchWindows: this.mergeOrderDispatchWindows(
+        order,
+        availabilityRequests,
+      ),
+      listerMerchandise: {
+        rentalSubtotal: listerRentalSubtotal,
+        cleaningFeesTotal: listerCleaningFeesTotal,
+        resaleSubtotal: listerResaleSubtotal,
+        total:
+          listerRentalSubtotal +
+          listerCleaningFeesTotal +
+          listerResaleSubtotal,
+      },
       escrow: {
         rentalFeeTotal: order.orderItems.reduce(
           (sum: number, oi: any) =>
@@ -2227,8 +2674,7 @@ export class ListersService {
             (oi.product?.listingType === 'RESALE' ||
               oi.product?.listingType === 'RENT_OR_RESALE')
               ? sum + (oi.product?.resalePrice || 0)
-              : sum +
-                (oi.product?.collateralPrice ?? oi.product?.originalValue ?? 0),
+              : sum + this.rentalDepositNgn(oi),
           0,
         ),
         purchasePrice: order.orderItems.reduce(
@@ -2248,7 +2694,7 @@ export class ListersService {
               ? sum + (oi.product?.resalePrice || 0)
               : sum +
                 (oi.pricePerDay ?? oi.product?.dailyPrice) * oi.days +
-                (oi.product?.collateralPrice ?? oi.product?.originalValue ?? 0),
+                this.rentalDepositNgn(oi),
           0,
         ),
         currency: CURRENCY,
@@ -2258,19 +2704,185 @@ export class ListersService {
             ? 'Upon buyer confirmation of receipt'
             : 'Upon successful return confirmation',
       },
-      canApprove:
-        order.status === OrderStatus.PROCESSING && timeRemainingSeconds > 0,
-      canReject: order.status === OrderStatus.PROCESSING,
-      approvalRequired: order.status === OrderStatus.PROCESSING,
-      approvalExpiredAt: expiresAt?.toISOString() ?? null,
     };
   }
 
-  /** Placeholder helper for future dispatch API / carrier integration */
-  private buildExternalTrackingUrl(trackingNumber?: string): string | null {
-    if (!trackingNumber) return null;
-    // In future, this could switch based on carrier (FedEx/UPS/etc.)
-    return `https://tracking.example.com/${trackingNumber}`;
+  private formatDispatchWindowsFromRequest(req: any) {
+    const dispatchWindows: Array<{
+      type: DispatchWindowType;
+      window: { start: string; end: string };
+      mode: 'DEFAULT' | 'CUSTOM';
+      scheduledDate: string;
+      baseDate: string;
+    }> = [];
+
+    const pushWindow = (
+      type: DispatchWindowType,
+      start?: Date | string | null,
+      end?: Date | string | null,
+      baseDate?: Date | string | null,
+    ) => {
+      if (!start || !end || !baseDate) return;
+      dispatchWindows.push({
+        type,
+        window: {
+          start: new Date(start).toISOString(),
+          end: new Date(end).toISOString(),
+        },
+        mode: 'CUSTOM',
+        scheduledDate: formatLocalDate(baseDate),
+        baseDate: formatLocalDate(baseDate),
+      });
+    };
+
+    pushWindow(
+      'OUTBOUND',
+      req.outboundWindowStart,
+      req.outboundWindowEnd,
+      req.startDate,
+    );
+    pushWindow(
+      'RETURN',
+      req.returnWindowStart,
+      req.returnWindowEnd,
+      req.returnWindowStart ?? req.endDate,
+    );
+    pushWindow(
+      'RESALE',
+      req.resaleWindowStart,
+      req.resaleWindowEnd,
+      req.createdAt,
+    );
+
+    return dispatchWindows;
+  }
+
+  private mergeOrderDispatchWindows(
+    order: any,
+    availabilityRequests?: any[],
+  ) {
+    const fromShipments = this.formatDispatchWindowsFromShipments(order);
+    if (fromShipments.length > 0) return fromShipments;
+    if (!availabilityRequests?.length) return [];
+    const merged: Array<{
+      type: DispatchWindowType;
+      window: { start: string; end: string };
+      mode: 'DEFAULT' | 'CUSTOM';
+      scheduledDate: string;
+      baseDate: string;
+    }> = [];
+    for (const req of availabilityRequests) {
+      merged.push(...this.formatDispatchWindowsFromRequest(req));
+    }
+    const seen = new Set<string>();
+    const deduped = merged.filter((w) => {
+      const key = `${w.type}|${w.window.start}|${w.window.end}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    return this.consolidateDispatchWindowsByTypeAndDay(deduped);
+  }
+
+  /** One row per type per local calendar day (min start, max end) when multiple items contributed windows. */
+  private consolidateDispatchWindowsByTypeAndDay(
+    windows: Array<{
+      type: DispatchWindowType;
+      window: { start: string; end: string };
+      mode: 'DEFAULT' | 'CUSTOM';
+      scheduledDate: string;
+      baseDate: string;
+    }>,
+  ) {
+    type W = (typeof windows)[0];
+    if (windows.length <= 1) return windows;
+
+    const groups = new Map<string, W[]>();
+    for (const w of windows) {
+      const day = formatLocalDate(new Date(w.window.start));
+      const key = `${w.type}|${day}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(w);
+    }
+
+    const out: W[] = [];
+    for (const group of groups.values()) {
+      if (group.length === 1) {
+        out.push(group[0]);
+        continue;
+      }
+      const tStart = Math.min(
+        ...group.map((g) => new Date(g.window.start).getTime()),
+      );
+      const tEnd = Math.max(
+        ...group.map((g) => new Date(g.window.end).getTime()),
+      );
+      const head = group[0];
+      const startIso = new Date(tStart).toISOString();
+      const endIso = new Date(tEnd).toISOString();
+      out.push({
+        ...head,
+        window: { start: startIso, end: endIso },
+        scheduledDate: formatLocalDate(new Date(tStart)),
+        baseDate: formatLocalDate(new Date(tStart)),
+        mode: 'CUSTOM',
+      });
+    }
+
+    const orderRank = (t: DispatchWindowType) =>
+      t === 'OUTBOUND' ? 0 : t === 'RETURN' ? 1 : 2;
+    out.sort(
+      (a, b) =>
+        orderRank(a.type) - orderRank(b.type) ||
+        new Date(a.window.start).getTime() -
+          new Date(b.window.start).getTime(),
+    );
+    return out;
+  }
+
+  private formatDispatchWindowsFromShipments(order: any) {
+    const shipments = Array.isArray(order.shipments) ? order.shipments : [];
+    const byType = new Map<string, any>();
+
+    for (const shipment of shipments) {
+      if (shipment?.type) byType.set(shipment.type, shipment);
+    }
+
+    const dispatchWindows: Array<{
+      type: DispatchWindowType;
+      window: { start: string; end: string };
+      mode: 'DEFAULT' | 'CUSTOM';
+      scheduledDate: string;
+      baseDate: string;
+    }> = [];
+
+    for (const type of ['OUTBOUND', 'RETURN', 'RESALE'] as DispatchWindowType[]) {
+      const shipment = byType.get(type);
+      if (!shipment?.scheduledWindowStart || !shipment?.scheduledWindowEnd) continue;
+
+      const baseDate = shipment.scheduledDate
+        ? new Date(shipment.scheduledDate)
+        : new Date(shipment.scheduledWindowStart);
+      const defaultWindow = buildDefaultDispatchWindow(baseDate);
+      const isDefaultMode =
+        new Date(shipment.scheduledWindowStart).getTime() ===
+          defaultWindow.start.getTime() &&
+        new Date(shipment.scheduledWindowEnd).getTime() ===
+          defaultWindow.end.getTime();
+
+      dispatchWindows.push({
+        type,
+        window: {
+          start: new Date(shipment.scheduledWindowStart).toISOString(),
+          end: new Date(shipment.scheduledWindowEnd).toISOString(),
+        },
+        mode: isDefaultMode ? 'DEFAULT' : 'CUSTOM',
+        scheduledDate: formatLocalDate(shipment.scheduledDate),
+        baseDate: formatLocalDate(baseDate),
+      });
+    }
+
+    return dispatchWindows;
   }
 
   // ---------------------------------------------------------------------------
@@ -2529,18 +3141,24 @@ export class ListersService {
   ) {
     try {
       if (!body.orderId || !body.category || !body.description) {
-        throw new ForbiddenException('Missing required fields');
+        throw new BadRequestException('Missing required fields');
       }
       if (body.description.length < 20) {
-        throw new ForbiddenException(
+        throw new BadRequestException(
           'Description must be at least 20 characters long',
         );
       }
 
       const order = await this.prisma.order.findUnique({
         where: { id: body.orderId },
-        include: {
-          rentals: true,
+        select: {
+          id: true,
+          orderId: true,
+          userId: true,
+          rentals: { select: { curatorId: true } },
+          orderItems: {
+            select: { product: { select: { curatorId: true } } },
+          },
         },
       });
       if (!order) {
@@ -2548,8 +3166,19 @@ export class ListersService {
       }
 
       // Lister-only ownership check – order must involve this curator
-      const rental = (order as any).rentals?.[0];
-      if (!rental || rental.curatorId !== user.id) {
+      const isAdmin = user.role === Role.ADMIN;
+      const isCuratorOnAnyRental = (order as any).rentals?.some(
+        (r: any) => r.curatorId === user.id,
+      );
+      const isCuratorOnAnyOrderItem = (order as any).orderItems?.some(
+        (item: any) => item.product?.curatorId === user.id,
+      );
+
+      if (
+        !isAdmin &&
+        !isCuratorOnAnyRental &&
+        !isCuratorOnAnyOrderItem
+      ) {
         throw new ForbiddenException(
           'You can only raise disputes for your own rentals',
         );
@@ -2562,7 +3191,9 @@ export class ListersService {
       });
       if (existing) {
         // 422-style semantics
-        throw new ForbiddenException('A dispute already exists for this order');
+        throw new BadRequestException(
+          'A dispute already exists for this order',
+        );
       }
 
       // Generate a human-friendly disputeId (e.g. DQ-0234)
@@ -2772,7 +3403,7 @@ export class ListersService {
 
       const evidence = {
         filesCount: uploads.length,
-        files: uploads.map((u) => ({
+        files: uploads.map((u: any) => ({
           fileId: u.id,
           fileName: u.name,
           fileType: u.type.startsWith('image') ? 'image' : 'document',
@@ -2886,7 +3517,7 @@ export class ListersService {
   async getDisputeEvidence(user: userEntity, disputeId: string) {
     const dispute = await this.findListerDisputeOrThrow(user, disputeId);
     const uploads = (dispute as any).attachment?.uploads ?? [];
-    const files = uploads.map((u) => ({
+    const files = uploads.map((u: any) => ({
       fileId: u.id,
       fileName: u.name,
       fileType: u.type.startsWith('image') ? 'image' : 'document',
@@ -2896,7 +3527,8 @@ export class ListersService {
       uploadedBy: u.userId,
     }));
     const totalSizeMb =
-      uploads.reduce((sum, u) => sum + u.size, 0) / (1024 * 1024);
+      uploads.reduce((sum: number, u: any) => sum + u.size, 0) /
+      (1024 * 1024);
 
     return {
       success: true,
@@ -3238,6 +3870,7 @@ export class ListersService {
     disputeId: string,
     body: { reason?: string; notes?: string },
   ) {
+    void body;
     const dispute = await this.findListerDisputeOrThrow(user, disputeId);
 
     if (
@@ -3348,45 +3981,6 @@ export class ListersService {
           bgColor: 'bg-yellow-100',
         };
     }
-  }
-
-  private mapMessageToConversationItem(m: Message) {
-    const base = {
-      messageId: m.id,
-      content: m.content,
-      createdAt: m.createdAt.toISOString(),
-      displayTimestamp: m.createdAt.toLocaleString('en-GB', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
-    };
-
-    if (m.type === 'status') {
-      return {
-        ...base,
-        type: 'status',
-        createdBy: 'system',
-      };
-    }
-
-    if (m.senderRole === Role.ADMIN) {
-      return {
-        ...base,
-        type: 'admin',
-        createdBy: m.senderId,
-        adminName: 'Support Team',
-      };
-    }
-
-    // Assume everything else from this endpoint is user/lister
-    return {
-      ...base,
-      type: 'user',
-      createdBy: m.senderId,
-    };
   }
 
   private mapMessageToSummary(m: Message) {
@@ -4689,7 +5283,7 @@ export class ListersService {
             // Pending Payouts (Escrow LOCKED)
             this.prisma.escrow.aggregate({
               where: {
-                curatorId: user.id,
+                listerId: user.id,
                 status: 'LOCKED',
                 createdAt: { lte: end },
               },
@@ -4701,7 +5295,7 @@ export class ListersService {
           earnings: earnings._sum.totalAmount || 0,
           orders: ordersCount || 0,
           activeRentals: activeRentals || 0,
-          pendingPayouts: pendingPayouts._sum.rentalAmount || 0,
+          pendingPayouts: pendingPayouts._sum?.rentalAmount || 0,
         };
       };
 
@@ -4838,7 +5432,6 @@ export class ListersService {
 
       const totalRevenue = monthlyData.reduce((sum, m) => sum + m.revenue, 0);
       const totalOrders = monthlyData.reduce((sum, m) => sum + m.orders, 0);
-      const activeMonths = monthlyData.filter((m) => m.orders > 0).length || 1;
 
       return {
         success: true,
@@ -4986,6 +5579,7 @@ export class ListersService {
   }
 
   async getLockedBalances(userId: string) {
+    void userId;
     return {
       success: true,
       data: {
