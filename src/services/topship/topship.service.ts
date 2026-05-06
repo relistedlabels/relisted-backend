@@ -2,6 +2,7 @@ import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import axios from 'axios';
 import http from 'http';
 import https from 'https';
+import { topshipSanitizeDescription } from './topship-description';
 
 @Injectable()
 export class TopshipService {
@@ -126,6 +127,16 @@ export class TopshipService {
         pickupPartner: this.toGraphqlPricingTierType(
           row?.pickupPartner ?? row?.pricingTier,
         ),
+        items: Array.isArray(row?.items)
+          ? row.items.map((it: any) => {
+              const sanitized = topshipSanitizeDescription(it?.description);
+              return {
+                ...it,
+                description:
+                  sanitized || topshipSanitizeDescription('Relisted items'),
+              };
+            })
+          : row.items,
       })),
     };
   }

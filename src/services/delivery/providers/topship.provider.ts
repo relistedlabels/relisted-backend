@@ -1,5 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { Order, Shipment } from '@prisma/client';
+import { Order, Shipment, ShipmentType } from '@prisma/client';
+import { selectOrderItemsForShipmentLeg } from '../../../module/shipment/order-items-for-shipment-leg';
+import {
+  TOPSHIP_DESCRIPTION_MAX_LEN,
+  topshipCombinedOrderItemsDescription,
+} from '../../topship/topship-description';
 import { TopshipService } from '../../topship/topship.service';
 import {
   DeliveryProvider,
@@ -163,7 +168,12 @@ export class TopshipProvider implements DeliveryProvider {
     const sender = s.pickupAddress as any;
     const receiver = s.deliveryAddress as any;
 
-    const orderItems: any[] = (order as any).orderItems ?? [];
+    const allOrderItems: any[] = (order as any).orderItems ?? [];
+    const orderItems = selectOrderItemsForShipmentLeg(
+      shipment.id,
+      shipment.type as ShipmentType,
+      allOrderItems,
+    );
     const itemCount = orderItems.length || 1;
     const totalValue = orderItems.reduce(
       (acc: number, i: any) =>
@@ -171,12 +181,11 @@ export class TopshipProvider implements DeliveryProvider {
       0,
     );
 
-    const description = orderItems.length
-      ? orderItems
-          .map((i: any) => i.product?.name ?? 'Item')
-          .join(', ')
-          .substring(0, 200)
-      : `Relisted ${s.type} - Order ${order.id}`;
+    const description = topshipCombinedOrderItemsDescription(
+      orderItems,
+      TOPSHIP_DESCRIPTION_MAX_LEN,
+      `Relisted ${s.type} ${order.orderId ?? order.id}`,
+    );
 
     // Relisted `scheduledWindowStart` / `scheduledWindowEnd` are internal: they drive when
     // we enqueue dispatch (cron), not a contract we forward to Topship. Their GraphQL input

@@ -60,7 +60,19 @@ export class ShipmentDispatchProcessor {
             user: { select: { id: true, name: true, email: true } },
             orderItems: {
               include: {
-                product: { select: { name: true, originalValue: true } },
+                product: {
+                  select: {
+                    name: true,
+                    originalValue: true,
+                    resalePrice: true,
+                    color: true,
+                    material: true,
+                    composition: true,
+                    measurement: true,
+                    brand: { select: { name: true } },
+                    category: { select: { name: true } },
+                  },
+                },
               },
             },
           },

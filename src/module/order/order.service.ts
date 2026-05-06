@@ -2,7 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { OrderStatus } from '@prisma/client';
+import { OrderStatus, Prisma } from '@prisma/client';
 import { Order_Verification } from 'src/services/event/event.types';
 import { PrismaService } from 'src/services/prisma/prisma.service';
 import { TopshipService } from 'src/services/topship/topship.service';
@@ -24,8 +24,15 @@ import {
   isWindowExpired,
   parseDispatchWindowFromInput,
 } from 'src/utils/dispatch-windows';
+import {
+  isRelistedDispatchShippingTier,
+  RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO,
+  RELISTED_DISPATCH_SHIPPING_LABEL,
+} from 'src/constants/relisted-dispatch-shipping';
+import { fetchAdminAlertRecipients } from 'src/module/shipment/shipment-admin-alert-recipients';
+import { buildAdminShipmentsPageUrl } from 'src/module/shipment/build-admin-shipments-page-url';
+import { MailService } from 'src/services/mail/mail.service';
 
-const APPROVAL_WINDOW_MINUTES = 15;
 const IMMEDIATE_DISPATCH_THRESHOLD_MINUTES = Number(
   process.env.IMMEDIATE_DISPATCH_THRESHOLD_MINUTES ?? 60,
 );
@@ -108,6 +115,7 @@ export class OrderService {
     private eventEmitter: EventEmitter2,
     private topshipService: TopshipService,
     private notificationService: NotificationService,
+    private readonly mailService: MailService,
     @InjectQueue('shipment-dispatch')
     private readonly shipmentDispatchQueue: Queue,
   ) {}
@@ -222,17 +230,46 @@ export class OrderService {
     }
   }
 
-  private pickRequestedWindow(
-    items: any[],
-    type: DispatchWindowType,
-  ): DispatchWindowRange | undefined {
-    for (const item of items) {
-      const window = item.dispatchWindows?.[type];
-      if (window) {
-        return window;
-      }
+  /** Lagos-formatted range for lister order confirmation emails (matches checkout copy style). */
+  private formatDispatchWindowRangeForEmailLagos(start: Date, end: Date): string {
+    const tz = 'Africa/Lagos';
+    const sameCalendarDay =
+      start.toLocaleDateString('en-CA', { timeZone: tz }) ===
+      end.toLocaleDateString('en-CA', { timeZone: tz });
+    if (sameCalendarDay) {
+      const dateLine = start.toLocaleDateString('en-NG', {
+        timeZone: tz,
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
+      const startTime = start.toLocaleTimeString('en-NG', {
+        timeZone: tz,
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      });
+      const endTime = end.toLocaleTimeString('en-NG', {
+        timeZone: tz,
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      });
+      return `${dateLine}, ${startTime} to ${endTime}`;
     }
-    return undefined;
+    const fmtFull = (d: Date) =>
+      d.toLocaleString('en-NG', {
+        timeZone: tz,
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      });
+    return `${fmtFull(start)} to ${fmtFull(end)}`;
   }
 
   private resolveDispatchWindow(
@@ -268,6 +305,8 @@ export class OrderService {
       .trim()
       .toLowerCase();
     if (!t || t === 'budget' || t === 'standard') return 'chowdeck';
+    if (t === RELISTED_DISPATCH_SHIPPING_LABEL.toLowerCase())
+      return 'chowdeck';
     return t;
   }
 
@@ -397,7 +436,12 @@ export class OrderService {
     ld: any,
     renterSnapshot: Record<string, any>,
   ): Promise<
-    Array<{ id: string; type: 'OUTBOUND' | 'RETURN' | 'RESALE'; immediate: boolean }>
+    Array<{
+      id: string;
+      type: 'OUTBOUND' | 'RETURN' | 'RESALE';
+      immediate: boolean;
+      manualFulfillment: boolean;
+    }>
   > {
     const curator = ld.items[0]?.product?.curator;
     if (!curator) return [];
@@ -416,10 +460,12 @@ export class OrderService {
     };
 
     const tier = this.normalizeTopshipTier(ld.usedPricingTier);
+    const manualFulfillment = isRelistedDispatchShippingTier(ld.usedPricingTier);
     const out: Array<{
       id: string;
       type: 'OUTBOUND' | 'RETURN' | 'RESALE';
       immediate: boolean;
+      manualFulfillment: boolean;
     }> = [];
 
     const hasRental = ld.bucketMode === 'RENTAL';
@@ -444,12 +490,14 @@ export class OrderService {
           pickupPartner: ld.pickupPartner,
           pickupId: ld.pickupId || undefined,
           deliveryLocation: ld.deliveryLocation || undefined,
+          manualFulfillment,
         },
       });
       out.push({
         id: s.id,
         type: 'OUTBOUND',
         immediate: this.shouldDispatchImmediately(ld.outboundWindow.start),
+        manualFulfillment,
       });
     }
 
@@ -472,12 +520,14 @@ export class OrderService {
           pickupPartner: ld.returnPickupPartner,
           pickupId: ld.returnPickupId || undefined,
           deliveryLocation: ld.returnDeliveryLocation || undefined,
+          manualFulfillment,
         },
       });
       out.push({
         id: s.id,
         type: 'RETURN',
         immediate: this.shouldDispatchImmediately(ld.returnWindow.start),
+        manualFulfillment,
       });
     }
 
@@ -500,16 +550,72 @@ export class OrderService {
           pickupPartner: ld.pickupPartner,
           pickupId: ld.pickupId || undefined,
           deliveryLocation: ld.deliveryLocation || undefined,
+          manualFulfillment,
         },
       });
       out.push({
         id: s.id,
         type: 'RESALE',
         immediate: this.shouldDispatchImmediately(ld.resaleWindow.start),
+        manualFulfillment,
       });
     }
 
     return out;
+  }
+
+  /** In-app + email for admins when checkout used Relisted dispatch (no Topship auto-booking). */
+  private async notifyAdminsManualFulfillmentCheckout(
+    humanOrderId: string,
+    shipmentIds: string[],
+  ) {
+    const admins = await fetchAdminAlertRecipients(this.prisma);
+    if (admins.length === 0) {
+      console.warn(
+        `[OrderService] No admin recipients for manual fulfillment alert (order ${humanOrderId}).`,
+      );
+      return;
+    }
+
+    const count = shipmentIds.length;
+    const summary =
+      count === 1
+        ? `Shipment ${shipmentIds[0]}`
+        : `${count} shipments (${shipmentIds.slice(0, 3).join(', ')}${count > 3 ? ', …' : ''})`;
+
+    for (const admin of admins) {
+      await this.notificationService.createNotification({
+        userId: admin.id,
+        title: 'Manual dispatch required',
+        message: `Order ${humanOrderId}: ${summary} used ${RELISTED_DISPATCH_SHIPPING_LABEL}. Book a rider or carrier in admin, then mark the shipment as dispatched.`,
+        type: 'MANUAL_FULFILLMENT_SHIPMENT',
+        metadata: {
+          orderId: humanOrderId,
+          shipmentIds,
+        },
+      });
+    }
+
+    for (const admin of admins) {
+      if (!admin.email?.trim()) continue;
+      for (const shipmentId of shipmentIds) {
+        const adminShipmentUrl =
+          buildAdminShipmentsPageUrl({ shipmentId }) || '';
+        try {
+          await this.mailService.sendAdminManualFulfillmentShipmentAlert({
+            to: admin.email.trim(),
+            humanOrderId,
+            shipmentId,
+            adminShipmentUrl,
+          });
+        } catch (mailErr: any) {
+          console.warn(
+            `[OrderService] Manual fulfillment email to ${admin.email} failed:`,
+            mailErr?.message ?? mailErr,
+          );
+        }
+      }
+    }
   }
 
   private buildRenterDeliveryAddressSnapshot(
@@ -568,11 +674,11 @@ export class OrderService {
     if (!tier || !Array.isArray(rates)) return null;
     const normalizedTier = tier.trim().toLowerCase();
     return (
-      rates.find(
-        (rate) =>
-          String(rate?.pricingTier ?? '').trim().toLowerCase() ===
-          normalizedTier,
-      ) || null
+      rates.find((rate) => {
+        const pt = String(rate?.pricingTier ?? '').trim().toLowerCase();
+        const nm = String(rate?.name ?? '').trim().toLowerCase();
+        return pt === normalizedTier || nm === normalizedTier;
+      }) || null
     );
   }
 
@@ -822,13 +928,17 @@ export class OrderService {
     const accumulateTierCosts = (rates: any[]) => {
       for (const rate of rates) {
         if (!rate?.pricingTier) continue;
-        const tierCost = Math.ceil((rate.cost || 300000) / 100);
+        const tierCost = Math.ceil(
+          (rate.cost || RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO) / 100,
+        );
+        const displayName =
+          (rate.name && String(rate.name).trim()) || rate.pricingTier;
         const existingTier = shippingTiersMap.get(rate.pricingTier);
         if (existingTier) {
           existingTier.totalShippingCost += tierCost;
         } else {
           shippingTiersMap.set(rate.pricingTier, {
-            name: rate.pricingTier,
+            name: displayName,
             totalShippingCost: tierCost,
           });
         }
@@ -838,37 +948,10 @@ export class OrderService {
     const quoteMemo = createCheckoutSummaryTopshipMemo(this.topshipService);
     const summaryReceiverCity = renterDeliveryAddressSnapshot.city || 'Lagos';
 
-    /** One parallel burst: avoids sequencing outbound quotes before return quotes per bucket (~2× latency). */
-    const sharedReturnPickupPayload = bucketContexts.some(
-      (c) => c.bucketMode === 'RENTAL',
-    )
-      ? {
-          senderDetail: {
-            addressLine1: returnPickupAddressSnapshot.street || 'Lagos',
-            addressLine2: '',
-            country: returnPickupAddressSnapshot.country || 'Nigeria',
-            countryCode: 'NG',
-            state: returnPickupAddressSnapshot.state || 'Lagos',
-            city: returnPickupAddressSnapshot.city || 'Lagos',
-          },
-          pickupDate: new Date().toISOString(),
-        }
-      : null;
-
+    /** Warm shipment-rate quotes only (pickup quotes waived for customer pricing). */
     const topShipWarmup: Promise<any[]>[] = [];
     for (const ctx of bucketContexts) {
       const senderCity = ctx.curatorAddress?.city || 'Lagos';
-      const pickupPayload = {
-        senderDetail: {
-          addressLine1: ctx.curatorAddress?.street || 'Lagos',
-          addressLine2: '',
-          country: ctx.curatorAddress?.country || 'Nigeria',
-          countryCode: 'NG',
-          state: ctx.curatorAddress?.state || 'Lagos',
-          city: senderCity,
-        },
-        pickupDate: new Date().toISOString(),
-      };
       const ratePayload = {
         senderDetails: { cityName: senderCity, countryCode: 'NG' },
         receiverDetails: {
@@ -877,12 +960,8 @@ export class OrderService {
         },
         totalWeight: 1,
       };
-      topShipWarmup.push(quoteMemo.pickupRates(pickupPayload));
       topShipWarmup.push(quoteMemo.shipRates(ratePayload));
-      if (ctx.bucketMode === 'RENTAL' && sharedReturnPickupPayload) {
-        topShipWarmup.push(
-          quoteMemo.pickupRates(sharedReturnPickupPayload),
-        );
+      if (ctx.bucketMode === 'RENTAL') {
         topShipWarmup.push(
           quoteMemo.shipRates({
             senderDetails: {
@@ -901,17 +980,6 @@ export class OrderService {
       bucketContexts.map(async (ctx) => {
         const senderCity = ctx.curatorAddress?.city || 'Lagos';
 
-        const pickupPayload = {
-          senderDetail: {
-            addressLine1: ctx.curatorAddress?.street || 'Lagos',
-            addressLine2: '',
-            country: ctx.curatorAddress?.country || 'Nigeria',
-            countryCode: 'NG',
-            state: ctx.curatorAddress?.state || 'Lagos',
-            city: senderCity,
-          },
-          pickupDate: new Date().toISOString(),
-        };
         const ratePayload = {
           senderDetails: { cityName: senderCity, countryCode: 'NG' },
           receiverDetails: {
@@ -921,35 +989,28 @@ export class OrderService {
           totalWeight: 1,
         };
 
-        const [pickupData, rateDataRaw] = await Promise.all([
-          quoteMemo.pickupRates(pickupPayload),
-          quoteMemo.shipRates(ratePayload),
-        ]);
-
-        let pickupChargeRaw = 0;
-        if (pickupData && pickupData.length > 0) {
-          pickupChargeRaw = Number(pickupData[0].pickupCharge) || 0;
-        }
+        const rateDataRaw = await quoteMemo.shipRates(ratePayload);
 
         let rateData =
           Array.isArray(rateDataRaw) && rateDataRaw.length > 0
             ? rateDataRaw
             : [];
 
-        const pickupChargeNGN = Math.ceil(pickupChargeRaw / 100);
+        /** Pickup leg not quoted to customer for now (matches common Chowdeck pickup ₦0). */
+        const pickupChargeNGN = 0;
 
         if (!rateData.length) {
           rateData = [
             {
               pricingTier: 'Budget',
-              name: 'Standard (Fallback)',
-              cost: 300000,
+              name: RELISTED_DISPATCH_SHIPPING_LABEL,
+              cost: RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO,
             },
           ];
         }
 
         let returnRateData: any[] = [];
-        let returnPickupChargeNGN = 0;
+        const returnPickupChargeNGN = 0;
 
         if (ctx.bucketMode === 'RENTAL') {
           const returnRatePayload = {
@@ -961,15 +1022,7 @@ export class OrderService {
             totalWeight: 1,
           };
 
-          const [returnPickupArr, returnRateArrRaw] = await Promise.all([
-            quoteMemo.pickupRates(sharedReturnPickupPayload!),
-            quoteMemo.shipRates(returnRatePayload),
-          ]);
-
-          if (returnPickupArr && returnPickupArr.length > 0) {
-            const raw = Number(returnPickupArr[0].pickupCharge) || 0;
-            returnPickupChargeNGN = Math.ceil(raw / 100);
-          }
+          const returnRateArrRaw = await quoteMemo.shipRates(returnRatePayload);
 
           returnRateData =
             Array.isArray(returnRateArrRaw) && returnRateArrRaw.length > 0
@@ -980,8 +1033,8 @@ export class OrderService {
             returnRateData = [
               {
                 pricingTier: 'Budget',
-                name: 'Standard (Fallback)',
-                cost: 300000,
+                name: RELISTED_DISPATCH_SHIPPING_LABEL,
+                cost: RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO,
               },
             ];
           }
@@ -989,7 +1042,7 @@ export class OrderService {
 
         const preferredRate = pickPreferredRateSummary(rateData);
         const preferredShipping = Math.ceil(
-          (preferredRate?.cost || 300000) / 100,
+          (preferredRate?.cost || RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO) / 100,
         );
 
         let preferredReturnShipping = 0;
@@ -998,7 +1051,8 @@ export class OrderService {
             this.findRateByTier(returnRateData, preferredRate?.pricingTier) ||
             pickPreferredRateSummary(returnRateData);
           preferredReturnShipping = Math.ceil(
-            (preferredReturnRate?.cost || 300000) / 100,
+            (preferredReturnRate?.cost || RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO) /
+              100,
           );
         }
 
@@ -1186,7 +1240,9 @@ export class OrderService {
 
     // For backwards compatibility and baseline metrics
     const baselineShippingTotal =
-      shippingTiers.length > 0 ? shippingTiers[0].totalShippingCost : 3000;
+      shippingTiers.length > 0
+        ? shippingTiers[0].totalShippingCost
+        : Math.ceil(RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO / 100);
     const baselineGrandTotal =
       itemTotalsBase + baselineShippingTotal + globalServiceChargeTotal + globalVatTotal;
 
@@ -1326,6 +1382,11 @@ export class OrderService {
     let grandTotal = 0;
     let totalCollateral = 0;
     const listerOrdersData: any[] = [];
+    /**
+     * Same memo pattern as GET /order summary: identical sender/receiver payloads share one
+     * cached Topship response. Sequential awaits per bucket only (no parallel Topship fan-out).
+     */
+    const topshipRateMemo = createCheckoutSummaryTopshipMemo(this.topshipService);
 
     // Calculate totals and shipping per schedule bucket (multiple legs per lister when dates differ)
     for (const [listerId, items] of itemsByLister.entries()) {
@@ -1462,42 +1523,14 @@ export class OrderService {
         state: curatorAddress?.state,
       });
 
+      /** Customer pickup leg waived for pricing; persisted shipment rows use ₦0 pickup. */
       let pickupChargeRaw = 0;
       let pickupId = '';
-      let pickupPartner = 'Standard';
-      try {
-        const pickupPayload = {
-          senderDetail: {
-            addressLine1: curatorAddress?.street || 'Lagos',
-            addressLine2: '',
-            country: curatorAddress?.country || 'Nigeria',
-            countryCode: 'NG',
-            state: curatorAddress?.state || 'Lagos',
-            city: senderCity,
-          },
-          pickupDate: new Date().toISOString(),
-        };
-        const pickupData =
-          await this.topshipService.getPickupRates(pickupPayload);
-        console.log(
-          `[OrderService] Fetched Pickup Rates for ${senderCity}:`,
-          JSON.stringify(pickupData, null, 2),
-        );
-        if (pickupData && pickupData.length > 0) {
-          pickupChargeRaw = Number(pickupData[0].pickupCharge) || 0;
-          pickupId = pickupData[0].pickupId || '';
-          pickupPartner = pickupData[0].partner || 'Standard';
-        }
-      } catch (err: any) {
-        console.warn(
-          `Pickup calculation failed for ${senderCity}. Reason:`,
-          err.message,
-        );
-      }
-      const pickupCostNGN = Math.ceil(pickupChargeRaw / 100);
+      let pickupPartner = this.normalizeTopshipTier(selectedPricingTier);
+      const pickupCostNGN = 0;
 
       let shippingCost = 0;
-      let shipmentChargeRaw = 300000;
+      let shipmentChargeRaw = RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO;
       let shipmentVatChargeRaw = 0;
       let returnShippingCost = 0;
       let returnShipmentChargeRaw = 0;
@@ -1508,8 +1541,13 @@ export class OrderService {
           receiverDetails: { cityName: receiverCity, countryCode: 'NG' },
           totalWeight: 1, // Default weight 1kg
         };
-        const rateData = await this.topshipService.getShipmentRate(ratePayload);
-        console.log('[Topship Rate Response] Full rate data:', JSON.stringify(rateData, null, 2));
+        const rateData = await topshipRateMemo.shipRates(ratePayload);
+        if (process.env.DEBUG_TOPSHIP_RATES === '1') {
+          console.log(
+            `[Checkout] Outbound quote rows (${senderCity}→${receiverCity}):`,
+            Array.isArray(rateData) ? rateData.length : 0,
+          );
+        }
 
         let matchedRate =
           this.findRateByTier(rateData, selectedPricingTier) || rateData?.[0];
@@ -1519,6 +1557,10 @@ export class OrderService {
           // Topship VAT is always 7.5% of totalCharge (which is just shipmentCharge, not including pickupCharge)
           // Use Math.ceil to match Topship's rounding behavior
           shipmentVatChargeRaw = Math.ceil(shipmentChargeRaw * 0.075);
+          const tierSlug = String(matchedRate.pricingTier ?? '')
+            .trim()
+            .toLowerCase();
+          if (tierSlug) pickupPartner = tierSlug;
         }
         // Pick selected or fallback price and convert from Kobo to NGN
         shippingCost = Math.ceil(shipmentChargeRaw / 100);
@@ -1527,44 +1569,14 @@ export class OrderService {
           `Shipping calculation failed between ${senderCity} and ${receiverCity}. Reason:`,
           err.message,
         );
-        shippingCost = 3000;
+        shippingCost = Math.ceil(RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO / 100);
       }
 
       let returnPickupChargeRaw = 0;
       let returnPickupCostNGN = 0;
       let returnPickupId = '';
-      let returnPickupPartner = 'Standard';
+      let returnPickupPartner = pickupPartner;
       if (hasRentalBucket) {
-        try {
-          const returnPickupPayload = {
-            senderDetail: {
-              addressLine1: returnPickupAddressSnapshot.street || 'Lagos',
-              addressLine2: '',
-              country: returnPickupAddressSnapshot.country || 'Nigeria',
-              countryCode: 'NG',
-              state: returnPickupAddressSnapshot.state || 'Lagos',
-              city: returnPickupAddressSnapshot.city || 'Lagos',
-            },
-            pickupDate: new Date().toISOString(),
-          };
-          const returnPickupData =
-            await this.topshipService.getPickupRates(returnPickupPayload);
-          if (returnPickupData && returnPickupData.length > 0) {
-            returnPickupChargeRaw =
-              Number(returnPickupData[0].pickupCharge) || 0;
-            returnPickupId = returnPickupData[0].pickupId || '';
-            returnPickupPartner = returnPickupData[0].partner || 'Standard';
-          }
-        } catch (err: any) {
-          console.warn(
-            `Return pickup calculation failed for renter city ${
-              returnPickupAddressSnapshot.city || 'Lagos'
-            }. Reason:`,
-            err.message,
-          );
-        }
-        returnPickupCostNGN = Math.ceil(returnPickupChargeRaw / 100);
-
         try {
           const returnRatePayload = {
             senderDetails: {
@@ -1575,11 +1587,13 @@ export class OrderService {
             totalWeight: 1,
           };
           const returnRateData =
-            await this.topshipService.getShipmentRate(returnRatePayload);
-          console.log(
-            '[Topship Rate Response] Return leg rate data:',
-            JSON.stringify(returnRateData, null, 2),
-          );
+            await topshipRateMemo.shipRates(returnRatePayload);
+          if (process.env.DEBUG_TOPSHIP_RATES === '1') {
+            console.log(
+              `[Checkout] Return quote rows (→${senderCity}):`,
+              Array.isArray(returnRateData) ? returnRateData.length : 0,
+            );
+          }
 
           let matchedReturnRate =
             this.findRateByTier(returnRateData, selectedPricingTier) ||
@@ -1589,6 +1603,10 @@ export class OrderService {
             returnShipmentVatChargeRaw = Math.ceil(
               returnShipmentChargeRaw * 0.075,
             );
+            const rt = String(matchedReturnRate.pricingTier ?? '')
+              .trim()
+              .toLowerCase();
+            if (rt) returnPickupPartner = rt;
           }
           returnShippingCost = Math.ceil(returnShipmentChargeRaw / 100);
         } catch (err: any) {
@@ -1598,9 +1616,11 @@ export class OrderService {
             } and ${senderCity}. Reason:`,
             err.message,
           );
-          returnShippingCost = hasRentalBucket ? 3000 : 0;
+          returnShippingCost = hasRentalBucket
+            ? Math.ceil(RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO / 100)
+            : 0;
           if (hasRentalBucket) {
-            returnShipmentChargeRaw = 300000;
+            returnShipmentChargeRaw = RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO;
             returnShipmentVatChargeRaw = Math.ceil(returnShipmentChargeRaw * 0.075);
           }
         }
@@ -1652,7 +1672,11 @@ export class OrderService {
       );
     }
 
-    const shipmentDispatchPlan: Array<{ id: string; immediate: boolean }> = [];
+    const shipmentDispatchPlan: Array<{
+      id: string;
+      immediate: boolean;
+      manualFulfillment: boolean;
+    }> = [];
 
     // Process transaction and orders
     let order: any;
@@ -1686,7 +1710,6 @@ export class OrderService {
 
         // 3. Create ONE order with all items (multi-lister support)
         const now = new Date();
-        const expiresAt = addMinutes(now, APPROVAL_WINDOW_MINUTES);
         const orderIdStr = await this.generateOrderId();
 
         // Determine overall order listing type
@@ -1858,11 +1881,10 @@ export class OrderService {
           data: {
             orderId: orderIdStr,
             userId: user.id,
-            expiresAt,
+            expiresAt: null,
             listingType: orderListingType,
-            status: hasRentalItems
-              ? OrderStatus.PROCESSING
-              : OrderStatus.CONFIRMED,
+            status: OrderStatus.CONFIRMED,
+            ...(hasRentalItems ? { approvedAt: now } : {}),
             totalAmountPaid: grandTotal,
             deliveryFee: totalDeliveryFee,
             serviceFee: totalServiceFee,
@@ -2093,6 +2115,7 @@ export class OrderService {
             ...createdShipments.map((s) => ({
               id: s.id,
               immediate: s.immediate,
+              manualFulfillment: s.manualFulfillment,
             })),
           );
 
@@ -2106,19 +2129,18 @@ export class OrderService {
           for (const cartLine of ld.items) {
             const oiId = cartItemIdToOrderItemId.get(cartLine.id);
             if (!oiId) continue;
+            const orderItemShipmentData: Prisma.OrderItemUncheckedUpdateInput =
+              {};
+            if (ld.bucketMode === 'RENTAL') {
+              orderItemShipmentData.outboundShipmentId = outboundId ?? null;
+              orderItemShipmentData.returnShipmentId = returnId ?? null;
+            } else if (ld.bucketMode === 'RESALE') {
+              orderItemShipmentData.resaleShipmentId = resaleId ?? null;
+            }
+            if (Object.keys(orderItemShipmentData).length === 0) continue;
             await tx.orderItem.update({
               where: { id: oiId },
-              data: {
-                ...(ld.bucketMode === 'RENTAL'
-                  ? {
-                      outboundShipmentId: outboundId ?? null,
-                      returnShipmentId: returnId ?? null,
-                    }
-                  : {}),
-                ...(ld.bucketMode === 'RESALE'
-                  ? { resaleShipmentId: resaleId ?? null }
-                  : {}),
-              },
+              data: orderItemShipmentData,
             });
           }
         }
@@ -2126,7 +2148,7 @@ export class OrderService {
 
     for (const row of shipmentDispatchPlan) {
       createdShipmentIds.push(row.id);
-      if (!row.immediate) continue;
+      if (!row.immediate || row.manualFulfillment) continue;
       const locked = await this.prisma.shipment.updateMany({
         where: { id: row.id, status: 'PENDING' },
         data: { status: 'DISPATCHING' },
@@ -2136,6 +2158,23 @@ export class OrderService {
           'dispatch',
           { shipmentId: row.id },
           { attempts: 1 },
+        );
+      }
+    }
+
+    const manualShipmentIds = shipmentDispatchPlan
+      .filter((r) => r.manualFulfillment)
+      .map((r) => r.id);
+    if (manualShipmentIds.length > 0 && order?.orderId) {
+      try {
+        await this.notifyAdminsManualFulfillmentCheckout(
+          order.orderId,
+          manualShipmentIds,
+        );
+      } catch (err: any) {
+        console.warn(
+          `[OrderService] Admin notify (manual fulfillment) failed:`,
+          err?.message ?? err,
         );
       }
     }
@@ -2194,62 +2233,69 @@ export class OrderService {
             listerCleaningFeesTotal +
             listerResaleSubtotal;
 
-          const hasRentalForLister = rentalLines.length > 0;
-          const outboundWin = hasRentalForLister
-            ? this.pickRequestedWindow(mergedItems, 'OUTBOUND')
-            : null;
-          const resaleWin =
-            !hasRentalForLister &&
-            this.pickRequestedWindow(mergedItems, 'RESALE');
-          const dispatchWin = outboundWin || resaleWin || null;
-          let dispatchWindowTitle = '';
-          let dispatchWindowText: string | null = null;
-          if (dispatchWin?.start && dispatchWin?.end) {
-            dispatchWindowTitle = hasRentalForLister
-              ? 'Outbound dispatch window'
-              : 'Resale dispatch window';
-            const tz = 'Africa/Lagos';
-            const start = new Date(dispatchWin.start);
-            const end = new Date(dispatchWin.end);
-            const sameCalendarDay =
-              start.toLocaleDateString('en-CA', { timeZone: tz }) ===
-              end.toLocaleDateString('en-CA', { timeZone: tz });
-            if (sameCalendarDay) {
-              const dateLine = start.toLocaleDateString('en-NG', {
-                timeZone: tz,
-                weekday: 'short',
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-              });
-              const startTime = start.toLocaleTimeString('en-NG', {
-                timeZone: tz,
-                hour: 'numeric',
-                minute: '2-digit',
-                hour12: true,
-              });
-              const endTime = end.toLocaleTimeString('en-NG', {
-                timeZone: tz,
-                hour: 'numeric',
-                minute: '2-digit',
-                hour12: true,
-              });
-              dispatchWindowText = `${dateLine}, ${startTime} to ${endTime}`;
-            } else {
-              const fmtFull = (d: Date) =>
-                d.toLocaleString('en-NG', {
-                  timeZone: tz,
-                  weekday: 'short',
-                  month: 'short',
-                  day: 'numeric',
-                  year: 'numeric',
-                  hour: 'numeric',
-                  minute: '2-digit',
-                  hour12: true,
+          const listerIdForNotify = String(lister.id);
+          const dispatchItemWindowsAccum: Array<{
+            productName: string;
+            rentalDeliveryWindowText: string | null;
+            returnPickupWindowText: string | null;
+            purchaseDeliveryWindowText: string | null;
+            sortKey: number;
+          }> = [];
+          for (const ld of listerOrdersData) {
+            if (String(ld.listerId) !== listerIdForNotify) continue;
+            if (ld.bucketMode === 'RENTAL') {
+              const ob = ld.outboundWindow;
+              const rw = ld.returnWindow;
+              const rentalDeliveryWindowText =
+                ob?.start && ob?.end
+                  ? this.formatDispatchWindowRangeForEmailLagos(
+                      ob.start,
+                      ob.end,
+                    )
+                  : null;
+              const returnPickupWindowText =
+                rw?.start && rw?.end
+                  ? this.formatDispatchWindowRangeForEmailLagos(
+                      rw.start,
+                      rw.end,
+                    )
+                  : null;
+              for (const bucketItem of ld.items ?? []) {
+                dispatchItemWindowsAccum.push({
+                  productName: bucketItem.product?.name || 'Item',
+                  rentalDeliveryWindowText,
+                  returnPickupWindowText,
+                  purchaseDeliveryWindowText: null,
+                  sortKey:
+                    ob?.start?.getTime?.() ??
+                    rw?.start?.getTime?.() ??
+                    Date.now(),
                 });
-              dispatchWindowText = `${fmtFull(start)} to ${fmtFull(end)}`;
+              }
+            } else if (ld.bucketMode === 'RESALE') {
+              const sw = ld.resaleWindow;
+              const purchaseDeliveryWindowText =
+                sw?.start && sw?.end
+                  ? this.formatDispatchWindowRangeForEmailLagos(
+                      sw.start,
+                      sw.end,
+                    )
+                  : null;
+              for (const bucketItem of ld.items ?? []) {
+                dispatchItemWindowsAccum.push({
+                  productName: bucketItem.product?.name || 'Item',
+                  rentalDeliveryWindowText: null,
+                  returnPickupWindowText: null,
+                  purchaseDeliveryWindowText,
+                  sortKey: sw?.start?.getTime?.() ?? Date.now(),
+                });
+              }
             }
           }
+          dispatchItemWindowsAccum.sort((a, b) => a.sortKey - b.sortKey);
+          const dispatchItemWindows = dispatchItemWindowsAccum.map(
+            ({ sortKey: _sortKey, ...row }) => row,
+          );
 
           await this.notificationService.createNotification({
             userId: lister.id,
@@ -2271,8 +2317,8 @@ export class OrderService {
               listerCleaningFeesTotal,
               listerResaleSubtotal,
               listerMerchandiseTotal,
-              dispatchWindowTitle,
-              dispatchWindowText,
+              dispatchItemWindows,
+              hasDispatchItemWindows: dispatchItemWindows.length > 0,
               items: mergedItems.map((item: any) => {
                 const daily = item.product?.dailyPrice || 0;
                 const resale = item.product?.resalePrice || 0;

@@ -61,17 +61,27 @@
       {{/each}}
     </ul>
 
-    {{#if dispatchWindowText}}
+    {{#if hasDispatchItemWindows}}
+    {{#each dispatchItemWindows}}
     <div class="info-box">
-      <p><strong>{{dispatchWindowTitle}}</strong></p>
-      <p>{{dispatchWindowText}}</p>
-      <p>Please have these items ready for pickup during this window.</p>
-      <p>Missing this delivery window may lead to additional delivery charges to reschedule.</p>
+      <p><strong>{{this.productName}}</strong></p>
+      {{#if this.rentalDeliveryWindowText}}
+      <p><strong>Rental delivery:</strong> {{this.rentalDeliveryWindowText}}</p>
+      {{/if}}
+      {{#if this.returnPickupWindowText}}
+      <p><strong>Return pickup:</strong> {{this.returnPickupWindowText}}</p>
+      {{/if}}
+      {{#if this.purchaseDeliveryWindowText}}
+      <p><strong>Purchase delivery:</strong> {{this.purchaseDeliveryWindowText}}</p>
+      {{/if}}
     </div>
+    {{/each}}
+    <p>Prepare each item for its listed window.</p>
+    <p>Missing a scheduled window may lead to extra charges to reschedule.</p>
     {{else}}
     <div class="info-box">
       <p><strong>Dispatch</strong></p>
-      <p>Prepare your items for dispatch. Timing is in your dashboard if no window is shown here.</p>
+      <p>Open your dashboard for full pickup and delivery timing.</p>
     </div>
     {{/if}}
 

@@ -11,6 +11,7 @@ import { NotificationService } from 'src/services/notification/notification.serv
 import { syncOrderStatusFromShipments } from 'src/module/order/order-shipment-status.sync';
 import { ListShipmentsDto } from './dto/list-shipments.dto';
 import { ManualCompleteShipmentDto } from './dto/manual-complete-shipment.dto';
+import { selectOrderItemsForShipmentLeg } from './order-items-for-shipment-leg';
 
 @Injectable()
 export class ShipmentService {
@@ -117,7 +118,24 @@ export class ShipmentService {
     });
 
     if (!shipment) throw new NotFoundException('Shipment not found');
-    return { success: true, data: shipment };
+
+    const legItems =
+      shipment.order?.orderItems?.length &&
+      selectOrderItemsForShipmentLeg(
+        shipment.id,
+        shipment.type,
+        shipment.order.orderItems,
+      );
+
+    const data =
+      legItems && shipment.order
+        ? {
+            ...shipment,
+            order: { ...shipment.order, orderItems: legItems },
+          }
+        : shipment;
+
+    return { success: true, data };
   }
 
   // ─── Get shipments for an order ────────────────────────────────────────────

@@ -114,24 +114,37 @@ export class CartService {
     return next;
   }
 
-  private buildDispatchWindowRangeMapForRequest(
+  private mergeManualDispatchWindows(
     requiredTypes: DispatchWindowType[],
-    manual?: DispatchWindowsInput,
-    persisted?: DispatchWindowRangeMap,
+    manual: DispatchWindowsInput | undefined,
+    map: DispatchWindowRangeMap,
   ): DispatchWindowRangeMap {
-    const map: DispatchWindowRangeMap = { ...(persisted ?? {}) };
-
+    const next: DispatchWindowRangeMap = { ...map };
     for (const type of requiredTypes) {
       if (manual?.[type]) {
-        map[type] = parseDispatchWindowFromInput(type, manual[type]!);
-      } else if (!map[type]) {
-        throw bad(
-          `Please provide a ${type.toLowerCase()} dispatch window before requesting availability.`,
-        );
+        next[type] = parseDispatchWindowFromInput(type, manual[type]!);
       }
     }
+    return next;
+  }
 
-    return map;
+  /** Persisted + optional body overrides; missing or stale slots get Lagos defaults (cart POST often has no body). */
+  private resolveDispatchWindowsForCartAvailabilityRequest(
+    requiredTypes: DispatchWindowType[],
+    manual: DispatchWindowsInput | undefined,
+    persisted: DispatchWindowRangeMap | undefined,
+    basesSource: { startDate: Date | null; endDate: Date | null },
+    now: Date,
+  ): DispatchWindowRangeMap {
+    let map: DispatchWindowRangeMap = { ...(persisted ?? {}) };
+    map = this.mergeManualDispatchWindows(requiredTypes, manual, map);
+    const bases = this.basesForReactivatedDispatchWindows(basesSource, now);
+    return this.refreshExpiredDispatchWindowsOnReactivate(
+      requiredTypes,
+      map,
+      bases,
+      now,
+    );
   }
 
   async requestAvailability(
@@ -179,15 +192,14 @@ export class CartService {
         existingExpired,
         availabilityRequestWindowFieldMap,
       );
-      let windowMap = this.buildDispatchWindowRangeMapForRequest(
+      const windowMap = this.resolveDispatchWindowsForCartAvailabilityRequest(
         requiredWindowTypes,
         dispatchWindowsInput,
         persistedWindows,
-      );
-      windowMap = this.refreshExpiredDispatchWindowsOnReactivate(
-        requiredWindowTypes,
-        windowMap,
-        this.basesForReactivatedDispatchWindows(existingExpired, now),
+        {
+          startDate: existingExpired.startDate,
+          endDate: existingExpired.endDate,
+        },
         now,
       );
       const windowData = applyRangeMapToData(
@@ -281,11 +293,15 @@ export class CartService {
     }
 
     // start 15 minutes countdown NOW
-    const expiresAt = addMinutes(new Date(), 15);
+    const now = new Date();
+    const expiresAt = addMinutes(now, 15);
 
-    const windowMap = this.buildDispatchWindowRangeMapForRequest(
+    const windowMap = this.resolveDispatchWindowsForCartAvailabilityRequest(
       requiredWindowTypes,
       dispatchWindowsInput,
+      undefined,
+      { startDate: null, endDate: null },
+      now,
     );
     const windowData = applyRangeMapToData(
       windowMap,

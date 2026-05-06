@@ -43,10 +43,16 @@ function deriveOutboundTarget(
       ? OrderStatus.ACTIVE
       : OrderStatus.DELIVERED;
   }
-  if (statuses.some((s) => s === 'IN_TRANSIT')) return OrderStatus.IN_TRANSIT;
-  if (statuses.some((s) => ['DISPATCHED', 'IN_TRANSIT', 'COMPLETED'].includes(s))) {
-    return OrderStatus.CONFIRMED;
+  const allAtLeastInTransit = statuses.every((s) =>
+    ['IN_TRANSIT', 'COMPLETED'].includes(s),
+  );
+  if (allAtLeastInTransit && statuses.some((s) => s === 'IN_TRANSIT')) {
+    return OrderStatus.IN_TRANSIT;
   }
+  const allBookedWithCarrier = statuses.every((s) =>
+    ['DISPATCHED', 'IN_TRANSIT', 'COMPLETED'].includes(s),
+  );
+  if (allBookedWithCarrier) return OrderStatus.CONFIRMED;
   return OrderStatus.CONFIRMED;
 }
 

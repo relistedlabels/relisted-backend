@@ -369,6 +369,46 @@ export class DisputeStatusDto {
   @IsNumber()
   @IsOptional()
   compensationToLister?: number;
+
+  @IsString()
+  @IsOptional()
+  disputeRecipient?: 'renter' | 'lister';
+
+  @IsString()
+  @IsOptional()
+  resolutionDetails?: string;
+
+  @IsNumber()
+  @IsOptional()
+  refundAmount?: number;
+
+  @IsNumber()
+  @IsOptional()
+  renterWalletCreditTotal?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  showRenterWithdrawSteps?: boolean;
+
+  @IsNumber()
+  @IsOptional()
+  listerEscrowPayout?: number;
+
+  @IsNumber()
+  @IsOptional()
+  listerCollateralCompensation?: number;
+
+  @IsNumber()
+  @IsOptional()
+  listerWalletCreditTotal?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  showListerWithdrawSteps?: boolean;
+
+  @IsString()
+  @IsOptional()
+  walletWithdrawLink?: string;
 }
 
 export class DisputeMessageDto {

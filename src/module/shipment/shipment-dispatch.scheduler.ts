@@ -11,6 +11,7 @@ import { MailService } from 'src/services/mail/mail.service';
 import { syncOrderStatusFromShipments } from 'src/module/order/order-shipment-status.sync';
 import { addMinutes, startOfDay, subHours, subMinutes } from 'date-fns';
 import { fetchAdminAlertRecipients } from 'src/module/shipment/shipment-admin-alert-recipients';
+import { buildAdminShipmentsPageUrl } from 'src/module/shipment/build-admin-shipments-page-url';
 
 const normalizeProviderStatus = (status: string) =>
   status.toLowerCase().replace(/[^a-z]/g, '');
@@ -55,6 +56,7 @@ export class ShipmentDispatchScheduler {
     const due = await this.prisma.shipment.findMany({
       where: {
         status: 'PENDING',
+        manualFulfillment: false,
         OR: [
           {
             scheduledWindowStart: {
@@ -322,11 +324,12 @@ export class ShipmentDispatchScheduler {
           where: staleReturnRequestWhere,
           take: 1,
           orderBy: { createdAt: 'desc' },
-          select: { id: true },
+          select: { id: true, shipmentId: true },
         },
         shipments: {
           where: { type: 'RETURN' },
-          select: { status: true },
+          orderBy: [{ scheduledWindowStart: 'asc' }, { createdAt: 'asc' }],
+          select: { id: true, status: true },
         },
         orderItems: {
           select: {
@@ -363,7 +366,10 @@ export class ShipmentDispatchScheduler {
       const rr = ord.returnRequests[0];
       if (!rr) continue;
 
-      const returnLeg = ord.shipments[0];
+      const rrShipId = rr.shipmentId;
+      const returnLeg = rrShipId
+        ? ord.shipments.find((s) => s.id === rrShipId)
+        : ord.shipments[0];
       if (returnLeg?.status === 'COMPLETED') continue;
 
       const listers = new Map<
@@ -640,7 +646,6 @@ export class ShipmentDispatchScheduler {
     shipment: any,
     tracking: TrackingStatus,
   ) {
-    const adminUrl = process.env.ADMIN_URL ?? '';
     const providerStatus = tracking.status || 'Cancelled';
     const order = shipment.order;
 
@@ -652,9 +657,8 @@ export class ShipmentDispatchScheduler {
       return;
     }
 
-    const adminShipmentUrl = adminUrl
-      ? `${adminUrl}/shipments/${shipment.id}`
-      : undefined;
+    const adminShipmentUrl =
+      buildAdminShipmentsPageUrl({ shipmentId: shipment.id }) || undefined;
 
     for (const admin of admins) {
       await this.notification.createNotification({

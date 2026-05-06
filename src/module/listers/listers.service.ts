@@ -9,6 +9,7 @@ import { PrismaService } from 'src/services/prisma/prisma.service';
 import { userEntity } from '../auth/auth.types';
 import {
   DisputeStatus,
+  ListingType,
   Message,
   OrderStatus,
   ProductStatus,
@@ -134,6 +135,58 @@ const PROGRESS_STEPS = [
     orderStatus: OrderStatus.COMPLETED,
   },
 ];
+
+/** Matches rental UI: Topship booking not finished vs carrier booked (listers OrderProgress). */
+const LISTER_OUTBOUND_BOOKED = new Set([
+  'DISPATCHING',
+  'DISPATCHED',
+  'IN_TRANSIT',
+  'COMPLETED',
+]);
+
+function listerRentalProgressStepIndex(
+  status: OrderStatus,
+  myOutboundLegs: ReadonlyArray<{ status: string }>,
+): number {
+  const myBooked =
+    myOutboundLegs.length > 0 &&
+    myOutboundLegs.every((l) => LISTER_OUTBOUND_BOOKED.has(l.status));
+  switch (status) {
+    case OrderStatus.PROCESSING:
+      return 0;
+    case OrderStatus.ACCEPTED:
+      return 1;
+    case OrderStatus.CONFIRMED:
+      return myBooked ? 4 : 3;
+    case OrderStatus.IN_TRANSIT:
+      return 4;
+    case OrderStatus.DELIVERED:
+    case OrderStatus.ACTIVE:
+      return 5;
+    case OrderStatus.RETURN_DUE:
+      return 6;
+    case OrderStatus.RETURNED:
+      return 7;
+    case OrderStatus.COMPLETED:
+      return 8;
+    case OrderStatus.IN_DISPUTE:
+      return 5;
+    default:
+      return 0;
+  }
+}
+
+const RENTAL_LISTER_PROGRESS_UI = [
+  { label: 'Pending', icon: 'clock' },
+  { label: 'Approved', icon: 'check-circle' },
+  { label: 'Dispatched', icon: 'truck' },
+  { label: 'Processing pickup', icon: 'package' },
+  { label: 'In transit', icon: 'truck' },
+  { label: 'Delivered', icon: 'home' },
+  { label: 'Awaiting return', icon: 'reply' },
+  { label: 'Return received', icon: 'check-circle' },
+  { label: 'Completed', icon: 'smile' },
+] as const;
 
 @Injectable()
 export class ListersService {
@@ -1108,29 +1161,83 @@ export class ListersService {
       await this.ensureOrderBelongsToLister(user.id, orderId);
       const order = await this.prisma.order.findUnique({
         where: { id: orderId },
-        select: { id: true, status: true, createdAt: true },
+        select: {
+          id: true,
+          status: true,
+          createdAt: true,
+          listingType: true,
+          shipments: {
+            where: { type: 'OUTBOUND', listerId: user.id },
+            select: {
+              id: true,
+              status: true,
+              scheduledDate: true,
+              scheduledWindowStart: true,
+              scheduledWindowEnd: true,
+              trackingId: true,
+              providerTrackingUrl: true,
+              dispatchedAt: true,
+            },
+          },
+        },
       });
       if (!order) throw new NotFoundException('Order not found');
       const currentStep =
         ORDER_STATUS_TO_API[order.status] ?? order.status.toLowerCase();
-      const stepIndex = PROGRESS_STEPS.findIndex(
-        (s) =>
-          s.orderStatus === order.status ||
-          s.label.toLowerCase().replace(' ', '_') === currentStep,
-      );
-      const currentStepIndex =
-        order.status === OrderStatus.PROCESSING ? 0 : Math.max(0, stepIndex);
-      const steps = PROGRESS_STEPS.map((s, i) => ({
-        id: s.id,
-        label: s.label,
-        icon: s.icon,
-        completed: i < currentStepIndex,
-        current: i === currentStepIndex,
-        timestamp: null,
-      }));
-      const progressPercentage = Math.round(
-        (currentStepIndex / (PROGRESS_STEPS.length - 1)) * 100,
-      );
+
+      const isPureResale =
+        order.listingType === ListingType.RESALE ||
+        order.listingType === ListingType.RENT_OR_RESALE;
+
+      let currentStepIndex: number;
+      let steps: Array<{
+        id: number;
+        label: string;
+        icon: string;
+        completed: boolean;
+        current: boolean;
+        timestamp: null;
+      }>;
+      let progressPercentage: number;
+
+      if (isPureResale && order.listingType === ListingType.RESALE) {
+        const stepIndex = PROGRESS_STEPS.findIndex(
+          (s) =>
+            s.orderStatus === order.status ||
+            s.label.toLowerCase().replace(' ', '_') === currentStep,
+        );
+        currentStepIndex =
+          order.status === OrderStatus.PROCESSING ? 0 : Math.max(0, stepIndex);
+        steps = PROGRESS_STEPS.map((s, i) => ({
+          id: s.id,
+          label: s.label,
+          icon: s.icon,
+          completed: i < currentStepIndex,
+          current: i === currentStepIndex,
+          timestamp: null,
+        }));
+        progressPercentage = Math.round(
+          (currentStepIndex / (PROGRESS_STEPS.length - 1)) * 100,
+        );
+      } else {
+        const myOutbound = order.shipments ?? [];
+        currentStepIndex = listerRentalProgressStepIndex(
+          order.status,
+          myOutbound,
+        );
+        steps = RENTAL_LISTER_PROGRESS_UI.map((s, i) => ({
+          id: i + 1,
+          label: s.label,
+          icon: s.icon,
+          completed: i < currentStepIndex,
+          current: i === currentStepIndex,
+          timestamp: null,
+        }));
+        progressPercentage = Math.round(
+          (currentStepIndex / (RENTAL_LISTER_PROGRESS_UI.length - 1)) * 100,
+        );
+      }
+
       return {
         success: true,
         data: {
@@ -1139,6 +1246,17 @@ export class ListersService {
           steps,
           progressPercentage,
           orderId: order.id,
+          myOutboundShipments:
+            order.listingType === ListingType.RESALE
+              ? []
+              : (order.shipments ?? []).map((s) => ({
+                  shipmentId: s.id,
+                  status: s.status,
+                  scheduledDate: s.scheduledDate.toISOString(),
+                  trackingId: s.trackingId,
+                  providerTrackingUrl: s.providerTrackingUrl,
+                  isBooked: LISTER_OUTBOUND_BOOKED.has(s.status),
+                })),
         },
       };
     } catch (e) {

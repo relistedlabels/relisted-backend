@@ -1080,7 +1080,10 @@ export class AdminService {
     const result = await this.prisma.$transaction(async (tx) => {
       const updatedDispute = await tx.dispute.update({
         where: { id: dispute.id },
-        data: { status: 'RESELOVED' as any },
+        data: {
+          status: 'RESELOVED' as any,
+          resolutionDetails: data.resolutionDetails?.trim() || null,
+        },
       });
 
       if (rawRefundAmount > 0) {
@@ -1233,9 +1236,15 @@ export class AdminService {
     });
 
     const clientUrl = process.env.CLIENT_URL || '';
+    const resolutionDetailsText = (data.resolutionDetails ?? '').trim();
+
+    const renterWalletCreditTotal = rawRefundAmount + collateralReturnedToRenter;
+    const listerWalletCreditTotal =
+      listerPayoutToRelease + collateralWithheldToLister;
 
     if (order.user?.id) {
       const disputeLink = `${clientUrl}/renters/dispute`;
+      const walletWithdrawLink = `${clientUrl}/renters/wallet`;
       await this.notificationService.createNotification({
         userId: order.user.id,
         title: 'Dispute Resolved',
@@ -1255,15 +1264,22 @@ export class AdminService {
           orderId: order.orderId,
           disputeId: dispute.disputeId,
           status: 'resolved',
+          disputeRecipient: 'renter',
           disputeLink,
-          collateralWithheldToLister,
+          resolutionDetails: resolutionDetailsText,
+          refundAmount: rawRefundAmount,
           collateralReturnedToRenter,
+          renterWalletCreditTotal,
+          showRenterWithdrawSteps: renterWalletCreditTotal > 0,
+          walletWithdrawLink,
+          collateralWithheldToLister,
         },
       });
     }
 
     if (lister?.id) {
       const disputeLink = `${clientUrl}/listers/dispute`;
+      const walletWithdrawLink = `${clientUrl}/listers/wallet`;
       await this.notificationService.createNotification({
         userId: lister.id,
         title: 'Dispute Resolved',
@@ -1282,7 +1298,14 @@ export class AdminService {
           orderId: order.orderId,
           disputeId: dispute.disputeId,
           status: 'resolved',
+          disputeRecipient: 'lister',
           disputeLink,
+          resolutionDetails: resolutionDetailsText,
+          listerEscrowPayout: listerPayoutToRelease,
+          listerCollateralCompensation: collateralWithheldToLister,
+          listerWalletCreditTotal,
+          showListerWithdrawSteps: listerWalletCreditTotal > 0,
+          walletWithdrawLink,
           compensationToLister: collateralWithheldToLister,
           collateralWithheldToLister,
           collateralReturnedToRenter: 0,
