@@ -182,6 +182,19 @@ export class ShipmentDispatchProcessor {
         `[Worker] Dispatch attempt ${attemptNumber} failed for shipment ${shipmentId}: ${err.message}`,
       );
 
+      // If draft creation succeeded but payment failed, persist provider ID once so retries reuse it.
+      if (err?.providerShipmentId && !shipment.providerShipmentId) {
+        await this.prisma.shipment.updateMany({
+          where: { id: shipmentId, providerShipmentId: null },
+          data: {
+            providerShipmentId: String(err.providerShipmentId),
+            ...(err?.trackingId
+              ? { trackingId: String(err.trackingId) }
+              : {}),
+          },
+        });
+      }
+
       // Log the failed attempt
       await this.prisma.$transaction([
         this.prisma.shipment.update({
