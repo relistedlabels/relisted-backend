@@ -13,6 +13,11 @@ import {
   TrackingStatus,
 } from '../delivery-provider.interface';
 
+type TopshipPaymentError = Error & {
+  providerShipmentId?: string;
+  trackingId?: string | null;
+};
+
 @Injectable()
 export class TopshipProvider implements DeliveryProvider {
   constructor(private readonly topship: TopshipService) {}
@@ -43,17 +48,40 @@ export class TopshipProvider implements DeliveryProvider {
   }
 
   async dispatch(shipment: Shipment, order: Order): Promise<DispatchResult> {
-    const payload = this.buildPayload(shipment, order);
-    const draftResponse = await this.topship.bookShipmentAsDraft(payload);
+    const existingProviderShipmentId = this.firstNonEmptyString(
+      (shipment as any)?.providerShipmentId,
+    );
 
-    const data = draftResponse?.[0] ?? draftResponse?.data?.[0];
-    if (!data?.id) {
-      throw new Error(
-        `Topship did not return a shipment ID. Raw response: ${JSON.stringify(draftResponse)}`,
+    let providerShipmentId = existingProviderShipmentId;
+    let draftTrackingId: string | null = this.firstNonEmptyString(
+      (shipment as any)?.trackingId,
+    );
+    if (!providerShipmentId) {
+      const payload = this.buildPayload(shipment, order);
+      const draftResponse = await this.topship.bookShipmentAsDraft(payload);
+      const data = draftResponse?.[0] ?? draftResponse?.data?.[0];
+      providerShipmentId = this.firstNonEmptyString(data?.id, data?.shipmentId);
+      if (!providerShipmentId) {
+        throw new Error(
+          `Topship did not return a shipment ID. Raw response: ${JSON.stringify(draftResponse)}`,
+        );
+      }
+      draftTrackingId = this.firstNonEmptyString(
+        data?.trackingId,
+        data?.trackingNumber,
       );
     }
 
-    const paid = await this.topship.payForShipment(data.id);
+    let paid: any;
+    try {
+      paid = await this.topship.payForShipment(providerShipmentId);
+    } catch (err: any) {
+      const wrapped = new Error(err?.message ?? 'Topship payment failed');
+      (wrapped as TopshipPaymentError).providerShipmentId = providerShipmentId;
+      (wrapped as TopshipPaymentError).trackingId = draftTrackingId;
+      throw wrapped;
+    }
+
     const payRow =
       paid && typeof paid === 'object'
         ? Array.isArray(paid)
@@ -62,17 +90,16 @@ export class TopshipProvider implements DeliveryProvider {
         : {};
 
     const trackingId = this.firstNonEmptyString(
-      data.trackingId,
-      data.trackingNumber,
+      draftTrackingId,
       payRow.trackingId,
       payRow.trackingNumber,
     );
 
     return {
-      providerShipmentId: data.id,
+      providerShipmentId,
       trackingId,
       providerTrackingUrl: 'https://ship.topship.africa/tracking',
-      rawResponse: data,
+      rawResponse: payRow,
     };
   }
 

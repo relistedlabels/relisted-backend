@@ -2034,9 +2034,9 @@ export class AdminService {
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
-          brand: true,
-          category: true,
-          tags: true,
+          brand: { select: { id: true, name: true } },
+          category: { select: { id: true, name: true } },
+          // Tags and full upload galleries are loaded via getProductDetails when the modal opens.
           curator: {
             select: {
               id: true,
@@ -2050,7 +2050,15 @@ export class AdminService {
               },
             },
           },
-          attachments: { include: { uploads: { select: { id: true, url: true } } } },
+          attachments: {
+            include: {
+              uploads: {
+                take: 1,
+                orderBy: { createdAt: 'asc' },
+                select: { url: true },
+              },
+            },
+          },
         },
       }),
     ]);

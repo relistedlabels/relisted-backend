@@ -17,7 +17,7 @@ const normalizeProviderStatus = (status: string) =>
   status.toLowerCase().replace(/[^a-z]/g, '');
 
 const DISPATCH_CRON_LOOKAHEAD_MINUTES = Number(
-  process.env.DISPATCH_CRON_LOOKAHEAD_MINUTES ?? 60,
+  process.env.DISPATCH_CRON_LOOKAHEAD_MINUTES ?? 59,
 );
 
 /** Hours after `pickupWindowEnd` before we email listers (carrier tracking often lags). */
@@ -40,7 +40,8 @@ export class ShipmentDispatchScheduler {
   /**
    * Runs on the configured cadence (defaults to hourly) in Africa/Lagos time.
    * Scans for pending shipments whose dispatch window starts within the lookahead
-   * horizon (defaults to 60 minutes) and locks + enqueues each one exactly once.
+   * horizon (defaults to 0 minutes, meaning at/after start) and locks + enqueues
+   * each one exactly once.
    * `scheduledWindowStart` / `scheduledWindowEnd` are Relisted-only; the worker maps
    * them to Topship’s single `pickupDate` when booking, not as partner-facing windows.
    */
