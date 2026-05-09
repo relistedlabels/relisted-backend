@@ -299,15 +299,17 @@ export class OrderService {
     return windowStart.getTime() <= threshold.getTime();
   }
 
-  /** Tier slug stored on Shipment (lowercase); TopshipService maps to GraphQL enum (e.g. Chowdeck). */
+  /** Tier slug stored on Shipment (lowercase); Topship maps Chowdeck/Glovo only (no Budget alias). */
   private normalizeTopshipTier(tier: string | null | undefined): string {
     const t = String(tier ?? '')
       .trim()
       .toLowerCase();
-    if (!t || t === 'budget' || t === 'standard') return 'chowdeck';
+    if (!t) return 'chowdeck';
     if (t === RELISTED_DISPATCH_SHIPPING_LABEL.toLowerCase())
-      return 'chowdeck';
-    return t;
+      return 'relisted dispatch';
+    if (t === 'glovo') return 'glovo';
+    if (t === 'chowdeck') return 'chowdeck';
+    return 'chowdeck';
   }
 
   /** Group cart lines into shipment buckets (same lister, same resolved dispatch windows). */
@@ -446,6 +448,8 @@ export class OrderService {
     orderId: string,
     ld: any,
     renterSnapshot: Record<string, any>,
+    /** Where the courier picks up the return (checkout custom or renter delivery snapshot). */
+    returnPickupSnapshot: Record<string, any>,
   ): Promise<
     Array<{
       id: string;
@@ -470,8 +474,15 @@ export class OrderService {
       zip: listerAddr?.zipCode ?? null,
     };
 
-    const tier = this.normalizeTopshipTier(ld.usedPricingTier);
-    const manualFulfillment = isRelistedDispatchShippingTier(ld.usedPricingTier);
+    const outboundTierNorm = this.normalizeTopshipTier(ld.usedPricingTier);
+    const outboundManual = isRelistedDispatchShippingTier(ld.usedPricingTier);
+
+    const returnTierSource =
+      ld.bucketMode === 'RENTAL' && ld.usedReturnPricingTier != null
+        ? ld.usedReturnPricingTier
+        : ld.usedPricingTier;
+    const returnTierNorm = this.normalizeTopshipTier(returnTierSource);
+    const returnManual = isRelistedDispatchShippingTier(returnTierSource);
     const out: Array<{
       id: string;
       type: 'OUTBOUND' | 'RETURN' | 'RESALE';
@@ -494,21 +505,21 @@ export class OrderService {
           scheduledWindowEnd: ld.outboundWindow.end,
           pickupAddress: listerJson,
           deliveryAddress: renterSnapshot,
-          pricingTier: tier,
+          pricingTier: outboundTierNorm,
           shipmentCharge: ld.shipmentChargeRaw,
           pickupCharge: ld.pickupChargeRaw,
           vatCharge: ld.shipmentVatChargeRaw,
           pickupPartner: ld.pickupPartner,
           pickupId: ld.pickupId || undefined,
           deliveryLocation: ld.deliveryLocation || undefined,
-          manualFulfillment,
+          manualFulfillment: outboundManual,
         },
       });
       out.push({
         id: s.id,
         type: 'OUTBOUND',
         immediate: this.shouldDispatchImmediately(ld.outboundWindow.start),
-        manualFulfillment,
+        manualFulfillment: outboundManual,
       });
     }
 
@@ -522,23 +533,23 @@ export class OrderService {
           scheduledDate: startOfDay(ld.returnWindow.start),
           scheduledWindowStart: ld.returnWindow.start,
           scheduledWindowEnd: ld.returnWindow.end,
-          pickupAddress: renterSnapshot,
+          pickupAddress: returnPickupSnapshot,
           deliveryAddress: listerJson,
-          pricingTier: tier,
+          pricingTier: returnTierNorm,
           shipmentCharge: ld.returnShipmentChargeRaw,
           pickupCharge: ld.returnPickupChargeRaw,
           vatCharge: ld.returnShipmentVatChargeRaw,
           pickupPartner: ld.returnPickupPartner,
           pickupId: ld.returnPickupId || undefined,
           deliveryLocation: ld.returnDeliveryLocation || undefined,
-          manualFulfillment,
+          manualFulfillment: returnManual,
         },
       });
       out.push({
         id: s.id,
         type: 'RETURN',
         immediate: this.shouldDispatchImmediately(ld.returnWindow.start),
-        manualFulfillment,
+        manualFulfillment: returnManual,
       });
     }
 
@@ -554,31 +565,45 @@ export class OrderService {
           scheduledWindowEnd: ld.resaleWindow.end,
           pickupAddress: listerJson,
           deliveryAddress: renterSnapshot,
-          pricingTier: tier,
+          pricingTier: outboundTierNorm,
           shipmentCharge: ld.shipmentChargeRaw,
           pickupCharge: ld.pickupChargeRaw,
           vatCharge: ld.shipmentVatChargeRaw,
           pickupPartner: ld.pickupPartner,
           pickupId: ld.pickupId || undefined,
           deliveryLocation: ld.deliveryLocation || undefined,
-          manualFulfillment,
+          manualFulfillment: outboundManual,
         },
       });
       out.push({
         id: s.id,
         type: 'RESALE',
         immediate: this.shouldDispatchImmediately(ld.resaleWindow.start),
-        manualFulfillment,
+        manualFulfillment: outboundManual,
       });
     }
 
     return out;
   }
 
+  private manualShipmentLegLabel(type: 'OUTBOUND' | 'RETURN' | 'RESALE') {
+    switch (type) {
+      case 'OUTBOUND':
+        return 'Rental delivery (to renter)';
+      case 'RETURN':
+        return 'Return (to lister)';
+      case 'RESALE':
+        return 'Purchase delivery';
+    }
+  }
+
   /** In-app + email for admins when checkout used Relisted dispatch (no Topship auto-booking). */
   private async notifyAdminsManualFulfillmentCheckout(
     humanOrderId: string,
-    shipmentIds: string[],
+    manualShipments: Array<{
+      id: string;
+      type: 'OUTBOUND' | 'RETURN' | 'RESALE';
+    }>,
   ) {
     const admins = await fetchAdminAlertRecipients(this.prisma);
     if (admins.length === 0) {
@@ -588,17 +613,21 @@ export class OrderService {
       return;
     }
 
-    const count = shipmentIds.length;
+    const shipmentIds = manualShipments.map((s) => s.id);
+    const count = manualShipments.length;
     const summary =
       count === 1
-        ? `Shipment ${shipmentIds[0]}`
-        : `${count} shipments (${shipmentIds.slice(0, 3).join(', ')}${count > 3 ? ', …' : ''})`;
+        ? `Shipment ${manualShipments[0].id}`
+        : `${count} shipments (${manualShipments
+            .slice(0, 3)
+            .map((s) => s.id)
+            .join(', ')}${count > 3 ? ', ...' : ''})`;
 
     for (const admin of admins) {
       await this.notificationService.createNotification({
         userId: admin.id,
-        title: 'Manual dispatch required',
-        message: `Order ${humanOrderId}: ${summary} used ${RELISTED_DISPATCH_SHIPPING_LABEL}. Book a rider or carrier in admin, then mark the shipment as dispatched.`,
+        title: 'Manual Relisted dispatch',
+        message: `Order ${humanOrderId}: ${summary} uses ${RELISTED_DISPATCH_SHIPPING_LABEL}. Arrange pickup or delivery for each leg, then mark them as dispatched in admin.`,
         type: 'MANUAL_FULFILLMENT_SHIPMENT',
         metadata: {
           orderId: humanOrderId,
@@ -609,22 +638,22 @@ export class OrderService {
 
     for (const admin of admins) {
       if (!admin.email?.trim()) continue;
-      for (const shipmentId of shipmentIds) {
-        const adminShipmentUrl =
-          buildAdminShipmentsPageUrl({ shipmentId }) || '';
-        try {
-          await this.mailService.sendAdminManualFulfillmentShipmentAlert({
-            to: admin.email.trim(),
-            humanOrderId,
-            shipmentId,
-            adminShipmentUrl,
-          });
-        } catch (mailErr: any) {
-          console.warn(
-            `[OrderService] Manual fulfillment email to ${admin.email} failed:`,
-            mailErr?.message ?? mailErr,
-          );
-        }
+      const shipmentsPayload = manualShipments.map((s) => ({
+        shipmentId: s.id,
+        legLabel: this.manualShipmentLegLabel(s.type),
+        adminShipmentUrl: buildAdminShipmentsPageUrl({ shipmentId: s.id }) || '',
+      }));
+      try {
+        await this.mailService.sendAdminManualFulfillmentShipmentAlert({
+          to: admin.email.trim(),
+          humanOrderId,
+          shipments: shipmentsPayload,
+        });
+      } catch (mailErr: any) {
+        console.warn(
+          `[OrderService] Manual fulfillment email to ${admin.email} failed:`,
+          mailErr?.message ?? mailErr,
+        );
       }
     }
   }
@@ -665,8 +694,12 @@ export class OrderService {
     override?: ReturnPickupAddressDto,
   ) {
     const address = renterProfile.address;
+    const contactName = override?.contactName?.trim();
+    const phoneNumber = override?.phoneNumber?.trim();
     return {
       ...baseSnapshot,
+      name: contactName || baseSnapshot.name,
+      phone: phoneNumber || baseSnapshot.phone,
       street: override?.street || address?.street || baseSnapshot.street,
       city: override?.city || address?.city || baseSnapshot.city,
       state: override?.state || address?.state || baseSnapshot.state,
@@ -691,6 +724,136 @@ export class OrderService {
         return pt === normalizedTier || nm === normalizedTier;
       }) || null
     );
+  }
+
+  /**
+   * Checkout uses Topship Chowdeck or Glovo only. Budget/Standard are separate Topship products, excluded here.
+   * When neither exists for a lane, {@link ensureRatesIncludeAllowedCheckoutTier} injects Relisted dispatch.
+   */
+  private slugForCheckoutShippingTier(
+    pricingTier: string | undefined,
+  ): 'chowdeck' | 'glovo' | 'relisted_dispatch' | null {
+    const t = String(pricingTier ?? '').trim().toLowerCase();
+    if (t === 'glovo') return 'glovo';
+    if (t === 'chowdeck') return 'chowdeck';
+    if (t === RELISTED_DISPATCH_SHIPPING_LABEL.toLowerCase())
+      return 'relisted_dispatch';
+    return null;
+  }
+
+  private pickPreferredChowdeckOrGlovoRate(
+    rates: any[] | undefined,
+  ): any | null {
+    if (!Array.isArray(rates) || rates.length === 0) return null;
+    const order = ['chowdeck', 'glovo'] as const;
+    for (const slug of order) {
+      const found = rates.find(
+        (r) => this.slugForCheckoutShippingTier(r?.pricingTier) === slug,
+      );
+      if (found) return found;
+    }
+    return null;
+  }
+
+  /** Chowdeck and Glovo first, then Relisted dispatch fallback row from {@link ensureRatesIncludeAllowedCheckoutTier}. */
+  private pickRateForLegOrFallback(rates: any[] | undefined): any | null {
+    if (!Array.isArray(rates) || rates.length === 0) return null;
+    const preferred = this.pickPreferredChowdeckOrGlovoRate(rates);
+    if (preferred) return preferred;
+    const relisted = rates.find(
+      (r) =>
+        this.slugForCheckoutShippingTier(r?.pricingTier) ===
+        'relisted_dispatch',
+    );
+    return relisted ?? rates[0] ?? null;
+  }
+
+  private matchRateForLeg(
+    rates: any[] | undefined,
+    customerTier: string,
+  ): any | null {
+    const list = Array.isArray(rates) ? rates : [];
+    return (
+      this.findRateByTier(list, customerTier) ||
+      this.pickRateForLegOrFallback(list)
+    );
+  }
+
+  /** Maps client tier labels to stored/pricing tier strings (Chowdeck, Glovo, Relisted dispatch). */
+  private coerceLegPricingTierSelection(
+    tier: string | undefined | null,
+  ): string {
+    const slug = this.slugForCheckoutShippingTier(tier ?? '');
+    if (slug === 'glovo') return 'Glovo';
+    if (slug === 'relisted_dispatch') return RELISTED_DISPATCH_SHIPPING_LABEL;
+    return 'Chowdeck';
+  }
+
+  /**
+   * Keep only Chowdeck/Glovo Topship rows. If none remain, inject Relisted dispatch (not Budget).
+   */
+  private ensureRatesIncludeAllowedCheckoutTier(rates: any[]): any[] {
+    const list = Array.isArray(rates) ? rates : [];
+    const filtered = list.filter((r) =>
+      this.slugForCheckoutShippingTier(r?.pricingTier),
+    );
+    if (filtered.length > 0) return filtered;
+    return [
+      {
+        pricingTier: RELISTED_DISPATCH_SHIPPING_LABEL,
+        name: RELISTED_DISPATCH_SHIPPING_LABEL,
+        cost: RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO,
+      },
+    ];
+  }
+
+  /**
+   * One checkout bucket's Topship rows as sorted tier cards (`totalShippingCost` is that leg only).
+   */
+  private buildSortedCheckoutTiersFromRates(
+    rateData: any[],
+    estimateGrandTotal: (legCostNgn: number) => number,
+  ): Array<{
+    name: string;
+    totalShippingCost: number;
+    grandTotal: number;
+  }> {
+    const map = new Map<
+      string,
+      { slug: string; name: string; totalShippingCost: number }
+    >();
+    for (const rate of rateData) {
+      if (!rate?.pricingTier) continue;
+      const slug = this.slugForCheckoutShippingTier(rate.pricingTier);
+      if (!slug) continue;
+      const tierCost = Math.ceil(
+        (rate.cost || RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO) / 100,
+      );
+      const displayName =
+        (rate.name && String(rate.name).trim()) ||
+        (slug === 'glovo'
+          ? 'Glovo'
+          : slug === 'relisted_dispatch'
+            ? RELISTED_DISPATCH_SHIPPING_LABEL
+            : 'Chowdeck');
+      map.set(slug, { slug, name: displayName, totalShippingCost: tierCost });
+    }
+    const preferredSlugOrder = ['chowdeck', 'glovo', 'relisted_dispatch'];
+    const preferredSlugIndex = new Map<string, number>(
+      preferredSlugOrder.map((t, i) => [t, i]),
+    );
+    return Array.from(map.values())
+      .sort((a, b) => {
+        const ap = preferredSlugIndex.get(a.slug) ?? Number.MAX_SAFE_INTEGER;
+        const bp = preferredSlugIndex.get(b.slug) ?? Number.MAX_SAFE_INTEGER;
+        if (ap !== bp) return ap - bp;
+        return a.totalShippingCost - b.totalShippingCost;
+      })
+      .map(({ slug: _s, name, totalShippingCost }) => ({
+        name,
+        totalShippingCost,
+        grandTotal: estimateGrandTotal(totalShippingCost),
+      }));
   }
 
   async getCheckoutSummary(
@@ -789,10 +952,6 @@ export class OrderService {
     let globalServiceChargeTotal = 0;
     let globalPurchaseTotal = 0;
     const listerBreakdowns: any[] = [];
-    const shippingTiersMap = new Map<
-      string,
-      { name: string; totalShippingCost: number }
-    >();
 
     // Calculate item totals for each lister first (without external API calls)
     const listerData: any[] = [];
@@ -888,25 +1047,8 @@ export class OrderService {
       });
     }
 
-    const preferredTierOrderSummary = ['chowdeck', 'glovo'];
-    const pickPreferredRateSummary = (rates: any[]) => {
-      const list = Array.isArray(rates) ? rates : [];
-      for (const name of preferredTierOrderSummary) {
-        const found = list.find(
-          (r) =>
-            String(r?.pricingTier ?? '')
-              .trim()
-              .toLowerCase() === name,
-        );
-        if (found) return found;
-      }
-      return (
-        list
-          .slice()
-          .sort((a, b) => Number(a?.cost ?? 0) - Number(b?.cost ?? 0))[0] ||
-        null
-      );
-    };
+    const pickPreferredRateSummary = (rates: any[]) =>
+      this.pickPreferredChowdeckOrGlovoRate(rates);
 
     type CheckoutBucketCtx = {
       listerId: string;
@@ -935,26 +1077,6 @@ export class OrderService {
         });
       }
     }
-
-    const accumulateTierCosts = (rates: any[]) => {
-      for (const rate of rates) {
-        if (!rate?.pricingTier) continue;
-        const tierCost = Math.ceil(
-          (rate.cost || RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO) / 100,
-        );
-        const displayName =
-          (rate.name && String(rate.name).trim()) || rate.pricingTier;
-        const existingTier = shippingTiersMap.get(rate.pricingTier);
-        if (existingTier) {
-          existingTier.totalShippingCost += tierCost;
-        } else {
-          shippingTiersMap.set(rate.pricingTier, {
-            name: displayName,
-            totalShippingCost: tierCost,
-          });
-        }
-      }
-    };
 
     const quoteMemo = createCheckoutSummaryTopshipMemo(this.topshipService);
     const summaryReceiverCity = renterDeliveryAddressSnapshot.city || 'Lagos';
@@ -1013,12 +1135,13 @@ export class OrderService {
         if (!rateData.length) {
           rateData = [
             {
-              pricingTier: 'Budget',
+              pricingTier: RELISTED_DISPATCH_SHIPPING_LABEL,
               name: RELISTED_DISPATCH_SHIPPING_LABEL,
               cost: RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO,
             },
           ];
         }
+        rateData = this.ensureRatesIncludeAllowedCheckoutTier(rateData);
 
         let returnRateData: any[] = [];
         const returnPickupChargeNGN = 0;
@@ -1043,12 +1166,14 @@ export class OrderService {
           if (!returnRateData.length) {
             returnRateData = [
               {
-                pricingTier: 'Budget',
+                pricingTier: RELISTED_DISPATCH_SHIPPING_LABEL,
                 name: RELISTED_DISPATCH_SHIPPING_LABEL,
                 cost: RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO,
               },
             ];
           }
+          returnRateData =
+            this.ensureRatesIncludeAllowedCheckoutTier(returnRateData);
         }
 
         const preferredRate = pickPreferredRateSummary(rateData);
@@ -1059,8 +1184,7 @@ export class OrderService {
         let preferredReturnShipping = 0;
         if (ctx.bucketMode === 'RENTAL') {
           const preferredReturnRate =
-            this.findRateByTier(returnRateData, preferredRate?.pricingTier) ||
-            pickPreferredRateSummary(returnRateData);
+            this.pickRateForLegOrFallback(returnRateData);
           preferredReturnShipping = Math.ceil(
             (preferredReturnRate?.cost || RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO) /
               100,
@@ -1100,7 +1224,8 @@ export class OrderService {
       }),
     );
 
-    const shipmentBuckets = shippingResults.map((r) => ({
+    const shipmentBuckets = shippingResults.map((r, bucketIndex) => ({
+      bucketIndex,
       listerId: r.listerId,
       listerName: r.listerName,
       bucketMode: r.bucketMode,
@@ -1163,11 +1288,6 @@ export class OrderService {
     }
 
     for (const result of shippingResults) {
-      accumulateTierCosts(result.rateData);
-      if (result.bucketMode === 'RENTAL') {
-        accumulateTierCosts(result.returnRateData);
-      }
-
       globalPickupTotal +=
         result.pickupChargeNGN +
         (result.bucketMode === 'RENTAL' ? result.returnPickupChargeNGN : 0);
@@ -1229,31 +1349,72 @@ export class OrderService {
       globalPurchaseTotal +
       globalPickupTotal;
 
-    // Map the aggregated shipping tiers into the response array
-    const preferredTierOrder = ['chowdeck', 'glovo'];
-    const preferredTierIndex = new Map(
-      preferredTierOrder.map((t, i) => [t, i] as const),
-    );
-    const shippingTiers = Array.from(shippingTiersMap.values())
-      .map((tier) => ({
-        name: tier.name,
-        totalShippingCost: tier.totalShippingCost,
-        grandTotal: itemTotalsBase + tier.totalShippingCost,
-      }))
-      .sort((a, b) => {
-        const aKey = String(a.name).trim().toLowerCase();
-        const bKey = String(b.name).trim().toLowerCase();
-        const aPref = preferredTierIndex.get(aKey) ?? Number.MAX_SAFE_INTEGER;
-        const bPref = preferredTierIndex.get(bKey) ?? Number.MAX_SAFE_INTEGER;
-        if (aPref !== bPref) return aPref - bPref;
-        return a.totalShippingCost - b.totalShippingCost;
-      });
+    /** Per bucket: quotes are from lister city to renter (not summed across listers). */
+    const outboundShippingByBucket = shippingResults.map((r, bucketIndex) => ({
+      bucketIndex,
+      listerId: r.listerId,
+      listerName: r.listerName,
+      bucketMode: r.bucketMode,
+      shippingTiers: this.buildSortedCheckoutTiersFromRates(
+        r.rateData,
+        (legCost) =>
+          itemTotalsBase +
+          (globalOutboundShippingTotal - r.preferredShipping) +
+          legCost +
+          globalReturnShippingTotal +
+          globalServiceChargeTotal +
+          globalVatTotal,
+      ),
+    }));
 
-    // For backwards compatibility and baseline metrics
+    const returnShippingByBucket = shippingResults
+      .map((r, bucketIndex) =>
+        r.bucketMode === 'RENTAL'
+          ? {
+              bucketIndex,
+              listerId: r.listerId,
+              listerName: r.listerName,
+              shippingTiers: this.buildSortedCheckoutTiersFromRates(
+                r.returnRateData,
+                (legCost) =>
+                  itemTotalsBase +
+                  globalOutboundShippingTotal +
+                  (globalReturnShippingTotal - r.preferredReturnShipping) +
+                  legCost +
+                  globalServiceChargeTotal +
+                  globalVatTotal,
+              ),
+            }
+          : null,
+      )
+      .filter((row): row is NonNullable<typeof row> => row != null);
+
+    /** Legacy single-selector: populated only when there is exactly one outbound bucket. */
+    const shippingTiers =
+      outboundShippingByBucket.length === 1
+        ? outboundShippingByBucket[0].shippingTiers
+        : [];
+
+    const rentalBucketResults = shippingResults.filter(
+      (r) => r.bucketMode === 'RENTAL',
+    );
+    const returnShippingTiers =
+      rentalBucketResults.length === 1
+        ? this.buildSortedCheckoutTiersFromRates(
+            rentalBucketResults[0].returnRateData,
+            (legCost) =>
+              itemTotalsBase +
+              globalOutboundShippingTotal +
+              (globalReturnShippingTotal -
+                rentalBucketResults[0].preferredReturnShipping) +
+              legCost +
+              globalServiceChargeTotal +
+              globalVatTotal,
+          )
+        : [];
+
     const baselineShippingTotal =
-      shippingTiers.length > 0
-        ? shippingTiers[0].totalShippingCost
-        : Math.ceil(RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO / 100);
+      globalOutboundShippingTotal + globalReturnShippingTotal;
     const baselineGrandTotal =
       itemTotalsBase + baselineShippingTotal + globalServiceChargeTotal + globalVatTotal;
 
@@ -1278,6 +1439,9 @@ export class OrderService {
           grandTotal: baselineGrandTotal,
         },
         shippingTiers,
+        outboundShippingByBucket,
+        returnShippingTiers,
+        returnShippingByBucket,
         listerBreakdowns,
         shipmentBuckets,
       },
@@ -1293,17 +1457,26 @@ export class OrderService {
     console.log('============================================');
     const {
       pricingTier: selectedPricingTier,
+      returnPricingTier: selectedReturnPricingTier,
+      outboundPricingByBucket,
+      returnPricingByBucket,
       dispatchWindows,
       returnPickupAddress,
     } =
       typeof checkoutOptions === 'string' || checkoutOptions === undefined
         ? {
             pricingTier: checkoutOptions,
+            returnPricingTier: undefined,
+            outboundPricingByBucket: undefined,
+            returnPricingByBucket: undefined,
             dispatchWindows: undefined,
             returnPickupAddress: undefined,
           }
         : {
             pricingTier: checkoutOptions.pricingTier,
+            returnPricingTier: checkoutOptions.returnPricingTier,
+            outboundPricingByBucket: checkoutOptions.outboundPricingByBucket,
+            returnPricingByBucket: checkoutOptions.returnPricingByBucket,
             dispatchWindows: checkoutOptions.dispatchWindows,
             returnPickupAddress: checkoutOptions.returnPickupAddress,
           };
@@ -1399,6 +1572,8 @@ export class OrderService {
      */
     const topshipRateMemo = createCheckoutSummaryTopshipMemo(this.topshipService);
 
+    let checkoutBucketIndex = 0;
+
     // Calculate totals and shipping per schedule bucket (multiple legs per lister when dates differ)
     for (const [listerId, items] of itemsByLister.entries()) {
       const scheduleBuckets = this.buildShipmentBucketsForLister(
@@ -1415,6 +1590,27 @@ export class OrderService {
         let listerServiceChargeTotal = 0;
         let curatorAddress: any = null;
         const hasRentalBucket = bucket.bucketMode === 'RENTAL';
+
+        const outboundTierRaw =
+          outboundPricingByBucket?.find(
+            (x) => x.bucketIndex === checkoutBucketIndex,
+          )?.pricingTier ?? selectedPricingTier;
+        const effectiveOutboundForBucket =
+          this.coerceLegPricingTierSelection(outboundTierRaw);
+
+        let effectiveReturnForBucket = this.coerceLegPricingTierSelection(
+          selectedReturnPricingTier ?? selectedPricingTier,
+        );
+        if (hasRentalBucket) {
+          const retRaw =
+            returnPricingByBucket?.find(
+              (x) => x.bucketIndex === checkoutBucketIndex,
+            )?.pricingTier;
+          if (retRaw != null && String(retRaw).trim() !== '') {
+            effectiveReturnForBucket =
+              this.coerceLegPricingTierSelection(retRaw);
+          }
+        }
 
       for (const item of bucketItems) {
         // Check product is active, verified, and not sold
@@ -1537,7 +1733,9 @@ export class OrderService {
       /** Customer pickup leg waived for pricing; persisted shipment rows use ₦0 pickup. */
       let pickupChargeRaw = 0;
       let pickupId = '';
-      let pickupPartner = this.normalizeTopshipTier(selectedPricingTier);
+      let pickupPartner = this.normalizeTopshipTier(
+        effectiveOutboundForBucket,
+      );
       const pickupCostNGN = 0;
 
       let shippingCost = 0;
@@ -1552,16 +1750,29 @@ export class OrderService {
           receiverDetails: { cityName: receiverCity, countryCode: 'NG' },
           totalWeight: 1, // Default weight 1kg
         };
-        const rateData = await topshipRateMemo.shipRates(ratePayload);
+        const rateDataRaw = await topshipRateMemo.shipRates(ratePayload);
+        let rateData = Array.isArray(rateDataRaw) ? rateDataRaw : [];
         if (process.env.DEBUG_TOPSHIP_RATES === '1') {
           console.log(
             `[Checkout] Outbound quote rows (${senderCity}→${receiverCity}):`,
-            Array.isArray(rateData) ? rateData.length : 0,
+            rateData.length,
           );
         }
+        if (!rateData.length) {
+          rateData = [
+            {
+              pricingTier: RELISTED_DISPATCH_SHIPPING_LABEL,
+              name: RELISTED_DISPATCH_SHIPPING_LABEL,
+              cost: RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO,
+            },
+          ];
+        }
+        rateData = this.ensureRatesIncludeAllowedCheckoutTier(rateData);
 
-        let matchedRate =
-          this.findRateByTier(rateData, selectedPricingTier) || rateData?.[0];
+        let matchedRate = this.matchRateForLeg(
+          rateData,
+          effectiveOutboundForBucket,
+        );
 
         if (matchedRate) {
           shipmentChargeRaw = Number(matchedRate.cost) || 0;
@@ -1571,7 +1782,8 @@ export class OrderService {
           const tierSlug = String(matchedRate.pricingTier ?? '')
             .trim()
             .toLowerCase();
-          if (tierSlug) pickupPartner = tierSlug;
+          if (tierSlug)
+            pickupPartner = this.normalizeTopshipTier(tierSlug);
         }
         // Pick selected or fallback price and convert from Kobo to NGN
         shippingCost = Math.ceil(shipmentChargeRaw / 100);
@@ -1597,18 +1809,32 @@ export class OrderService {
             receiverDetails: { cityName: senderCity, countryCode: 'NG' },
             totalWeight: 1,
           };
-          const returnRateData =
-            await topshipRateMemo.shipRates(returnRatePayload);
+          let returnRateData = await topshipRateMemo.shipRates(
+            returnRatePayload,
+          );
+          returnRateData = Array.isArray(returnRateData) ? returnRateData : [];
           if (process.env.DEBUG_TOPSHIP_RATES === '1') {
             console.log(
               `[Checkout] Return quote rows (→${senderCity}):`,
-              Array.isArray(returnRateData) ? returnRateData.length : 0,
+              returnRateData.length,
             );
           }
+          if (!returnRateData.length) {
+            returnRateData = [
+              {
+                pricingTier: RELISTED_DISPATCH_SHIPPING_LABEL,
+                name: RELISTED_DISPATCH_SHIPPING_LABEL,
+                cost: RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO,
+              },
+            ];
+          }
+          returnRateData =
+            this.ensureRatesIncludeAllowedCheckoutTier(returnRateData);
 
-          let matchedReturnRate =
-            this.findRateByTier(returnRateData, selectedPricingTier) ||
-            returnRateData?.[0];
+          let matchedReturnRate = this.matchRateForLeg(
+            returnRateData,
+            effectiveReturnForBucket,
+          );
           if (matchedReturnRate) {
             returnShipmentChargeRaw = Number(matchedReturnRate.cost) || 0;
             returnShipmentVatChargeRaw = Math.ceil(
@@ -1617,7 +1843,8 @@ export class OrderService {
             const rt = String(matchedReturnRate.pricingTier ?? '')
               .trim()
               .toLowerCase();
-            if (rt) returnPickupPartner = rt;
+            if (rt)
+              returnPickupPartner = this.normalizeTopshipTier(rt);
           }
           returnShippingCost = Math.ceil(returnShipmentChargeRaw / 100);
         } catch (err: any) {
@@ -1656,7 +1883,10 @@ export class OrderService {
         listerServiceChargeTotal,
         shippingCost,
         returnShippingCost,
-        usedPricingTier: selectedPricingTier || 'Budget',
+        usedPricingTier: effectiveOutboundForBucket,
+        usedReturnPricingTier: hasRentalBucket
+          ? effectiveReturnForBucket
+          : undefined,
         pickupChargeRaw,
         deliveryLocation: checkoutDeliveryLocationLine,
         pickupId,
@@ -1674,6 +1904,8 @@ export class OrderService {
         returnWindow,
         resaleWindow,
       });
+
+      checkoutBucketIndex += 1;
       }
     }
 
@@ -1687,6 +1919,7 @@ export class OrderService {
       id: string;
       immediate: boolean;
       manualFulfillment: boolean;
+      type: 'OUTBOUND' | 'RETURN' | 'RESALE';
     }> = [];
 
     // Process transaction and orders
@@ -2121,12 +2354,14 @@ export class OrderService {
             order.id,
             ld,
             renterDeliveryAddressSnapshot,
+            returnPickupAddressSnapshot,
           );
           shipmentDispatchPlan.push(
             ...createdShipments.map((s) => ({
               id: s.id,
               immediate: s.immediate,
               manualFulfillment: s.manualFulfillment,
+              type: s.type,
             })),
           );
 
@@ -2181,14 +2416,14 @@ export class OrderService {
       }
     }
 
-    const manualShipmentIds = shipmentDispatchPlan
+    const manualShipmentsForAlert = shipmentDispatchPlan
       .filter((r) => r.manualFulfillment)
-      .map((r) => r.id);
-    if (manualShipmentIds.length > 0 && order?.orderId) {
+      .map((r) => ({ id: r.id, type: r.type }));
+    if (manualShipmentsForAlert.length > 0 && order?.orderId) {
       try {
         await this.notifyAdminsManualFulfillmentCheckout(
           order.orderId,
-          manualShipmentIds,
+          manualShipmentsForAlert,
         );
       } catch (err: any) {
         console.warn(

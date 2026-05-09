@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
-import { ListingType } from '@prisma/client';
+import { ListingType, ShipmentType } from '@prisma/client';
 import { PrismaService } from 'src/services/prisma/prisma.service';
 import { DeliveryProviderService } from 'src/services/delivery/delivery-provider.service';
 import { TrackingStatus } from 'src/services/delivery/delivery-provider.interface';
@@ -37,6 +37,19 @@ const RETURN_DUE_REMINDER_MORNING_CATCHUP_HOURS = Number(
   process.env.RETURN_DUE_REMINDER_MORNING_CATCHUP_HOURS ?? 0,
 );
 
+const DISPATCH_CRON_SCHEDULE =
+  process.env.DISPATCH_CRON?.trim() || '0 * * * *';
+const POLLING_CRON_SCHEDULE =
+  process.env.POLLING_CRON?.trim() || '*/10 * * * *';
+const LISTER_RETURN_WINDOW_CRON_SCHEDULE =
+  process.env.LISTER_RETURN_WINDOW_CRON?.trim() || '45 * * * *';
+const RETURN_DUE_REMINDER_CRON_SCHEDULE =
+  process.env.RETURN_DUE_REMINDER_CRON?.trim() || '*/15 * * * *';
+/** Admin nudges for pending manual Relisted dispatch legs (defaults to same cadence as renter return reminders). */
+const MANUAL_FULFILLMENT_DUE_REMINDER_CRON_SCHEDULE =
+  process.env.MANUAL_FULFILLMENT_DUE_REMINDER_CRON?.trim() ||
+  RETURN_DUE_REMINDER_CRON_SCHEDULE;
+
 @Injectable()
 export class ShipmentDispatchScheduler {
   private readonly logger = new Logger(ShipmentDispatchScheduler.name);
@@ -68,7 +81,7 @@ export class ShipmentDispatchScheduler {
    * `scheduledWindowStart` / `scheduledWindowEnd` are Relisted-only; the worker maps
    * them to Topship’s single `pickupDate` when booking, not as partner-facing windows.
    */
-  @Cron(process.env.DISPATCH_CRON || '0 * * * *', { timeZone: 'Africa/Lagos' })
+  @Cron(DISPATCH_CRON_SCHEDULE, { timeZone: 'Africa/Lagos' })
   async dispatchDueShipments() {
     const now = new Date();
     const today = startOfDay(now);
@@ -146,7 +159,7 @@ export class ShipmentDispatchScheduler {
    * Only checks shipments that are DISPATCHED or IN_TRANSIT (not COMPLETED/CANCELLED/FAILED).
    * Updates local status based on provider response and triggers notifications.
    */
-  @Cron(process.env.POLLING_CRON || '*/10 * * * *', { timeZone: 'Africa/Lagos' })
+  @Cron(POLLING_CRON_SCHEDULE, { timeZone: 'Africa/Lagos' })
   async pollTrackingStatus() {
     this.logger.log(`[Polling] Starting tracking status poll`);
 
@@ -319,7 +332,7 @@ export class ShipmentDispatchScheduler {
    * but the RETURN leg is still not COMPLETED in our DB, remind listers once.
    * Gives carrier polling time to catch up before we nudge.
    */
-  @Cron(process.env.LISTER_RETURN_WINDOW_CRON || '45 * * * *', {
+  @Cron(LISTER_RETURN_WINDOW_CRON_SCHEDULE, {
     timeZone: 'Africa/Lagos',
   })
   async notifyListerReturnWindowPassedWithoutDelivery() {
@@ -454,7 +467,7 @@ export class ShipmentDispatchScheduler {
    * These reminders are based on return request pickup windows and do not
    * depend on whether the return shipment has already been booked/dispatched.
    */
-  @Cron(process.env.RETURN_DUE_REMINDER_CRON || '*/15 * * * *', {
+  @Cron(RETURN_DUE_REMINDER_CRON_SCHEDULE, {
     timeZone: 'Africa/Lagos',
   })
   async sendRenterReturnDueReminders() {
@@ -620,6 +633,167 @@ export class ShipmentDispatchScheduler {
     }
   }
 
+  /**
+   * Admin reminders for pending manual Relisted dispatch legs (mirrors renter return timing):
+   * - “within 24 hours” when the due start is in the next 24h but not the same Lagos calendar day
+   * - “due today” at {@link RETURN_DUE_REMINDER_MORNING_HOUR} Lagos (same env as renter return reminders)
+   */
+  @Cron(MANUAL_FULFILLMENT_DUE_REMINDER_CRON_SCHEDULE, {
+    timeZone: 'Africa/Lagos',
+  })
+  async sendAdminManualFulfillmentDueReminders() {
+    const now = new Date();
+    const admins = await fetchAdminAlertRecipients(this.prisma);
+    if (admins.length === 0) {
+      this.logger.warn(
+        '[ManualDueReminder] No admin recipients configured; skipping.',
+      );
+      return;
+    }
+
+    const shipments = await this.prisma.shipment.findMany({
+      where: {
+        manualFulfillment: true,
+        status: 'PENDING',
+        order: {
+          status: {
+            notIn: ['RETURNED', 'COMPLETED', 'CANCELLED', 'REJECTED'],
+          },
+        },
+      },
+      select: {
+        id: true,
+        type: true,
+        scheduledWindowStart: true,
+        scheduledWindowEnd: true,
+        scheduledDate: true,
+        manualDueReminder24hSentAt: true,
+        manualDueReminderMorningSentAt: true,
+        order: { select: { orderId: true } },
+      },
+    });
+
+    if (shipments.length === 0) return;
+
+    const nowLagosDate = this.toLagosDateKey(now);
+    const nowLagosHour = this.toLagosHour(now);
+    const maxAheadMs = 49 * 60 * 60 * 1000;
+
+    let sent24 = 0;
+    let sentMorning = 0;
+
+    for (const s of shipments) {
+      const dueStart = s.scheduledWindowStart
+        ? new Date(s.scheduledWindowStart)
+        : new Date(s.scheduledDate);
+      const pickupEnd = s.scheduledWindowEnd
+        ? new Date(s.scheduledWindowEnd)
+        : null;
+
+      const msUntilDue = dueStart.getTime() - now.getTime();
+      if (msUntilDue > maxAheadMs) continue;
+
+      const dueLagosDate = this.toLagosDateKey(dueStart);
+      const isDueTodayInLagos = dueLagosDate === nowLagosDate;
+
+      const shouldSend24h =
+        !s.manualDueReminder24hSentAt &&
+        msUntilDue > 0 &&
+        msUntilDue <= 24 * 60 * 60 * 1000 &&
+        !isDueTodayInLagos;
+
+      const msSinceDueStart = now.getTime() - dueStart.getTime();
+      const isWithinMorningCatchup =
+        RETURN_DUE_REMINDER_MORNING_CATCHUP_HOURS > 0 &&
+        msSinceDueStart >= 0 &&
+        msSinceDueStart <=
+          RETURN_DUE_REMINDER_MORNING_CATCHUP_HOURS * 60 * 60 * 1000;
+
+      const shouldSendMorningOf =
+        !s.manualDueReminderMorningSentAt &&
+        ((isDueTodayInLagos &&
+          nowLagosHour >= RETURN_DUE_REMINDER_MORNING_HOUR) ||
+          isWithinMorningCatchup);
+
+      if (!shouldSend24h && !shouldSendMorningOf) continue;
+
+      const humanOrderId = s.order.orderId;
+      const dueSummary = this.formatLagosPickupWindow(dueStart, pickupEnd);
+      const legLabel = this.manualLegLabel(s.type);
+
+      const pingAdmins = async (
+        reminderKind: '24_hours' | 'morning_of',
+        title: string,
+        message: string,
+      ) => {
+        for (const admin of admins) {
+          await this.notification.createNotification({
+            userId: admin.id,
+            title,
+            message,
+            type: 'MANUAL_FULFILLMENT_DUE_REMINDER',
+            metadata: {
+              orderId: humanOrderId,
+              shipmentId: s.id,
+              reminderKind,
+            },
+          });
+        }
+        for (const admin of admins) {
+          if (!admin.email?.trim()) continue;
+          try {
+            await this.mail.sendAdminManualFulfillmentDueReminder({
+              to: admin.email.trim(),
+              humanOrderId,
+              shipmentId: s.id,
+              legLabel,
+              adminShipmentUrl:
+                buildAdminShipmentsPageUrl({ shipmentId: s.id }) || '',
+              reminderKind,
+              dueSummary,
+            });
+          } catch (mailErr: any) {
+            this.logger.warn(
+              `[ManualDueReminder] Email to ${admin.email} failed: ${mailErr?.message ?? mailErr}`,
+            );
+          }
+        }
+      };
+
+      if (shouldSend24h) {
+        await pingAdmins(
+          '24_hours',
+          'Manual dispatch due within 24 hours',
+          `Order ${humanOrderId}: ${legLabel}. Scheduled: ${dueSummary}. Mark dispatched in admin when booking is done.`,
+        );
+        await this.prisma.shipment.update({
+          where: { id: s.id },
+          data: { manualDueReminder24hSentAt: now },
+        });
+        sent24 += 1;
+      }
+
+      if (shouldSendMorningOf) {
+        await pingAdmins(
+          'morning_of',
+          'Manual dispatch due today',
+          `Order ${humanOrderId}: ${legLabel}. Scheduled: ${dueSummary}. Mark dispatched in admin when booking is done.`,
+        );
+        await this.prisma.shipment.update({
+          where: { id: s.id },
+          data: { manualDueReminderMorningSentAt: now },
+        });
+        sentMorning += 1;
+      }
+    }
+
+    if (sent24 > 0 || sentMorning > 0) {
+      this.logger.log(
+        `[ManualDueReminder] Sent ${sent24} x 24h + ${sentMorning} morning admin reminder(s).`,
+      );
+    }
+  }
+
   private toLagosDateKey(date: Date): string {
     return this.lagosDateFormatter.format(date);
   }
@@ -647,6 +821,19 @@ export class ShipmentDispatchScheduler {
       hour12: true,
     });
     return `${startLabel} to ${endLabel} (WAT)`;
+  }
+
+  private manualLegLabel(type: ShipmentType): string {
+    switch (type) {
+      case 'OUTBOUND':
+        return 'Rental delivery (to renter)';
+      case 'RETURN':
+        return 'Return (to lister)';
+      case 'RESALE':
+        return 'Purchase delivery';
+      default:
+        return 'Shipment';
+    }
   }
 
   private async sendTrackingNotification(shipment: any, newStatus: string) {

@@ -12,6 +12,7 @@ import { syncOrderStatusFromShipments } from 'src/module/order/order-shipment-st
 import { ListShipmentsDto } from './dto/list-shipments.dto';
 import { ManualCompleteShipmentDto } from './dto/manual-complete-shipment.dto';
 import { selectOrderItemsForShipmentLeg } from './order-items-for-shipment-leg';
+import { formatDispatchWindowLagos } from 'src/module/shipment/dispatch-window-format';
 
 @Injectable()
 export class ShipmentService {
@@ -289,56 +290,106 @@ export class ShipmentService {
         : shipment.providerTrackingUrl;
 
     if (customer?.id && humanOrderId) {
+      const isOutbound = shipment.type === 'OUTBOUND';
       const isReturn = shipment.type === 'RETURN';
       const isResale = shipment.type === 'RESALE';
-      let title: string;
-      let message: string;
-      let notificationType: string;
+
+      type NotifyPayload = {
+        title: string;
+        message: string;
+        notificationType: string;
+        emailData: Record<string, unknown>;
+      };
+
+      let notify: NotifyPayload | null = null;
+
       if (isResale) {
-        title = 'Your purchase is on its way';
-        message = turl
-          ? `Our team arranged delivery. Track or follow up here: ${turl}`
-          : tid
-            ? `Our team arranged delivery. Reference: ${tid}`
-            : 'Our team arranged delivery. You will get another update when the item is closer.';
-        notificationType = 'SHIPMENT_DISPATCHED';
+        notify = {
+          title: '🚚 Your purchase is on its way!',
+          message: `Your item is being dispatched. Track here: ${turl ?? 'Tracking link coming soon'}`,
+          notificationType: 'SHIPMENT_DISPATCHED',
+          emailData: {
+            email: customer.email,
+            userName: customer.name,
+            orderId: humanOrderId,
+            status: 'Dispatched',
+            trackingNumber: tid ?? undefined,
+            trackingUrl: turl ?? undefined,
+            estimatedDelivery: undefined,
+          },
+        };
+      } else if (isOutbound) {
+        notify = {
+          title: '🚚 Your rental is on its way!',
+          message: `Your item is being dispatched. Track here: ${turl ?? 'Tracking link coming soon'}`,
+          notificationType: 'SHIPMENT_DISPATCHED',
+          emailData: {
+            email: customer.email,
+            userName: customer.name,
+            orderId: humanOrderId,
+            status: 'Dispatched',
+            trackingNumber: tid ?? undefined,
+            trackingUrl: turl ?? undefined,
+            estimatedDelivery: undefined,
+          },
+        };
       } else if (isReturn) {
-        title = 'Return pickup arranged';
-        message = tid
-          ? `Our team booked your return leg. Reference: ${tid}`
-          : 'Our team booked your return leg. Watch for pickup updates.';
-        notificationType = 'RETURN_DISPATCHED';
-      } else {
-        title = 'Your rental is on its way';
-        message = turl
-          ? `Our team arranged delivery. Track or follow up here: ${turl}`
-          : tid
-            ? `Our team arranged delivery. Reference: ${tid}`
-            : 'Our team arranged delivery. You will get another update soon.';
-        notificationType = 'SHIPMENT_DISPATCHED';
+        const wStart = shipment.scheduledWindowStart
+          ? new Date(shipment.scheduledWindowStart)
+          : null;
+        const wEnd = shipment.scheduledWindowEnd
+          ? new Date(shipment.scheduledWindowEnd)
+          : null;
+        const windowLine =
+          wStart && wEnd
+            ? ` Pickup window: ${formatDispatchWindowLagos(wStart, wEnd)}.`
+            : '';
+        notify = {
+          title: '📦 Return booked. Get your item ready.',
+          message: `Your return is booked with the carrier.${windowLine} Have the package ready during your pickup window. You will get another update when the rider collects it or when it is on the way to the lister.`,
+          notificationType: 'RETURN_DISPATCHED',
+          emailData: {
+            email: customer.email,
+            userName: customer.name,
+            orderId: humanOrderId,
+            status: 'Scheduled for dispatch (pickup not started yet)',
+            trackingNumber: tid ?? undefined,
+            trackingUrl: turl ?? undefined,
+            estimatedDelivery: undefined,
+            ...(wStart && wEnd
+              ? {
+                  emailSubject: 'Your return is booked. Have your item ready.',
+                  emailHeading: 'Return booked with courier',
+                  pickupWindowSummary: formatDispatchWindowLagos(wStart, wEnd),
+                  extraNote:
+                    'Relisted arranged this leg manually. Have your item ready for this window. Watch for an in-transit update next.',
+                }
+              : {
+                  emailSubject: 'Your return is booked. Have your item ready.',
+                  emailHeading: 'Return booked with courier',
+                  extraNote:
+                    'Have your item ready for pickup. You will get another update when collection starts or when the parcel is in transit.',
+                }),
+          },
+        };
       }
 
-      await this.notificationService.createNotification({
-        userId: customer.id,
-        title,
-        message,
-        type: notificationType,
-        metadata: {
-          shipmentId: shipment.id,
-          orderId: humanOrderId,
-          trackingUrl: turl,
-          manualFulfillment: true,
-        },
-        sendEmail: true,
-        emailData: {
-          email: customer.email,
-          userName: customer.name,
-          orderId: humanOrderId,
-          status: 'Dispatched (Relisted)',
-          trackingNumber: tid ?? undefined,
-          estimatedDelivery: undefined,
-        },
-      });
+      if (notify) {
+        await this.notificationService.createNotification({
+          userId: customer.id,
+          title: notify.title,
+          message: notify.message,
+          type: notify.notificationType,
+          metadata: {
+            shipmentId: shipment.id,
+            orderId: humanOrderId,
+            trackingUrl: turl,
+            manualFulfillment: true,
+          },
+          sendEmail: true,
+          emailData: notify.emailData,
+        });
+      }
     }
 
     return {

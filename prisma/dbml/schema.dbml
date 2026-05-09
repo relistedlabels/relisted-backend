@@ -345,6 +345,7 @@ Table Order {
   returnPickupPartner String
   externalTrackingUrl String
   returnRequestReminderSentAt DateTime
+  returnReminderMorningSentAt DateTime
   returnRequestPastDueSentAt DateTime
   shipmentId String
   trackingId String
@@ -733,6 +734,8 @@ Table Shipment {
   pickupId String [note: 'Topship pickupId captured at checkout']
   deliveryLocation String [note: 'Single-line receiver address captured at checkout (for admin / Topship); not the pickup-partner hub string from rate APIs']
   manualFulfillment Boolean [not null, default: false, note: 'Relisted dispatch fallback: skip automated Topship booking until an admin marks dispatched.']
+  manualDueReminder24hSentAt DateTime [note: 'Admin due reminder dedupe: Relisted dispatch leg starts within 24h (not same calendar day in Lagos).']
+  manualDueReminderMorningSentAt DateTime [note: 'Admin due reminder dedupe: Relisted dispatch leg due today (morning ping, Lagos).']
   dispatchAttempts Int [not null, default: 0]
   dispatchedAt DateTime
   createdAt DateTime [default: `now()`, not null]

@@ -1,6 +1,9 @@
 import { Type } from 'class-transformer';
 import {
+  IsArray,
+  IsInt,
   IsISO8601,
+  Min,
   IsOptional,
   IsString,
   ValidateNested,
@@ -73,10 +76,39 @@ export class ReturnPickupAddressDto {
   phoneNumber?: string;
 }
 
+/** Per shipment bucket (same index as GET /order/summary `shipmentBuckets`). */
+export class ShipmentBucketPricingTierDto {
+  @IsInt()
+  @Min(0)
+  bucketIndex!: number;
+
+  @IsString()
+  pricingTier!: string;
+}
+
 export class CreateOrderDto {
   @IsOptional()
   @IsString()
   pricingTier?: string;
+
+  /** When set for rental checkout, return-leg carrier tier (Chowdeck, Glovo, or Relisted dispatch). */
+  @IsOptional()
+  @IsString()
+  returnPricingTier?: string;
+
+  /** Outbound delivery tier per bucket when multiple listers or schedules (overrides single `pricingTier`). */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ShipmentBucketPricingTierDto)
+  outboundPricingByBucket?: ShipmentBucketPricingTierDto[];
+
+  /** Return-leg tier per rental bucket index (overrides single `returnPricingTier`). */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ShipmentBucketPricingTierDto)
+  returnPricingByBucket?: ShipmentBucketPricingTierDto[];
 
   @IsOptional()
   @ValidateNested()

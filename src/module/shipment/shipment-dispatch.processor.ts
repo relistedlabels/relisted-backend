@@ -10,6 +10,7 @@ import { MailService } from 'src/services/mail/mail.service';
 import { syncOrderStatusFromShipments } from 'src/module/order/order-shipment-status.sync';
 import { fetchAdminAlertRecipients } from 'src/module/shipment/shipment-admin-alert-recipients';
 import { buildAdminShipmentsPageUrl } from 'src/module/shipment/build-admin-shipments-page-url';
+import { formatDispatchWindowLagos } from 'src/module/shipment/dispatch-window-format';
 
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAYS_MS = [
@@ -17,23 +18,6 @@ const RETRY_DELAYS_MS = [
   5 * 60_000, // attempt 2 — 5 minutes after 1st failure
   15 * 60_000, // attempt 3 — 15 minutes after 2nd failure
 ];
-
-function formatDispatchWindowLagos(start: Date, end: Date): string {
-  const tz = 'Africa/Lagos';
-  const dateOpts: Intl.DateTimeFormatOptions = {
-    timeZone: tz,
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  };
-  const timeOpts: Intl.DateTimeFormatOptions = {
-    timeZone: tz,
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  };
-  return `${start.toLocaleDateString('en-NG', dateOpts)}, ${start.toLocaleTimeString('en-NG', timeOpts)} to ${end.toLocaleTimeString('en-NG', timeOpts)}`;
-}
 
 @Processor('shipment-dispatch')
 export class ShipmentDispatchProcessor {
@@ -314,6 +298,7 @@ export class ShipmentDispatchProcessor {
         orderId: order.orderId,
         status,
         trackingNumber: result.trackingId ?? undefined,
+        trackingUrl: result.providerTrackingUrl ?? undefined,
         estimatedDelivery: undefined,
         ...(isReturn &&
         shipment.scheduledWindowStart &&

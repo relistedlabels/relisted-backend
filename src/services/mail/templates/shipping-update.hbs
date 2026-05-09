@@ -66,12 +66,21 @@
             <p style="margin-top:12px;">{{extraNote}}</p>
             {{/if}}
 
+            {{#if trackingUrl}}
+            <div class="info-box">
+                <p><strong>Tracking link</strong></p>
+                <p><a href="{{trackingUrl}}" target="_blank" rel="noopener noreferrer">Open tracking page</a></p>
+            </div>
+            {{/if}}
+
             {{#if trackingNumber}}
             <div class="info-box">
                 <p><strong>📦 Tracking Information</strong></p>
                 <p><strong>Tracking Number:</strong> {{trackingNumber}}</p>
+                {{#unless trackingUrl}}
                 <p>Track your shipment at: <a href="https://ship.topship.africa/tracking" target="_blank">https://ship.topship.africa/tracking</a></p>
                 <p><em>Copy your tracking number above and paste it on the Topship tracking page.</em></p>
+                {{/unless}}
             </div>
             {{/if}}
 
