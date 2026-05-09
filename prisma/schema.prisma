@@ -879,6 +879,10 @@ model Shipment {
   deliveryLocation     String?
   /// Relisted dispatch fallback: skip automated Topship booking until an admin marks dispatched.
   manualFulfillment    Boolean              @default(false)
+  /// Admin due reminder dedupe: Relisted dispatch leg starts within 24h (not same calendar day in Lagos).
+  manualDueReminder24hSentAt     DateTime?
+  /// Admin due reminder dedupe: Relisted dispatch leg due today (morning ping, Lagos).
+  manualDueReminderMorningSentAt DateTime?
   dispatchAttempts     Int                  @default(0)
   dispatchedAt         DateTime?
   createdAt            DateTime             @default(now())

@@ -4,6 +4,7 @@ import { selectOrderItemsForShipmentLeg } from '../../../module/shipment/order-i
 import {
   TOPSHIP_DESCRIPTION_MAX_LEN,
   topshipCombinedOrderItemsDescription,
+  topshipSanitizeDescription,
 } from '../../topship/topship-description';
 import { TopshipService } from '../../topship/topship.service';
 import {
@@ -25,9 +26,9 @@ export class TopshipProvider implements DeliveryProvider {
   /** Topship save-shipment GraphQL expects PricingTierType enum casing (e.g. Chowdeck). */
   private toPricingTierEnum(tier: string | null | undefined): string {
     const t = String(tier ?? '').trim().toLowerCase();
-    if (!t || t === 'budget' || t === 'standard') return 'Chowdeck';
-    if (t === 'chowdeck') return 'Chowdeck';
     if (t === 'glovo') return 'Glovo';
+    if (t === 'chowdeck') return 'Chowdeck';
+    if (!t) return 'Chowdeck';
     const raw = String(tier ?? '').trim();
     if (/^[A-Z][a-zA-Z0-9]*$/.test(raw)) return raw;
     return 'Chowdeck';
@@ -208,11 +209,17 @@ export class TopshipProvider implements DeliveryProvider {
       0,
     );
 
-    const description = topshipCombinedOrderItemsDescription(
+    const productLines = topshipCombinedOrderItemsDescription(
       orderItems,
       TOPSHIP_DESCRIPTION_MAX_LEN,
-      `Relisted ${s.type} ${order.orderId ?? order.id}`,
     );
+    const description =
+      orderItems.length > 0
+        ? topshipSanitizeDescription(
+            productLines,
+            TOPSHIP_DESCRIPTION_MAX_LEN,
+          )
+        : productLines;
 
     // Relisted `scheduledWindowStart` / `scheduledWindowEnd` are internal: they drive when
     // we enqueue dispatch (cron), not a contract we forward to Topship. Their GraphQL input
@@ -257,7 +264,9 @@ export class TopshipProvider implements DeliveryProvider {
           shipmentRoute: 'Domestic',
           insuranceCharge: 0,
           shipmentCharge: s.shipmentCharge ?? 0,
-          pickupId: s.pickupId || `PICKUP-${shipment.id}`,
+          pickupId:
+            (s.pickupId && String(s.pickupId).trim()) ||
+            `PICKUP-${shipment.id}`,
           pickupPartner: this.toPricingTierEnum(
             s.pickupPartner ?? s.pricingTier,
           ),

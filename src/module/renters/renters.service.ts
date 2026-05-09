@@ -338,6 +338,76 @@ export class RentersService {
     return resolved;
   }
 
+  /** Single-line pickup location from JSON saved on RETURN shipment at checkout. */
+  private formatReturnPickupLineFromShipmentJson(pickup: unknown): string {
+    if (!pickup || typeof pickup !== 'object') return '';
+    const p = pickup as Record<string, unknown>;
+    return [p.street, p.city, p.state]
+      .map((x) => (x != null ? String(x).trim() : ''))
+      .filter(Boolean)
+      .join(', ');
+  }
+
+  /**
+   * Sender side for return shipping: prefer address snapshot on RETURN shipment (custom checkout pickup),
+   * fall back to renter profile.
+   */
+  private topshipSenderDetailFromReturnPickupSnapshot(
+    pickup: unknown,
+    order: {
+      user: {
+        name?: string | null;
+        email?: string | null;
+        profile?: { phoneNumber?: string | null; address?: any } | null;
+      };
+    },
+  ) {
+    const u = order.user;
+    const profile = u?.profile;
+    const profileAddr = profile?.address;
+    const p =
+      pickup && typeof pickup === 'object'
+        ? (pickup as Record<string, any>)
+        : null;
+    const profileLine = profileAddr
+      ? [profileAddr.street, profileAddr.city, profileAddr.state]
+          .map((x: unknown) => (x != null ? String(x).trim() : ''))
+          .filter(Boolean)
+          .join(', ')
+      : '';
+    const streetFromSnap =
+      p?.street != null && String(p.street).trim() !== ''
+        ? String(p.street).trim()
+        : '';
+    const addressLine1 = streetFromSnap || profileLine || 'Lagos, Nigeria';
+    return {
+      name:
+        (p?.name != null && String(p.name).trim() !== ''
+          ? String(p.name).trim()
+          : null) ||
+        u?.name ||
+        'Renter',
+      phoneNumber:
+        (p?.phone != null && String(p.phone).trim() !== ''
+          ? String(p.phone).trim()
+          : null) ||
+        profile?.phoneNumber ||
+        '08000000000',
+      email:
+        (p?.email != null && String(p.email).trim() !== ''
+          ? String(p.email).trim()
+          : null) ||
+        u?.email ||
+        'renter@relisted.com',
+      city: p?.city || profileAddr?.city || 'Lagos',
+      state: p?.state || profileAddr?.state || 'Lagos',
+      countryCode: 'NG',
+      addressLine1,
+      country: 'Nigeria',
+      postalCode: p?.zip ?? profileAddr?.zipCode ?? '1111202',
+    };
+  }
+
   /**
    * Multiple RETURN legs per order use scheduled windows from checkout.
    * Prefer explicit `shipmentId`, then match pickup window to a leg, else earliest window.
@@ -3564,6 +3634,7 @@ export class RentersService {
     const order = await this.prisma.order.findUnique({
       where: { orderId },
       include: {
+        shipments: true,
         user: { include: { profile: { include: { address: true } } } },
         orderItems: {
           include: {
@@ -3591,17 +3662,24 @@ export class RentersService {
     const curatorBusiness = curatorProfile?.businessInfo;
     const curatorAddress = curatorProfile?.address;
 
-    const senderCity = renterProfile?.address?.city || 'Lagos';
+    const returnLeg = (order.shipments as any[])?.find(
+      (s) => s.type === 'RETURN',
+    );
+    const senderFromCheckout = this.topshipSenderDetailFromReturnPickupSnapshot(
+      returnLeg?.pickupAddress,
+      order,
+    );
+    const senderCity = senderFromCheckout.city;
     const receiverCity =
       curatorBusiness?.businessCity || curatorAddress?.city || 'Lagos';
 
     const ratePayload = {
       senderDetail: {
-        addressLine1: renterProfile?.address?.street || 'Lagos, Nigeria',
+        addressLine1: senderFromCheckout.addressLine1,
         addressLine2: '',
         country: 'Nigeria',
         countryCode: 'NG',
-        state: renterProfile?.address?.state || 'Lagos',
+        state: senderFromCheckout.state,
         city: senderCity,
       },
       receiverDetail: {
@@ -3760,9 +3838,19 @@ export class RentersService {
       ? `${listerForAddress.profile.address.street}, ${listerForAddress.profile.address.city}, ${listerForAddress.profile.address.state}`
       : '';
 
-    const renterAddress = order.user.profile?.address
-      ? `${order.user.profile.address.street}, ${order.user.profile.address.city}, ${order.user.profile.address.state}`
-      : '';
+    const renterPickupLine =
+      this.formatReturnPickupLineFromShipmentJson(
+        returnShipmentRow?.pickupAddress,
+      ) ||
+      (order.user.profile?.address
+        ? `${order.user.profile.address.street}, ${order.user.profile.address.city}, ${order.user.profile.address.state}`
+        : '');
+
+    const renterSenderDetail =
+      this.topshipSenderDetailFromReturnPickupSnapshot(
+        returnShipmentRow?.pickupAddress,
+        order,
+      );
 
     // Check if pickup window is scheduled for today to determine if we should book immediately
     const today = new Date();
@@ -3799,7 +3887,7 @@ export class RentersService {
 
       const listerCity =
         curatorBusiness?.businessCity || curatorAddress?.city || 'Lagos';
-      const renterCity = order.user.profile?.address?.city || 'Lagos';
+      const renterCity = renterSenderDetail.city;
 
       const value = order.orderItems.reduce(
         (acc: number, i: any) =>
@@ -3811,15 +3899,15 @@ export class RentersService {
         shipment: [
           {
             senderDetail: {
-              name: order.user.name || 'Renter',
-              phoneNumber: order.user.profile?.phoneNumber || '08000000000',
-              email: order.user.email || 'renter@relisted.com',
+              name: renterSenderDetail.name,
+              phoneNumber: renterSenderDetail.phoneNumber,
+              email: renterSenderDetail.email,
               city: renterCity,
-              state: order.user.profile?.address?.state || 'Lagos',
+              state: renterSenderDetail.state,
               countryCode: 'NG',
-              addressLine1: renterAddress || 'Lagos, Nigeria',
+              addressLine1: renterSenderDetail.addressLine1,
               country: 'Nigeria',
-              postalCode: order.user.profile?.address?.zipCode || '1111202',
+              postalCode: renterSenderDetail.postalCode,
             },
             receiverDetail: {
               name:
@@ -3960,7 +4048,7 @@ export class RentersService {
           status: 'PENDING_PICKUP',
           shipmentId: prismaReturnShipmentId,
           trackingNumber: topshipTrackingNumber,
-          pickupAddress: renterAddress,
+          pickupAddress: renterPickupLine,
           pickupScheduledAt,
           pickupWindowStart: pickupWindow.start,
           pickupWindowEnd: pickupWindow.end,
@@ -4038,10 +4126,8 @@ export class RentersService {
             lister.profile?.businessInfo?.businessName || lister.name,
           renterName: order.user.name,
           renterEmail: order.user.email,
-          renterPhone: order.user.profile?.phoneNumber || '',
-          renterAddress: order.user.profile?.address
-            ? `${order.user.profile.address.street}, ${order.user.profile.address.city}, ${order.user.profile.address.state}`
-            : '',
+          renterPhone: renterSenderDetail.phoneNumber || '',
+          renterAddress: renterPickupLine,
           orderId: order.orderId,
           itemCondition: data.itemCondition,
           damageNotes: data.damageNotes,

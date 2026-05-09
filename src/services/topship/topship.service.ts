@@ -1,4 +1,7 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import axios from 'axios';
 import http from 'http';
 import https from 'https';
@@ -107,9 +110,9 @@ export class TopshipService {
     tier: string | null | undefined,
   ): string {
     const t = String(tier ?? '').trim().toLowerCase();
-    if (!t || t === 'budget' || t === 'standard') return 'Chowdeck';
-    if (t === 'chowdeck') return 'Chowdeck';
     if (t === 'glovo') return 'Glovo';
+    if (t === 'chowdeck') return 'Chowdeck';
+    if (!t) return 'Chowdeck';
     const raw = String(tier ?? '').trim();
     if (/^[A-Z][a-zA-Z0-9]*$/.test(raw)) return raw;
     return 'Chowdeck';
@@ -374,10 +377,11 @@ export class TopshipService {
   }
 
   async payForShipment(shipmentId: string) {
+    const payBody = { detail: { shipmentId } };
     try {
       const response = await axios.post(
         `${this.baseUrl}/pay-from-wallet`,
-        { detail: { shipmentId } },
+        payBody,
         { headers: this.headers, timeout: this.httpTimeoutMs },
       );
       return response.data;
@@ -391,9 +395,10 @@ export class TopshipService {
       error?.code === 'ECONNABORTED'
         ? ` (timeout after ${this.httpTimeoutMs}ms, set TOPSHIP_HTTP_TIMEOUT_MS if needed)`
         : '';
+    const data = error.response?.data;
     console.error(
       'Topship API error:',
-      error.response?.data || error.message,
+      data || error.message,
       hint,
     );
     throw new InternalServerErrorException(

@@ -176,6 +176,10 @@ export class ShippingDto {
   @IsString()
   @IsOptional()
   trackingNumber?: string;
+  /** When set (e.g. manual Relisted dispatch), shown instead of the default Topship tracking page hint. */
+  @IsString()
+  @IsOptional()
+  trackingUrl?: string;
   @IsString()
   @IsOptional()
   estimatedDelivery?: string;
