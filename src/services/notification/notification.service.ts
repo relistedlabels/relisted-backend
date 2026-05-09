@@ -106,6 +106,9 @@ export class NotificationService {
         case 'LISTER_RETURN_WINDOW_PASSED':
           await this.mailService.SendListerReturnWindowPassedMail(data);
           break;
+        case 'RETURN_DUE_REMINDER':
+          await this.mailService.sendReturnDueReminderMail(data);
+          break;
         case 'SHIPPING_UPDATE':
           await this.mailService.SendShippingUpdateMail(data);
           break;

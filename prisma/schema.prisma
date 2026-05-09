@@ -359,6 +359,7 @@ model Order {
   returnPickupPartner         String?
   externalTrackingUrl         String?
   returnRequestReminderSentAt DateTime?
+  returnReminderMorningSentAt DateTime?
   returnRequestPastDueSentAt  DateTime?
   shipmentId                  String?
   trackingId                  String?

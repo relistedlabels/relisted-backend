@@ -9,7 +9,13 @@ import { TrackingStatus } from 'src/services/delivery/delivery-provider.interfac
 import { NotificationService } from 'src/services/notification/notification.service';
 import { MailService } from 'src/services/mail/mail.service';
 import { syncOrderStatusFromShipments } from 'src/module/order/order-shipment-status.sync';
-import { addMinutes, startOfDay, subHours, subMinutes } from 'date-fns';
+import {
+  addHours,
+  addMinutes,
+  startOfDay,
+  subHours,
+  subMinutes,
+} from 'date-fns';
 import { fetchAdminAlertRecipients } from 'src/module/shipment/shipment-admin-alert-recipients';
 import { buildAdminShipmentsPageUrl } from 'src/module/shipment/build-admin-shipments-page-url';
 
@@ -24,10 +30,27 @@ const DISPATCH_CRON_LOOKAHEAD_MINUTES = Number(
 const LISTER_RETURN_WINDOW_PASSED_GRACE_HOURS = Number(
   process.env.LISTER_RETURN_WINDOW_PASSED_GRACE_HOURS ?? 6,
 );
+const RETURN_DUE_REMINDER_MORNING_HOUR = Number(
+  process.env.RETURN_DUE_REMINDER_MORNING_HOUR ?? 8,
+);
+const RETURN_DUE_REMINDER_MORNING_CATCHUP_HOURS = Number(
+  process.env.RETURN_DUE_REMINDER_MORNING_CATCHUP_HOURS ?? 0,
+);
 
 @Injectable()
 export class ShipmentDispatchScheduler {
   private readonly logger = new Logger(ShipmentDispatchScheduler.name);
+  private readonly lagosDateFormatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Lagos',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  private readonly lagosHourFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Africa/Lagos',
+    hour: '2-digit',
+    hour12: false,
+  });
 
   constructor(
     private readonly prisma: PrismaService,
@@ -421,6 +444,209 @@ export class ShipmentDispatchScheduler {
         data: { listerReturnWindowPassedNotifiedAt: now },
       });
     }
+  }
+
+  /**
+   * Renter return due reminders:
+   * - 24-hour reminder (day before pickup window)
+   * - morning-of reminder (default 8 AM Africa/Lagos)
+   *
+   * These reminders are based on return request pickup windows and do not
+   * depend on whether the return shipment has already been booked/dispatched.
+   */
+  @Cron(process.env.RETURN_DUE_REMINDER_CRON || '*/15 * * * *', {
+    timeZone: 'Africa/Lagos',
+  })
+  async sendRenterReturnDueReminders() {
+    const now = new Date();
+    const lookahead = addHours(now, 30);
+    const lookbehind = subHours(now, 12);
+    const rentalish = [ListingType.RENTAL, ListingType.RENT_OR_RESALE];
+
+    const orders = await this.prisma.order.findMany({
+      where: {
+        listingType: { in: rentalish },
+        // Do not gate reminders on RETURN_DUE only, so renters in ACTIVE/other
+        // non-final states still get nudged before pickup is due.
+        status: { notIn: ['RETURNED', 'COMPLETED', 'CANCELLED', 'REJECTED'] },
+        shipments: {
+          some: {
+            type: 'RETURN',
+            scheduledWindowStart: {
+              gte: lookbehind,
+              lte: lookahead,
+            },
+            status: { notIn: ['COMPLETED', 'CANCELLED'] },
+          },
+        },
+      },
+      select: {
+        id: true,
+        orderId: true,
+        userId: true,
+        returnRequestReminderSentAt: true,
+        returnReminderMorningSentAt: true,
+        user: { select: { email: true, name: true } },
+        orderItems: {
+          take: 1,
+          select: { product: { select: { name: true } } },
+        },
+        shipments: {
+          where: {
+            type: 'RETURN',
+            scheduledWindowStart: {
+              gte: lookbehind,
+              lte: lookahead,
+            },
+            status: { notIn: ['COMPLETED', 'CANCELLED'] },
+          },
+          orderBy: [{ scheduledWindowStart: 'asc' }, { createdAt: 'asc' }],
+          take: 1,
+          select: {
+            id: true,
+            scheduledWindowStart: true,
+            scheduledWindowEnd: true,
+          },
+        },
+      },
+    });
+
+    if (orders.length === 0) return;
+
+    const nowLagosDate = this.toLagosDateKey(now);
+    const nowLagosHour = this.toLagosHour(now);
+    const clientUrl = process.env.CLIENT_URL || 'https://relisted.com';
+
+    for (const order of orders) {
+      if (!order.user?.email?.trim()) continue;
+      const returnShipment = order.shipments[0];
+
+      const pickupStart = returnShipment?.scheduledWindowStart
+        ? new Date(returnShipment.scheduledWindowStart)
+        : null;
+      const pickupEnd = returnShipment?.scheduledWindowEnd
+        ? new Date(returnShipment.scheduledWindowEnd)
+        : null;
+      if (!pickupStart) continue;
+
+      const pickupLagosDate = this.toLagosDateKey(pickupStart);
+      const msUntilPickup = pickupStart.getTime() - now.getTime();
+      const msSincePickup = now.getTime() - pickupStart.getTime();
+      const isPickupTodayInLagos = pickupLagosDate === nowLagosDate;
+      const shouldSend24h =
+        !order.returnRequestReminderSentAt &&
+        msUntilPickup > 0 &&
+        msUntilPickup <= 24 * 60 * 60 * 1000 &&
+        !isPickupTodayInLagos;
+      const isWithinMorningCatchup =
+        RETURN_DUE_REMINDER_MORNING_CATCHUP_HOURS > 0 &&
+        msSincePickup >= 0 &&
+        msSincePickup <=
+          RETURN_DUE_REMINDER_MORNING_CATCHUP_HOURS * 60 * 60 * 1000;
+      const shouldSendMorningOf =
+        !order.returnReminderMorningSentAt &&
+        ((isPickupTodayInLagos &&
+          nowLagosHour >= RETURN_DUE_REMINDER_MORNING_HOUR) ||
+          isWithinMorningCatchup);
+
+      if (!shouldSend24h && !shouldSendMorningOf) continue;
+
+      const orderLink = `${clientUrl}/renters/orders/${order.orderId}`;
+      const productName = order.orderItems[0]?.product?.name ?? 'your rental item';
+      const pickupWindowLabel = this.formatLagosPickupWindow(
+        pickupStart,
+        pickupEnd,
+      );
+
+      if (shouldSend24h) {
+        await this.notification.createNotification({
+          userId: order.userId,
+          title: 'Return pickup due in 24 hours',
+          message: `Your return pickup for order ${order.orderId} is within the next 24 hours. Please have your item ready.`,
+          type: 'RETURN_DUE_REMINDER',
+          metadata: {
+            orderId: order.id,
+            orderNumber: order.orderId,
+            shipmentId: returnShipment?.id ?? null,
+            reminderType: '24_hours',
+          },
+          sendEmail: true,
+          emailData: {
+            email: order.user.email.trim(),
+            userName: order.user.name || 'there',
+            orderId: order.orderId,
+            orderLink,
+            dueDate: pickupWindowLabel,
+            productName,
+            reminderType: '24_hours',
+          },
+        });
+
+        await this.prisma.order.update({
+          where: { id: order.id },
+          data: { returnRequestReminderSentAt: now },
+        });
+      }
+
+      if (shouldSendMorningOf) {
+        await this.notification.createNotification({
+          userId: order.userId,
+          title: 'Return pickup is today',
+          message: `Your return pickup for order ${order.orderId} is scheduled for today. Please keep your item ready for collection.`,
+          type: 'RETURN_DUE_REMINDER',
+          metadata: {
+            orderId: order.id,
+            orderNumber: order.orderId,
+            shipmentId: returnShipment?.id ?? null,
+            reminderType: 'morning_of',
+          },
+          sendEmail: true,
+          emailData: {
+            email: order.user.email.trim(),
+            userName: order.user.name || 'there',
+            orderId: order.orderId,
+            orderLink,
+            dueDate: pickupWindowLabel,
+            productName,
+            reminderType: 'morning_of',
+          },
+        });
+
+        await this.prisma.order.update({
+          where: { id: order.id },
+          data: { returnReminderMorningSentAt: now },
+        });
+      }
+    }
+  }
+
+  private toLagosDateKey(date: Date): string {
+    return this.lagosDateFormatter.format(date);
+  }
+
+  private toLagosHour(date: Date): number {
+    return Number(this.lagosHourFormatter.format(date));
+  }
+
+  private formatLagosPickupWindow(start: Date, end: Date | null): string {
+    const tz = 'Africa/Lagos';
+    const startLabel = start.toLocaleString('en-NG', {
+      timeZone: tz,
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+    if (!end) return `${startLabel} (WAT)`;
+    const endLabel = end.toLocaleString('en-NG', {
+      timeZone: tz,
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+    return `${startLabel} to ${endLabel} (WAT)`;
   }
 
   private async sendTrackingNotification(shipment: any, newStatus: string) {
