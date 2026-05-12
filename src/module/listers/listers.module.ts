@@ -8,7 +8,6 @@ import { ProfileModule } from '../profile/profile.module';
 import { UploadModule } from '../upload/upload.module';
 import { ListersPublicController } from './listers.public.controller';
 import { ListersWalletController } from './listers.wallet.controller';
-import { PrismaService } from 'src/services/prisma/prisma.service';
 import { WemaServiceService } from 'src/services/wema-service/wema-service.service';
 import { ProductAvailabilityNotifyModule } from 'src/services/product-availability-notify/product-availability-notify.module';
 
@@ -26,6 +25,6 @@ import { ProductAvailabilityNotifyModule } from 'src/services/product-availabili
     ListersPublicController,
     ListersWalletController,
   ],
-  providers: [ListersService, PrismaService, WemaServiceService],
+  providers: [ListersService, WemaServiceService],
 })
 export class ListersModule {}

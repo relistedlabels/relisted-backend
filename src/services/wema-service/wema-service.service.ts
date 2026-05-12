@@ -3,296 +3,340 @@ import { CreateFundWalletDto } from './dto/create-wema-service.dto';
 import { UpdateWemaServiceDto } from './dto/update-wema-service.dto';
 import { userEntity } from 'src/module/auth/auth.types';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationService } from '../notification/notification.service';
 import { addMinutes } from 'date-fns';
 import { generateTransactionRef } from 'src/utils/ref.util';
 import { connectId } from 'prisma/prisma.utils';
 
 @Injectable()
 export class WemaServiceService {
-  constructor(private readonly prisma:PrismaService){}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
+  ) {}
 
-async createAccount(user:userEntity,amount:number) {
-    const userExist =await this.prisma.user.findUnique({
-      where:{id:user.id},
-      include:{
-        profile:true
-      }
-  })
+  async createAccount(user: userEntity, amount: number) {
+    const userExist = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      include: {
+        profile: true,
+      },
+    });
 
-
-
-  const vaNumber = `698${Math.floor(1000000 + Math.random() * 9000000)}`;
-//  create virtual account
-  const virtualAccount = await this.prisma.virtualAccount.create({
-    data: {
-      userId: user.id,
-      prefix:"698",
-      vaNumber,
-      status: 'PENDING',
-      expiresAt: addMinutes(new Date(), 30),
-      bvn:userExist?.profile?.bvn
-      
-    },
-  });
-
-// create transaction 
-const transaction =await this.prisma.transaction.create({
-  data:{
-    amount,
-    referenceId:await generateTransactionRef(),
-    user:connectId(user.id)
-  }
-})
-
-
-  return {
-    message: 'Virtual account generated',
-    vaNumber: virtualAccount.vaNumber,
-    amount: virtualAccount.amount,
-    expiresAt: virtualAccount.expiresAt,
-    transactionReference:transaction.referenceId
-    
-  };
-}
-
-async nameLookup(dto: any) {
-  const account = await this.prisma.virtualAccount.findUnique({
-    where: { vaNumber: dto.accountnumber },
-    include: { user: { include: { profile: true } } }
-  });
-
-  if (!account || account.status === 'INACTIVE') {
-    return {
-      accountname: "Invalid Account",
-      status: "07",
-      status_desc: "Invalid Account",
-      amount: "0",
-      bvn: "",
-      nin: ""
-    };
-  }
-
-  return {
-    accountname: `Relisted-labels/${account.user.name}`,
-    status: "00",
-    status_desc: "Okay",
-    amount: account.amount ? account.amount.toString() : "0",
-    bvn: account.bvn || account.user.profile?.bvn || "2211234567",
-    nin: account.nin || "00019927725273"
-  };
-}
-
-async transactionNotify(dto: any) {
-  const vaNumber = dto.craccount;
-  const account = await this.prisma.virtualAccount.findUnique({
-    where: { vaNumber }
-  });
-
-  if (!account || account.status === 'INACTIVE') {
-    return {
-      transactionreference: "",
-      status: "07",
-      status_desc: "Invalid Account"
-    };
-  }
-
-  const existingTx = await this.prisma.transaction.findUnique({
-    where: { sessionId: String(dto.sessionid) }
-  });
-
-  if (existingTx) {
-    return {
-      transactionreference: existingTx.referenceId,
-      status: "00",
-      status_desc: "Okay"
-    };
-  }
-
-  const referenceId = await generateTransactionRef();
-
-  const transaction = await this.prisma.transaction.create({
-    data: {
-      amount: parseFloat(dto.amount) || 0,
-      referenceId,
-      status: 'SUCCESS',
-      userId: account.userId,
-      virtualAccountId: account.id,
-      sessionId: String(dto.sessionid),
-      paymentReference: dto.paymentreference,
-      originatorName: dto.originatorname,
-      originatorAccountNumber: dto.originatoraccountnumber,
-      bankName: dto.bankname,
-      narration: dto.narration,
-      crAccountName: dto.craccountname,
-      crAccount: dto.craccount,
-      bankCode: dto.bankcode,
-    }
-  });
-
-  await this.fundWallet(account.userId, Number(dto.amount) || 0);
-
-  return {
-    transactionreference: referenceId,
-    status: "00",
-    status_desc: "Okay"
-  };
-}
-
- async fundWallet(userId: string, amount: number) {
-  const delta = Math.max(0, Math.round(Number(amount)));
-  if (delta === 0) {
-    return;
-  }
-
-  let wallet = await this.prisma.wallet.findUnique({ where: { userId } });
-  if (!wallet) {
-    wallet = await this.prisma.wallet.create({
+    const vaNumber = `698${Math.floor(1000000 + Math.random() * 9000000)}`;
+    //  create virtual account
+    const virtualAccount = await this.prisma.virtualAccount.create({
       data: {
-        userId,
-        mainBalance: 0,
-        availableBalance: 0,
-        collateralBalance: 0
-      }
+        userId: user.id,
+        prefix: '698',
+        vaNumber,
+        status: 'PENDING',
+        expiresAt: addMinutes(new Date(), 30),
+        bvn: userExist?.profile?.bvn,
+      },
+    });
+
+    // create transaction
+    const transaction = await this.prisma.transaction.create({
+      data: {
+        amount,
+        referenceId: await generateTransactionRef(),
+        user: connectId(user.id),
+      },
+    });
+
+    return {
+      message: 'Virtual account generated',
+      vaNumber: virtualAccount.vaNumber,
+      amount: virtualAccount.amount,
+      expiresAt: virtualAccount.expiresAt,
+      transactionReference: transaction.referenceId,
+    };
+  }
+
+  async nameLookup(dto: any) {
+    const account = await this.prisma.virtualAccount.findUnique({
+      where: { vaNumber: dto.accountnumber },
+      include: { user: { include: { profile: true } } },
+    });
+
+    if (!account || account.status === 'INACTIVE') {
+      return {
+        accountname: 'Invalid Account',
+        status: '07',
+        status_desc: 'Invalid Account',
+        amount: '0',
+        bvn: '',
+        nin: '',
+      };
+    }
+
+    return {
+      accountname: `Relisted-labels/${account.user.name}`,
+      status: '00',
+      status_desc: 'Okay',
+      amount: account.amount ? account.amount.toString() : '0',
+      bvn: account.bvn || account.user.profile?.bvn || '2211234567',
+      nin: account.nin || '00019927725273',
+    };
+  }
+
+  async transactionNotify(dto: any) {
+    const vaNumber = dto.craccount;
+    const account = await this.prisma.virtualAccount.findUnique({
+      where: { vaNumber },
+    });
+
+    if (!account || account.status === 'INACTIVE') {
+      return {
+        transactionreference: '',
+        status: '07',
+        status_desc: 'Invalid Account',
+      };
+    }
+
+    const existingTx = await this.prisma.transaction.findUnique({
+      where: { sessionId: String(dto.sessionid) },
+    });
+
+    if (existingTx) {
+      return {
+        transactionreference: existingTx.referenceId,
+        status: '00',
+        status_desc: 'Okay',
+      };
+    }
+
+    const referenceId = await generateTransactionRef();
+
+    const transaction = await this.prisma.transaction.create({
+      data: {
+        amount: parseFloat(dto.amount) || 0,
+        referenceId,
+        status: 'SUCCESS',
+        userId: account.userId,
+        virtualAccountId: account.id,
+        sessionId: String(dto.sessionid),
+        paymentReference: dto.paymentreference,
+        originatorName: dto.originatorname,
+        originatorAccountNumber: dto.originatoraccountnumber,
+        bankName: dto.bankname,
+        narration: dto.narration,
+        crAccountName: dto.craccountname,
+        crAccount: dto.craccount,
+        bankCode: dto.bankcode,
+      },
+    });
+
+    await this.fundWallet(account.userId, Number(dto.amount) || 0, {
+      referenceId,
+    });
+
+    return {
+      transactionreference: referenceId,
+      status: '00',
+      status_desc: 'Okay',
+    };
+  }
+
+  async fundWallet(
+    userId: string,
+    amount: number,
+    opts?: { referenceId?: string },
+  ) {
+    const delta = Math.max(0, Math.round(Number(amount)));
+    if (delta === 0) {
+      return;
+    }
+
+    let wallet = await this.prisma.wallet.findUnique({ where: { userId } });
+    if (!wallet) {
+      wallet = await this.prisma.wallet.create({
+        data: {
+          userId,
+          mainBalance: 0,
+          availableBalance: 0,
+          collateralBalance: 0,
+        },
+      });
+    }
+
+    await this.prisma.wallet.update({
+      where: { id: wallet.id },
+      data: {
+        mainBalance: { increment: delta },
+        availableBalance: { increment: delta },
+      },
+    });
+
+    await this.prisma.walletTransaction.create({
+      data: {
+        walletId: wallet.id,
+        amount: delta,
+        type: 'MAIN',
+        status: 'SUCCESS',
+        note: 'Wema Virtual Account Deposit',
+      },
+    });
+
+    try {
+      await this.notifyWalletFunded(userId, delta, opts?.referenceId);
+    } catch (err) {
+      console.error('Wallet funded notification failed:', err);
+    }
+  }
+
+  private async notifyWalletFunded(
+    userId: string,
+    amount: number,
+    referenceId?: string,
+  ) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true, name: true },
+    });
+    if (!user?.email) return;
+
+    const amountLabel = new Intl.NumberFormat('en-NG', {
+      style: 'currency',
+      currency: 'NGN',
+      maximumFractionDigits: 0,
+    }).format(amount);
+
+    const refSuffix = referenceId ? ` Ref: ${referenceId}.` : '';
+    await this.notificationService.createNotification({
+      userId,
+      title: 'Wallet funded',
+      message: `${amountLabel} was added to your wallet.${refSuffix}`,
+      type: 'WALLET_FUNDED',
+      metadata: { amount, referenceId: referenceId ?? null },
+      sendEmail: true,
+      emailData: {
+        email: user.email,
+        name: user.name,
+        amountLabel,
+        referenceId,
+      },
     });
   }
 
-  await this.prisma.wallet.update({
-    where: { id: wallet.id },
-    data: {
-      mainBalance: { increment: delta },
-      availableBalance: { increment: delta },
-    },
-  });
+  async fetchMiniStatement(dto: any) {
+    const vaNumber = String(dto.accountnumber);
+    const account = await this.prisma.virtualAccount.findUnique({
+      where: { vaNumber },
+    });
 
-  await this.prisma.walletTransaction.create({
-    data: {
-      walletId: wallet.id,
-      amount: delta,
-      type: 'MAIN',
-      status: 'SUCCESS',
-      note: 'Wema Virtual Account Deposit'
-    }
-  });
-}
+    if (!account) return { transactions: [] };
 
-async fetchMiniStatement(dto: any) {
-  const vaNumber = String(dto.accountnumber);
-  const account = await this.prisma.virtualAccount.findUnique({
-    where: { vaNumber }
-  });
+    const tenDaysAgo = new Date();
+    tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
 
-  if (!account) return { transactions: [] };
+    const txs = await this.prisma.transaction.findMany({
+      where: {
+        virtualAccountId: account.id,
+        createdAt: { gte: tenDaysAgo },
+        status: 'SUCCESS',
+      },
+      orderBy: { createdAt: 'desc' },
+    });
 
-  const tenDaysAgo = new Date();
-  tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
-
-  const txs = await this.prisma.transaction.findMany({
-    where: { 
-      virtualAccountId: account.id,
-      createdAt: { gte: tenDaysAgo },
-      status: 'SUCCESS'
-    },
-    orderBy: { createdAt: 'desc' }
-  });
-
-  return {
-    transactions: txs.map(tx => ({
-      accountNo: tx.crAccount || vaNumber,
-      bankName: "Wema Bank",
-      amount: tx.amount,
-      direction: "Credit",
-      transactionDate: tx.createdAt.toISOString()
-    }))
-  };
-}
-
-async getKycDetails(dto: any) {
-  const vaNumber = String(dto.accountnumber);
-  const account = await this.prisma.virtualAccount.findUnique({
-    where: { vaNumber },
-    include: {
-      user: { include: { profile: true } }
-    }
-  });
-
-  if (!account) {
-    return { status_desc: "Invalid Account" };
+    return {
+      transactions: txs.map((tx) => ({
+        accountNo: tx.crAccount || vaNumber,
+        bankName: 'Wema Bank',
+        amount: tx.amount,
+        direction: 'Credit',
+        transactionDate: tx.createdAt.toISOString(),
+      })),
+    };
   }
 
-  const wallet = await this.prisma.wallet.findUnique({
-    where: { userId: account.userId }
-  });
+  async getKycDetails(dto: any) {
+    const vaNumber = String(dto.accountnumber);
+    const account = await this.prisma.virtualAccount.findUnique({
+      where: { vaNumber },
+      include: {
+        user: { include: { profile: true } },
+      },
+    });
 
-  return {
-    accountname: account.user.name,
-    BVN: account.bvn || account.user.profile?.bvn || null,
-    NIN: account.nin || account.user.profile?.nin || null,
-    mobilenumber: account.user.profile?.phoneNumber || "",
-    walletbalance: wallet?.mainBalance || 0,
-    status_desc: account.status === 'INACTIVE' ? 'Inactive' : 'Active'
-  };
-}
+    if (!account) {
+      return { status_desc: 'Invalid Account' };
+    }
 
-async blockAccount(dto: any) {
-  const vaNumber = String(dto.accountnumber);
-  const blockreason = dto.blockreason;
+    const wallet = await this.prisma.wallet.findUnique({
+      where: { userId: account.userId },
+    });
 
-  const account = await this.prisma.virtualAccount.findUnique({
-    where: { vaNumber }
-  });
-
-  if (!account) {
-    return { message: "Invalid Account" };
+    return {
+      accountname: account.user.name,
+      BVN: account.bvn || account.user.profile?.bvn || null,
+      NIN: account.nin || account.user.profile?.nin || null,
+      mobilenumber: account.user.profile?.phoneNumber || '',
+      walletbalance: wallet?.mainBalance || 0,
+      status_desc: account.status === 'INACTIVE' ? 'Inactive' : 'Active',
+    };
   }
 
-  await this.prisma.virtualAccount.update({
-    where: { id: account.id },
-    data: {
-      status: 'INACTIVE',
-      blockReason: blockreason
+  async blockAccount(dto: any) {
+    const vaNumber = String(dto.accountnumber);
+    const blockreason = dto.blockreason;
+
+    const account = await this.prisma.virtualAccount.findUnique({
+      where: { vaNumber },
+    });
+
+    if (!account) {
+      return { message: 'Invalid Account' };
     }
-  });
 
-  return { message: "Account Restricted Successfully" };
-}
+    await this.prisma.virtualAccount.update({
+      where: { id: account.id },
+      data: {
+        status: 'INACTIVE',
+        blockReason: blockreason,
+      },
+    });
 
-// ==========================================
-// TODO: Implement placeholders for wallet operations later
-// ==========================================
+    return { message: 'Account Restricted Successfully' };
+  }
 
-async fundWalletPlaceholder(dto: any) {
-  // Placeholder implementation for funding wallet
-  return { 
-    message: "Placeholder: Wallet funded successfully", 
-    amount: dto.amount || 0 
-  };
-}
+  // ==========================================
+  // TODO: Implement placeholders for wallet operations later
+  // ==========================================
 
-async removeMoneyPlaceholder(dto: any) {
-  // Placeholder implementation for removing money from wallet
-  return { 
-    message: "Placeholder: Money removed from wallet successfully", 
-    amount: dto.amount || 0 
-  };
-}
+  async fundWalletPlaceholder(dto: any) {
+    // Placeholder implementation for funding wallet
+    return {
+      message: 'Placeholder: Wallet funded successfully',
+      amount: dto.amount || 0,
+    };
+  }
 
-async getTransactionsPlaceholder(page: number, limit: number) {
-  // Placeholder implementation for paginated transactions
-  return {
-    message: "Placeholder: Paginated transactions fetched",
-    data: [],
-    meta: { page, limit, total: 0 }
-  };
-}
+  async removeMoneyPlaceholder(dto: any) {
+    // Placeholder implementation for removing money from wallet
+    return {
+      message: 'Placeholder: Money removed from wallet successfully',
+      amount: dto.amount || 0,
+    };
+  }
 
-async getWalletBalancePlaceholder() {
-  // Placeholder implementation for fetching wallet balance
-  return { 
-    message: "Placeholder: Wallet balance fetched", 
-    mainBalance: 0,
-    availableBalance: 0,
-    collateralBalance: 0
-  };
-}
+  async getTransactionsPlaceholder(page: number, limit: number) {
+    // Placeholder implementation for paginated transactions
+    return {
+      message: 'Placeholder: Paginated transactions fetched',
+      data: [],
+      meta: { page, limit, total: 0 },
+    };
+  }
 
+  async getWalletBalancePlaceholder() {
+    // Placeholder implementation for fetching wallet balance
+    return {
+      message: 'Placeholder: Wallet balance fetched',
+      mainBalance: 0,
+      availableBalance: 0,
+      collateralBalance: 0,
+    };
+  }
 }

@@ -130,6 +130,9 @@ export class NotificationService {
         case 'ESCROW_RELEASE':
           await this.mailService.sendEscrowReleaseNotification(data);
           break;
+        case 'WALLET_FUNDED':
+          await this.mailService.sendWalletFundedEmail(data);
+          break;
         default:
           console.warn(`No mail handler for notification type: ${type}`);
       }
