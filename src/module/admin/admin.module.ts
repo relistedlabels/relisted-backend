@@ -7,6 +7,7 @@ import { AdminSettingsController } from './admin.settings.controller';
 import { AdminDisputesController } from './admin.disputes.controller';
 import { AdminWalletsController } from './admin.wallets.controller';
 import { AdminProductsController } from './admin.products.controller';
+import { AdminClosetsController } from './admin.closets.controller';
 import { PrismaModule } from '../../services/prisma/prisma.module';
 
 @Module({
@@ -19,6 +20,7 @@ import { PrismaModule } from '../../services/prisma/prisma.module';
     AdminDisputesController,
     AdminWalletsController,
     AdminProductsController,
+    AdminClosetsController,
   ],
   providers: [AdminService],
   exports: [AdminService],

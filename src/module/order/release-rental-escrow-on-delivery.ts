@@ -1,4 +1,5 @@
 import type { PrismaService } from 'src/services/prisma/prisma.service';
+import { incrementClosetRevenueForListerPayout } from '../closet/closet-revenue.util';
 
 /**
  * Releases rental portion of escrows when the outbound leg is considered delivered.
@@ -53,6 +54,13 @@ export async function releaseRentalEscrowOnOutboundDelivery(
           status: 'PARTIALLY_RELEASED',
           releasedAt: null,
         },
+      });
+
+      await incrementClosetRevenueForListerPayout(tx, {
+        orderId: orderInternalId,
+        listerId: escrow.listerId,
+        amount: releaseAmount,
+        split: 'RENTAL_CLEANING',
       });
     });
   }

@@ -827,28 +827,55 @@ export class ProductService {
       }
 
       if (query.search) {
-        const searchFilter = {
-          OR: [
-            { name: { contains: query.search, mode: 'insensitive' } },
-            { description: { contains: query.search, mode: 'insensitive' } },
-            { subText: { contains: query.search, mode: 'insensitive' } },
-            {
-              brand: { name: { contains: query.search, mode: 'insensitive' } },
+        const searchOr: Record<string, unknown>[] = [
+          { name: { contains: query.search, mode: 'insensitive' } },
+          { description: { contains: query.search, mode: 'insensitive' } },
+          { subText: { contains: query.search, mode: 'insensitive' } },
+          {
+            brand: { name: { contains: query.search, mode: 'insensitive' } },
+          },
+          {
+            category: {
+              name: { contains: query.search, mode: 'insensitive' },
             },
-            {
-              category: {
+          },
+          {
+            tags: {
+              some: { name: { contains: query.search, mode: 'insensitive' } },
+            },
+          },
+          { color: { contains: query.search, mode: 'insensitive' } },
+          { composition: { contains: query.search, mode: 'insensitive' } },
+        ];
+
+        if (inClosetListContext) {
+          searchOr.push({
+            closet: {
+              is: {
                 name: { contains: query.search, mode: 'insensitive' },
               },
             },
-            {
-              tags: {
-                some: { name: { contains: query.search, mode: 'insensitive' } },
+          });
+          searchOr.push({
+            closet: {
+              is: {
+                slug: { contains: query.search, mode: 'insensitive' },
               },
             },
-            { color: { contains: query.search, mode: 'insensitive' } },
-            { composition: { contains: query.search, mode: 'insensitive' } },
-          ],
-        };
+          });
+          searchOr.push({
+            closet: {
+              is: {
+                description: {
+                  contains: query.search,
+                  mode: 'insensitive',
+                },
+              },
+            },
+          });
+        }
+
+        const searchFilter = { OR: searchOr };
 
         if (!where.AND) where.AND = [];
         where.AND.push(searchFilter);

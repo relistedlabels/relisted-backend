@@ -35,6 +35,7 @@ import { DeliveryModule } from './services/delivery/delivery.module';
 import { ShipmentModule } from './module/shipment/shipment.module';
 import { ClosetModule } from './module/closet/closet.module';
 import { VaultClosetSaleInterestModule } from './module/vault-closet-sale-interest/vault-closet-sale-interest.module';
+import { SiteFeaturesModule } from './module/site-features/site-features.module';
 
 /** Bull / ioredis: Render and other hosts often require password or `rediss://` — host+port alone causes NOAUTH. */
 function bullRedisConnection(): string | { host: string; port: number; password?: string; tls?: object } {
@@ -92,6 +93,7 @@ function bullRedisConnection(): string | { host: string; port: number; password?
     ShipmentModule,
     ClosetModule,
     VaultClosetSaleInterestModule,
+    SiteFeaturesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

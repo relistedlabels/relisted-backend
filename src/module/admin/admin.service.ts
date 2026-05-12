@@ -12,6 +12,7 @@ import {
   ProductStatus,
   Role,
 } from '@prisma/client';
+import { incrementClosetRevenueForListerPayout } from '../closet/closet-revenue.util';
 
 @Injectable()
 export class AdminService {
@@ -1139,6 +1140,13 @@ export class AdminService {
             note: `Escrow payout released after dispute resolution for order ${order.orderId}`,
             orderId: order.id,
           },
+        });
+
+        await incrementClosetRevenueForListerPayout(tx, {
+          orderId: order.id,
+          listerId: escrow.listerId,
+          amount: listerPayoutToRelease,
+          split: 'COMBINED',
         });
       }
 
@@ -2464,6 +2472,126 @@ export class AdminService {
           limit,
           pages: Math.ceil(total / limit),
         },
+      },
+    };
+  }
+
+  async listClosetsForAdmin(page: number, limit: number, search?: string) {
+    const limitSafe = Math.min(Math.max(1, limit), 100);
+    const pageSafe = Math.max(1, page);
+    const skip = (pageSafe - 1) * limitSafe;
+    const q = search?.trim();
+    const where = q
+      ? {
+          OR: [
+            { name: { contains: q, mode: 'insensitive' as const } },
+            { slug: { contains: q, mode: 'insensitive' as const } },
+            { owner: { email: { contains: q, mode: 'insensitive' as const } } },
+            { owner: { name: { contains: q, mode: 'insensitive' as const } } },
+          ],
+        }
+      : {};
+
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.closet.count({ where }),
+      this.prisma.closet.findMany({
+        where,
+        skip,
+        take: limitSafe,
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
+        include: {
+          owner: { select: { id: true, name: true, email: true } },
+          _count: { select: { products: true } },
+        },
+      }),
+    ]);
+
+    const closets = rows.map((c) => ({
+      id: c.id,
+      name: c.name,
+      slug: c.slug,
+      description: c.description,
+      imageUrl: c.imageUrl,
+      isActive: c.isActive,
+      sortOrder: c.sortOrder,
+      closetWalletBalance: c.closetWalletBalance,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
+      owner: c.owner,
+      productCount: c._count.products,
+    }));
+
+    return {
+      success: true,
+      data: {
+        closets,
+        total,
+        page: pageSafe,
+        totalPages: Math.ceil(total / limitSafe) || 1,
+      },
+    };
+  }
+
+  async getClosetDetailForAdmin(closetId: string) {
+    const closet = await this.prisma.closet.findUnique({
+      where: { id: closetId },
+      include: {
+        owner: {
+          select: { id: true, name: true, email: true, role: true },
+        },
+        products: {
+          orderBy: { updatedAt: 'desc' },
+          take: 500,
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            listingType: true,
+            isActive: true,
+            dailyPrice: true,
+            resalePrice: true,
+            productVerified: true,
+            attachments: {
+              select: {
+                uploads: { take: 1, select: { url: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!closet) {
+      throw new NotFoundException('Closet not found');
+    }
+
+    const products = closet.products.map((p) => ({
+      id: p.id,
+      name: p.name,
+      status: p.status,
+      listingType: p.listingType,
+      isActive: p.isActive,
+      dailyPrice: p.dailyPrice,
+      resalePrice: p.resalePrice,
+      productVerified: p.productVerified,
+      imageUrl: p.attachments?.uploads?.[0]?.url ?? null,
+    }));
+
+    return {
+      success: true,
+      data: {
+        id: closet.id,
+        name: closet.name,
+        slug: closet.slug,
+        description: closet.description,
+        imageUrl: closet.imageUrl,
+        isActive: closet.isActive,
+        sortOrder: closet.sortOrder,
+        closetWalletBalance: closet.closetWalletBalance,
+        createdAt: closet.createdAt,
+        updatedAt: closet.updatedAt,
+        owner: closet.owner,
+        products,
       },
     };
   }
