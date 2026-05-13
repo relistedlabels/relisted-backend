@@ -35,6 +35,10 @@ import {
   DispatchWindowType,
 } from 'src/utils/dispatch-windows';
 import { releaseRentalEscrowOnOutboundDelivery } from '../order/release-rental-escrow-on-delivery';
+import {
+  closetCreditForReturnReceiptEscrow,
+  incrementClosetRevenueForListerPayout,
+} from '../closet/closet-revenue.util';
 import { ProductAvailabilityNotifyService } from 'src/services/product-availability-notify/product-availability-notify.service';
 
 const CURRENCY = 'NGN';
@@ -1980,6 +1984,16 @@ export class ListersService {
                   note: payoutNote,
                   orderId: order.id,
                 },
+              });
+
+              const closetCredit = closetCreditForReturnReceiptEscrow(escrow);
+              const split =
+                escrow.status === 'PARTIALLY_RELEASED' ? 'RESALE' : 'COMBINED';
+              await incrementClosetRevenueForListerPayout(tx, {
+                orderId: order.id,
+                listerId: escrow.listerId,
+                amount: closetCredit,
+                split,
               });
             }
           }

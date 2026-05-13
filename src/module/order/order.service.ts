@@ -12,6 +12,10 @@ import { addDays, addMinutes, startOfDay } from 'date-fns';
 import { NotificationService } from 'src/services/notification/notification.service';
 import { DEFAULT_CLEANING_FEE_NGN } from 'src/constants/rental-pricing';
 import {
+  closetSplitKindForResaleOrderConfirm,
+  incrementClosetRevenueForListerPayout,
+} from '../closet/closet-revenue.util';
+import {
   CreateOrderDto,
   ReturnPickupAddressDto,
 } from './dto/create-order.dto';
@@ -2166,6 +2170,10 @@ export class OrderService {
                 : (item.product.dailyPrice || 0) * item.days,
               cleaningFee: isResalePurchase ? 0 : DEFAULT_CLEANING_FEE_NGN,
               collateralFee,
+              closetId: item.product.closetId ?? null,
+              resaleListerAmount: isResalePurchase
+                ? item.product.resalePrice ?? null
+                : null,
             } as any,
           });
           cartItemIdToOrderItemId.set(item.id, createdOi.id);
@@ -2836,7 +2844,19 @@ export class OrderService {
                     : isRentalTransaction
                       ? `Payment released for completed rental order ${order.orderId}`
                       : `Payment released for completed resale order ${order.orderId}`,
+                orderId: order.id,
               },
+            });
+
+            const split = closetSplitKindForResaleOrderConfirm(
+              escrow,
+              order.orderItems,
+            );
+            await incrementClosetRevenueForListerPayout(tx, {
+              orderId: order.id,
+              listerId: escrow.listerId,
+              amount: releaseAmount,
+              split,
             });
           }
         }

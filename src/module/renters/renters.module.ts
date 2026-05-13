@@ -13,7 +13,6 @@ import { RentersFavoritesController } from './renters.favorites.controller';
 import { RentersSecurityController } from './renters.security.controller';
 import { RentersNotificationsController } from './renters.notifications.controller';
 import { RentersProductNotifyController } from './renters.product-notify.controller';
-import { PrismaService } from '../../services/prisma/prisma.service';
 import { WemaServiceService } from '../../services/wema-service/wema-service.service';
 import { ProductAvailabilityNotifyModule } from '../../services/product-availability-notify/product-availability-notify.module';
 
@@ -31,7 +30,7 @@ import { ProductAvailabilityNotifyModule } from '../../services/product-availabi
     RentersNotificationsController,
     RentersProductNotifyController,
   ],
-  providers: [RentersService, PrismaService, WemaServiceService],
+  providers: [RentersService, WemaServiceService],
   exports: [RentersService],
 })
 export class RentersModule {}

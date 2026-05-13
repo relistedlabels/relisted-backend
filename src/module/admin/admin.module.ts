@@ -7,8 +7,8 @@ import { AdminSettingsController } from './admin.settings.controller';
 import { AdminDisputesController } from './admin.disputes.controller';
 import { AdminWalletsController } from './admin.wallets.controller';
 import { AdminProductsController } from './admin.products.controller';
+import { AdminClosetsController } from './admin.closets.controller';
 import { PrismaModule } from '../../services/prisma/prisma.module';
-import { PrismaService } from 'src/services/prisma/prisma.service';
 
 @Module({
   imports: [PrismaModule],
@@ -20,8 +20,9 @@ import { PrismaService } from 'src/services/prisma/prisma.service';
     AdminDisputesController,
     AdminWalletsController,
     AdminProductsController,
+    AdminClosetsController,
   ],
-  providers: [AdminService, PrismaService],
+  providers: [AdminService],
   exports: [AdminService],
 })
 export class AdminModule {}

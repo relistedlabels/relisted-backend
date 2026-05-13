@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { AuthOtpTokenModule } from 'src/services/auth-otp-token/auth-otp-token.module';
 import { EventModule } from 'src/services/event/event.module';
-import { PrismaService } from 'src/services/prisma/prisma.service';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { PassportModule } from '@nestjs/passport';
@@ -22,7 +21,7 @@ import { GoogleStrategy } from './strategies/google.strategy';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, PrismaService,GoogleStrategy],
+  providers: [AuthService, GoogleStrategy],
   exports: [PassportModule],
 })
 export class AuthModule {}

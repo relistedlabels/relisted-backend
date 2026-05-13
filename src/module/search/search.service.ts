@@ -21,10 +21,38 @@ export class SearchService {
             { description: { contains: query, mode: 'insensitive' } },
             { brand: { name: { contains: query, mode: 'insensitive' } } },
             { category: { name: { contains: query, mode: 'insensitive' } } },
-            { tags: { some: { name: { contains: query, mode: 'insensitive' } } } },
-            {color: {in: [query], mode: 'insensitive'}},
-            {stylingTip: {in: [query], mode: 'insensitive'}},
-            {composition: {in: [query], mode: 'insensitive'}},
+            {
+              tags: {
+                some: { name: { contains: query, mode: 'insensitive' } },
+              },
+            },
+            { color: { in: [query], mode: 'insensitive' } },
+            { stylingTip: { in: [query], mode: 'insensitive' } },
+            { composition: { in: [query], mode: 'insensitive' } },
+            {
+              closet: {
+                is: {
+                  name: { contains: query, mode: 'insensitive' },
+                },
+              },
+            },
+            {
+              closet: {
+                is: {
+                  slug: { contains: query, mode: 'insensitive' },
+                },
+              },
+            },
+            {
+              closet: {
+                is: {
+                  description: {
+                    contains: query,
+                    mode: 'insensitive',
+                  },
+                },
+              },
+            },
           ],
           status: { in: ['AVAILABLE', 'APPROVED'] },
         },
@@ -43,6 +71,7 @@ export class SearchService {
           name: product.name,
           image: product.attachments?.uploads[0]?.url || null,
           lister: product.curator.name,
+          curatorId: product.curatorId,
           price: product.dailyPrice,
           tags: product.tags.map((t: any) => t.name),
         });
@@ -74,7 +103,13 @@ export class SearchService {
         where: {
           OR: [
             { name: { contains: query, mode: 'insensitive' } },
-            { profile: { businessInfo: { businessName: { contains: query, mode: 'insensitive' } } } },
+            {
+              profile: {
+                businessInfo: {
+                  businessName: { contains: query, mode: 'insensitive' },
+                },
+              },
+            },
           ],
           role: 'LISTER',
         },

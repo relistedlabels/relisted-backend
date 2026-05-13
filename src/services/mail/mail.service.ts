@@ -1051,4 +1051,41 @@ export class MailService {
       html,
     });
   }
+
+  async sendWalletFundedEmail(dto: {
+    email: string;
+    name: string;
+    amountLabel: string;
+    referenceId?: string;
+  }) {
+    const { email, name, amountLabel, referenceId } = dto;
+    const safeName = (name || 'there').replace(/</g, '');
+    const subject = 'Your Relisted wallet was funded';
+    const refLine = referenceId
+      ? `<p style="margin:12px 0 0;color:#374151;font-size:14px;">Reference: <strong>${String(referenceId).replace(/</g, '')}</strong></p>`
+      : '';
+
+    const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f6f7fb;padding:24px;">
+  <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;padding:24px;">
+    <p style="margin:0 0 12px;color:#374151;">Hi ${safeName},</p>
+    <p style="margin:0 0 8px;color:#374151;">We received a deposit to your virtual account. Your wallet balance has been updated.</p>
+    <p style="margin:16px 0 0;font-size:20px;font-weight:700;color:#111827;">${amountLabel}</p>
+    ${refLine}
+    <p style="margin:24px 0 0;font-size:13px;color:#6b7280;">If you did not expect this, contact support right away.</p>
+  </div>
+</div>`;
+
+    console.log(`[EMAIL] Sending wallet-funded to ${email}`);
+
+    if (this.devBypass) {
+      await this.handleDevBypassHtml(subject, html, email);
+      return;
+    }
+
+    await this.mailerService.sendMail({
+      to: email,
+      subject,
+      html,
+    });
+  }
 }

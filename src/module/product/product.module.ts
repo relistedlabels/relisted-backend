@@ -5,7 +5,6 @@ import { ProductPublicController } from './product.public.controller';
 import { PrismaModule } from 'src/services/prisma/prisma.module';
 import { AuthModule } from '../auth/auth.module';
 import { RentalModule } from '../rental/rental.module';
-import { PrismaService } from 'src/services/prisma/prisma.service';
 import { ClosetModule } from '../closet/closet.module';
 
 @Module({
@@ -16,7 +15,7 @@ import { ClosetModule } from '../closet/closet.module';
     forwardRef(() => ClosetModule),
   ],
   controllers: [ProductController, ProductPublicController],
-  providers: [ProductService, PrismaService],
+  providers: [ProductService],
   exports: [ProductService],
 })
 export class ProductModule {}
