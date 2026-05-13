@@ -1120,6 +1120,18 @@ export class RentersService {
       data.productId,
     );
 
+    const nowForCleanup = new Date();
+    await this.prisma.availabilityRequest.deleteMany({
+      where: {
+        requesterId: userId,
+        productId: data.productId,
+        OR: [
+          { status: { in: ['EXPIRED', 'REJECTED', 'CANCELLED_BY_RENTER'] } },
+          { status: 'PENDING', expiresAt: { lte: nowForCleanup } },
+        ],
+      },
+    });
+
     const startRaw =
       data.rentalStartDate ?? data.startDate ?? data.rental_start_date;
     const endRaw = data.rentalEndDate ?? data.endDate ?? data.rental_end_date;

@@ -1088,4 +1088,59 @@ export class MailService {
       html,
     });
   }
+
+  private readonly vaultClosetSaleLiveSubject =
+    'The Vault Closet sale is live on Relisted';
+
+  /**
+   * Sends the same Vault Closet sale live email to many addresses.
+   * In dev bypass, writes one sample HTML file and opens it in the browser (same as other
+   * dev emails; one preview for the whole batch).
+   */
+  async SendVaultClosetSaleLiveMailBatch(
+    emails: string[],
+    shopUrl: string,
+  ): Promise<{ sent: number; failed: { email: string; error: string }[] }> {
+    const context = { shopUrl };
+    const failed: { email: string; error: string }[] = [];
+    let sent = 0;
+
+    if (this.devBypass) {
+      const html = await this.renderTemplateToHtml(
+        'vault-closet-sale-live',
+        context,
+      );
+      const filepath = join(
+        this.emailOutputDir,
+        `vault-closet-sale-live-batch-${Date.now()}.html`,
+      );
+      await writeFile(filepath, html);
+      console.log(
+        `[DEV EMAIL BYPASS] Vault Closet sale live batch: ${emails.length} recipient(s). Sample HTML: ${filepath}`,
+      );
+      const { default: open } = await import('open');
+      await open(filepath);
+      console.log('[DEV EMAIL BYPASS] Opened in browser');
+      return { sent: emails.length, failed: [] };
+    }
+
+    for (const email of emails) {
+      try {
+        await this.mailerService.sendMail({
+          to: email,
+          template: './vault-closet-sale-live',
+          subject: this.vaultClosetSaleLiveSubject,
+          context,
+        });
+        sent++;
+      } catch (err) {
+        failed.push({
+          email,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    return { sent, failed };
+  }
 }
