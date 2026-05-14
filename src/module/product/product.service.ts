@@ -454,6 +454,17 @@ export class ProductService {
         };
       }
 
+      if (query.excludeStagingCurator === true) {
+        const stagingCuratorId =
+          process.env.STAGING_INTERNAL_CURATOR_ID ??
+          '7d172d18-daad-46cd-ab6d-8d8af28c0b16';
+        const omitStaging = { NOT: { curatorId: stagingCuratorId } };
+        if (!where.AND) {
+          where.AND = [];
+        }
+        where.AND.push(omitStaging);
+      }
+
       // 2. Build orderBy
       let orderBy: any = { createdAt: 'desc' }; // Default: newest
       if (query.sort) {

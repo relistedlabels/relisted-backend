@@ -211,6 +211,15 @@ export class ListProductQuery extends PaginationQuery {
   @Transform(({ value }) => value === true || value === 'true')
   @IsBoolean()
   onlyWithCloset?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'When true, omit listings from the internal staging curator (public storefront pagination).',
+  })
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  excludeStagingCurator?: boolean;
 }
 
 export class GetUserProductsQueryDto {
