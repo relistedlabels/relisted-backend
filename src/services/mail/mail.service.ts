@@ -1090,7 +1090,7 @@ export class MailService {
   }
 
   private readonly vaultClosetSaleLiveSubject =
-    'The Vault Closet sale is live on Relisted';
+    'The Vault is officially OPEN ✨';
 
   /**
    * Sends the same Vault Closet sale live email to many addresses.
