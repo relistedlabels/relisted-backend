@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../services/prisma/prisma.service';
 import { NotificationService } from 'src/services/notification/notification.service';
+import { MailService } from '../../services/mail/mail.service';
 import {
   DisputeStatus,
   OrderStatus,
@@ -19,6 +20,7 @@ export class AdminService {
   constructor(
     private prisma: PrismaService,
     private notificationService: NotificationService,
+    private mailService: MailService,
   ) {}
 
   private getDisputeUniqueWhere(disputeId: string) {
@@ -2300,14 +2302,23 @@ export class AdminService {
     ]);
 
     const formattedOrders = orders.map((o: any) => {
-      // Determine total amount
       const rental = o.rentals?.[0];
+      const paid =
+        o.totalAmountPaid != null ? Number(o.totalAmountPaid) : Number.NaN;
+      const rentalLineTotal = o.orderItems.reduce(
+        (sum: number, item: any) => sum + item.pricePerDay * item.days,
+        0,
+      );
+      const resaleLineTotal = o.orderItems.reduce(
+        (sum: number, item: any) => sum + (item.resaleListerAmount ?? 0),
+        0,
+      );
       const totalAmount =
-        rental?.totalAmount ||
-        o.orderItems.reduce(
-          (sum: number, item: any) => sum + item.pricePerDay * item.days,
-          0,
-        );
+        Number.isFinite(paid) && paid > 0
+          ? paid
+          : rental?.totalAmount ||
+            rentalLineTotal + resaleLineTotal ||
+            0;
 
       // Determine curator (from rental or first order item)
       const curatorUser = rental?.curator || o.orderItems[0]?.product?.curator;
@@ -2592,6 +2603,86 @@ export class AdminService {
         updatedAt: closet.updatedAt,
         owner: closet.owner,
         products,
+      },
+    };
+  }
+
+  /** Same query string as the public shop link for Vault Closet Drops (closets). */
+  private buildVaultClosetDropsShopPath(): string {
+    const title = 'Vault Closet Drops';
+    const description =
+      'Celebrity wardrobes. Limited drops. Shop it before it disappears.';
+    return (
+      `/shop?title=${encodeURIComponent(title)}` +
+      `&description=${encodeURIComponent(description)}` +
+      '&onlyWithCloset=true'
+    );
+  }
+
+  async listVaultClosetSaleWaitlistForAdmin() {
+    const entries = await this.prisma.vaultClosetSaleInterest.findMany({
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        email: true,
+        userId: true,
+        createdAt: true,
+      },
+    });
+
+    return {
+      success: true as const,
+      data: {
+        total: entries.length,
+        entries,
+      },
+    };
+  }
+
+  async notifyVaultClosetSaleWaitlistForAdmin() {
+    const rows = await this.prisma.vaultClosetSaleInterest.findMany({
+      select: { email: true },
+    });
+
+    if (rows.length === 0) {
+      return {
+        success: true as const,
+        data: {
+          totalRecipients: 0,
+          sent: 0,
+          failed: [] as { email: string; error: string }[],
+          message: 'No one is on the waitlist yet.',
+        },
+      };
+    }
+
+    const base = (
+      process.env.CLIENT_URL ||
+      process.env.FRONTEND_URL ||
+      ''
+    ).replace(/\/$/, '');
+
+    if (!base) {
+      throw new BadRequestException(
+        'Set CLIENT_URL or FRONTEND_URL so notification emails can include a link to the shop.',
+      );
+    }
+
+    const shopUrl = `${base}${this.buildVaultClosetDropsShopPath()}`;
+    const { sent, failed } =
+      await this.mailService.SendVaultClosetSaleLiveMailBatch(
+        rows.map((r) => r.email),
+        shopUrl,
+      );
+
+    return {
+      success: true as const,
+      data: {
+        totalRecipients: rows.length,
+        sent,
+        failed,
+        shopUrl,
+        devEmailBypass: process.env.DEV_EMAIL_BYPASS === 'true',
       },
     };
   }

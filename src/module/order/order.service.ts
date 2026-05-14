@@ -2731,7 +2731,13 @@ export class OrderService {
           WHERE "orderId" = ${orderId}
             AND "userId" = ${user.id}
             AND "listingType" IN ('RESALE', 'RENT_OR_RESALE')
-            AND "status" = 'DELIVERED'
+            AND "status" NOT IN (
+              'COMPLETED',
+              'CANCELLED',
+              'REJECTED',
+              'IN_DISPUTE',
+              'RETURNED'
+            )
           FOR UPDATE
         `;
 

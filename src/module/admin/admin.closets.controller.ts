@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/guard/authGuard';
@@ -26,6 +26,23 @@ export class AdminClosetsController {
       limit ? parseInt(limit, 10) || 20 : 20,
       search,
     );
+  }
+
+  @Get('vault-closet-sale/waitlist')
+  @ApiOperation({
+    summary: 'List Vault Closet sale email waitlist (VaultClosetSaleInterest)',
+  })
+  async listVaultClosetSaleWaitlist() {
+    return this.adminService.listVaultClosetSaleWaitlistForAdmin();
+  }
+
+  @Post('vault-closet-sale/notify-waitlist')
+  @ApiOperation({
+    summary:
+      'Send the "sale is live" email to every address on the Vault Closet sale waitlist',
+  })
+  async notifyVaultClosetSaleWaitlist() {
+    return this.adminService.notifyVaultClosetSaleWaitlistForAdmin();
   }
 
   @Get(':closetId')

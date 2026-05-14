@@ -188,10 +188,26 @@ export class CartService {
       const now = new Date();
       const expiresAt = addMinutes(now, 15);
 
-      const persistedWindows = extractRangeMapFromEntity(
-        existingExpired,
-        availabilityRequestWindowFieldMap,
+      const hasManualDispatchWindows = Boolean(
+        dispatchWindowsInput &&
+          Object.values(dispatchWindowsInput).some(
+            (v) =>
+              v &&
+              typeof v === 'object' &&
+              'start' in v &&
+              'end' in v &&
+              String((v as { start?: unknown }).start ?? '').trim() !== '' &&
+              String((v as { end?: unknown }).end ?? '').trim() !== '',
+          ),
       );
+      // Cart "Request approval again" posts with no body: rebuild all dispatch
+      // windows from earliest valid slots instead of reusing stale lister windows.
+      const persistedWindows = hasManualDispatchWindows
+        ? extractRangeMapFromEntity(
+            existingExpired,
+            availabilityRequestWindowFieldMap,
+          )
+        : undefined;
       const windowMap = this.resolveDispatchWindowsForCartAvailabilityRequest(
         requiredWindowTypes,
         dispatchWindowsInput,
