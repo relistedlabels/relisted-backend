@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../services/prisma/prisma.service';
+import { PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY } from '../../utils/product-attachment-upload-order';
 
 @Injectable()
 export class SearchService {
@@ -59,7 +60,14 @@ export class SearchService {
         take: limit,
         include: {
           curator: { select: { name: true } },
-          attachments: { include: { uploads: { take: 1 } } },
+          attachments: {
+            include: {
+              uploads: {
+                orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+                take: 1,
+              },
+            },
+          },
           tags: true,
         },
       });

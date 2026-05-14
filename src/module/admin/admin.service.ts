@@ -14,6 +14,10 @@ import {
   Role,
 } from '@prisma/client';
 import { incrementClosetRevenueForListerPayout } from '../closet/closet-revenue.util';
+import {
+  MESSAGE_CHAT_UPLOADS_ORDER_BY,
+  PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+} from 'src/utils/product-attachment-upload-order';
 
 @Injectable()
 export class AdminService {
@@ -788,14 +792,14 @@ export class AdminService {
         },
         attachment: {
           include: {
-            uploads: true,
+            uploads: { orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY },
           },
         },
         chatRooms: {
           include: {
             message: {
               include: {
-                uploads: true,
+                uploads: { orderBy: MESSAGE_CHAT_UPLOADS_ORDER_BY },
                 sender: {
                   select: {
                     id: true,
@@ -2064,7 +2068,7 @@ export class AdminService {
             include: {
               uploads: {
                 take: 1,
-                orderBy: { createdAt: 'asc' },
+                orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
                 select: { url: true },
               },
             },
@@ -2105,7 +2109,11 @@ export class AdminService {
         category: true,
         tags: true,
         curator: true,
-        attachments: { include: { uploads: true } },
+        attachments: {
+          include: {
+            uploads: { orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY },
+          },
+        },
       },
     });
 
@@ -2564,7 +2572,11 @@ export class AdminService {
             productVerified: true,
             attachments: {
               select: {
-                uploads: { take: 1, select: { url: true } },
+                uploads: {
+                  orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+                  take: 1,
+                  select: { url: true },
+                },
               },
             },
           },

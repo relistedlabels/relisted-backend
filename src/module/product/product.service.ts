@@ -487,6 +487,11 @@ import {
 import { connectId } from 'prisma/prisma.utils'; // REMOVE createAttachments from import
 import { PrismaService } from 'src/services/prisma/prisma.service';
 import { bad } from 'src/utils/error';
+import {
+  PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+  productDetailIncludeOrdered,
+  setProductAttachmentUploadDisplayOrder,
+} from 'src/utils/product-attachment-upload-order';
 import { userEntity } from '../auth/auth.types';
 import {
   CreateFavouriteDto,
@@ -692,25 +697,27 @@ export class ProductService {
           }),
           ...(dto.closetId && { closetId: dto.closetId }),
         },
-        include: {
-          attachments: {
-            include: {
-              uploads: true,
-            },
-          },
-          brand: true,
-          category: true,
-          tags: true,
-          closet: {
-            select: { id: true, name: true, slug: true, imageUrl: true },
-          },
-        },
+        include: productDetailIncludeOrdered,
       });
+
+      if (dto.attachments?.length) {
+        await setProductAttachmentUploadDisplayOrder(
+          this.prisma,
+          dto.attachments,
+        );
+      }
+
+      const product = dto.attachments?.length
+        ? await this.prisma.product.findUnique({
+            where: { id: newProduct.id },
+            include: productDetailIncludeOrdered,
+          })
+        : newProduct;
 
       return {
         success: true,
         message: 'Product created successfully',
-        product: newProduct,
+        product: product ?? newProduct,
       };
     } catch (error) {
       console.error('ERROR creating product:', error);
@@ -976,6 +983,7 @@ export class ProductService {
             attachments: {
               include: {
                 uploads: {
+                  orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
                   select: { id: true, url: true },
                 },
               },
@@ -1058,6 +1066,7 @@ export class ProductService {
             attachments: {
               include: {
                 uploads: {
+                  orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
                   select: { id: true, url: true },
                 },
               },
@@ -1152,6 +1161,7 @@ export class ProductService {
           attachments: {
             include: {
               uploads: {
+                orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
                 select: { id: true, url: true },
               },
             },
@@ -1233,6 +1243,7 @@ export class ProductService {
         attachments: {
           include: {
             uploads: {
+              orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
               select: { id: true, url: true },
             },
           },
@@ -1391,7 +1402,15 @@ export class ProductService {
         include: {
           attachments: {
             include: {
-              uploads: { select: { id: true, url: true } },
+              uploads: {
+                orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+                select: {
+                  id: true,
+                  url: true,
+                  type: true,
+                  displayOrder: true,
+                },
+              },
             },
           },
           brand: true,
@@ -1751,25 +1770,28 @@ export class ProductService {
       const updatedProduct = await this.prisma.product.update({
         where: { id },
         data: updateData,
-        include: {
-          attachments: {
-            include: {
-              uploads: true,
-            },
-          },
-          brand: true,
-          category: true,
-          tags: true,
-          closet: {
-            select: { id: true, name: true, slug: true, imageUrl: true },
-          },
-        },
+        include: productDetailIncludeOrdered,
       });
+
+      if (dto.attachments?.length) {
+        await setProductAttachmentUploadDisplayOrder(
+          this.prisma,
+          dto.attachments,
+        );
+      }
+
+      const data =
+        dto.attachments?.length
+          ? await this.prisma.product.findUnique({
+              where: { id },
+              include: productDetailIncludeOrdered,
+            })
+          : updatedProduct;
 
       return {
         success: true,
         message: 'Product updated successfully',
-        data: updatedProduct,
+        data: data ?? updatedProduct,
       };
     } catch (error) {
       console.error('Update product error:', error);

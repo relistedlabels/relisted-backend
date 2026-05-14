@@ -3,6 +3,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 import * as dotenv from 'dotenv';
 import { join } from 'path';
+import { PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY } from './utils/product-attachment-upload-order';
 
 dotenv.config({ path: join(process.cwd(), '.env') });
 
@@ -21,7 +22,11 @@ async function main() {
         include: {
           product: {
             include: {
-              attachments: { include: { uploads: true } },
+              attachments: {
+                include: {
+                  uploads: { orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY },
+                },
+              },
               tags: true,
               curator: {
                 include: { profile: { include: { avatarUpload: true } } },

@@ -36,6 +36,10 @@ import {
 import { fetchAdminAlertRecipients } from 'src/module/shipment/shipment-admin-alert-recipients';
 import { buildAdminShipmentsPageUrl } from 'src/module/shipment/build-admin-shipments-page-url';
 import { MailService } from 'src/services/mail/mail.service';
+import {
+  PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+  firstProductAttachmentImageUrlFromUploads,
+} from 'src/utils/product-attachment-upload-order';
 
 const IMMEDIATE_DISPATCH_THRESHOLD_MINUTES = Number(
   process.env.IMMEDIATE_DISPATCH_THRESHOLD_MINUTES ?? 60,
@@ -893,6 +897,14 @@ export class OrderService {
                       },
                     },
                   },
+                  attachments: {
+                    include: {
+                      uploads: {
+                        orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+                        select: { id: true, url: true, displayOrder: true },
+                      },
+                    },
+                  },
                 },
               },
             },
@@ -1521,6 +1533,14 @@ export class OrderService {
                 },
                 brand: true,
                 category: true,
+                attachments: {
+                  include: {
+                    uploads: {
+                      orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+                      select: { id: true, url: true, displayOrder: true },
+                    },
+                  },
+                },
               },
             },
           },
@@ -2164,7 +2184,10 @@ export class OrderService {
               productId: item.product.id,
               days: isResalePurchase ? 0 : item.days,
               pricePerDay: isResalePurchase ? 0 : item.product.dailyPrice || 0,
-              imageUrl: item.product.attachments?.uploads?.[0]?.url || null,
+              imageUrl:
+                firstProductAttachmentImageUrlFromUploads(
+                  item.product.attachments?.uploads,
+                ) || null,
               rentalFee: isResalePurchase
                 ? 0
                 : (item.product.dailyPrice || 0) * item.days,

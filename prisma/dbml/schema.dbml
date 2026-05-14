@@ -231,6 +231,7 @@ Table Upload {
   url String [not null]
   fieldName String [not null]
   publicId String [not null]
+  displayOrder Int [not null, default: 0, note: 'Order within a product attachment set (0 = hero). Set from client attachment id array on create/update.']
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [default: `now()`, not null]
   attachmentId String
