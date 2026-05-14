@@ -69,6 +69,7 @@ export class ClosetPublicController {
       material: query.material,
       tags: query.tags,
       closetId,
+      excludeStagingCurator: true,
     };
     return this.productService.list(listQuery);
   }
