@@ -6,6 +6,10 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from 'src/services/prisma/prisma.service';
+import {
+  MESSAGE_CHAT_UPLOADS_ORDER_BY,
+  PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+} from 'src/utils/product-attachment-upload-order';
 import { userEntity } from '../auth/auth.types';
 import {
   DisputeStatus,
@@ -221,7 +225,11 @@ export class ListersService {
           _count: { select: { rentals: true, reviews: true } },
           attachments: {
             include: {
-              uploads: { take: 1, select: { url: true } },
+              uploads: {
+                orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+                take: 1,
+                select: { url: true },
+              },
             },
           },
           category: { select: { name: true } },
@@ -313,7 +321,11 @@ export class ListersService {
                 color: true,
                 attachments: {
                   include: {
-                    uploads: { take: 1, select: { url: true } },
+                    uploads: {
+                orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+                take: 1,
+                select: { url: true },
+              },
                   },
                 },
               },
@@ -428,7 +440,13 @@ export class ListersService {
                   originalValue: true,
                   dailyPrice: true,
                   attachments: {
-                    include: { uploads: { take: 1, select: { url: true } } },
+                    include: {
+                      uploads: {
+                        orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+                        take: 1,
+                        select: { url: true },
+                      },
+                    },
                   },
                 },
               },
@@ -526,7 +544,13 @@ export class ListersService {
                   originalValue: true,
                   dailyPrice: true,
                   attachments: {
-                    include: { uploads: { take: 1, select: { url: true } } },
+                    include: {
+                      uploads: {
+                        orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+                        take: 1,
+                        select: { url: true },
+                      },
+                    },
                   },
                 },
               },
@@ -630,7 +654,13 @@ export class ListersService {
                   originalValue: true,
                   dailyPrice: true,
                   attachments: {
-                    include: { uploads: { take: 1, select: { url: true } } },
+                    include: {
+                      uploads: {
+                        orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+                        take: 1,
+                        select: { url: true },
+                      },
+                    },
                   },
                 },
               },
@@ -780,7 +810,11 @@ export class ListersService {
                       resalePrice: true,
                       attachments: {
                         include: {
-                          uploads: { take: 1, select: { url: true } },
+                          uploads: {
+                orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+                take: 1,
+                select: { url: true },
+              },
                         },
                       },
                     },
@@ -831,7 +865,13 @@ export class ListersService {
         include: {
           product: {
             include: {
-              attachments: { include: { uploads: true } },
+              attachments: {
+                include: {
+                  uploads: {
+                    orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+                  },
+                },
+              },
             },
           },
         },
@@ -889,7 +929,11 @@ export class ListersService {
                   resalePrice: true,
                   attachments: {
                     include: {
-                      uploads: { take: 1, select: { url: true } },
+                      uploads: {
+                orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+                take: 1,
+                select: { url: true },
+              },
                     },
                   },
                 },
@@ -1091,7 +1135,11 @@ export class ListersService {
                   resalePrice: true,
                   attachments: {
                     include: {
-                      uploads: { take: 1, select: { url: true } },
+                      uploads: {
+                orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+                take: 1,
+                select: { url: true },
+              },
                     },
                   },
                 },
@@ -3366,14 +3414,14 @@ export class ListersService {
         user: { include: { profile: true } },
         attachment: {
           include: {
-            uploads: true,
+            uploads: { orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY },
           },
         },
         chatRooms: {
           include: {
             message: {
               include: {
-                uploads: true,
+                uploads: { orderBy: MESSAGE_CHAT_UPLOADS_ORDER_BY },
               },
             },
           },
@@ -3709,7 +3757,7 @@ export class ListersService {
         skip,
         take: limit,
         include: {
-          uploads: true,
+          uploads: { orderBy: MESSAGE_CHAT_UPLOADS_ORDER_BY },
           sender: { include: { profile: true } },
         },
       }),
@@ -3790,7 +3838,10 @@ export class ListersService {
           ? { connect: body.uploadIds.map((id) => ({ id })) }
           : undefined,
       },
-      include: { uploads: true, sender: { include: { profile: true } } },
+      include: {
+        uploads: { orderBy: MESSAGE_CHAT_UPLOADS_ORDER_BY },
+        sender: { include: { profile: true } },
+      },
     });
 
     const renter = (dispute as any).user;
@@ -5033,7 +5084,13 @@ export class ListersService {
         name: true,
         dailyPrice: true,
         attachments: {
-          select: { uploads: { take: 1, select: { url: true } } },
+          select: {
+            uploads: {
+              orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+              take: 1,
+              select: { url: true },
+            },
+          },
         },
       },
     });
@@ -5130,7 +5187,13 @@ export class ListersService {
           brand: { select: { name: true } },
           category: { select: { name: true } },
           attachments: {
-            include: { uploads: { take: 1, select: { url: true } } },
+            include: {
+              uploads: {
+                orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+                take: 1,
+                select: { url: true },
+              },
+            },
           },
           _count: { select: { reviews: true } },
         },

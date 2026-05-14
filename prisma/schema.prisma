@@ -250,6 +250,8 @@ model Upload {
   url             String
   fieldName       String
   publicId        String
+  /// Order within a product attachment set (0 = hero). Set from client attachment id array on create/update.
+  displayOrder    Int          @default(0)
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @default(now())
   attachmentId    String?

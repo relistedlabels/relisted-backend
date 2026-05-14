@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../services/prisma/prisma.service';
+import { PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY } from '../../utils/product-attachment-upload-order';
 import { userEntity } from '../auth/auth.types';
 
 @Injectable()
@@ -16,7 +17,7 @@ export class RentalService {
           include: {
             attachments: {
               include: {
-                uploads: true,
+                uploads: { orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY },
               },
             },
           },
@@ -49,7 +50,7 @@ export class RentalService {
           include: {
             attachments: {
               include: {
-                uploads: true,
+                uploads: { orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY },
               },
             },
           },

@@ -5,6 +5,10 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { PrismaService } from '../../services/prisma/prisma.service';
+import {
+  MESSAGE_CHAT_UPLOADS_ORDER_BY,
+  PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+} from '../../utils/product-attachment-upload-order';
 import { UploadService } from '../upload/upload.service';
 import { WemaServiceService } from '../../services/wema-service/wema-service.service';
 import {
@@ -1735,7 +1739,13 @@ export class RentersService {
           include: {
             product: {
               include: {
-                attachments: { include: { uploads: true } },
+                attachments: {
+                  include: {
+                    uploads: {
+                      orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+                    },
+                  },
+                },
                 tags: true,
                 curator: {
                   include: { profile: { include: { avatarUpload: true } } },
@@ -2709,7 +2719,7 @@ export class RentersService {
           include: {
             message: {
               include: {
-                uploads: true,
+                uploads: { orderBy: MESSAGE_CHAT_UPLOADS_ORDER_BY },
               },
             },
           },
@@ -2775,7 +2785,14 @@ export class RentersService {
   async getDisputeEvidence(userId: string, disputeId: string) {
     const dispute = await this.prisma.dispute.findUnique({
       where: { disputeId },
-      include: { attachment: { include: { uploads: true } }, order: true },
+      include: {
+        attachment: {
+          include: {
+            uploads: { orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY },
+          },
+        },
+        order: true,
+      },
     });
 
     if (!dispute || dispute.order?.userId !== userId)
@@ -2868,7 +2885,7 @@ export class RentersService {
             message: {
               orderBy: { createdAt: 'asc' },
               include: {
-                uploads: true,
+                uploads: { orderBy: MESSAGE_CHAT_UPLOADS_ORDER_BY },
                 sender: { include: { profile: true } },
               },
             },
@@ -2964,7 +2981,10 @@ export class RentersService {
           ? { connect: fileIds.map((id) => ({ id })) }
           : undefined,
       },
-      include: { uploads: true, sender: { include: { profile: true } } },
+      include: {
+        uploads: { orderBy: MESSAGE_CHAT_UPLOADS_ORDER_BY },
+        sender: { include: { profile: true } },
+      },
     });
 
     const lister = (dispute as any).order?.rentals?.[0]?.curator;
@@ -3613,7 +3633,15 @@ export class RentersService {
         orderItems: {
           include: {
             product: {
-              include: { attachments: { include: { uploads: true } } },
+              include: {
+                attachments: {
+                  include: {
+                    uploads: {
+                      orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+                    },
+                  },
+                },
+              },
             },
           },
         },
