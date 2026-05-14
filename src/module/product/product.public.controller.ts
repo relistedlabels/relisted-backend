@@ -82,6 +82,7 @@ export class ProductPublicController {
       closetId: query.closetId,
       onlyWithCloset:
         query.onlyWithCloset === true || query.onlyWithCloset === 'true',
+      excludeStagingCurator: true,
     };
     return this.productService.list(listQuery);
   }

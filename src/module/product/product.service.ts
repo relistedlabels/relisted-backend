@@ -284,8 +284,16 @@ export class ProductService {
 
       if (query.closetId) {
         where.closetId = query.closetId;
+        // Public storefront only: hide inventory from deactivated closets (owner tools use same list without this flag).
+        if (query.excludeStagingCurator === true) {
+          where.closet = { is: { isActive: true } };
+        }
       } else if (query.onlyWithCloset) {
-        where.closetId = { not: null };
+        if (query.excludeStagingCurator === true) {
+          where.closet = { is: { isActive: true } };
+        } else {
+          where.closetId = { not: null };
+        }
       } else {
         // Main shop and generic lists: closet inventory only appears when
         // `closetId` or `onlyWithCloset` is set (closet page / closet drops).
