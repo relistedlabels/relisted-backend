@@ -25,13 +25,17 @@ import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import * as Handlebars from 'handlebars';
+import { ResendService } from './resend.service';
 
 @Injectable()
 export class MailService {
   private readonly devBypass = process.env.DEV_EMAIL_BYPASS === 'true';
   private readonly emailOutputDir = join(process.cwd(), 'dev-emails');
 
-  constructor(private readonly mailerService: MailerService) {
+  constructor(
+    private readonly mailerService: MailerService,
+    private readonly resendService: ResendService,
+  ) {
     if (this.devBypass && !existsSync(this.emailOutputDir)) {
       mkdir(this.emailOutputDir, { recursive: true });
     }
@@ -118,6 +122,57 @@ export class MailService {
     console.log(`[DEV EMAIL BYPASS] Opened in browser`);
   }
 
+  /**
+   * Sends via Resend when RESEND_API_KEY is set; otherwise nodemailer (MAIL_HOST).
+   */
+  private async deliverMail(mail: {
+    to: string;
+    subject: string;
+    template?: string;
+    context?: Record<string, unknown>;
+    html?: string;
+  }): Promise<void> {
+    if (mail.html) {
+      if (this.resendService.isConfigured()) {
+        await this.resendService.send({
+          to: mail.to,
+          subject: mail.subject,
+          html: mail.html,
+        });
+        return;
+      }
+      await this.mailerService.sendMail({
+        to: mail.to,
+        subject: mail.subject,
+        html: mail.html,
+      });
+      return;
+    }
+
+    const templatePath = mail.template ?? '';
+    const templateName = templatePath.replace(/^\.\//, '');
+
+    if (this.resendService.isConfigured()) {
+      const html = await this.renderTemplateToHtml(
+        templateName,
+        mail.context ?? {},
+      );
+      await this.resendService.send({
+        to: mail.to,
+        subject: mail.subject,
+        html,
+      });
+      return;
+    }
+
+    await this.mailerService.sendMail({
+      to: mail.to,
+      subject: mail.subject,
+      template: templatePath,
+      context: mail.context,
+    });
+  }
+
   async SendVerficationMail(dto: VerificationDto) {
     const { email, ...rest } = dto;
     console.log(`[EMAIL] Sending verify-email to ${email}`);
@@ -132,7 +187,7 @@ export class MailService {
       return;
     }
 
-    await this.mailerService.sendMail({
+    await this.deliverMail({
       to: email,
       template: './verify-email',
       subject: Auth_Otp_Token_Subject.Verify_Email,
@@ -153,7 +208,7 @@ export class MailService {
       return;
     }
 
-    await this.mailerService.sendMail({
+    await this.deliverMail({
       to: email,
       template: './confirm-order',
       subject,
@@ -175,7 +230,7 @@ export class MailService {
       return;
     }
 
-    await this.mailerService.sendMail({
+    await this.deliverMail({
       to: email,
       template: './reset-password',
       subject: Auth_Otp_Token_Subject.RESET_PASSWORD,
@@ -197,7 +252,7 @@ export class MailService {
       return;
     }
 
-    await this.mailerService.sendMail({
+    await this.deliverMail({
       to: email,
       template: './rental-request',
       subject,
@@ -221,7 +276,7 @@ export class MailService {
       return;
     }
 
-    await this.mailerService.sendMail({
+    await this.deliverMail({
       to: email,
       template: './rental-response',
       subject: Auth_Otp_Token_Subject.RENTAL_RESPONSE,
@@ -245,7 +300,7 @@ export class MailService {
       return;
     }
 
-    await this.mailerService.sendMail({
+    await this.deliverMail({
       to: email,
       template: './withdrawal-status',
       subject: Auth_Otp_Token_Subject.WITHDRAWAL_STATUS,
@@ -263,7 +318,7 @@ export class MailService {
       return;
     }
 
-    await this.mailerService.sendMail({
+    await this.deliverMail({
       to: email,
       template: './shipping-update',
       subject,
@@ -283,7 +338,7 @@ export class MailService {
       );
       return;
     }
-    await this.mailerService.sendMail({
+    await this.deliverMail({
       to: email,
       template: './lister-return-in-transit',
       subject: 'Return on its way to you',
@@ -305,7 +360,7 @@ export class MailService {
       );
       return;
     }
-    await this.mailerService.sendMail({
+    await this.deliverMail({
       to: email,
       template: './lister-return-delivered-confirm',
       subject: 'Confirm return receipt. Finish this rental.',
@@ -325,7 +380,7 @@ export class MailService {
       );
       return;
     }
-    await this.mailerService.sendMail({
+    await this.deliverMail({
       to: email,
       template: './lister-return-window-passed',
       subject: 'Return pickup window has ended',
@@ -347,7 +402,7 @@ export class MailService {
       return;
     }
 
-    await this.mailerService.sendMail({
+    await this.deliverMail({
       to: email,
       template: './return-initiated',
       subject: `Return started. Order ${rest.orderId}.`,
@@ -369,7 +424,7 @@ export class MailService {
       return;
     }
 
-    await this.mailerService.sendMail({
+    await this.deliverMail({
       to: email,
       template: './return-completed',
       subject: 'Return Completed',
@@ -391,7 +446,7 @@ export class MailService {
       return;
     }
 
-    await this.mailerService.sendMail({
+    await this.deliverMail({
       to: email,
       template: './dispute-created',
       subject: 'New Dispute Created',
@@ -410,7 +465,7 @@ export class MailService {
       return;
     }
 
-    await this.mailerService.sendMail({
+    await this.deliverMail({
       to: email,
       template: './dispute-status',
       subject,
@@ -483,7 +538,7 @@ export class MailService {
       return;
     }
 
-    await this.mailerService.sendMail({
+    await this.deliverMail({
       to: email,
       subject,
       html,
@@ -569,7 +624,7 @@ export class MailService {
       return;
     }
 
-    await this.mailerService.sendMail({
+    await this.deliverMail({
       to,
       subject: `⚠️ Shipment Dispatch Failed - ${shipmentId}`,
       html,
@@ -641,7 +696,7 @@ export class MailService {
       return;
     }
 
-    await this.mailerService.sendMail({
+    await this.deliverMail({
       to,
       subject: `Manual Relisted dispatch: order ${humanOrderId}`,
       html,
@@ -729,7 +784,7 @@ export class MailService {
       return;
     }
 
-    await this.mailerService.sendMail({
+    await this.deliverMail({
       to,
       subject,
       html,
@@ -818,7 +873,7 @@ export class MailService {
       return;
     }
 
-    await this.mailerService.sendMail({
+    await this.deliverMail({
       to,
       subject: `🚨 Shipment Cancelled - ${shipmentId}`,
       html,
@@ -856,7 +911,7 @@ export class MailService {
       return;
     }
 
-    await this.mailerService.sendMail({
+    await this.deliverMail({
       to: email,
       subject,
       html,
@@ -923,7 +978,7 @@ export class MailService {
       return;
     }
 
-    await this.mailerService.sendMail({
+    await this.deliverMail({
       to: email,
       subject,
       html,
@@ -982,7 +1037,7 @@ export class MailService {
       return;
     }
 
-    await this.mailerService.sendMail({
+    await this.deliverMail({
       to: email,
       subject,
       html,
@@ -1045,7 +1100,7 @@ export class MailService {
       return;
     }
 
-    await this.mailerService.sendMail({
+    await this.deliverMail({
       to: email,
       subject,
       html,
@@ -1082,7 +1137,7 @@ export class MailService {
       return;
     }
 
-    await this.mailerService.sendMail({
+    await this.deliverMail({
       to: email,
       subject,
       html,
@@ -1126,7 +1181,7 @@ export class MailService {
 
     for (const email of emails) {
       try {
-        await this.mailerService.sendMail({
+        await this.deliverMail({
           to: email,
           template: './vault-closet-sale-live',
           subject: this.vaultClosetSaleLiveSubject,
