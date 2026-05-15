@@ -272,6 +272,7 @@ export class CartService {
             },
           })),
           viewLink: `${process.env.CLIENT_URL}/listers/orders/${updated.id}`,
+          requestType: isResale ? 'purchase' : 'rental',
         },
       });
 

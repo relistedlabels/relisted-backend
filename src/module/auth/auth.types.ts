@@ -10,8 +10,11 @@ export const Auth_Otp_Token_Subject = {
   LISTER_ORDER_PLACED: 'New order on Relisted',
   Admin_MFA: 'admin mfa',
   RENTAL_REQUEST: 'New Rental Request',
+  PURCHASE_REQUEST: 'New Purchase Request',
   RENTAL_REQUEST_WITHDRAWN: 'Rental request withdrawn',
+  PURCHASE_REQUEST_WITHDRAWN: 'Purchase request withdrawn',
   RENTAL_RESPONSE: 'Update on your Rental Request',
+  PURCHASE_RESPONSE: 'Update on your Purchase Request',
   WITHDRAWAL_STATUS: 'Withdrawal Request Status',
   SHIPPING_UPDATE: 'Shipping Status Update',
 };

@@ -1,5 +1,5 @@
 import { MailerService } from '@nestjs-modules/mailer';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   VerificationDto,
   VerifyOrderDto,
@@ -29,6 +29,7 @@ import { ResendService } from './resend.service';
 
 @Injectable()
 export class MailService {
+  private readonly logger = new Logger(MailService.name);
   private readonly devBypass = process.env.DEV_EMAIL_BYPASS === 'true';
   private readonly emailOutputDir = join(process.cwd(), 'dev-emails');
 
@@ -122,8 +123,44 @@ export class MailService {
     console.log(`[DEV EMAIL BYPASS] Opened in browser`);
   }
 
+  private isSmtpConfigured(): boolean {
+    return Boolean(process.env.MAIL_HOST?.trim());
+  }
+
   /**
-   * Sends via Resend when RESEND_API_KEY is set; otherwise nodemailer (MAIL_HOST).
+   * Prefer Resend when RESEND_API_KEY is set. On Resend failure, send the same HTML via
+   * nodemailer when MAIL_HOST is set (e.g. Gmail smtp.gmail.com).
+   */
+  private async sendViaResendWithSmtpFallback(
+    to: string,
+    subject: string,
+    html: string,
+  ): Promise<void> {
+    if (!this.resendService.isConfigured()) {
+      await this.mailerService.sendMail({ to, subject, html });
+      return;
+    }
+
+    try {
+      await this.resendService.send({ to, subject, html });
+      return;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!this.isSmtpConfigured()) {
+        this.logger.warn(
+          `Resend failed and SMTP is not configured (set MAIL_HOST for fallback). ${message}`,
+        );
+        throw err;
+      }
+      this.logger.warn(
+        `Resend failed, sending via SMTP fallback. ${message}`,
+      );
+      await this.mailerService.sendMail({ to, subject, html });
+    }
+  }
+
+  /**
+   * Sends via Resend when RESEND_API_KEY is set (with SMTP fallback on error); otherwise nodemailer (MAIL_HOST).
    */
   private async deliverMail(mail: {
     to: string;
@@ -133,19 +170,11 @@ export class MailService {
     html?: string;
   }): Promise<void> {
     if (mail.html) {
-      if (this.resendService.isConfigured()) {
-        await this.resendService.send({
-          to: mail.to,
-          subject: mail.subject,
-          html: mail.html,
-        });
-        return;
-      }
-      await this.mailerService.sendMail({
-        to: mail.to,
-        subject: mail.subject,
-        html: mail.html,
-      });
+      await this.sendViaResendWithSmtpFallback(
+        mail.to,
+        mail.subject,
+        mail.html,
+      );
       return;
     }
 
@@ -157,11 +186,11 @@ export class MailService {
         templateName,
         mail.context ?? {},
       );
-      await this.resendService.send({
-        to: mail.to,
-        subject: mail.subject,
+      await this.sendViaResendWithSmtpFallback(
+        mail.to,
+        mail.subject,
         html,
-      });
+      );
       return;
     }
 
@@ -240,9 +269,14 @@ export class MailService {
 
   async SendRentalRequestMail(dto: RentalRequestDto) {
     const { email, ...rest } = dto;
+    const isPurchase = dto.requestType === 'purchase';
     const subject = dto.withdrawn
-      ? Auth_Otp_Token_Subject.RENTAL_REQUEST_WITHDRAWN
-      : Auth_Otp_Token_Subject.RENTAL_REQUEST;
+      ? isPurchase
+        ? Auth_Otp_Token_Subject.PURCHASE_REQUEST_WITHDRAWN
+        : Auth_Otp_Token_Subject.RENTAL_REQUEST_WITHDRAWN
+      : isPurchase
+        ? Auth_Otp_Token_Subject.PURCHASE_REQUEST
+        : Auth_Otp_Token_Subject.RENTAL_REQUEST;
     console.log(
       `[EMAIL] Sending rental-request to ${email}, withdrawn: ${dto.withdrawn}`,
     );
@@ -262,6 +296,10 @@ export class MailService {
 
   async SendRentalResponseMail(dto: RentalResponseDto) {
     const { email, ...rest } = dto;
+    const responseSubject =
+      dto.requestType === 'purchase'
+        ? Auth_Otp_Token_Subject.PURCHASE_RESPONSE
+        : Auth_Otp_Token_Subject.RENTAL_RESPONSE;
     console.log(
       `[EMAIL] Sending rental-response to ${email}, status: ${dto.status}`,
     );
@@ -269,7 +307,7 @@ export class MailService {
     if (this.devBypass) {
       await this.handleDevBypass(
         'rental-response',
-        Auth_Otp_Token_Subject.RENTAL_RESPONSE,
+        responseSubject,
         rest,
         email,
       );
@@ -279,7 +317,7 @@ export class MailService {
     await this.deliverMail({
       to: email,
       template: './rental-response',
-      subject: Auth_Otp_Token_Subject.RENTAL_RESPONSE,
+      subject: responseSubject,
       context: rest,
     });
   }
