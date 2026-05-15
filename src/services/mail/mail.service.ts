@@ -240,9 +240,14 @@ export class MailService {
 
   async SendRentalRequestMail(dto: RentalRequestDto) {
     const { email, ...rest } = dto;
+    const isPurchase = dto.requestType === 'purchase';
     const subject = dto.withdrawn
-      ? Auth_Otp_Token_Subject.RENTAL_REQUEST_WITHDRAWN
-      : Auth_Otp_Token_Subject.RENTAL_REQUEST;
+      ? isPurchase
+        ? Auth_Otp_Token_Subject.PURCHASE_REQUEST_WITHDRAWN
+        : Auth_Otp_Token_Subject.RENTAL_REQUEST_WITHDRAWN
+      : isPurchase
+        ? Auth_Otp_Token_Subject.PURCHASE_REQUEST
+        : Auth_Otp_Token_Subject.RENTAL_REQUEST;
     console.log(
       `[EMAIL] Sending rental-request to ${email}, withdrawn: ${dto.withdrawn}`,
     );
@@ -262,6 +267,10 @@ export class MailService {
 
   async SendRentalResponseMail(dto: RentalResponseDto) {
     const { email, ...rest } = dto;
+    const responseSubject =
+      dto.requestType === 'purchase'
+        ? Auth_Otp_Token_Subject.PURCHASE_RESPONSE
+        : Auth_Otp_Token_Subject.RENTAL_RESPONSE;
     console.log(
       `[EMAIL] Sending rental-response to ${email}, status: ${dto.status}`,
     );
@@ -269,7 +278,7 @@ export class MailService {
     if (this.devBypass) {
       await this.handleDevBypass(
         'rental-response',
-        Auth_Otp_Token_Subject.RENTAL_RESPONSE,
+        responseSubject,
         rest,
         email,
       );
@@ -279,7 +288,7 @@ export class MailService {
     await this.deliverMail({
       to: email,
       template: './rental-response',
-      subject: Auth_Otp_Token_Subject.RENTAL_RESPONSE,
+      subject: responseSubject,
       context: rest,
     });
   }
