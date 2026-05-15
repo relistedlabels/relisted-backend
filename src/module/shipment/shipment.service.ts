@@ -13,6 +13,23 @@ import { ListShipmentsDto } from './dto/list-shipments.dto';
 import { ManualCompleteShipmentDto } from './dto/manual-complete-shipment.dto';
 import { selectOrderItemsForShipmentLeg } from './order-items-for-shipment-leg';
 import { formatDispatchWindowLagos } from 'src/module/shipment/dispatch-window-format';
+import { PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY } from 'src/utils/product-attachment-upload-order';
+
+const shipmentOrderItemProductInclude = {
+  product: {
+    select: {
+      name: true,
+      attachments: {
+        include: {
+          uploads: {
+            orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+            select: { id: true, url: true, displayOrder: true },
+          },
+        },
+      },
+    },
+  },
+} as const;
 
 @Injectable()
 export class ShipmentService {
@@ -79,6 +96,7 @@ export class ShipmentService {
               userId: true,
               orderListers: true,
               user: { select: { name: true, email: true } },
+              orderItems: { include: shipmentOrderItemProductInclude },
             },
           },
           attemptLogs: { orderBy: { attemptedAt: 'asc' } },
@@ -93,7 +111,7 @@ export class ShipmentService {
     return {
       success: true,
       data: {
-        shipments,
+        shipments: shipments.map((s) => this.withLegOrderItems(s)),
         total,
         page,
         limit,
@@ -111,7 +129,7 @@ export class ShipmentService {
         order: {
           include: {
             user: { select: { name: true, email: true } },
-            orderItems: { include: { product: { select: { name: true } } } },
+            orderItems: { include: shipmentOrderItemProductInclude },
           },
         },
         attemptLogs: { orderBy: { attemptedAt: 'asc' } },
@@ -120,23 +138,30 @@ export class ShipmentService {
 
     if (!shipment) throw new NotFoundException('Shipment not found');
 
+    return { success: true, data: this.withLegOrderItems(shipment) };
+  }
+
+  private withLegOrderItems<
+    T extends {
+      id: string;
+      type: import('@prisma/client').ShipmentType;
+      order?: { orderItems?: unknown[] } | null;
+    },
+  >(shipment: T): T {
     const legItems =
       shipment.order?.orderItems?.length &&
       selectOrderItemsForShipmentLeg(
         shipment.id,
         shipment.type,
-        shipment.order.orderItems,
+        shipment.order.orderItems as Parameters<
+          typeof selectOrderItemsForShipmentLeg
+        >[2],
       );
-
-    const data =
-      legItems && shipment.order
-        ? {
-            ...shipment,
-            order: { ...shipment.order, orderItems: legItems },
-          }
-        : shipment;
-
-    return { success: true, data };
+    if (!legItems || !shipment.order) return shipment;
+    return {
+      ...shipment,
+      order: { ...shipment.order, orderItems: legItems },
+    };
   }
 
   // ─── Get shipments for an order ────────────────────────────────────────────
