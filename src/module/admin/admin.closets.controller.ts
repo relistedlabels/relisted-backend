@@ -32,8 +32,14 @@ export class AdminClosetsController {
   @ApiOperation({
     summary: 'List Vault Closet sale email waitlist (VaultClosetSaleInterest)',
   })
-  async listVaultClosetSaleWaitlist() {
-    return this.adminService.listVaultClosetSaleWaitlistForAdmin();
+  async listVaultClosetSaleWaitlist(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.adminService.listVaultClosetSaleWaitlistForAdmin(
+      page ? parseInt(page, 10) || 1 : 1,
+      limit ? parseInt(limit, 10) || 20 : 20,
+    );
   }
 
   @Post('vault-closet-sale/notify-waitlist')

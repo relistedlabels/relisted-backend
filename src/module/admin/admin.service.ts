@@ -20,6 +20,7 @@ import {
   MESSAGE_CHAT_UPLOADS_ORDER_BY,
   PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
 } from 'src/utils/product-attachment-upload-order';
+import { ADMIN_ORDER_ANALYTICS_CUTOFF } from 'src/constants/admin-analytics';
 
 @Injectable()
 export class AdminService {
@@ -117,7 +118,7 @@ export class AdminService {
     return map[key];
   }
 
-  /** Date range for admin analytics filters (all_time | year | month). */
+  /** UI timeframe selection (all_time | year | month), before launch cutoff is applied. */
   private buildAnalyticsDateRange(
     timeframe: string,
     year?: string,
@@ -148,9 +149,27 @@ export class AdminService {
     return {};
   }
 
+  /** Order-linked analytics (orders, rentals): max(selected range start, launch cutoff). */
+  private resolveOrderAnalyticsDateRange(
+    timeframe: string,
+    year?: string,
+    month?: string,
+  ): { gte: Date; lte?: Date } {
+    const selected = this.buildAnalyticsDateRange(timeframe, year, month);
+    const gte =
+      selected.gte && selected.gte > ADMIN_ORDER_ANALYTICS_CUTOFF
+        ? selected.gte
+        : new Date(ADMIN_ORDER_ANALYTICS_CUTOFF);
+    return {
+      gte,
+      ...(selected.lte ? { lte: selected.lte } : {}),
+    };
+  }
+
   /**
    * Users with marketplace engagement in the analytics period:
    * orders (renter or lister) and/or availability requests (requester or lister).
+   * Not subject to the order revenue launch cutoff.
    */
   private buildActiveUserWhere(
     dateRange: { gte?: Date; lte?: Date },
@@ -227,27 +246,28 @@ export class AdminService {
   }
 
   async getAnalyticsStats(timeframe: string, year?: string, month?: string) {
-    const dateRange = this.buildAnalyticsDateRange(timeframe, year, month);
-    const hasDateRange = Boolean(dateRange.gte || dateRange.lte);
+    const selectedRange = this.buildAnalyticsDateRange(timeframe, year, month);
+    const hasDateRange = Boolean(selectedRange.gte || selectedRange.lte);
+    const orderDateRange = this.resolveOrderAnalyticsDateRange(
+      timeframe,
+      year,
+      month,
+    );
 
     const orderWhere: Prisma.OrderWhereInput = {
       status: { notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED] },
-      ...(hasDateRange ? { createdAt: dateRange } : {}),
+      createdAt: orderDateRange,
     };
 
-    const rentalWhere: Prisma.RentalWhereInput = hasDateRange
-      ? { createdAt: dateRange }
-      : {};
-
     const [
-      totalRentals,
+      totalOrders,
       revenueAgg,
       activeListings,
       activeDisputes,
       activeUsers,
       deliveryOrders,
     ] = await Promise.all([
-      this.prisma.rental.count({ where: rentalWhere }),
+      this.prisma.order.count({ where: orderWhere }),
       this.prisma.order.aggregate({
         where: orderWhere,
         _sum: { totalAmountPaid: true },
@@ -256,7 +276,13 @@ export class AdminService {
         where: {
           isActive: true,
           productVerified: true,
-          status: { in: [ProductStatus.AVAILABLE, ProductStatus.RENTED] },
+          status: {
+            in: [
+              ProductStatus.APPROVED,
+              ProductStatus.AVAILABLE,
+              ProductStatus.RENTED,
+            ],
+          },
         },
       }),
       this.prisma.dispute.count({
@@ -265,7 +291,7 @@ export class AdminService {
         },
       }),
       this.prisma.user.count({
-        where: this.buildActiveUserWhere(dateRange, hasDateRange),
+        where: this.buildActiveUserWhere(selectedRange, hasDateRange),
       }),
       this.prisma.order.findMany({
         where: {
@@ -299,7 +325,7 @@ export class AdminService {
     return {
       success: true,
       data: {
-        totalRentals,
+        totalOrders,
         totalRevenue: revenueAgg._sum.totalAmountPaid || 0,
         activeListings,
         activeDisputes,
@@ -307,6 +333,7 @@ export class AdminService {
         avgDeliveryTime,
         timeframe,
         period,
+        orderAnalyticsCutoff: ADMIN_ORDER_ANALYTICS_CUTOFF.toISOString(),
       },
     };
   }
@@ -316,22 +343,18 @@ export class AdminService {
     year?: string,
     month?: string,
   ) {
-    const range = this.buildAnalyticsDateRange(timeframe, year, month);
+    const orderRange = this.resolveOrderAnalyticsDateRange(
+      timeframe,
+      year,
+      month,
+    );
     const now = new Date();
-    let rangeStart: Date;
-    let rangeEnd: Date;
-
-    if (range.gte && range.lte) {
-      rangeStart = range.gte;
-      rangeEnd = range.lte;
-    } else {
-      rangeEnd = new Date(
+    const rangeEnd =
+      orderRange.lte ??
+      new Date(
         Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999),
       );
-      rangeStart = new Date(
-        Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5, 1),
-      );
-    }
+    const rangeStart = orderRange.gte;
 
     const [orders, rentals] = await Promise.all([
       this.prisma.order.findMany({
@@ -342,7 +365,9 @@ export class AdminService {
         select: { createdAt: true, totalAmountPaid: true },
       }),
       this.prisma.rental.findMany({
-        where: { createdAt: { gte: rangeStart, lte: rangeEnd } },
+        where: {
+          createdAt: { gte: rangeStart, lte: rangeEnd },
+        },
         select: { createdAt: true },
       }),
     ]);
@@ -410,6 +435,7 @@ export class AdminService {
       data: {
         trend,
         timeframe,
+        orderAnalyticsCutoff: ADMIN_ORDER_ANALYTICS_CUTOFF.toISOString(),
       },
     };
   }
@@ -460,7 +486,7 @@ export class AdminService {
       data: topCurators.map((user) => ({
         id: user.id,
         name: user.name,
-        avatar: user.profile?.avatarUploadId || null, // Simplified
+        avatar: user.profile?.avatarUploadId || null,
         totalRentals: user._count.rentalsCurated,
         totalProducts: user._count.products,
       })),
@@ -3307,22 +3333,37 @@ export class AdminService {
     );
   }
 
-  async listVaultClosetSaleWaitlistForAdmin() {
-    const entries = await this.prisma.vaultClosetSaleInterest.findMany({
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        email: true,
-        userId: true,
-        createdAt: true,
-      },
-    });
+  async listVaultClosetSaleWaitlistForAdmin(page = 1, limit = 20) {
+    const pageSafe = Math.max(1, page);
+    const limitSafe = Math.min(100, Math.max(1, limit));
+    const skip = (pageSafe - 1) * limitSafe;
+
+    const [total, entries] = await this.prisma.$transaction([
+      this.prisma.vaultClosetSaleInterest.count(),
+      this.prisma.vaultClosetSaleInterest.findMany({
+        skip,
+        take: limitSafe,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          email: true,
+          userId: true,
+          createdAt: true,
+        },
+      }),
+    ]);
 
     return {
       success: true as const,
       data: {
-        total: entries.length,
+        total,
         entries,
+        pagination: {
+          total,
+          page: pageSafe,
+          limit: limitSafe,
+          pages: Math.max(1, Math.ceil(total / limitSafe)),
+        },
       },
     };
   }
