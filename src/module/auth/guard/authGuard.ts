@@ -8,12 +8,14 @@ import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
 import { Observable } from 'rxjs';
 import { PrismaService } from 'src/services/prisma/prisma.service';
+import { UserActivityService } from 'src/services/user-activity/user-activity.service';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   constructor(
     private jwtService: JwtService,
     private prismaService: PrismaService,
+    private userActivity: UserActivityService,
   ) {}
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
@@ -38,6 +40,7 @@ export class JwtAuthGuard implements CanActivate {
           isVerified: true,
           provider: true,
           createdAt: true,
+          lastSeenAt: true,
           profile: true,
           tokenVersion: true,
         },
@@ -53,7 +56,7 @@ export class JwtAuthGuard implements CanActivate {
       }
 
       request.user = user;
-    
+      this.userActivity.touchLastSeen(user.id, user.lastSeenAt);
     } catch (error) {
       throw new UnauthorizedException();
     }

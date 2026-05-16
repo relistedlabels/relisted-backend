@@ -114,6 +114,60 @@ export class CartService {
     return next;
   }
 
+  /**
+   * Ensures the product can still receive an availability request (new or re-request).
+   * The EXPIRED reactivation branch previously skipped these checks.
+   */
+  private async assertProductEligibleForAvailabilityRequest(cartItem: {
+    days: number;
+    productId: string;
+    product: {
+      name: string | null;
+      status: string;
+      listingType?: string | null;
+    };
+  }): Promise<void> {
+    const product = cartItem.product;
+    const st = (product.status ?? '').trim().toUpperCase();
+    if (st === 'SOLD') {
+      bad(
+        `${product.name ?? 'This item'} has been sold and is no longer available.`,
+      );
+    }
+
+    const isResaleRequest =
+      product.listingType === 'RESALE' ||
+      (product.listingType === 'RENT_OR_RESALE' && cartItem.days === 0);
+
+    if (isResaleRequest) {
+      const activeRental = await this.prisma.rental.findFirst({
+        where: {
+          productId: cartItem.productId,
+          isReturned: false,
+          endDate: { gt: new Date() },
+        },
+      });
+
+      if (activeRental) {
+        bad(
+          `${product.name} is currently rented out and unavailable for resale until ${activeRental.endDate.toISOString().split('T')[0]}`,
+        );
+      }
+      return;
+    }
+
+    const isRentalRequest =
+      cartItem.days > 0 &&
+      (product.listingType === 'RENTAL' ||
+        product.listingType === 'RENT_OR_RESALE');
+
+    if (isRentalRequest && st === 'RENTED') {
+      bad(
+        `${product.name ?? 'This item'} is currently rented out and is not available for new rental requests right now.`,
+      );
+    }
+  }
+
   private mergeManualDispatchWindows(
     requiredTypes: DispatchWindowType[],
     manual: DispatchWindowsInput | undefined,
@@ -169,6 +223,8 @@ export class CartService {
     if (!cartItem || cartItem.cart?.userId !== user.id) {
       bad('Cart item not found');
     }
+
+    await this.assertProductEligibleForAvailabilityRequest(cartItem);
 
     const requiredWindowTypes =
       this.resolveRequiredDispatchWindowTypes(cartItem);
@@ -291,23 +347,6 @@ export class CartService {
       (cartItem.product as any)?.listingType === 'RESALE' ||
       ((cartItem.product as any)?.listingType === 'RENT_OR_RESALE' &&
         cartItem.days === 0);
-
-    // If this is a resale request, check if the product is actively rented
-    if (isResaleRequest) {
-      const activeRental = await this.prisma.rental.findFirst({
-        where: {
-          productId: cartItem.productId,
-          isReturned: false,
-          endDate: { gt: new Date() },
-        },
-      });
-
-      if (activeRental) {
-        bad(
-          `${cartItem.product.name} is currently rented out and unavailable for resale until ${activeRental.endDate.toISOString().split('T')[0]}`,
-        );
-      }
-    }
 
     // start 15 minutes countdown NOW
     const now = new Date();

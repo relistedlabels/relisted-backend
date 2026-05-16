@@ -5,6 +5,11 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { OrderStatus, Prisma } from '@prisma/client';
 import { Order_Verification } from 'src/services/event/event.types';
 import { PrismaService } from 'src/services/prisma/prisma.service';
+import {
+  chowdeckRelayQuotesAvailable,
+  topshipFulfillmentEnabled,
+} from 'src/constants/shipping-fulfillment-providers';
+import { ChowdeckRelayService } from 'src/services/chowdeck-relay/chowdeck-relay.service';
 import { TopshipService } from 'src/services/topship/topship.service';
 import { bad } from 'src/utils/error';
 import { userEntity } from '../auth/auth.types';
@@ -25,7 +30,9 @@ import {
   DispatchWindowType,
   DispatchWindowsInput,
   buildDefaultDispatchWindow,
+  getLagosCalendarDateKey,
   isWindowExpired,
+  mergeDispatchWindowRanges,
   parseDispatchWindowFromInput,
 } from 'src/utils/dispatch-windows';
 import {
@@ -122,6 +129,7 @@ export class OrderService {
     private readonly prisma: PrismaService,
     private eventEmitter: EventEmitter2,
     private topshipService: TopshipService,
+    private readonly chowdeckRelayService: ChowdeckRelayService,
     private notificationService: NotificationService,
     private readonly mailService: MailService,
     @InjectQueue('shipment-dispatch')
@@ -313,11 +321,24 @@ export class OrderService {
       .trim()
       .toLowerCase();
     if (!t) return 'chowdeck';
+    if (t === 'chowdeck_relay') return 'chowdeck_relay';
     if (t === RELISTED_DISPATCH_SHIPPING_LABEL.toLowerCase())
       return 'relisted dispatch';
     if (t === 'glovo') return 'glovo';
     if (t === 'chowdeck') return 'chowdeck';
     return 'chowdeck';
+  }
+
+  private resolveResaleDispatchWindowForItem(
+    item: any,
+    dispatchWindowsInput?: DispatchWindowsInput,
+  ): DispatchWindowRange {
+    return this.resolveDispatchWindow(
+      'RESALE',
+      new Date(),
+      dispatchWindowsInput,
+      item.dispatchWindows?.RESALE,
+    );
   }
 
   /** Group cart lines into shipment buckets (same lister, same resolved dispatch windows). */
@@ -366,15 +387,14 @@ export class OrderService {
       rentalGroups.get(key)!.push(it);
     }
 
+    // Resale: one bucket per Lagos calendar day (approval times may differ by minutes).
     const resaleGroups = new Map<string, any[]>();
     for (const it of resaleItems) {
-      const rw = this.resolveDispatchWindow(
-        'RESALE',
-        new Date(),
+      const rw = this.resolveResaleDispatchWindowForItem(
+        it,
         dispatchWindowsInput,
-        it.dispatchWindows?.RESALE,
       );
-      const key = `${rw.start.toISOString()}::${rw.end.toISOString()}`;
+      const key = getLagosCalendarDateKey(rw.start);
       if (!resaleGroups.has(key)) resaleGroups.set(key, []);
       resaleGroups.get(key)!.push(it);
     }
@@ -420,13 +440,10 @@ export class OrderService {
     }
 
     for (const [, bucketItems] of resaleGroups) {
-      const sample = bucketItems[0];
-      const resaleWindow = this.resolveDispatchWindow(
-        'RESALE',
-        new Date(),
-        dispatchWindowsInput,
-        sample.dispatchWindows?.RESALE,
+      const resaleWindows = bucketItems.map((it) =>
+        this.resolveResaleDispatchWindowForItem(it, dispatchWindowsInput),
       );
+      const resaleWindow = mergeDispatchWindowRanges(resaleWindows);
       const resaleKey = `${resaleWindow.start.toISOString()}::${resaleWindow.end.toISOString()}`;
       const rentalBucketIndex =
         rentalBucketIndexByOutboundKey.get(resaleKey) ?? -1;
@@ -683,6 +700,53 @@ export class OrderService {
     };
   }
 
+  private async maybeAppendChowdeckRelayOutboundRate(
+    rateData: any[],
+    sourceAddressLine: string,
+    destinationAddressLine: string,
+    estimatedOrderAmountKobo: number,
+  ): Promise<any[]> {
+    if (!chowdeckRelayQuotesAvailable()) return rateData;
+    const src = String(sourceAddressLine ?? '').trim();
+    const dst = String(destinationAddressLine ?? '').trim();
+    if (!src || !dst) return rateData;
+    try {
+      const q = await this.chowdeckRelayService.getDeliveryFee({
+        sourceAddressString: src,
+        destinationAddressString: dst,
+        estimatedOrderAmountKobo,
+      });
+      const row = {
+        pricingTier: 'chowdeck_relay',
+        name: 'Chowdeck Relay',
+        cost: q.totalAmountKobo,
+      };
+      return [...(Array.isArray(rateData) ? rateData : []), row];
+    } catch (err: any) {
+      console.warn(
+        `[Checkout] Chowdeck Relay fee quote failed (${src.slice(0, 40)}…):`,
+        err?.message ?? err,
+      );
+      return rateData;
+    }
+  }
+
+  private estimateBucketOrderValueKobo(bucketItems: any[]): number {
+    let ngn = 0;
+    for (const it of bucketItems || []) {
+      const p = it?.product;
+      if (!p) continue;
+      if (it.days > 0 && p.dailyPrice) {
+        ngn += Number(p.dailyPrice) * (Number(it.days) || 0);
+      } else if (p.resalePrice) {
+        ngn += Number(p.resalePrice);
+      } else if (p.originalValue) {
+        ngn += Number(p.originalValue);
+      }
+    }
+    return Math.round(Math.max(0, ngn) * 100);
+  }
+
   /** Single-line address for admin / shipment snapshot (not Topship pickup-hub fields). */
   private formatAddressSnapshotLine(snapshot: {
     street?: string | null;
@@ -735,25 +799,32 @@ export class OrderService {
   }
 
   /**
-   * Checkout uses Topship Chowdeck or Glovo only. Budget/Standard are separate Topship products, excluded here.
+   * Checkout uses Topship Chowdeck or Glovo, optional Chowdeck Relay when configured, plus Relisted dispatch fallback.
+   * Budget/Standard are separate Topship products, excluded here.
    * When neither exists for a lane, {@link ensureRatesIncludeAllowedCheckoutTier} injects Relisted dispatch.
    */
   private slugForCheckoutShippingTier(
     pricingTier: string | undefined,
-  ): 'chowdeck' | 'glovo' | 'relisted_dispatch' | null {
+  ):
+    | 'chowdeck'
+    | 'glovo'
+    | 'relisted_dispatch'
+    | 'chowdeck_relay'
+    | null {
     const t = String(pricingTier ?? '').trim().toLowerCase();
     if (t === 'glovo') return 'glovo';
     if (t === 'chowdeck') return 'chowdeck';
+    if (t === 'chowdeck_relay') return 'chowdeck_relay';
     if (t === RELISTED_DISPATCH_SHIPPING_LABEL.toLowerCase())
       return 'relisted_dispatch';
     return null;
   }
 
-  private pickPreferredChowdeckOrGlovoRate(
+  private pickPreferredChowdeckOrGlovoOrRelayRate(
     rates: any[] | undefined,
   ): any | null {
     if (!Array.isArray(rates) || rates.length === 0) return null;
-    const order = ['chowdeck', 'glovo'] as const;
+    const order = ['chowdeck', 'glovo', 'chowdeck_relay'] as const;
     for (const slug of order) {
       const found = rates.find(
         (r) => this.slugForCheckoutShippingTier(r?.pricingTier) === slug,
@@ -763,10 +834,10 @@ export class OrderService {
     return null;
   }
 
-  /** Chowdeck and Glovo first, then Relisted dispatch fallback row from {@link ensureRatesIncludeAllowedCheckoutTier}. */
+  /** Chowdeck, Glovo, Chowdeck Relay, then Relisted dispatch fallback row from {@link ensureRatesIncludeAllowedCheckoutTier}. */
   private pickRateForLegOrFallback(rates: any[] | undefined): any | null {
     if (!Array.isArray(rates) || rates.length === 0) return null;
-    const preferred = this.pickPreferredChowdeckOrGlovoRate(rates);
+    const preferred = this.pickPreferredChowdeckOrGlovoOrRelayRate(rates);
     if (preferred) return preferred;
     const relisted = rates.find(
       (r) =>
@@ -787,13 +858,14 @@ export class OrderService {
     );
   }
 
-  /** Maps client tier labels to stored/pricing tier strings (Chowdeck, Glovo, Relisted dispatch). */
+  /** Maps client tier labels to stored/pricing tier strings (Chowdeck, Glovo, Chowdeck Relay, Relisted dispatch). */
   private coerceLegPricingTierSelection(
     tier: string | undefined | null,
   ): string {
     const slug = this.slugForCheckoutShippingTier(tier ?? '');
     if (slug === 'glovo') return 'Glovo';
     if (slug === 'relisted_dispatch') return RELISTED_DISPATCH_SHIPPING_LABEL;
+    if (slug === 'chowdeck_relay') return 'chowdeck_relay';
     return 'Chowdeck';
   }
 
@@ -843,10 +915,17 @@ export class OrderService {
           ? 'Glovo'
           : slug === 'relisted_dispatch'
             ? RELISTED_DISPATCH_SHIPPING_LABEL
-            : 'Chowdeck');
+            : slug === 'chowdeck_relay'
+              ? 'Chowdeck Relay'
+              : 'Chowdeck');
       map.set(slug, { slug, name: displayName, totalShippingCost: tierCost });
     }
-    const preferredSlugOrder = ['chowdeck', 'glovo', 'relisted_dispatch'];
+    const preferredSlugOrder = [
+      'chowdeck',
+      'glovo',
+      'chowdeck_relay',
+      'relisted_dispatch',
+    ];
     const preferredSlugIndex = new Map<string, number>(
       preferredSlugOrder.map((t, i) => [t, i]),
     );
@@ -1064,7 +1143,7 @@ export class OrderService {
     }
 
     const pickPreferredRateSummary = (rates: any[]) =>
-      this.pickPreferredChowdeckOrGlovoRate(rates);
+      this.pickPreferredChowdeckOrGlovoOrRelayRate(rates);
 
     type CheckoutBucketCtx = {
       listerId: string;
@@ -1099,28 +1178,30 @@ export class OrderService {
 
     /** Warm shipment-rate quotes only (pickup quotes waived for customer pricing). */
     const topShipWarmup: Promise<any[]>[] = [];
-    for (const ctx of bucketContexts) {
-      const senderCity = ctx.curatorAddress?.city || 'Lagos';
-      const ratePayload = {
-        senderDetails: { cityName: senderCity, countryCode: 'NG' },
-        receiverDetails: {
-          cityName: summaryReceiverCity,
-          countryCode: 'NG',
-        },
-        totalWeight: 1,
-      };
-      topShipWarmup.push(quoteMemo.shipRates(ratePayload));
-      if (ctx.bucketMode === 'RENTAL') {
-        topShipWarmup.push(
-          quoteMemo.shipRates({
-            senderDetails: {
-              cityName: returnPickupAddressSnapshot.city || 'Lagos',
-              countryCode: 'NG',
-            },
-            receiverDetails: { cityName: senderCity, countryCode: 'NG' },
-            totalWeight: 1,
-          }),
-        );
+    if (topshipFulfillmentEnabled()) {
+      for (const ctx of bucketContexts) {
+        const senderCity = ctx.curatorAddress?.city || 'Lagos';
+        const ratePayload = {
+          senderDetails: { cityName: senderCity, countryCode: 'NG' },
+          receiverDetails: {
+            cityName: summaryReceiverCity,
+            countryCode: 'NG',
+          },
+          totalWeight: 1,
+        };
+        topShipWarmup.push(quoteMemo.shipRates(ratePayload));
+        if (ctx.bucketMode === 'RENTAL') {
+          topShipWarmup.push(
+            quoteMemo.shipRates({
+              senderDetails: {
+                cityName: returnPickupAddressSnapshot.city || 'Lagos',
+                countryCode: 'NG',
+              },
+              receiverDetails: { cityName: senderCity, countryCode: 'NG' },
+              totalWeight: 1,
+            }),
+          );
+        }
       }
     }
     await Promise.all(topShipWarmup);
@@ -1138,7 +1219,9 @@ export class OrderService {
           totalWeight: 1,
         };
 
-        const rateDataRaw = await quoteMemo.shipRates(ratePayload);
+        const rateDataRaw = topshipFulfillmentEnabled()
+          ? await quoteMemo.shipRates(ratePayload)
+          : [];
 
         let rateData =
           Array.isArray(rateDataRaw) && rateDataRaw.length > 0
@@ -1157,6 +1240,22 @@ export class OrderService {
             },
           ];
         }
+
+        const outboundSourceLine = this.formatAddressSnapshotLine({
+          street: ctx.curatorAddress?.street,
+          city: ctx.curatorAddress?.city,
+          state: ctx.curatorAddress?.state,
+        });
+        const outboundDestLine = this.formatAddressSnapshotLine(
+          renterDeliveryAddressSnapshot,
+        );
+        rateData = await this.maybeAppendChowdeckRelayOutboundRate(
+          rateData,
+          outboundSourceLine,
+          outboundDestLine,
+          this.estimateBucketOrderValueKobo(ctx.items),
+        );
+
         rateData = this.ensureRatesIncludeAllowedCheckoutTier(rateData);
 
         let returnRateData: any[] = [];
@@ -1172,12 +1271,9 @@ export class OrderService {
             totalWeight: 1,
           };
 
-          const returnRateArrRaw = await quoteMemo.shipRates(returnRatePayload);
-
-          returnRateData =
-            Array.isArray(returnRateArrRaw) && returnRateArrRaw.length > 0
-              ? returnRateArrRaw
-              : [];
+          const returnRateArrRaw = topshipFulfillmentEnabled()
+            ? await quoteMemo.shipRates(returnRatePayload)
+            : [];
 
           if (!returnRateData.length) {
             returnRateData = [
@@ -1774,7 +1870,9 @@ export class OrderService {
           receiverDetails: { cityName: receiverCity, countryCode: 'NG' },
           totalWeight: 1, // Default weight 1kg
         };
-        const rateDataRaw = await topshipRateMemo.shipRates(ratePayload);
+        const rateDataRaw = topshipFulfillmentEnabled()
+          ? await topshipRateMemo.shipRates(ratePayload)
+          : [];
         let rateData = Array.isArray(rateDataRaw) ? rateDataRaw : [];
         if (process.env.DEBUG_TOPSHIP_RATES === '1') {
           console.log(
@@ -1791,6 +1889,12 @@ export class OrderService {
             },
           ];
         }
+        rateData = await this.maybeAppendChowdeckRelayOutboundRate(
+          rateData,
+          listerDestinationLine,
+          checkoutDeliveryLocationLine,
+          this.estimateBucketOrderValueKobo(bucketItems),
+        );
         rateData = this.ensureRatesIncludeAllowedCheckoutTier(rateData);
 
         let matchedRate = this.matchRateForLeg(
@@ -1833,9 +1937,9 @@ export class OrderService {
             receiverDetails: { cityName: senderCity, countryCode: 'NG' },
             totalWeight: 1,
           };
-          let returnRateData = await topshipRateMemo.shipRates(
-            returnRatePayload,
-          );
+          let returnRateData = topshipFulfillmentEnabled()
+            ? await topshipRateMemo.shipRates(returnRatePayload)
+            : [];
           returnRateData = Array.isArray(returnRateData) ? returnRateData : [];
           if (process.env.DEBUG_TOPSHIP_RATES === '1') {
             console.log(

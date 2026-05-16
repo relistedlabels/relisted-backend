@@ -17,6 +17,7 @@ import { AuthOtpTokenModule } from './services/auth-otp-token/auth-otp-token.mod
 import { EventModule } from './services/event/event.module';
 import { MailModule } from './services/mail/mail.module';
 import { PrismaModule } from './services/prisma/prisma.module';
+import { UserActivityModule } from './services/user-activity/user-activity.module';
 import { NotificationModule } from './services/notification/notification.module';
 import { ChatRoomModule } from './module/chat-room/chat-room.module';
 import { WemaServiceModule } from './services/wema-service/wema-service.module';
@@ -61,6 +62,7 @@ function bullRedisConnection(): string | { host: string; port: number; password?
       redis: bullRedisConnection(),
     }),
     PrismaModule,
+    UserActivityModule,
     AuthModule,
     MailModule,
     NotificationModule,

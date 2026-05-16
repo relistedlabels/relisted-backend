@@ -23,6 +23,8 @@ model User {
   role                             Role                              @default(RENTER)
   createdAt                        DateTime                          @default(now())
   updatedAt                        DateTime                          @updatedAt
+  lastLoginAt                      DateTime?
+  lastSeenAt                       DateTime?
   tokenVersion                     Int                               @default(0)
   isSuspended                      Boolean                           @default(false)
   adminRoleId                      String?
@@ -57,6 +59,8 @@ model User {
   closets                          Closet[]
   productAvailabilityNotifications ProductAvailabilityNotification[]
   vaultClosetSaleInterests         VaultClosetSaleInterest[]
+
+  @@index([lastSeenAt])
 }
 
 model Profile {

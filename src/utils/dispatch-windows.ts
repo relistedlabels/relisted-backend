@@ -194,6 +194,35 @@ export function isWindowExpired(
   return window.end.getTime() <= now.getTime();
 }
 
+/** Calendar day (YYYY-MM-DD) for `date` in Africa/Lagos. */
+export function getLagosCalendarDateKey(date: Date): string {
+  return date.toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' });
+}
+
+/**
+ * Widest window covering all inputs (earliest start, latest end).
+ * Used when multiple resale lines from one lister share a delivery day.
+ */
+export function mergeDispatchWindowRanges(
+  windows: DispatchWindowRange[],
+): DispatchWindowRange {
+  if (windows.length === 0) {
+    throw new InternalServerErrorException(
+      'mergeDispatchWindowRanges requires at least one window',
+    );
+  }
+  if (windows.length === 1) return windows[0];
+
+  let start = windows[0].start;
+  let end = windows[0].end;
+  for (let i = 1; i < windows.length; i++) {
+    const w = windows[i];
+    if (w.start.getTime() < start.getTime()) start = w.start;
+    if (w.end.getTime() > end.getTime()) end = w.end;
+  }
+  return { start, end };
+}
+
 export function extractRangeMapFromEntity(
   entity: Record<string, any>,
   fieldMap: DispatchWindowFieldMap,

@@ -10,8 +10,10 @@ import { MailService } from '../../services/mail/mail.service';
 import {
   DisputeStatus,
   OrderStatus,
+  Prisma,
   ProductStatus,
   Role,
+  WalletTransactionStatus,
 } from '@prisma/client';
 import { incrementClosetRevenueForListerPayout } from '../closet/closet-revenue.util';
 import {
@@ -115,30 +117,196 @@ export class AdminService {
     return map[key];
   }
 
-  async getAnalyticsStats(timeframe: string, year?: string, month?: string) {
-    const totalRentees = await this.prisma.user.count({
-      where: { role: 'RENTER' },
-    });
-    const products = await this.prisma.product.aggregate({
-      _sum: { originalValue: true },
-    });
-    const activeRentals = await this.prisma.rental.count({
-      where: { isReturned: false },
-    });
+  /** Date range for admin analytics filters (all_time | year | month). */
+  private buildAnalyticsDateRange(
+    timeframe: string,
+    year?: string,
+    month?: string,
+  ): { gte?: Date; lte?: Date } {
+    const tf = String(timeframe || 'all_time').toLowerCase();
+    if (tf === 'all_time') return {};
 
-    // Total revenue could be sum of all successful transaction amounts.
-    const revenue = await this.prisma.transaction.aggregate({
-      where: { status: 'SUCCESS' },
-      _sum: { amount: true },
-    });
+    const y = year ? parseInt(year, 10) : new Date().getFullYear();
+    if (Number.isNaN(y)) return {};
+
+    if (tf === 'year') {
+      return {
+        gte: new Date(Date.UTC(y, 0, 1)),
+        lte: new Date(Date.UTC(y, 11, 31, 23, 59, 59, 999)),
+      };
+    }
+
+    if (tf === 'month') {
+      const m = month ? parseInt(month, 10) - 1 : 0;
+      if (Number.isNaN(m) || m < 0 || m > 11) return {};
+      return {
+        gte: new Date(Date.UTC(y, m, 1)),
+        lte: new Date(Date.UTC(y, m + 1, 0, 23, 59, 59, 999)),
+      };
+    }
+
+    return {};
+  }
+
+  /**
+   * Users with marketplace engagement in the analytics period:
+   * orders (renter or lister) and/or availability requests (requester or lister).
+   */
+  private buildActiveUserWhere(
+    dateRange: { gte?: Date; lte?: Date },
+    hasDateRange: boolean,
+  ): Prisma.UserWhereInput {
+    const activityInPeriod = hasDateRange ? { createdAt: dateRange } : {};
+
+    const orderWhere: Prisma.OrderWhereInput = {
+      status: { notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED] },
+      ...(hasDateRange ? { createdAt: dateRange } : {}),
+    };
+
+    const lastSeenInPeriod = hasDateRange
+      ? { lastSeenAt: dateRange }
+      : { lastSeenAt: { not: null } };
+
+    return {
+      role: { in: [Role.RENTER, Role.LISTER] },
+      isSuspended: false,
+      OR: [
+        { orders: { some: orderWhere } },
+        { orderListers: { some: { order: orderWhere } } },
+        { requestedAvailability: { some: activityInPeriod } },
+        { listerRequests: { some: activityInPeriod } },
+        lastSeenInPeriod,
+      ],
+    };
+  }
+
+  /** Remaining funds held in escrow for admin display (matches wallet stats card). */
+  private getEscrowLockedAmount(escrow: {
+    status: string;
+    rentalAmount: number;
+    resaleAmount?: number | null;
+    collateralAmount: number;
+    cleaningFee: number;
+  }): number {
+    const rental = escrow.rentalAmount || 0;
+    const resale = escrow.resaleAmount || 0;
+    const collateral = escrow.collateralAmount || 0;
+    const cleaning = escrow.cleaningFee || 0;
+
+    if (escrow.status === 'LOCKED') {
+      return rental + resale + collateral + cleaning;
+    }
+    if (escrow.status === 'PARTIALLY_RELEASED') {
+      return resale + collateral + cleaning;
+    }
+    return 0;
+  }
+
+  private escrowReasonLabel(
+    escrow: {
+      status: string;
+      rentalAmount: number;
+      resaleAmount?: number | null;
+    },
+    listingType?: string | null,
+  ): string {
+    const hasRental = (escrow.rentalAmount || 0) > 0;
+    const hasResale = (escrow.resaleAmount || 0) > 0;
+    if (escrow.status === 'REFUNDED') return 'Refunded to renter';
+    if (escrow.status === 'RELEASED') return 'Funds released to lister';
+    if (escrow.status === 'PARTIALLY_RELEASED') {
+      return hasResale
+        ? 'Rental released; resale pending confirmation'
+        : 'Partial release';
+    }
+    if (listingType === 'RESALE' || (!hasRental && hasResale)) {
+      return 'Resale purchase held in escrow';
+    }
+    if (hasRental && hasResale) return 'Mixed rental and resale order';
+    return 'Rental and collateral held until completion';
+  }
+
+  async getAnalyticsStats(timeframe: string, year?: string, month?: string) {
+    const dateRange = this.buildAnalyticsDateRange(timeframe, year, month);
+    const hasDateRange = Boolean(dateRange.gte || dateRange.lte);
+
+    const orderWhere: Prisma.OrderWhereInput = {
+      status: { notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED] },
+      ...(hasDateRange ? { createdAt: dateRange } : {}),
+    };
+
+    const rentalWhere: Prisma.RentalWhereInput = hasDateRange
+      ? { createdAt: dateRange }
+      : {};
+
+    const [
+      totalRentals,
+      revenueAgg,
+      activeListings,
+      activeDisputes,
+      activeUsers,
+      deliveryOrders,
+    ] = await Promise.all([
+      this.prisma.rental.count({ where: rentalWhere }),
+      this.prisma.order.aggregate({
+        where: orderWhere,
+        _sum: { totalAmountPaid: true },
+      }),
+      this.prisma.product.count({
+        where: {
+          isActive: true,
+          productVerified: true,
+          status: { in: [ProductStatus.AVAILABLE, ProductStatus.RENTED] },
+        },
+      }),
+      this.prisma.dispute.count({
+        where: {
+          status: { in: [DisputeStatus.PENDING, DisputeStatus.IN_REVIEW] },
+        },
+      }),
+      this.prisma.user.count({
+        where: this.buildActiveUserWhere(dateRange, hasDateRange),
+      }),
+      this.prisma.order.findMany({
+        where: {
+          ...orderWhere,
+          dispatchedAt: { not: null },
+          deliveredAt: { not: null },
+        },
+        select: { dispatchedAt: true, deliveredAt: true },
+      }),
+    ]);
+
+    let avgDeliveryTime = 0;
+    if (deliveryOrders.length > 0) {
+      const totalDays = deliveryOrders.reduce((sum, o) => {
+        const ms =
+          (o.deliveredAt!.getTime() - o.dispatchedAt!.getTime()) /
+          (1000 * 60 * 60 * 24);
+        return sum + Math.max(0, ms);
+      }, 0);
+      avgDeliveryTime =
+        Math.round((totalDays / deliveryOrders.length) * 10) / 10;
+    }
+
+    const period =
+      timeframe === 'month' && year && month
+        ? `${year}-${String(month).padStart(2, '0')}`
+        : timeframe === 'year' && year
+          ? String(year)
+          : 'all_time';
 
     return {
       success: true,
       data: {
-        totalRentees,
-        totalItemValue: products._sum.originalValue || 0,
-        activeRentals,
-        revenueGenerated: revenue._sum.amount || 0,
+        totalRentals,
+        totalRevenue: revenueAgg._sum.totalAmountPaid || 0,
+        activeListings,
+        activeDisputes,
+        activeUsers,
+        avgDeliveryTime,
+        timeframe,
+        period,
       },
     };
   }
@@ -148,15 +316,101 @@ export class AdminService {
     year?: string,
     month?: string,
   ) {
-    // Returning dummy data for chart structure. Actual grouped queries can be complex in Prisma.
+    const range = this.buildAnalyticsDateRange(timeframe, year, month);
+    const now = new Date();
+    let rangeStart: Date;
+    let rangeEnd: Date;
+
+    if (range.gte && range.lte) {
+      rangeStart = range.gte;
+      rangeEnd = range.lte;
+    } else {
+      rangeEnd = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999),
+      );
+      rangeStart = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5, 1),
+      );
+    }
+
+    const [orders, rentals] = await Promise.all([
+      this.prisma.order.findMany({
+        where: {
+          createdAt: { gte: rangeStart, lte: rangeEnd },
+          status: { notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED] },
+        },
+        select: { createdAt: true, totalAmountPaid: true },
+      }),
+      this.prisma.rental.findMany({
+        where: { createdAt: { gte: rangeStart, lte: rangeEnd } },
+        select: { createdAt: true },
+      }),
+    ]);
+
+    const monthKeys: string[] = [];
+    const cursor = new Date(
+      Date.UTC(rangeStart.getUTCFullYear(), rangeStart.getUTCMonth(), 1),
+    );
+    const endCursor = new Date(
+      Date.UTC(rangeEnd.getUTCFullYear(), rangeEnd.getUTCMonth(), 1),
+    );
+    while (cursor <= endCursor) {
+      const key = `${cursor.getUTCFullYear()}-${String(cursor.getUTCMonth() + 1).padStart(2, '0')}`;
+      monthKeys.push(key);
+      cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+    }
+
+    const buckets = new Map<string, { rentals: number; revenue: number }>();
+    for (const key of monthKeys) {
+      buckets.set(key, { rentals: 0, revenue: 0 });
+    }
+
+    for (const rental of rentals) {
+      const key = `${rental.createdAt.getUTCFullYear()}-${String(rental.createdAt.getUTCMonth() + 1).padStart(2, '0')}`;
+      const bucket = buckets.get(key);
+      if (bucket) bucket.rentals += 1;
+    }
+
+    for (const order of orders) {
+      const key = `${order.createdAt.getUTCFullYear()}-${String(order.createdAt.getUTCMonth() + 1).padStart(2, '0')}`;
+      const bucket = buckets.get(key);
+      if (bucket) {
+        bucket.revenue += order.totalAmountPaid || 0;
+      }
+    }
+
+    const monthLabels = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+
+    const trend = monthKeys.map((key) => {
+      const [, m] = key.split('-');
+      const monthIndex = parseInt(m, 10) - 1;
+      const bucket = buckets.get(key) ?? { rentals: 0, revenue: 0 };
+      return {
+        month: monthLabels[monthIndex] ?? key,
+        rentals: bucket.rentals,
+        revenue: bucket.revenue,
+      };
+    });
+
     return {
       success: true,
-      data: [
-        { month: 'Jan', revenue: 4000, rentals: 24 },
-        { month: 'Feb', revenue: 3000, rentals: 13 },
-        { month: 'Mar', revenue: 5000, rentals: 35 },
-        { month: 'Apr', revenue: 4500, rentals: 28 },
-      ],
+      data: {
+        trend,
+        timeframe,
+      },
     };
   }
 
@@ -1363,32 +1617,105 @@ export class AdminService {
   /* WALLETS & ESCROW */
 
   async getWalletStats() {
-    const [totalActive, totalEscrow] = await Promise.all([
-      this.prisma.wallet.aggregate({
-        _sum: {
-          mainBalance: true,
-          availableBalance: true,
-          collateralBalance: true,
+    const orderFeeWhere = {
+      status: {
+        notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED] as OrderStatus[],
+      },
+    };
+
+    const listerEscrowReleaseWhere: Prisma.WalletTransactionWhereInput = {
+      amount: { gt: 0 },
+      status: WalletTransactionStatus.SUCCESS,
+      wallet: { user: { role: Role.LISTER } },
+      OR: [
+        {
+          note: {
+            contains: 'Payment released for completed',
+            mode: 'insensitive',
+          },
         },
+        {
+          note: {
+            contains: 'Rental payment released for order',
+            mode: 'insensitive',
+          },
+        },
+        {
+          note: { contains: 'Escrow release for order', mode: 'insensitive' },
+        },
+        {
+          note: {
+            contains: 'Final payout released for completed order',
+            mode: 'insensitive',
+          },
+        },
+        {
+          note: {
+            contains: 'Escrow payout released after dispute resolution',
+            mode: 'insensitive',
+          },
+        },
+      ],
+    };
+
+    const [
+      walletSums,
+      escrowLockedRows,
+      releasedToListers,
+      serviceFeeSum,
+      vatSum,
+    ] = await Promise.all([
+      this.prisma.wallet.aggregate({
+        _sum: { mainBalance: true, collateralBalance: true },
       }),
-      this.prisma.escrow.aggregate({
-        where: { status: 'LOCKED' },
-        _sum: { collateralAmount: true, rentalAmount: true },
+      this.prisma.$queryRaw<Array<{ total: bigint }>>(
+        Prisma.sql`
+          SELECT COALESCE(SUM(
+            CASE
+              WHEN e.status = 'LOCKED' THEN
+                e."rentalAmount" + COALESCE(e."resaleAmount", 0) + e."collateralAmount" + e."cleaningFee"
+              WHEN e.status = 'PARTIALLY_RELEASED' THEN
+                COALESCE(e."resaleAmount", 0) + e."collateralAmount" + e."cleaningFee"
+              ELSE 0
+            END
+          ), 0)::bigint AS total
+          FROM "Escrow" e
+        `,
+      ),
+      this.prisma.walletTransaction.aggregate({
+        where: listerEscrowReleaseWhere,
+        _sum: { amount: true },
+      }),
+      this.prisma.order.aggregate({
+        where: orderFeeWhere,
+        _sum: { serviceFee: true },
+      }),
+      this.prisma.order.aggregate({
+        where: orderFeeWhere,
+        _sum: { vatAmount: true },
       }),
     ]);
 
-    const escrowBalance =
-      (totalEscrow._sum.collateralAmount || 0) +
-      (totalEscrow._sum.rentalAmount || 0);
+    const totalEscrowLocked = Number(escrowLockedRows[0]?.total ?? 0);
+    const totalCollateralLocked = walletSums._sum.collateralBalance || 0;
+    const platformServiceFees = serviceFeeSum._sum.serviceFee || 0;
+    const totalVatCollected = vatSum._sum.vatAmount || 0;
 
     return {
       success: true,
       data: {
         totalWalletBalance:
-          (totalActive._sum.mainBalance || 0) +
-          (totalActive._sum.availableBalance || 0) +
-          (totalActive._sum.collateralBalance || 0),
-        totalEscrowBalance: escrowBalance,
+          (walletSums._sum.mainBalance || 0) +
+          (walletSums._sum.collateralBalance || 0),
+        totalEscrowBalance: totalEscrowLocked,
+        /** Renter collateral held in wallets (wallet.collateralBalance), not order escrow */
+        totalCollateralLocked,
+        totalReleasedToListers: releasedToListers._sum.amount || 0,
+        /** @deprecated Use totalReleasedToListers; kept for older admin clients */
+        totalReleasedToCurators: releasedToListers._sum.amount || 0,
+        platformEarnings: platformServiceFees,
+        platformServiceFees,
+        totalVatCollected,
       },
     };
   }
@@ -1434,11 +1761,39 @@ export class AdminService {
     return { success: true, data: wallet };
   }
 
-  async getAllEscrows(page: number, limit: number, status?: string) {
+  async getAllEscrows(
+    page: number,
+    limit: number,
+    status?: string,
+    search?: string,
+  ) {
     const skip = (page - 1) * limit;
-    const where: any = {};
+    const where: Prisma.EscrowWhereInput = {};
+
     if (status && status !== 'ALL') {
-      where.status = status as any;
+      where.status = status.toUpperCase() as
+        | 'LOCKED'
+        | 'RELEASED'
+        | 'PARTIALLY_RELEASED'
+        | 'REFUNDED';
+    }
+
+    const trimmedSearch = search?.trim();
+    if (trimmedSearch) {
+      const matchingUsers = await this.prisma.user.findMany({
+        where: {
+          name: { contains: trimmedSearch, mode: 'insensitive' },
+        },
+        select: { id: true },
+        take: 50,
+      });
+      const userIds = matchingUsers.map((u) => u.id);
+      where.OR = [
+        { order: { orderId: { contains: trimmedSearch, mode: 'insensitive' } } },
+        ...(userIds.length > 0
+          ? [{ listerId: { in: userIds } }, { renterId: { in: userIds } }]
+          : []),
+      ];
     }
 
     const [total, escrows] = await this.prisma.$transaction([
@@ -1449,18 +1804,67 @@ export class AdminService {
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
-          order: { select: { orderId: true } },
+          order: { select: { orderId: true, listingType: true } },
         },
       }),
     ]);
 
+    const userIds = new Set<string>();
+    for (const e of escrows) {
+      userIds.add(e.listerId);
+      userIds.add(e.renterId);
+    }
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: [...userIds] } },
+      select: { id: true, name: true },
+    });
+    const userById = new Map(users.map((u) => [u.id, u.name]));
+
+    const mappedEscrows = escrows.map((e) => {
+      const lockedAmount = this.getEscrowLockedAmount(e);
+      const statusLower = e.status.toLowerCase();
+      return {
+        id: e.id,
+        orderId: e.order.orderId,
+        userId: e.renterId,
+        userName: userById.get(e.renterId) ?? 'Unknown',
+        renterName: userById.get(e.renterId) ?? 'Unknown',
+        listerName: userById.get(e.listerId) ?? 'Unknown',
+        renter: {
+          id: e.renterId,
+          name: userById.get(e.renterId) ?? 'Unknown',
+        },
+        lister: {
+          id: e.listerId,
+          name: userById.get(e.listerId) ?? 'Unknown',
+        },
+        amount: lockedAmount,
+        lockedAmount,
+        rentalAmount: e.rentalAmount,
+        resaleAmount: e.resaleAmount,
+        collateralAmount: e.collateralAmount,
+        cleaningFee: e.cleaningFee,
+        reason: this.escrowReasonLabel(e, e.order.listingType),
+        lockedDate: e.createdAt.toISOString(),
+        releaseDate: e.releasedAt?.toISOString() ?? null,
+        status: statusLower,
+        rawStatus: e.status,
+      };
+    });
+
     return {
       success: true,
       data: {
-        escrows,
+        escrows: mappedEscrows,
+        pagination: {
+          total,
+          page,
+          limit,
+          pages: Math.ceil(total / limit) || 1,
+        },
         total,
         page,
-        totalPages: Math.ceil(total / limit),
+        totalPages: Math.ceil(total / limit) || 1,
       },
     };
   }
@@ -2254,8 +2658,57 @@ export class AdminService {
     const total = await this.prisma.order.count();
     return { success: true, data: { total } };
   }
-  async getAllOrders(page: number, limit: number, status?: string) {
-    const where = status && status !== 'ALL' ? { status: status as any } : {};
+  async getAllOrders(
+    page: number,
+    limit: number,
+    status?: string,
+    tab?: string,
+    search?: string,
+  ) {
+    const pageSafe = Math.max(1, page);
+    const limitSafe = Math.min(Math.max(1, limit), 100);
+    const skip = (pageSafe - 1) * limitSafe;
+
+    const where: Prisma.OrderWhereInput = {};
+
+    if (status && status !== 'ALL') {
+      where.status = status as OrderStatus;
+    } else if (tab) {
+      const tabNorm = tab.trim().toLowerCase();
+      if (tabNorm === 'completed') {
+        where.status = OrderStatus.COMPLETED;
+      } else if (tabNorm === 'rejected') {
+        where.status = { in: [OrderStatus.CANCELLED, OrderStatus.REJECTED] };
+      } else if (tabNorm === 'active') {
+        where.status = {
+          notIn: [
+            OrderStatus.COMPLETED,
+            OrderStatus.CANCELLED,
+            OrderStatus.REJECTED,
+          ],
+        };
+      }
+    }
+
+    const q = search?.trim();
+    if (q) {
+      where.OR = [
+        { orderId: { contains: q, mode: 'insensitive' } },
+        { user: { name: { contains: q, mode: 'insensitive' } } },
+        { user: { email: { contains: q, mode: 'insensitive' } } },
+        {
+          orderItems: {
+            some: {
+              product: {
+                curator: {
+                  name: { contains: q, mode: 'insensitive' },
+                },
+              },
+            },
+          },
+        },
+      ];
+    }
 
     const [
       total,
@@ -2269,8 +2722,8 @@ export class AdminService {
       this.prisma.order.count({ where }),
       this.prisma.order.findMany({
         where,
-        skip: (page - 1) * limit,
-        take: limit,
+        skip,
+        take: limitSafe,
         orderBy: { createdAt: 'desc' },
         include: {
           orderItems: {
@@ -2348,14 +2801,14 @@ export class AdminService {
           day: 'numeric',
           year: 'numeric',
         }),
-        curator: curatorUser
+        lister: curatorUser
           ? {
               id: curatorUser.id,
               name: curatorUser.name,
               avatar: curatorUser.profile?.avatarUpload?.url || null,
             }
           : null,
-        dresser: o.user
+        renter: o.user
           ? {
               id: o.user.id,
               name: o.user.name,
@@ -2382,9 +2835,9 @@ export class AdminService {
         orders: formattedOrders,
         pagination: {
           total,
-          page,
-          limit,
-          pages: Math.ceil(total / limit),
+          page: pageSafe,
+          limit: limitSafe,
+          pages: Math.max(1, Math.ceil(total / limitSafe)),
         },
         stats: {
           totalListings,
@@ -2399,13 +2852,236 @@ export class AdminService {
   async exportOrders() {
     return { success: true, data: { message: 'Export initiated' } };
   }
+  private formatAdminOrderDetail(order: any) {
+    const formatDate = (d: Date | string | null | undefined) => {
+      if (!d) return null;
+      const dt = d instanceof Date ? d : new Date(d);
+      return dt.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
+    };
+
+    const rentalByProduct = new Map<string, any>(
+      (order.rentals ?? []).map((r: any) => [r.productId, r]),
+    );
+
+    const lineSubtotal = order.orderItems.reduce((sum: number, oi: any) => {
+      const isResaleLine =
+        oi.days === 0 &&
+        (oi.product?.listingType === 'RESALE' ||
+          oi.product?.listingType === 'RENT_OR_RESALE');
+      if (isResaleLine) {
+        return sum + (oi.resaleListerAmount ?? oi.product?.resalePrice ?? 0);
+      }
+      return (
+        sum +
+        (oi.rentalFee ?? (oi.pricePerDay ?? 0) * (oi.days ?? 0)) +
+        (oi.cleaningFee ?? 0)
+      );
+    }, 0);
+
+    const serviceFee = order.serviceFee ?? 0;
+    const deliveryFee = order.deliveryFee ?? 0;
+    const vatAmount = order.vatAmount ?? 0;
+    const total =
+      order.totalAmountPaid != null && order.totalAmountPaid > 0
+        ? order.totalAmountPaid
+        : lineSubtotal + serviceFee + deliveryFee + vatAmount;
+
+    const listerUsers: any[] = [];
+    const listerIdsSeen = new Set<string>();
+    for (const ol of order.orderListers ?? []) {
+      if (ol.lister && !listerIdsSeen.has(ol.lister.id)) {
+        listerIdsSeen.add(ol.lister.id);
+        listerUsers.push(ol.lister);
+      }
+    }
+    if (listerUsers.length === 0) {
+      for (const oi of order.orderItems ?? []) {
+        const c = oi.product?.curator;
+        if (c && !listerIdsSeen.has(c.id)) {
+          listerIdsSeen.add(c.id);
+          listerUsers.push(c);
+        }
+      }
+    }
+    if (listerUsers.length === 0) {
+      for (const r of order.rentals ?? []) {
+        if (r.curator && !listerIdsSeen.has(r.curator.id)) {
+          listerIdsSeen.add(r.curator.id);
+          listerUsers.push(r.curator);
+        }
+      }
+    }
+
+    const mapUser = (u: any) =>
+      u
+        ? {
+            id: u.id,
+            name: u.name,
+            email: u.email,
+            phone: u.profile?.phoneNumber ?? null,
+            avatar: u.profile?.avatarUpload?.url ?? null,
+          }
+        : null;
+
+    const primaryLister = listerUsers[0] ?? null;
+    const renter = order.user;
+
+    const paymentRef =
+      order.payments?.[0]?.referenceId ??
+      order.payments?.[0]?.paymentReference ??
+      null;
+
+    const primaryRental = order.rentals?.[0];
+    const rentalPeriod =
+      primaryRental?.startDate && primaryRental?.endDate
+        ? `${formatDate(primaryRental.startDate)} – ${formatDate(primaryRental.endDate)}`
+        : null;
+
+    const escrowRows = (order.escrows ?? []).map((e: any) => ({
+      id: e.id,
+      status: e.status,
+      lockedAmount: this.getEscrowLockedAmount(e),
+      rentalAmount: e.rentalAmount,
+      resaleAmount: e.resaleAmount,
+      collateralAmount: e.collateralAmount,
+      cleaningFee: e.cleaningFee,
+      listerId: e.listerId,
+    }));
+
+    return {
+      id: order.orderId,
+      internalId: order.id,
+      date: formatDate(order.createdAt),
+      createdAt: order.createdAt.toISOString(),
+      listingType: order.listingType,
+      status: order.status,
+      items: order.orderItems.length,
+      total,
+      returnDue: formatDate(order.returnDueAt),
+      paymentReference: paymentRef,
+      trackingNumber: order.trackingNumber ?? order.trackingId ?? null,
+      externalTrackingUrl: order.externalTrackingUrl ?? null,
+      lister: mapUser(primaryLister),
+      listers: listerUsers.map(mapUser).filter(Boolean),
+      renter: mapUser(renter),
+      items_details: order.orderItems.map((oi: any) => {
+        const rental = rentalByProduct.get(oi.productId);
+        const isResaleLine =
+          oi.days === 0 &&
+          (oi.product?.listingType === 'RESALE' ||
+            oi.product?.listingType === 'RENT_OR_RESALE');
+        const subtotal = isResaleLine
+          ? (oi.resaleListerAmount ?? oi.product?.resalePrice ?? 0)
+          : (oi.rentalFee ??
+              (oi.pricePerDay ?? oi.product?.dailyPrice ?? 0) * (oi.days ?? 0)) +
+            (oi.cleaningFee ?? 0);
+        return {
+          id: oi.id,
+          productId: oi.productId,
+          name: oi.product?.name ?? 'Item',
+          image: oi.product?.attachments?.uploads?.[0]?.url ?? null,
+          brand: oi.product?.brand?.name ?? null,
+          dailyPrice: oi.pricePerDay ?? oi.product?.dailyPrice ?? 0,
+          rentalDays: oi.days,
+          cleaningFee: oi.cleaningFee ?? 0,
+          collateralFee: oi.collateralFee ?? 0,
+          listingType: oi.product?.listingType ?? null,
+          subtotal,
+          rentalStart: rental?.startDate
+            ? formatDate(rental.startDate)
+            : null,
+          rentalEnd: rental?.endDate ? formatDate(rental.endDate) : null,
+        };
+      }),
+      shipping: {
+        rentalPeriod: rentalPeriod ?? 'N/A',
+        trackingId: order.trackingId ?? order.trackingNumber ?? 'N/A',
+        courier: order.shipments?.[0]?.pickupPartner ?? 'N/A',
+        pickupDate: order.dispatchedAt
+          ? formatDate(order.dispatchedAt)
+          : order.shipments?.[0]?.scheduledDate
+            ? formatDate(order.shipments[0].scheduledDate)
+            : 'N/A',
+        expectedDelivery: order.estimatedDeliveryDate
+          ? formatDate(order.estimatedDeliveryDate)
+          : order.deliveredAt
+            ? formatDate(order.deliveredAt)
+            : 'N/A',
+      },
+      payment: {
+        subtotal: lineSubtotal,
+        serviceFee,
+        deliveryFee,
+        vat: vatAmount,
+        total,
+        paymentStatus:
+          order.payments?.[0]?.status === 'SUCCESS'
+            ? 'Paid'
+            : order.totalAmountPaid
+              ? 'Paid via wallet'
+              : 'Pending',
+      },
+      escrows: escrowRows,
+    };
+  }
+
   async getOrderDetails(orderId: string) {
     const order = await this.prisma.order.findUnique({
       where: { orderId },
-      include: { orderItems: true, user: true },
+      include: {
+        orderItems: {
+          include: {
+            product: {
+              include: {
+                brand: true,
+                curator: {
+                  include: {
+                    profile: { include: { avatarUpload: true } },
+                  },
+                },
+                attachments: {
+                  include: {
+                    uploads: {
+                      orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+                      take: 1,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        user: {
+          include: { profile: { include: { avatarUpload: true } } },
+        },
+        orderListers: {
+          include: {
+            lister: {
+              include: { profile: { include: { avatarUpload: true } } },
+            },
+          },
+        },
+        rentals: {
+          include: {
+            curator: {
+              include: { profile: { include: { avatarUpload: true } } },
+            },
+          },
+        },
+        payments: { take: 1, orderBy: { createdAt: 'desc' } },
+        escrows: true,
+        shipments: { orderBy: { scheduledDate: 'asc' } },
+      },
     });
     if (!order) throw new NotFoundException('Order not found');
-    return { success: true, data: order };
+    return {
+      success: true,
+      data: this.formatAdminOrderDetail(order),
+    };
   }
   async updateOrderStatus(
     orderId: string,
