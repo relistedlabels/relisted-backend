@@ -21,6 +21,11 @@ import {
   PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
 } from 'src/utils/product-attachment-upload-order';
 import { ADMIN_ORDER_ANALYTICS_CUTOFF } from 'src/constants/admin-analytics';
+import {
+  buildWalletStatsOrderWhere,
+  buildWalletStatsUserWhere,
+  getStagingInternalCuratorId,
+} from 'src/utils/admin-wallet-filters';
 
 @Injectable()
 export class AdminService {
@@ -304,6 +309,7 @@ export class AdminService {
     ]);
 
     let avgDeliveryTime = 0;
+    let avgDeliveryTimeMinutes = 0;
     if (deliveryOrders.length > 0) {
       const totalDays = deliveryOrders.reduce((sum, o) => {
         const ms =
@@ -313,6 +319,7 @@ export class AdminService {
       }, 0);
       avgDeliveryTime =
         Math.round((totalDays / deliveryOrders.length) * 10) / 10;
+      avgDeliveryTimeMinutes = Math.round(avgDeliveryTime * 24 * 60);
     }
 
     const period =
@@ -331,6 +338,8 @@ export class AdminService {
         activeDisputes,
         activeUsers,
         avgDeliveryTime,
+        avgDeliveryTimeMinutes,
+        deliveryTimeSampleSize: deliveryOrders.length,
         timeframe,
         period,
         orderAnalyticsCutoff: ADMIN_ORDER_ANALYTICS_CUTOFF.toISOString(),
@@ -356,21 +365,13 @@ export class AdminService {
       );
     const rangeStart = orderRange.gte;
 
-    const [orders, rentals] = await Promise.all([
-      this.prisma.order.findMany({
-        where: {
-          createdAt: { gte: rangeStart, lte: rangeEnd },
-          status: { notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED] },
-        },
-        select: { createdAt: true, totalAmountPaid: true },
-      }),
-      this.prisma.rental.findMany({
-        where: {
-          createdAt: { gte: rangeStart, lte: rangeEnd },
-        },
-        select: { createdAt: true },
-      }),
-    ]);
+    const orders = await this.prisma.order.findMany({
+      where: {
+        createdAt: { gte: rangeStart, lte: rangeEnd },
+        status: { notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED] },
+      },
+      select: { createdAt: true, totalAmountPaid: true },
+    });
 
     const monthKeys: string[] = [];
     const cursor = new Date(
@@ -385,21 +386,16 @@ export class AdminService {
       cursor.setUTCMonth(cursor.getUTCMonth() + 1);
     }
 
-    const buckets = new Map<string, { rentals: number; revenue: number }>();
+    const buckets = new Map<string, { orders: number; revenue: number }>();
     for (const key of monthKeys) {
-      buckets.set(key, { rentals: 0, revenue: 0 });
-    }
-
-    for (const rental of rentals) {
-      const key = `${rental.createdAt.getUTCFullYear()}-${String(rental.createdAt.getUTCMonth() + 1).padStart(2, '0')}`;
-      const bucket = buckets.get(key);
-      if (bucket) bucket.rentals += 1;
+      buckets.set(key, { orders: 0, revenue: 0 });
     }
 
     for (const order of orders) {
       const key = `${order.createdAt.getUTCFullYear()}-${String(order.createdAt.getUTCMonth() + 1).padStart(2, '0')}`;
       const bucket = buckets.get(key);
       if (bucket) {
+        bucket.orders += 1;
         bucket.revenue += order.totalAmountPaid || 0;
       }
     }
@@ -422,10 +418,10 @@ export class AdminService {
     const trend = monthKeys.map((key) => {
       const [, m] = key.split('-');
       const monthIndex = parseInt(m, 10) - 1;
-      const bucket = buckets.get(key) ?? { rentals: 0, revenue: 0 };
+      const bucket = buckets.get(key) ?? { orders: 0, revenue: 0 };
       return {
         month: monthLabels[monthIndex] ?? key,
-        rentals: bucket.rentals,
+        orders: bucket.orders,
         revenue: bucket.revenue,
       };
     });
@@ -1643,16 +1639,16 @@ export class AdminService {
   /* WALLETS & ESCROW */
 
   async getWalletStats() {
-    const orderFeeWhere = {
-      status: {
-        notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED] as OrderStatus[],
-      },
-    };
+    const orderFeeWhere = buildWalletStatsOrderWhere();
+    const walletUserWhere = buildWalletStatsUserWhere();
+    const stagingCuratorId = getStagingInternalCuratorId();
+    const cutoff = ADMIN_ORDER_ANALYTICS_CUTOFF;
 
     const listerEscrowReleaseWhere: Prisma.WalletTransactionWhereInput = {
       amount: { gt: 0 },
       status: WalletTransactionStatus.SUCCESS,
-      wallet: { user: { role: Role.LISTER } },
+      createdAt: { gte: cutoff },
+      wallet: { user: { ...walletUserWhere, role: Role.LISTER } },
       OR: [
         {
           note: {
@@ -1692,6 +1688,7 @@ export class AdminService {
       vatSum,
     ] = await Promise.all([
       this.prisma.wallet.aggregate({
+        where: { user: walletUserWhere },
         _sum: { mainBalance: true, collateralBalance: true },
       }),
       this.prisma.$queryRaw<Array<{ total: bigint }>>(
@@ -1706,6 +1703,27 @@ export class AdminService {
             END
           ), 0)::bigint AS total
           FROM "Escrow" e
+          INNER JOIN "Order" o ON o.id = e."orderId"
+          WHERE o."createdAt" >= ${cutoff}
+            AND o.status NOT IN ('CANCELLED', 'REJECTED')
+            AND e."listerId" <> ${stagingCuratorId}
+            AND o."userId" <> ${stagingCuratorId}
+            AND e."listerId" NOT IN (
+              SELECT u.id FROM "User" u
+              WHERE u.role = 'ADMIN'
+                OR u.email ILIKE '%mailtrap%'
+                OR u.email ILIKE '%@example.com'
+                OR u.email ILIKE 'test@%'
+                OR u.email ILIKE '%@test.%'
+            )
+            AND o."userId" NOT IN (
+              SELECT u.id FROM "User" u
+              WHERE u.role = 'ADMIN'
+                OR u.email ILIKE '%mailtrap%'
+                OR u.email ILIKE '%@example.com'
+                OR u.email ILIKE 'test@%'
+                OR u.email ILIKE '%@test.%'
+            )
         `,
       ),
       this.prisma.walletTransaction.aggregate({
@@ -1742,6 +1760,8 @@ export class AdminService {
         platformEarnings: platformServiceFees,
         platformServiceFees,
         totalVatCollected,
+        orderAnalyticsCutoff: cutoff.toISOString(),
+        excludesTestAccounts: true,
       },
     };
   }
