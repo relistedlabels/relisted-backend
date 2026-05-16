@@ -235,6 +235,10 @@ export class ShipmentDispatchScheduler {
           paymentpending: null,
           pickupfailed: 'CANCELLED',
           riderassigned: 'IN_TRANSIT',
+          // Chowdeck Relay (https://chowdeck.readme.io/reference/get-delivery)
+          preparing: 'DISPATCHED',
+          success: 'COMPLETED',
+          rejected: 'CANCELLED',
         };
 
         const normalizedStatus = normalizeProviderStatus(providerStatus);

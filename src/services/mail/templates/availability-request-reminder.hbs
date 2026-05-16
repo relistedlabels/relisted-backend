@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+        }
+
+        .container {
+            width: 80%;
+            margin: 20px auto;
+            border: 1px solid #eee;
+            padding: 20px;
+            border-radius: 10px;
+        }
+
+        .header {
+            background: #f8f9fa;
+            padding: 10px;
+            text-align: center;
+            border-bottom: 2px solid #555;
+        }
+
+        .content {
+            padding: 20px;
+        }
+
+        .footer {
+            font-size: 12px;
+            color: #777;
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        .button {
+            background: #000;
+            color: #fff;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 5px;
+            display: inline-block;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>Update from {{listerName}}</h2>
+        </div>
+        <div class="content">
+            <p>Hello {{userName}},</p>
+            {{#if (eq intent "rerequest")}}
+            <p>{{listerName}} could not respond to your earlier {{#if (eq requestType 'purchase')}}purchase{{else}}rental{{/if}} request in time for <strong>{{productName}}</strong>.</p>
+            <p>If you still want this item, open your cart and tap <strong>Request approval</strong> again.</p>
+            {{else}}
+            <p>{{listerName}} says <strong>{{productName}}</strong> may still be available for {{#if (eq requestType 'purchase')}}purchase{{else}}rental{{/if}}.</p>
+            <p>When you are ready, open your cart and send a new availability request.</p>
+            {{/if}}
+            <p><a href="{{cartLink}}" class="button">Open cart</a></p>
+        </div>
+        <div class="footer">
+            <p>&copy; {{currentYear}} Relisted. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+
+</html>

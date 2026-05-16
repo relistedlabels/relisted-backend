@@ -119,6 +119,30 @@ export class RentalRequestDto {
   requestType?: string;
 }
 
+export class AvailabilityRequestReminderDto {
+  @IsEmail()
+  email: string;
+
+  @IsString()
+  userName: string;
+
+  @IsString()
+  listerName: string;
+
+  @IsString()
+  productName: string;
+
+  @IsString()
+  intent: 'rerequest' | 'now_available';
+
+  @IsString()
+  @IsOptional()
+  requestType?: string;
+
+  @IsString()
+  cartLink: string;
+}
+
 export class RentalResponseDto {
   @IsEmail()
   email: string;

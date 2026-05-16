@@ -15,6 +15,8 @@ export const Auth_Otp_Token_Subject = {
   PURCHASE_REQUEST_WITHDRAWN: 'Purchase request withdrawn',
   RENTAL_RESPONSE: 'Update on your Rental Request',
   PURCHASE_RESPONSE: 'Update on your Purchase Request',
+  AVAILABILITY_REMINDER_REREQUEST: 'Reminder: send a new request on Relisted',
+  AVAILABILITY_REMINDER_AVAILABLE: 'A curator is ready for your request',
   WITHDRAWAL_STATUS: 'Withdrawal Request Status',
   SHIPPING_UPDATE: 'Shipping Status Update',
 };

@@ -64,6 +64,9 @@ export class NotificationService {
         case 'RENTAL_RESPONSE':
           await this.mailService.SendRentalResponseMail(data);
           break;
+        case 'AVAILABILITY_REQUEST_REMINDER':
+          await this.mailService.sendAvailabilityRequestReminderMail(data);
+          break;
         case 'ORDER_CONFIRMATION':
           await this.mailService.SendVerificationOrderMail(data);
           break;

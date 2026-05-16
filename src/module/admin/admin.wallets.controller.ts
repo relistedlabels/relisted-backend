@@ -47,11 +47,13 @@ export class AdminWalletsController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('status') status?: string,
+    @Query('search') search?: string,
   ) {
     return this.adminService.getAllEscrows(
       page ? parseInt(page, 10) : 1,
-      limit ? parseInt(limit, 10) : 10,
+      limit ? parseInt(limit, 10) : 50,
       status,
+      search,
     );
   }
 

@@ -1529,38 +1529,49 @@ export class ListersService {
       const productName = request.product?.name ?? 'this item';
       const isPurchaseRequest = (request.rentalDays ?? 0) === 0;
       const listerName = user.name || 'The curator';
+      const renterEmail = request.requester?.email?.trim() || '';
+      const cartBase = (
+        process.env.CLIENT_URL ||
+        process.env.FRONTEND_URL ||
+        'http://localhost:3000'
+      ).replace(/\/$/, '');
+      const emailData = {
+        email: renterEmail,
+        userName: request.requester?.name || 'there',
+        listerName,
+        productName,
+        intent,
+        requestType: isPurchaseRequest ? 'purchase' : 'rental',
+        cartLink: `${cartBase}/shop/cart`,
+      };
 
-      if (intent === 'rerequest') {
-        await this.notificationService.createNotification({
-          userId: request.requesterId,
-          title: isPurchaseRequest
+      const title =
+        intent === 'rerequest'
+          ? isPurchaseRequest
             ? 'Curator asked you to send a new purchase request'
-            : 'Curator asked you to send a new rental request',
-          message: `${listerName} could not respond in time earlier. If you still want ${productName}, open your cart and tap Request approval again.`,
-          type: 'AVAILABILITY_REQUEST_REMINDER',
-          metadata: {
-            requestId: request.id,
-            productId: request.productId,
-            intent: 'rerequest',
-          },
-          sendEmail: false,
-        });
-      } else {
-        await this.notificationService.createNotification({
-          userId: request.requesterId,
-          title: isPurchaseRequest
+            : 'Curator asked you to send a new rental request'
+          : isPurchaseRequest
             ? 'Curator says the item may still be available'
-            : 'Curator says the rental may still be available',
-          message: `${listerName} is ready when you are. If you still want ${productName}, open your cart and send a new availability request.`,
-          type: 'AVAILABILITY_REQUEST_REMINDER',
-          metadata: {
-            requestId: request.id,
-            productId: request.productId,
-            intent: 'now_available',
-          },
-          sendEmail: false,
-        });
-      }
+            : 'Curator says the rental may still be available';
+
+      const message =
+        intent === 'rerequest'
+          ? `${listerName} could not respond in time earlier. If you still want ${productName}, open your cart and tap Request approval again.`
+          : `${listerName} is ready when you are. If you still want ${productName}, open your cart and send a new availability request.`;
+
+      await this.notificationService.createNotification({
+        userId: request.requesterId,
+        title,
+        message,
+        type: 'AVAILABILITY_REQUEST_REMINDER',
+        metadata: {
+          requestId: request.id,
+          productId: request.productId,
+          intent,
+        },
+        sendEmail: Boolean(renterEmail),
+        emailData,
+      });
 
       return {
         success: true,

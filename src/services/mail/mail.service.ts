@@ -5,6 +5,7 @@ import {
   VerifyOrderDto,
   ResetPasswordDto,
   RentalRequestDto,
+  AvailabilityRequestReminderDto,
   RentalResponseDto,
   WithdrawalDto,
   ShippingDto,
@@ -319,6 +320,39 @@ export class MailService {
       template: './rental-response',
       subject: responseSubject,
       context: rest,
+    });
+  }
+
+  async sendAvailabilityRequestReminderMail(
+    dto: AvailabilityRequestReminderDto,
+  ) {
+    const { email, intent, requestType, ...rest } = dto;
+    const subject =
+      intent === 'rerequest'
+        ? requestType === 'purchase'
+          ? Auth_Otp_Token_Subject.AVAILABILITY_REMINDER_REREQUEST
+          : Auth_Otp_Token_Subject.AVAILABILITY_REMINDER_REREQUEST
+        : Auth_Otp_Token_Subject.AVAILABILITY_REMINDER_AVAILABLE;
+
+    console.log(
+      `[EMAIL] Sending availability-request-reminder to ${email}, intent: ${intent}`,
+    );
+
+    if (this.devBypass) {
+      await this.handleDevBypass(
+        'availability-request-reminder',
+        subject,
+        { intent, requestType, ...rest },
+        email,
+      );
+      return;
+    }
+
+    await this.deliverMail({
+      to: email,
+      template: './availability-request-reminder',
+      subject,
+      context: { intent, requestType, ...rest },
     });
   }
 

@@ -2,7 +2,6 @@ import {
   Controller,
   Get,
   Param,
-  Patch,
   Post,
   Body,
   Query,
@@ -36,11 +35,15 @@ export class AdminOrdersController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('status') status?: string,
+    @Query('tab') tab?: string,
+    @Query('search') search?: string,
   ) {
     return this.adminService.getAllOrders(
       page ? parseInt(page, 10) : 1,
-      limit ? parseInt(limit, 10) : 10,
+      limit ? parseInt(limit, 10) : 20,
       status,
+      tab,
+      search,
     );
   }
 

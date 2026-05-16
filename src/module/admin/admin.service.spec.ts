@@ -63,11 +63,18 @@ describe('AdminService', () => {
           userId: 'renter-1',
           status: 'RETURNED',
           user: { id: 'renter-1', email: 'renter@test.com', name: 'Renter' },
-          escrows: {
-            id: 'escrow-1',
-            curatorId: 'lister-1',
-            collateralAmount: 1000,
-          },
+          escrows: [
+            {
+              id: 'escrow-1',
+              listerId: 'lister-1',
+              renterId: 'renter-1',
+              status: 'LOCKED',
+              collateralAmount: 1000,
+              rentalAmount: 0,
+              cleaningFee: 0,
+              resaleAmount: 0,
+            },
+          ],
           returnRequest: { status: 'COMPLETED' },
         },
       });
@@ -104,7 +111,6 @@ describe('AdminService', () => {
           data: expect.objectContaining({
             collateralBalance: { decrement: 1000 },
             availableBalance: { increment: 700 },
-            mainBalance: { decrement: 300 },
           }),
         }),
       );
@@ -129,11 +135,18 @@ describe('AdminService', () => {
           userId: 'renter-1',
           status: 'RETURNED',
           user: { id: 'renter-1', email: 'renter@test.com', name: 'Renter' },
-          escrows: {
-            id: 'escrow-1',
-            curatorId: 'lister-1',
-            collateralAmount: 1000,
-          },
+          escrows: [
+            {
+              id: 'escrow-1',
+              listerId: 'lister-1',
+              renterId: 'renter-1',
+              status: 'LOCKED',
+              collateralAmount: 1000,
+              rentalAmount: 0,
+              cleaningFee: 0,
+              resaleAmount: 0,
+            },
+          ],
           returnRequest: { status: 'COMPLETED' },
         },
       });

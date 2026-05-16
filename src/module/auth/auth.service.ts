@@ -7,6 +7,7 @@ import { addMinutes, addHours, isAfter, subMinutes } from 'date-fns';
 import { AuthOtpTokenService } from 'src/services/auth-otp-token/auth-otp-token.service';
 import { Verification_Mail } from 'src/services/event/event.types';
 import { PrismaService } from 'src/services/prisma/prisma.service';
+import { UserActivityService } from 'src/services/user-activity/user-activity.service';
 import { bad, mustHave } from 'src/utils/error';
 import {
   Auth_Otp_Token_Subject,
@@ -26,6 +27,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly authOtpTokenService: AuthOtpTokenService,
+    private readonly userActivity: UserActivityService,
     private eventEmitter: EventEmitter2,
     private jwtService: JwtService,
   ) {}
@@ -238,6 +240,7 @@ export class AuthService {
       role: user.role,
     };
     const token = await this.jwtService.signAsync(payload);
+    await this.userActivity.recordLogin(user.id);
 
     return {
       token: token,
@@ -284,6 +287,7 @@ export class AuthService {
     };
 
     const accessToken = await this.jwtService.signAsync(payload);
+    await this.userActivity.recordLogin(user.id);
 
     return {
       accessToken,
@@ -565,6 +569,7 @@ export class AuthService {
       role: user.role,
     };
     const token = await this.jwtService.signAsync(payload);
+    await this.userActivity.recordLogin(user.id);
 
     return {
       token: token,
