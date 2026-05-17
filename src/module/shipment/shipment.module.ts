@@ -5,6 +5,7 @@ import { ShipmentService } from './shipment.service';
 import { ShipmentController } from './shipment.controller';
 import { ShipmentDispatchProcessor } from './shipment-dispatch.processor';
 import { ShipmentDispatchScheduler } from './shipment-dispatch.scheduler';
+import { ShipmentTrackingSyncService } from './shipment-tracking-sync.service';
 import { DeliveryModule } from 'src/services/delivery/delivery.module';
 import { NotificationModule } from 'src/services/notification/notification.module';
 import { MailModule } from 'src/services/mail/mail.module';
@@ -22,7 +23,8 @@ import { MailModule } from 'src/services/mail/mail.module';
     ShipmentService,
     ShipmentDispatchProcessor,
     ShipmentDispatchScheduler,
+    ShipmentTrackingSyncService,
   ],
-  exports: [ShipmentService],
+  exports: [ShipmentService, ShipmentTrackingSyncService],
 })
 export class ShipmentModule {}

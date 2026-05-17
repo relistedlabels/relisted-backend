@@ -5,10 +5,9 @@ import type { Queue } from 'bull';
 import { ListingType, ShipmentType } from '@prisma/client';
 import { PrismaService } from 'src/services/prisma/prisma.service';
 import { DeliveryProviderService } from 'src/services/delivery/delivery-provider.service';
-import { TrackingStatus } from 'src/services/delivery/delivery-provider.interface';
 import { NotificationService } from 'src/services/notification/notification.service';
 import { MailService } from 'src/services/mail/mail.service';
-import { syncOrderStatusFromShipments } from 'src/module/order/order-shipment-status.sync';
+import { ShipmentTrackingSyncService } from './shipment-tracking-sync.service';
 import {
   addHours,
   addMinutes,
@@ -18,9 +17,7 @@ import {
 } from 'date-fns';
 import { fetchAdminAlertRecipients } from 'src/module/shipment/shipment-admin-alert-recipients';
 import { buildAdminShipmentsPageUrl } from 'src/module/shipment/build-admin-shipments-page-url';
-
-const normalizeProviderStatus = (status: string) =>
-  status.toLowerCase().replace(/[^a-z]/g, '');
+import { OrderService } from 'src/module/order/order.service';
 
 const DISPATCH_CRON_LOOKAHEAD_MINUTES = Number(
   process.env.DISPATCH_CRON_LOOKAHEAD_MINUTES ?? 59,
@@ -49,6 +46,8 @@ const RETURN_DUE_REMINDER_CRON_SCHEDULE =
 const MANUAL_FULFILLMENT_DUE_REMINDER_CRON_SCHEDULE =
   process.env.MANUAL_FULFILLMENT_DUE_REMINDER_CRON?.trim() ||
   RETURN_DUE_REMINDER_CRON_SCHEDULE;
+const RESALE_INSPECTION_RELEASE_CRON_SCHEDULE =
+  process.env.RESALE_INSPECTION_RELEASE_CRON?.trim() || '0 * * * *';
 
 @Injectable()
 export class ShipmentDispatchScheduler {
@@ -71,6 +70,8 @@ export class ShipmentDispatchScheduler {
     private readonly delivery: DeliveryProviderService,
     private readonly notification: NotificationService,
     private readonly mail: MailService,
+    private readonly trackingSync: ShipmentTrackingSyncService,
+    private readonly orderService: OrderService,
   ) {}
 
   /**
@@ -155,9 +156,10 @@ export class ShipmentDispatchScheduler {
   }
 
   /**
-   * Polls Topship for tracking status updates every 2 hours.
-   * Only checks shipments that are DISPATCHED or IN_TRANSIT (not COMPLETED/CANCELLED/FAILED).
-   * Updates local status based on provider response and triggers notifications.
+   * Polls carriers for tracking status (backup to webhooks).
+   * Shipbubble also pushes updates to POST /webhook/shipbubble; both paths use
+   * ShipmentTrackingSyncService with forward-only rules so they do not fight.
+   * Only checks shipments that are DISPATCHED or IN_TRANSIT.
    */
   @Cron(POLLING_CRON_SCHEDULE, { timeZone: 'Africa/Lagos' })
   async pollTrackingStatus() {
@@ -182,6 +184,7 @@ export class ShipmentDispatchScheduler {
         trackingId: true,
         status: true,
         type: true,
+        pricingTier: true,
         order: {
           select: {
             id: true,
@@ -208,108 +211,18 @@ export class ShipmentDispatchScheduler {
 
         const providerStatus = (tracking.status || 'UNKNOWN').trim();
         this.logger.debug(
-          `[Polling] Topship returned status for shipment ${shipment.id}: ${providerStatus}, message=${tracking.message ?? 'n/a'}`,
+          `[Polling] Provider status for shipment ${shipment.id}: ${providerStatus}, message=${tracking.message ?? 'n/a'}`,
         );
 
-        const statusMap: Record<string, 'DISPATCHED' | 'IN_TRANSIT' | 'COMPLETED' | 'CANCELLED' | null> = {
-          pickedup: 'IN_TRANSIT',
-          intransit: 'IN_TRANSIT',
-          delivered: 'COMPLETED',
-          received: 'COMPLETED',
-          confirmed: 'DISPATCHED',
-          draft: null,
-          cancelled: 'CANCELLED',
-          awaitingpickup: 'DISPATCHED',
-          awaitingpickuppending: 'DISPATCHED',
-          awaitingdropoff: 'DISPATCHED',
-          deliveryinprogress: 'IN_TRANSIT',
-          assignedfordelivery: 'IN_TRANSIT',
-          pendingconfirmation: null,
-          clarificationneeded: null,
-          receivedathub: 'IN_TRANSIT',
-          arrivednigeria: 'IN_TRANSIT',
-          pickupinprogress: 'IN_TRANSIT',
-          shipmentprocessing: 'DISPATCHED',
-          deliveryfailed: 'CANCELLED',
-          cancellationpending: 'CANCELLED',
-          paymentpending: null,
-          pickupfailed: 'CANCELLED',
-          riderassigned: 'IN_TRANSIT',
-          // Chowdeck Relay (https://chowdeck.readme.io/reference/get-delivery)
-          preparing: 'DISPATCHED',
-          success: 'COMPLETED',
-          rejected: 'CANCELLED',
-        };
-
-        const normalizedStatus = normalizeProviderStatus(providerStatus);
-        const mappedStatus = statusMap[normalizedStatus];
-
-        if (mappedStatus === undefined) {
-          this.logger.warn(
-            `[Polling] Shipment ${shipment.id} received unknown status '${providerStatus}'. Skipping update.`,
-          );
-          continue;
-        }
-
-        if (mappedStatus === null) {
-          this.logger.debug(
-            `[Polling] Shipment ${shipment.id} status '${providerStatus}' does not change local state.`,
-          );
-          continue;
-        }
-
-        if (mappedStatus === 'CANCELLED') {
-          await this.prisma.shipment.update({
-            where: { id: shipment.id },
-            data: { status: 'CANCELLED' },
-          });
-          this.logger.warn(
-            `[Polling] Shipment ${shipment.id} marked CANCELLED based on provider status.`,
-          );
-          await this.notifyAdminOfProviderCancellation(
-            shipment as any,
-            tracking,
-          );
-          updated++;
-          continue;
-        }
-
-        // Idempotency: do not move backwards or stay the same
-        const statusOrder = ['DISPATCHED', 'IN_TRANSIT', 'COMPLETED'];
-        const currentIndex = statusOrder.indexOf(shipment.status as any);
-        const newIndex = statusOrder.indexOf(mappedStatus);
-
-        if (newIndex <= currentIndex) {
-          this.logger.debug(
-            `[Polling] Shipment ${shipment.id} would not advance status (${shipment.status} → ${mappedStatus})`,
-          );
-          continue;
-        }
-
-        // Update status
-        await this.prisma.shipment.update({
-          where: { id: shipment.id },
-          data: { status: mappedStatus },
+        const result = await this.trackingSync.applyProviderTrackingUpdate({
+          shipment: shipment as any,
+          providerStatus,
+          source: 'poll',
+          tracking,
         });
-
-        this.logger.debug(
-          `[Polling] Updated shipment ${shipment.id}: ${shipment.status} → ${mappedStatus}`,
-        );
-        updated++;
-
-        try {
-          await syncOrderStatusFromShipments(
-            this.prisma,
-            shipment.order.id,
-          );
-        } catch (syncErr: any) {
-          this.logger.warn(
-            `[Polling] Order status sync failed for order ${shipment.order.id}: ${syncErr?.message ?? syncErr}`,
-          );
+        if (result.updated) {
+          updated++;
         }
-
-        // Send notification (renter + lister for return legs)
-        await this.sendTrackingNotification(shipment as any, mappedStatus);
       } catch (err: any) {
         this.logger.error(
           `[Polling] Failed to poll shipment ${shipment.id}: ${err.message}`,
@@ -840,277 +753,23 @@ export class ShipmentDispatchScheduler {
     }
   }
 
-  private async sendTrackingNotification(shipment: any, newStatus: string) {
-    const order = shipment.order;
-    const customer = order?.user;
-    if (!customer) return;
-
-    const isOutbound = shipment.type === 'OUTBOUND';
-    const isResale = shipment.type === 'RESALE';
-    const isReturn = shipment.type === 'RETURN';
-
-    if (newStatus === 'IN_TRANSIT') {
-      const title = isResale
-        ? 'Your purchase is in transit!'
-        : isOutbound
-          ? 'Your rental is in transit!'
-          : 'Return pickup in progress';
-      const message = isResale
-        ? 'Your item has been picked up and is on its way to you.'
-        : isOutbound
-          ? 'Your item has been picked up and is on its way to you.'
-          : 'The rider has picked up your item for return. It is on its way back to the lister.';
-
-      await this.notification.createNotification({
-        userId: customer.id,
-        title,
-        message,
-        type: isResale
-          ? 'SHIPMENT_IN_TRANSIT'
-          : isOutbound
-            ? 'SHIPMENT_IN_TRANSIT'
-            : 'RETURN_IN_TRANSIT',
-        metadata: {
-          shipmentId: shipment.id,
-          orderId: order.orderId,
-        },
-        sendEmail: true,
-        emailData: {
-          email: customer.email,
-          userName: customer.name,
-          orderId: order.orderId,
-          status: isResale
-            ? 'In Transit'
-            : isOutbound
-              ? 'In Transit'
-              : 'Return Pickup In Progress',
-          trackingNumber: shipment.trackingId ?? undefined,
-          estimatedDelivery: undefined,
-        },
-      });
-
-      if (isReturn) {
-        await this.notifyListersForReturnLeg(shipment, 'IN_TRANSIT');
-      }
-    }
-
-    if (newStatus === 'COMPLETED') {
-      if (isReturn) {
-        await this.notification.createNotification({
-          userId: customer.id,
-          title: 'Return delivered to the lister',
-          message:
-            'Carrier tracking shows your return was delivered. The lister will inspect the item and confirm receipt in the app. You will be notified when your collateral is released after they complete confirmation.',
-          type: 'RETURN_DELIVERED_TO_LISTER',
-          metadata: {
-            shipmentId: shipment.id,
-            orderId: order.orderId,
-          },
-          sendEmail: true,
-          emailData: {
-            email: customer.email,
-            userName: customer.name,
-            orderId: order.orderId,
-            status: 'Delivered to lister (pending lister confirmation)',
-            emailSubject: 'Your return was delivered',
-            emailHeading: 'Return delivered',
-            trackingNumber: shipment.trackingId ?? undefined,
-            extraNote:
-              'Your rental is not fully closed until the lister confirms they received the item in the expected condition.',
-          },
-        });
-        await this.notifyListersForReturnLeg(shipment, 'COMPLETED');
-        return;
-      }
-
-      const title = isResale
-        ? 'Your purchase has been delivered!'
-        : 'Your rental has been delivered!';
-      const message = isResale
-        ? 'Your item has been delivered. Enjoy your purchase!'
-        : 'Your item has been delivered. Enjoy your rental!';
-
-      await this.notification.createNotification({
-        userId: customer.id,
-        title,
-        message,
-        type: isResale ? 'SHIPMENT_DELIVERED' : 'SHIPMENT_DELIVERED',
-        metadata: {
-          shipmentId: shipment.id,
-          orderId: order.orderId,
-        },
-        sendEmail: true,
-        emailData: {
-          email: customer.email,
-          userName: customer.name,
-          orderId: order.orderId,
-          status: 'Delivered',
-          trackingNumber: shipment.trackingId ?? undefined,
-          estimatedDelivery: undefined,
-        },
-      });
-    }
-  }
-
-  private async notifyListersForReturnLeg(
-    shipment: any,
-    phase: 'IN_TRANSIT' | 'COMPLETED',
-  ) {
-    const orderInternalId = shipment.order?.id as string | undefined;
-    if (!orderInternalId) return;
-
-    const full = await this.prisma.order.findUnique({
-      where: { id: orderInternalId },
-      select: {
-        id: true,
-        orderId: true,
-        orderItems: {
-          select: {
-            product: {
-              select: {
-                curator: {
-                  select: {
-                    id: true,
-                    email: true,
-                    name: true,
-                    profile: {
-                      select: {
-                        businessInfo: { select: { businessName: true } },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    });
-    if (!full) return;
-
-    const clientUrl = process.env.CLIENT_URL || 'https://relisted.com';
-    const orderPageUrl = `${clientUrl}/listers/orders/${full.id}`;
-    const trackingNumber = shipment.trackingId ?? undefined;
-
-    const listers = new Map<
-      string,
-      {
-        id: string;
-        email: string | null;
-        name: string | null;
-        profile: {
-          businessInfo: { businessName: string | null } | null;
-        } | null;
-      }
-    >();
-
-    for (const oi of full.orderItems) {
-      const c = oi.product?.curator;
-      if (c?.id) listers.set(c.id, c as any);
-    }
-
-    for (const lister of listers.values()) {
-      if (!lister.email?.trim()) continue;
-      const curatorName =
-        lister.profile?.businessInfo?.businessName || lister.name || 'there';
-
-      if (phase === 'IN_TRANSIT') {
-        await this.notification.createNotification({
-          userId: lister.id,
-          title: 'Return on its way to you',
-          message: `The renter's return for order ${full.orderId} is in transit to your address.`,
-          type: 'LISTER_RETURN_IN_TRANSIT',
-          metadata: {
-            orderId: full.id,
-            orderNumber: full.orderId,
-            shipmentId: shipment.id,
-          },
-          sendEmail: true,
-          emailData: {
-            email: lister.email.trim(),
-            curatorName,
-            orderNumber: full.orderId,
-            orderPageUrl,
-            trackingNumber,
-            platformName: 'Relisted',
-          },
-        });
-      } else {
-        await this.notification.createNotification({
-          userId: lister.id,
-          title: 'Confirm return receipt to finish this rental',
-          message: `Tracking shows the return for order ${full.orderId} was delivered. Open your order, review the renter's condition report, then confirm return receipt. That completes the order: collateral goes back to the renter and your rental earnings plus cleaning fee are released to your wallet.`,
-          type: 'LISTER_RETURN_DELIVERED_CONFIRM',
-          metadata: {
-            orderId: full.id,
-            orderNumber: full.orderId,
-            shipmentId: shipment.id,
-          },
-          sendEmail: true,
-          emailData: {
-            email: lister.email.trim(),
-            curatorName,
-            orderNumber: full.orderId,
-            orderPageUrl,
-            trackingNumber,
-            platformName: 'Relisted',
-          },
-        });
-      }
-    }
-  }
-
-  private async notifyAdminOfProviderCancellation(
-    shipment: any,
-    tracking: TrackingStatus,
-  ) {
-    const providerStatus = tracking.status || 'Cancelled';
-    const order = shipment.order;
-
-    const admins = await fetchAdminAlertRecipients(this.prisma);
-    if (admins.length === 0) {
-      this.logger.warn(
-        `[Polling] No admin users found for shipment cancellation alert (shipment ${shipment.id}).`,
-      );
-      return;
-    }
-
-    const adminShipmentUrl =
-      buildAdminShipmentsPageUrl({ shipmentId: shipment.id }) || undefined;
-
-    for (const admin of admins) {
-      await this.notification.createNotification({
-        userId: admin.id,
-        title: '🚨 Shipment cancelled by Topship',
-        message: `Shipment ${shipment.id} (${shipment.type}) was cancelled by Topship (status: ${providerStatus}).`,
-        type: 'SHIPMENT_PROVIDER_CANCELLED',
-        metadata: {
-          shipmentId: shipment.id,
-          orderId: order?.orderId ?? shipment.orderId,
-          providerStatus,
-          providerMessage: tracking.message ?? null,
-        },
-      });
-    }
-
-    for (const admin of admins) {
-      if (!admin.email?.trim()) continue;
-      try {
-        await this.mail.sendAdminShipmentCancelledAlert({
-          to: admin.email.trim(),
-          shipmentId: shipment.id,
-          orderId: order?.orderId ?? shipment.orderId,
-          shipmentType: shipment.type,
-          providerStatus,
-          providerMessage: tracking.message,
-          trackingUrl: shipment.providerTrackingUrl ?? undefined,
-          adminShipmentUrl,
-        });
-      } catch (err: any) {
-        this.logger.error(
-          `[Polling] Failed to send admin cancellation email to ${admin.email} for shipment ${shipment.id}: ${err.message}`,
+  /**
+   * Auto-complete resale orders after the inspection window (buyer did not confirm or dispute).
+   */
+  @Cron(RESALE_INSPECTION_RELEASE_CRON_SCHEDULE, { timeZone: 'Africa/Lagos' })
+  async autoReleaseResaleAfterInspectionPeriod() {
+    try {
+      const result =
+        await this.orderService.autoCompleteDeliveredResaleOrders();
+      if (result.processed > 0) {
+        this.logger.log(
+          `[ResaleInspection] Auto-completed ${result.processed} resale order(s)`,
         );
       }
+    } catch (err: any) {
+      this.logger.error(
+        `[ResaleInspection] Auto-complete failed: ${err?.message ?? err}`,
+      );
     }
   }
 }

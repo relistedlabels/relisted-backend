@@ -172,6 +172,30 @@ export class AdminService {
   }
 
   /**
+   * Gross order revenue (sum of `totalAmountPaid`), same as admin overview
+   * analytics and rentals-revenue trend charts.
+   */
+  private async sumTotalOrderRevenue(
+    timeframe = 'all_time',
+    year?: string,
+    month?: string,
+  ): Promise<number> {
+    const orderDateRange = this.resolveOrderAnalyticsDateRange(
+      timeframe,
+      year,
+      month,
+    );
+    const revenueAgg = await this.prisma.order.aggregate({
+      where: {
+        status: { notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED] },
+        createdAt: orderDateRange,
+      },
+      _sum: { totalAmountPaid: true },
+    });
+    return revenueAgg._sum.totalAmountPaid ?? 0;
+  }
+
+  /**
    * Users with marketplace engagement in the analytics period:
    * orders (renter or lister) and/or availability requests (requester or lister).
    * Not subject to the order revenue launch cutoff.
@@ -266,17 +290,14 @@ export class AdminService {
 
     const [
       totalOrders,
-      revenueAgg,
+      totalRevenue,
       activeListings,
       activeDisputes,
       activeUsers,
       deliveryOrders,
     ] = await Promise.all([
       this.prisma.order.count({ where: orderWhere }),
-      this.prisma.order.aggregate({
-        where: orderWhere,
-        _sum: { totalAmountPaid: true },
-      }),
+      this.sumTotalOrderRevenue(timeframe, year, month),
       this.prisma.product.count({
         where: {
           isActive: true,
@@ -333,7 +354,7 @@ export class AdminService {
       success: true,
       data: {
         totalOrders,
-        totalRevenue: revenueAgg._sum.totalAmountPaid || 0,
+        totalRevenue,
         activeListings,
         activeDisputes,
         activeUsers,
@@ -2700,9 +2721,44 @@ export class AdminService {
   }
 
   /* ORDERS */
+  private async fetchOrderListStats() {
+    const [
+      totalListings,
+      completedOrders,
+      activeOrders,
+      disputedOrders,
+      totalRevenue,
+    ] = await Promise.all([
+      this.prisma.product.count(),
+      this.prisma.order.count({ where: { status: OrderStatus.COMPLETED } }),
+      this.prisma.order.count({
+        where: {
+          status: {
+            in: [
+              OrderStatus.CONFIRMED,
+              OrderStatus.IN_TRANSIT,
+              OrderStatus.DELIVERED,
+              OrderStatus.ACTIVE,
+            ],
+          },
+        },
+      }),
+      this.prisma.dispute.count(),
+      this.sumTotalOrderRevenue('all_time'),
+    ]);
+
+    return {
+      totalListings,
+      completedOrders,
+      activeOrders,
+      disputedOrders,
+      totalRevenue,
+    };
+  }
+
   async getOrderStats() {
-    const total = await this.prisma.order.count();
-    return { success: true, data: { total } };
+    const data = await this.fetchOrderListStats();
+    return { success: true, data: { ...data, timeframe: 'all_time' } };
   }
   async getAllOrders(
     page: number,
@@ -2756,15 +2812,7 @@ export class AdminService {
       ];
     }
 
-    const [
-      total,
-      orders,
-      totalListings,
-      completedOrders,
-      activeOrders,
-      disputedOrders,
-      revenue,
-    ] = await this.prisma.$transaction([
+    const [total, orders, listStats] = await Promise.all([
       this.prisma.order.count({ where }),
       this.prisma.order.findMany({
         where,
@@ -2794,18 +2842,7 @@ export class AdminService {
           payments: { take: 1, orderBy: { createdAt: 'desc' } },
         },
       }),
-      this.prisma.product.count(),
-      this.prisma.order.count({ where: { status: 'COMPLETED' } }),
-      this.prisma.order.count({
-        where: {
-          status: { in: ['CONFIRMED', 'IN_TRANSIT', 'DELIVERED', 'ACTIVE'] },
-        },
-      }),
-      this.prisma.dispute.count(),
-      this.prisma.transaction.aggregate({
-        where: { status: 'SUCCESS' },
-        _sum: { amount: true },
-      }),
+      this.fetchOrderListStats(),
     ]);
 
     const formattedOrders = orders.map((o: any) => {
@@ -2885,13 +2922,7 @@ export class AdminService {
           limit: limitSafe,
           pages: Math.max(1, Math.ceil(total / limitSafe)),
         },
-        stats: {
-          totalListings,
-          completedOrders,
-          activeOrders,
-          disputedOrders,
-          totalRevenue: revenue._sum.amount || 0,
-        },
+        stats: listStats,
       },
     };
   }
