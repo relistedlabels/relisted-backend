@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { RentersService } from './renters.service';
 import { PrismaModule } from '../../services/prisma/prisma.module';
 import { UploadModule } from '../upload/upload.module';
+import { ShipbubbleModule } from '../../services/shipbubble/shipbubble.module';
 import { TopshipModule } from '../../services/topship/topship.module';
 import { RentersDashboardController } from './renters.dashboard.controller';
 import { RentersProfileController } from './renters.profile.controller';
@@ -17,7 +18,13 @@ import { WemaServiceService } from '../../services/wema-service/wema-service.ser
 import { ProductAvailabilityNotifyModule } from '../../services/product-availability-notify/product-availability-notify.module';
 
 @Module({
-  imports: [PrismaModule, UploadModule, TopshipModule, ProductAvailabilityNotifyModule],
+  imports: [
+    PrismaModule,
+    UploadModule,
+    TopshipModule,
+    ShipbubbleModule,
+    ProductAvailabilityNotifyModule,
+  ],
   controllers: [
     RentersDashboardController,
     RentersProfileController,
