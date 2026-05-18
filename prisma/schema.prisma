@@ -79,8 +79,9 @@ model Profile {
   idDocumentType     String?
   idDocumentUploadId String?           @unique
   nin                String?
-  address            Address?
-  businessInfo       BusinessInfo?
+  address                         Address?
+  shipbubbleAddressVerifications  ShipbubbleAddressVerification[]
+  businessInfo                    BusinessInfo?
   emergencyContact   EmergencyContact?
   avatar             String?
   avatarUpload       Upload?           @relation("AvatarUpload", fields: [avatarUploadId], references: [id])
@@ -129,6 +130,26 @@ model Address {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   profile   Profile  @relation(fields: [profileId], references: [id])
+}
+
+/// Cached Shipbubble POST /shipping/address/validate results (keyed by normalized contact + address).
+model ShipbubbleAddressVerification {
+  id                    String   @id @default(uuid())
+  addressHash           String   @unique
+  addressCode           Int
+  normalizedName        String
+  normalizedPhone       String
+  normalizedAddressLine String
+  formattedAddress      String
+  latitude              Float?
+  longitude             Float?
+  profileId             String?
+  verifiedAt            DateTime @default(now())
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  profile               Profile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
+
+  @@index([profileId])
 }
 
 model AuthOtpToken {
@@ -584,10 +605,12 @@ model Escrow {
   listerId         String
   renterId         String
   rentalAmount     Int
-  resaleAmount     Int?
-  collateralAmount Int
-  cleaningFee      Int
-  status           EscrowStatus @default(LOCKED)
+  resaleAmount         Int?
+  /// Cumulative resale payout already sent to the lister (per-shipment confirms).
+  resaleReleasedAmount Int          @default(0)
+  collateralAmount     Int
+  cleaningFee          Int
+  status               EscrowStatus @default(LOCKED)
   releasedAt       DateTime?
   createdAt        DateTime     @default(now())
   order            Order        @relation(fields: [orderId], references: [id])
@@ -912,6 +935,8 @@ model Shipment {
   manualDueReminderMorningSentAt DateTime?
   dispatchAttempts     Int                  @default(0)
   dispatchedAt         DateTime?
+  /// Buyer confirmed receipt for RESALE legs (releases resale payout for this shipment only).
+  buyerConfirmedAt     DateTime?
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
   order                Order                @relation(fields: [orderId], references: [id])
