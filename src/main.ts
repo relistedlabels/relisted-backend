@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import './load-env';
 import { mkdir } from 'fs/promises';
 import { join } from 'path';
 import { NestFactory } from '@nestjs/core';
@@ -12,6 +12,12 @@ import { inspect } from 'util';
 import cookieParser from 'cookie-parser';
 import { AllExceptionsFilter } from './utils/all-exceptions.filter';
 import { applySwaggerBasicAuth } from './swagger/apply-swagger-basic-auth';
+import {
+  chowdeckRelayQuotesAvailable,
+  parseShippingFulfillmentProviders,
+  shipbubbleQuotesAvailable,
+  topshipFulfillmentEnabled,
+} from './constants/shipping-fulfillment-providers';
 
 function redactDatabaseUrl(url: string | undefined): string {
   if (!url) return '(not set)';
@@ -22,6 +28,18 @@ function redactDatabaseUrl(url: string | undefined): string {
   } catch {
     return '(invalid DATABASE_URL)';
   }
+}
+
+/** Masked Shipbubble key for startup logs (verify sandbox vs prod without leaking the secret). */
+function maskShipbubbleApiKey(key: string | undefined): string {
+  if (!key?.trim()) return '(not set)';
+  const k = key.trim();
+  let mode = 'unknown';
+  if (k.startsWith('sb_sandbox_')) mode = 'sandbox';
+  else if (k.startsWith('sb_prod_')) mode = 'production';
+  const head = k.slice(0, Math.min(20, k.length));
+  const tail = k.length > 4 ? k.slice(-4) : '';
+  return `${head}…${tail} (mode=${mode}, len=${k.length})`;
 }
 
 function maskSensitiveFields(obj: any): any {
@@ -190,17 +208,40 @@ function loggingMiddleware(req: any, res: any, next: () => void) {
   next();
 }
 
+function logShippingFulfillmentConfig() {
+  const raw = process.env.SHIPPING_FULFILLMENT_PROVIDERS;
+  const active = [...parseShippingFulfillmentProviders()].join(', ');
+  console.log(
+    `[Shipping] SHIPPING_FULFILLMENT_PROVIDERS=${raw == null || raw === '' ? '(unset → topship default)' : JSON.stringify(raw)} → enabled: [${active}]`,
+  );
+  console.log(
+    `[Shipping] Checkout quotes: topship=${topshipFulfillmentEnabled()} chowdeck_relay=${chowdeckRelayQuotesAvailable()} shipbubble=${shipbubbleQuotesAvailable()}`,
+  );
+  if (shipbubbleQuotesAvailable() || process.env.SHIPBUBBLE_API_KEY?.trim()) {
+    const baseUrl =
+      process.env.SHIPBUBBLE_API_BASE_URL?.trim() ||
+      'https://api.shipbubble.com/v1';
+    const key = process.env.SHIPBUBBLE_API_KEY?.trim() ?? '';
+    const sandbox = key.startsWith('sb_sandbox_');
+    console.log(
+      `[Shipping] SHIPBUBBLE_API_KEY=${maskShipbubbleApiKey(key)} SHIPBUBBLE_API_BASE_URL=${baseUrl}${sandbox ? ' (sandbox: all pickup couriers allowed at checkout)' : ''}`,
+    );
+  }
+}
+
 async function bootstrap() {
   const leanLogs =
     process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
   /** Render (and most hosts) already emit access logs; skip duplicate request/response console lines unless debugging. */
   const enableHttpAccessLog =
     !leanLogs || process.env.HTTP_ENABLE_ACCESS_LOG === 'true';
+  logShippingFulfillmentConfig();
   if (!leanLogs) {
     console.log('Database:', redactDatabaseUrl(process.env.DATABASE_URL));
   }
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    rawBody: true,
     logger: leanLogs
       ? ['error', 'warn', 'log']
       : ['error', 'warn', 'log', 'debug', 'verbose'],

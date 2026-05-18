@@ -25,6 +25,21 @@ import { createAttachments } from 'prisma/prisma.utils';
 import { NotificationService } from '../../services/notification/notification.service';
 import { assertNoOpenAvailabilityRequestForProduct } from '../../utils/assert-no-open-availability-for-product';
 import { DEFAULT_CLEANING_FEE_NGN } from '../../constants/rental-pricing';
+import {
+  buildListerNameMapFromOrderItems,
+  buildRentalOutboundPackageRows,
+  buildResalePackageRows,
+  canBuyerConfirmResaleReceipt,
+  computeResaleMilestoneStep,
+  isResalePurchaseOrderItem,
+  listConfirmableResaleShipments,
+  orderHasRentalItems,
+  orderItemsForResaleShipment,
+  resaleLinePriceNgn,
+  resaleProgressPercent,
+  summarizeResaleLegStatuses,
+} from '../order/resale-delivery.util';
+import { buildShipmentProgressOverview } from '../order/shipment-progress-groups.util';
 import { bad } from '../../utils/error';
 import {
   CreateReturnRequestDto,
@@ -46,6 +61,7 @@ import {
   type ListerWithdrawNotify,
 } from '../cart-items/withdraw-availability-for-cart-item';
 import { syncOrderStatusFromShipments } from '../order/order-shipment-status.sync';
+import { ShipbubbleAddressCacheService } from '../../services/shipbubble/shipbubble-address-cache.service';
 
 /** Renter progress ordering (subset of shipment-driven flow; excludes terminal edge cases). */
 const RENTER_PROGRESS_RANK: OrderStatus[] = [
@@ -251,6 +267,7 @@ export class RentersService {
     private wemaService: WemaServiceService,
     private notificationService: NotificationService,
     private topshipService: TopshipService,
+    private readonly shipbubbleAddressCache: ShipbubbleAddressCacheService,
   ) {}
 
   /** Accepts ISO strings, timestamps, or Date; rejects invalid / missing values. */
@@ -799,6 +816,8 @@ export class RentersService {
         isDefault: addressData.isDefault,
       },
     });
+
+    await this.shipbubbleAddressCache.invalidateForProfile(profile.id);
 
     return {
       success: true,
@@ -1913,6 +1932,96 @@ export class RentersService {
       total: rentalSubtotal + cleaningFeesTotal + resaleSubtotal,
     };
 
+    const listerNameByIdFromOrder = buildListerNameMapFromOrderItems(
+      typedOrder.orderItems,
+    );
+    for (const ol of typedOrder.orderListers ?? []) {
+      if (ol?.listerId && !listerNameByIdFromOrder.has(ol.listerId)) {
+        listerNameByIdFromOrder.set(
+          ol.listerId,
+          typedOrder.listerBusinessName?.trim() || 'Seller',
+        );
+      }
+    }
+
+    const shipmentLegs = (typedOrder.shipments ?? []).map(
+      (s: {
+        id?: string;
+        type: string;
+        status: string;
+        listerId?: string | null;
+        buyerConfirmedAt?: Date | null;
+        trackingId?: string | null;
+        providerTrackingUrl?: string | null;
+        scheduledDate?: Date | null;
+        scheduledWindowStart?: Date | null;
+        scheduledWindowEnd?: Date | null;
+      }) => ({
+        id: s.id ?? null,
+        type: s.type,
+        status: s.status,
+        listerId: s.listerId ?? null,
+        buyerConfirmedAt: s.buyerConfirmedAt?.toISOString?.() ?? null,
+        listerName: s.listerId
+          ? listerNameByIdFromOrder.get(s.listerId) ?? 'Seller'
+          : null,
+        trackingId: s.trackingId ?? null,
+        providerTrackingUrl: s.providerTrackingUrl ?? null,
+        scheduledDate: s.scheduledDate?.toISOString?.() ?? null,
+        windowSummary:
+          s.scheduledWindowStart && s.scheduledWindowEnd
+            ? formatPickupWindowLagos(
+                new Date(s.scheduledWindowStart),
+                new Date(s.scheduledWindowEnd),
+              )
+            : null,
+      }),
+    );
+
+    const confirmableResaleShipments = listConfirmableResaleShipments(
+      typedOrder.shipments ?? [],
+    )
+      .filter((leg) => leg.id)
+      .map((leg) => {
+        const items = orderItemsForResaleShipment(
+          typedOrder.orderItems,
+          leg.id!,
+          typedOrder.shipments ?? [],
+        );
+        return {
+          shipmentId: leg.id!,
+          itemNames: items
+            .map((i: { product?: { name?: string | null } }) =>
+              i.product?.name?.trim(),
+            )
+            .filter((n): n is string => Boolean(n)),
+        };
+      });
+
+    const canConfirmResaleDelivery = canBuyerConfirmResaleReceipt({
+      listingType: typedOrder.listingType,
+      status: typedOrder.status,
+      deliveredAt: typedOrder.deliveredAt,
+      shipments: shipmentLegs,
+      orderItems: typedOrder.orderItems.map((i: any) => ({
+        days: i.days,
+        product: { listingType: i.product?.listingType },
+      })),
+    });
+
+    const resalePackages = buildResalePackageRows({
+      orderItems: typedOrder.orderItems,
+      shipments: typedOrder.shipments ?? [],
+      listerNameById: listerNameByIdFromOrder,
+      formatWindow: formatPickupWindowLagos,
+    });
+    const rentalPackages = buildRentalOutboundPackageRows({
+      orderItems: typedOrder.orderItems,
+      shipments: typedOrder.shipments ?? [],
+      listerNameById: listerNameByIdFromOrder,
+      formatWindow: formatPickupWindowLagos,
+    });
+
     return {
       success: true,
       data: {
@@ -1924,6 +2033,12 @@ export class RentersService {
           ),
           listingType: typedOrder.listingType,
           createdAt: typedOrder.createdAt,
+          deliveredAt: typedOrder.deliveredAt?.toISOString?.() ?? null,
+          shipments: shipmentLegs,
+          packages: resalePackages,
+          rentalPackages,
+          canConfirmResaleDelivery,
+          confirmableResaleShipments,
           totalAmount: totalAmount,
           rentalId: rentals.length === 1 ? (rentals[0]?.id ?? null) : null,
           rentals: rentals.map((r: any) => ({
@@ -1982,10 +2097,16 @@ export class RentersService {
               ) ||
                 0);
 
+            const resaleLine = isResalePurchaseOrderItem({
+              days: i.days,
+              product: { listingType: i.product?.listingType },
+            });
+            const resalePrice = resaleLine ? resaleLinePriceNgn(i) : 0;
+
             return {
               id: i.product?.id || i.productId,
               name: i.product?.name || 'Unknown',
-              price: i.pricePerDay,
+              price: resaleLine ? resalePrice : i.pricePerDay,
               quantity: i.product?.quantity ?? 1,
               days: i.days,
               rentalDays: i.days,
@@ -1995,7 +2116,11 @@ export class RentersService {
                 i.product?.attachments?.uploads?.[0]?.url ||
                 i.product?.images?.[0] ||
                 null,
-              rentalFee: i.rentalFee || i.pricePerDay * i.days,
+              rentalFee: resaleLine
+                ? resalePrice
+                : i.rentalFee || i.pricePerDay * i.days,
+              resalePrice: resaleLine ? resalePrice : null,
+              resaleListerAmount: i.resaleListerAmount ?? null,
               cleaningFee,
               collateralFee,
               collateral: collateralFee,
@@ -3091,6 +3216,33 @@ export class RentersService {
             pickupScheduledAt: true,
           },
         },
+        orderItems: {
+          select: {
+            id: true,
+            productId: true,
+            days: true,
+            resaleListerAmount: true,
+            resaleShipmentId: true,
+            outboundShipmentId: true,
+            returnShipmentId: true,
+            product: {
+              select: {
+                listingType: true,
+                name: true,
+                resalePrice: true,
+                curator: {
+                  select: {
+                    id: true,
+                    name: true,
+                    profile: {
+                      select: { businessName: true, fullName: true },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
         shipments: {
           orderBy: [{ scheduledDate: 'asc' }, { createdAt: 'asc' }],
           select: {
@@ -3104,6 +3256,7 @@ export class RentersService {
             trackingId: true,
             providerTrackingUrl: true,
             dispatchedAt: true,
+            updatedAt: true,
           },
         },
       },
@@ -3147,7 +3300,17 @@ export class RentersService {
       };
     }
 
-    const resale = order.listingType === ListingType.RESALE;
+    const resaleLegsProg = (order.shipments ?? []).filter(
+      (s) => s.type === 'RESALE',
+    );
+    const orderItemsProg = order.orderItems ?? [];
+    const hasResaleItems = orderItemsProg.some((oi) =>
+      isResalePurchaseOrderItem(oi),
+    );
+    const hasRentalItemsProg = orderHasRentalItems(orderItemsProg);
+    const pureResaleProgress =
+      order.listingType === ListingType.RESALE ||
+      (hasResaleItems && !hasRentalItemsProg);
 
     const outboundShipments = (order.shipments ?? []).filter(
       (s) => s.type === 'OUTBOUND',
@@ -3156,7 +3319,7 @@ export class RentersService {
       (s) => s.type === 'RETURN',
     );
 
-    const rank = resale
+    let rank = pureResaleProgress
       ? renterProgressRank(
           renterDisplayOrderStatus(status, order.totalAmountPaid),
         )
@@ -3165,6 +3328,7 @@ export class RentersService {
           order.totalAmountPaid,
           outboundShipments,
         );
+
     const returnedAt =
       order.rentals?.length > 0
         ? order.rentals.reduce(
@@ -3185,7 +3349,7 @@ export class RentersService {
       timestamp: Date | null;
     };
 
-    const milestones: MilestoneRow[] = resale
+    const milestones: MilestoneRow[] = pureResaleProgress
       ? [
           {
             milestone: 'order_placed',
@@ -3204,9 +3368,20 @@ export class RentersService {
           {
             milestone: 'delivered',
             label: 'Delivered',
-            description: 'Carrier shows delivery completed',
+            description: hasResaleItems
+              ? 'Your package has arrived. Confirm receipt when you are ready.'
+              : 'Carrier shows delivery completed',
             doneAtRank: 4,
-            timestamp: order.deliveredAt,
+            timestamp:
+              order.deliveredAt ??
+              (resaleLegsProg.every((s) => s.status === 'COMPLETED')
+                ? resaleLegsProg.reduce<Date | null>((latest, leg) => {
+                    const t = leg.updatedAt;
+                    if (!t) return latest;
+                    if (!latest || t > latest) return t;
+                    return latest;
+                  }, null)
+                : null),
           },
           {
             milestone: 'completed',
@@ -3331,17 +3506,17 @@ export class RentersService {
         }
       : null;
 
-    const listerIdsForOutbound = [
+    const listerIdsForShipments = [
       ...new Set(
-        outboundShipments
+        [...outboundShipments, ...resaleLegsProg]
           .map((s) => s.listerId)
           .filter((id): id is string => Boolean(id)),
       ),
     ];
     const listerNameById = new Map<string, string>();
-    if (listerIdsForOutbound.length > 0) {
+    if (listerIdsForShipments.length > 0) {
       const users = await this.prisma.user.findMany({
-        where: { id: { in: listerIdsForOutbound } },
+        where: { id: { in: listerIdsForShipments } },
         select: {
           id: true,
           name: true,
@@ -3357,32 +3532,36 @@ export class RentersService {
         listerNameById.set(u.id, label);
       }
     }
+    for (const [id, label] of buildListerNameMapFromOrderItems(orderItemsProg)) {
+      if (!listerNameById.has(id)) listerNameById.set(id, label);
+    }
 
-    const outboundLegsPayload =
-      resale || outboundShipments.length === 0
-        ? []
-        : outboundShipments.map((s) => ({
-            shipmentId: s.id,
-            listerId: s.listerId,
-            listerName: s.listerId
-              ? listerNameById.get(s.listerId) ?? null
-              : null,
-            status: s.status,
-            scheduledDate: s.scheduledDate.toISOString(),
-            windowSummary:
-              s.scheduledWindowStart && s.scheduledWindowEnd
-                ? formatPickupWindowLagos(
-                    new Date(s.scheduledWindowStart),
-                    new Date(s.scheduledWindowEnd),
-                  )
-                : null,
-            trackingId: s.trackingId,
-            providerTrackingUrl: s.providerTrackingUrl,
-            isBooked: OUTBOUND_BOOKED_STATUSES.has(s.status),
-          }));
+    const resaleLegsPayload = hasResaleItems
+      ? buildResalePackageRows({
+          orderItems: orderItemsProg,
+          shipments: order.shipments ?? [],
+          listerNameById,
+          formatWindow: formatPickupWindowLagos,
+        })
+      : [];
+
+    const rentalLegsPayload = hasRentalItemsProg
+      ? buildRentalOutboundPackageRows({
+          orderItems: orderItemsProg,
+          shipments: order.shipments ?? [],
+          listerNameById,
+          formatWindow: formatPickupWindowLagos,
+        })
+      : [];
+
+    const resaleLegSummary = summarizeResaleLegStatuses(
+      resaleLegsPayload.map((p) => ({ type: 'RESALE', status: p.status })),
+    );
+
+    const outboundLegsPayload = rentalLegsPayload;
 
     const outboundSummary =
-      resale || outboundShipments.length === 0
+      outboundShipments.length === 0
         ? { total: 0, bookedCount: 0 }
         : {
             total: outboundShipments.length,
@@ -3391,10 +3570,108 @@ export class RentersService {
             ).length,
           };
 
+    const resaleSummary = {
+      total: resaleLegSummary.total,
+      deliveredCount: resaleLegSummary.completed,
+      bookedCount: resaleLegSummary.booked,
+    };
+
+    const shipmentOverview = buildShipmentProgressOverview({
+      orderItems: orderItemsProg,
+      shipments: order.shipments ?? [],
+      orderStatus: status,
+      listerNameById,
+      formatWindow: formatPickupWindowLagos,
+      orderCreatedAt: order.createdAt,
+    });
+
+    const applyShipmentGroupProgress = <T extends Record<string, unknown>>(
+      payload: T,
+    ): T & {
+      shipmentGroups?: typeof shipmentOverview.groups;
+      summaryLabel?: string;
+    } => {
+      if (shipmentOverview.groups.length === 0) return payload;
+      const currentMilestone =
+        shipmentOverview.timeline.find((t) => t.status === 'current')
+          ?.milestone ??
+        shipmentOverview.timeline[shipmentOverview.timeline.length - 1]
+          ?.milestone;
+      return {
+        ...payload,
+        timeline: shipmentOverview.timeline,
+        percentComplete: shipmentOverview.percentComplete,
+        currentMilestone,
+        shipmentGroups: shipmentOverview.groups,
+        summaryLabel: shipmentOverview.summaryLabel,
+      };
+    };
+
+    if (pureResaleProgress) {
+      const step = computeResaleMilestoneStep(
+        resaleLegsPayload.map((p) => ({ type: 'RESALE', status: p.status })),
+        status,
+      );
+      const timeline = milestones.map((m, i) => {
+        const done = step === 3 || i < step;
+        const current = step < 3 && i === step;
+        const rowStatus: 'completed' | 'current' | 'pending' = done
+          ? 'completed'
+          : current
+            ? 'current'
+            : 'pending';
+        let description = m.description;
+        if (
+          m.milestone === 'shipped' &&
+          rowStatus === 'current' &&
+          resaleLegSummary.completed > 0 &&
+          resaleLegSummary.completed < resaleLegSummary.total
+        ) {
+          description = `${resaleLegSummary.completed} of ${resaleLegSummary.total} packages delivered. The rest are still on the way.`;
+        } else if (
+          m.milestone === 'shipped' &&
+          rowStatus === 'current' &&
+          resaleLegSummary.booked > 0
+        ) {
+          description = `Carrier bookings: ${resaleLegSummary.booked} of ${resaleLegSummary.total} seller shipments.`;
+        }
+        const showTs = done || rowStatus === 'current';
+        return {
+          milestone: m.milestone,
+          label: m.label,
+          timestamp: showTs && m.timestamp ? m.timestamp.toISOString() : null,
+          status: rowStatus,
+          description,
+        };
+      });
+
+      const percentComplete = resaleProgressPercent(step, milestones.length);
+      const currentMilestone =
+        step === 3
+          ? 'completed'
+          : milestones[Math.min(step, milestones.length - 1)].milestone;
+
+      return {
+        success: true,
+        data: applyShipmentGroupProgress({
+          timeline,
+          currentMilestone,
+          percentComplete,
+          returnScheduling: returnSchedulingProg,
+          returnLeg: returnLegProg,
+          outboundLegs: outboundLegsPayload,
+          rentalLegs: rentalLegsPayload,
+          outboundSummary,
+          resaleLegs: resaleLegsPayload,
+          resaleSummary,
+        }),
+      };
+    }
+
     if (rank === -1) {
       return {
         success: true,
-        data: {
+        data: applyShipmentGroupProgress({
           timeline: milestones.map((m) => ({
             milestone: m.milestone,
             label: m.label,
@@ -3407,8 +3684,11 @@ export class RentersService {
           returnScheduling: returnSchedulingProg,
           returnLeg: returnLegProg,
           outboundLegs: outboundLegsPayload,
+          rentalLegs: rentalLegsPayload,
           outboundSummary,
-        },
+          resaleLegs: resaleLegsPayload,
+          resaleSummary,
+        }),
       };
     }
 
@@ -3429,10 +3709,10 @@ export class RentersService {
         rowStatus = 'pending';
       }
       let ts: Date | null = m.timestamp;
-      if (done && !ts && m.milestone === 'completed' && resale) {
+      if (done && !ts && m.milestone === 'completed' && pureResaleProgress) {
         ts = order.updatedAt;
       }
-      if (done && !ts && m.milestone === 'returned' && !resale) {
+      if (done && !ts && m.milestone === 'returned' && !pureResaleProgress) {
         ts = returnedAt ?? order.updatedAt;
       }
       const showTs = done || rowStatus === 'current';
@@ -3448,10 +3728,10 @@ export class RentersService {
     const allDone = completedSteps === milestones.length;
     const percentComplete = allDone
       ? 100
-      : Math.round((completedSteps / (milestones.length - 1)) * 100);
+      : Math.round((completedSteps / milestones.length) * 100);
 
     if (
-      !resale &&
+      !pureResaleProgress &&
       returnSchedulingProg?.summary &&
       timeline.some((t) => t.milestone === 'return_due')
     ) {
@@ -3465,7 +3745,7 @@ export class RentersService {
     }
 
     if (
-      !resale &&
+      !pureResaleProgress &&
       outboundSummary.total > 1 &&
       timeline.some((t) => t.milestone === 'preparing_dispatch')
     ) {
@@ -3482,7 +3762,7 @@ export class RentersService {
 
     return {
       success: true,
-      data: {
+      data: applyShipmentGroupProgress({
         timeline,
         currentMilestone: allDone
           ? milestones[milestones.length - 1].milestone
@@ -3491,8 +3771,11 @@ export class RentersService {
         returnScheduling: returnSchedulingProg,
         returnLeg: returnLegProg,
         outboundLegs: outboundLegsPayload,
+        rentalLegs: rentalLegsPayload,
         outboundSummary,
-      },
+        resaleLegs: resaleLegsPayload,
+        resaleSummary,
+      }),
     };
   }
 

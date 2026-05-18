@@ -13,6 +13,7 @@ import { ListShipmentsDto } from './dto/list-shipments.dto';
 import { ManualCompleteShipmentDto } from './dto/manual-complete-shipment.dto';
 import { selectOrderItemsForShipmentLeg } from './order-items-for-shipment-leg';
 import { formatDispatchWindowLagos } from 'src/module/shipment/dispatch-window-format';
+import { sendShipmentLegStatusNotification } from './shipment-status-notifications';
 import { PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY } from 'src/utils/product-attachment-upload-order';
 
 const shipmentOrderItemProductInclude = {
@@ -101,7 +102,7 @@ export class ShipmentService {
           },
           attemptLogs: { orderBy: { attemptedAt: 'asc' } },
         },
-        orderBy: { scheduledDate: 'asc' },
+        orderBy: { scheduledDate: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       }),
@@ -420,6 +421,74 @@ export class ShipmentService {
     return {
       success: true,
       message: 'Shipment marked as dispatched',
+    };
+  }
+
+  // ─── Manual Relisted dispatch: mark delivered (no carrier COMPLETED event) ─
+
+  async markManualDelivered(id: string) {
+    const shipment = await this.prisma.shipment.findUnique({
+      where: { id },
+      include: {
+        order: {
+          include: {
+            user: { select: { id: true, name: true, email: true } },
+          },
+        },
+      },
+    });
+    if (!shipment) throw new NotFoundException('Shipment not found');
+
+    if (!shipment.manualFulfillment) {
+      throw new BadRequestException(
+        'Only Relisted dispatch (manual fulfillment) shipments can be marked delivered this way.',
+      );
+    }
+
+    if (!['DISPATCHED', 'IN_TRANSIT'].includes(shipment.status)) {
+      throw new BadRequestException(
+        `Shipment must be DISPATCHED or IN_TRANSIT. Current status: ${shipment.status}`,
+      );
+    }
+
+    await this.prisma.shipment.update({
+      where: { id },
+      data: { status: 'COMPLETED' },
+    });
+
+    try {
+      await syncOrderStatusFromShipments(this.prisma, shipment.orderId);
+    } catch (syncErr: any) {
+      console.warn(
+        `[ShipmentService] Order status sync after manual delivered failed for ${shipment.orderId}: ${syncErr?.message ?? syncErr}`,
+      );
+    }
+
+    try {
+      await sendShipmentLegStatusNotification(
+        this.notificationService,
+        {
+          id: shipment.id,
+          type: shipment.type,
+          trackingId: shipment.trackingId,
+          order: shipment.order
+            ? {
+                orderId: shipment.order.orderId,
+                user: shipment.order.user,
+              }
+            : null,
+        },
+        'COMPLETED',
+      );
+    } catch (notifyErr: any) {
+      console.warn(
+        `[ShipmentService] Delivery notification failed for ${id}: ${notifyErr?.message ?? notifyErr}`,
+      );
+    }
+
+    return {
+      success: true,
+      message: 'Shipment marked as delivered; order status updated',
     };
   }
 

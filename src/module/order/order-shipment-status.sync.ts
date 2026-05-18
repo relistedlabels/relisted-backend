@@ -104,10 +104,14 @@ export async function syncOrderStatusFromShipments(
   } else if (isRentalish(order.listingType)) {
     const outbound = order.shipments.filter((s) => s.type === 'OUTBOUND');
     const returnLegs = order.shipments.filter((s) => s.type === 'RETURN');
+    const resaleLegs = order.shipments.filter((s) => s.type === 'RESALE');
 
     const returnTarget = deriveReturnTarget(returnLegs);
     if (returnTarget) {
       target = returnTarget;
+    } else if (resaleLegs.length > 0 && outbound.length === 0) {
+      const statuses = resaleLegs.map((l) => l.status);
+      target = deriveOutboundTarget(statuses, false);
     } else {
       const obStatuses = outbound.map((l) => l.status);
       if (obStatuses.length === 0) return;

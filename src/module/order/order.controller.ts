@@ -57,7 +57,8 @@ export class OrderController {
   confirmResaleOrder(
     @AuthUser() user: userEntity,
     @Body('orderId') orderId: string,
+    @Body('shipmentId') shipmentId?: string,
   ) {
-    return this.orderService.confirmResaleOrder(user, orderId);
+    return this.orderService.confirmResaleOrder(user, orderId, { shipmentId });
   }
 }

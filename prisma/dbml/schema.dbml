@@ -67,6 +67,7 @@ Table Profile {
   idDocumentUploadId String [unique]
   nin String
   address Address
+  shipbubbleAddressVerifications ShipbubbleAddressVerification [not null]
   businessInfo BusinessInfo
   emergencyContact EmergencyContact
   avatar String
@@ -116,6 +117,25 @@ Table Address {
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
   profile Profile [not null]
+}
+
+Table ShipbubbleAddressVerification {
+  id String [pk]
+  addressHash String [unique, not null]
+  addressCode Int [not null]
+  normalizedName String [not null]
+  normalizedPhone String [not null]
+  normalizedAddressLine String [not null]
+  formattedAddress String [not null]
+  latitude Float
+  longitude Float
+  profileId String
+  verifiedAt DateTime [default: `now()`, not null]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+  profile Profile
+
+  Note: 'Cached Shipbubble POST /shipping/address/validate results (keyed by normalized contact + address).'
 }
 
 Table AuthOtpToken {
@@ -560,6 +580,7 @@ Table Escrow {
   renterId String [not null]
   rentalAmount Int [not null]
   resaleAmount Int
+  resaleReleasedAmount Int [not null, default: 0, note: 'Cumulative resale payout already sent to the lister (per-shipment confirms).']
   collateralAmount Int [not null]
   cleaningFee Int [not null]
   status EscrowStatus [not null, default: 'LOCKED']
@@ -755,6 +776,7 @@ Table Shipment {
   manualDueReminderMorningSentAt DateTime [note: 'Admin due reminder dedupe: Relisted dispatch leg due today (morning ping, Lagos).']
   dispatchAttempts Int [not null, default: 0]
   dispatchedAt DateTime
+  buyerConfirmedAt DateTime [note: 'Buyer confirmed receipt for RESALE legs (releases resale payout for this shipment only).']
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
   order Order [not null]
@@ -918,6 +940,8 @@ Ref: EmergencyContact.profileId - Profile.id
 Ref: BusinessInfo.profileId - Profile.id
 
 Ref: Address.profileId - Profile.id
+
+Ref: ShipbubbleAddressVerification.profileId > Profile.id [delete: Set Null]
 
 Ref: AuthOtpToken.userId > User.id
 

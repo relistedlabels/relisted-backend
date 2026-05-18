@@ -2,14 +2,25 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { OrderStatus, Prisma } from '@prisma/client';
+import { DisputeStatus, ListingType, OrderStatus, Prisma } from '@prisma/client';
 import { Order_Verification } from 'src/services/event/event.types';
 import { PrismaService } from 'src/services/prisma/prisma.service';
 import {
   chowdeckRelayQuotesAvailable,
+  shipbubbleQuotesAvailable,
   topshipFulfillmentEnabled,
 } from 'src/constants/shipping-fulfillment-providers';
 import { ChowdeckRelayService } from 'src/services/chowdeck-relay/chowdeck-relay.service';
+import { formatShipbubbleAddressLine } from 'src/services/shipbubble/shipbubble-address-normalize';
+import {
+  formatShipbubbleCheckoutTierName,
+  isShipbubblePricingTier,
+  sanitizeShipbubbleContactName,
+  sanitizeShipbubblePhone,
+  shipbubblePricingTierSlug,
+  ShipbubbleService,
+} from 'src/services/shipbubble/shipbubble.service';
+import { ShippingQuoteWarning } from 'src/constants/shipping-quote-warnings';
 import { TopshipService } from 'src/services/topship/topship.service';
 import { bad } from 'src/utils/error';
 import { userEntity } from '../auth/auth.types';
@@ -20,6 +31,23 @@ import {
   closetSplitKindForResaleOrderConfirm,
   incrementClosetRevenueForListerPayout,
 } from '../closet/closet-revenue.util';
+import {
+  canBuyerConfirmResaleReceipt,
+  getResaleInspectionCutoffDate,
+  getResaleInspectionPeriodLabel,
+  isResalePurchaseOrderItem,
+  listConfirmableResaleShipments,
+  orderHasResalePurchaseItems,
+  orderItemsForResaleShipment,
+  resaleReleaseAmountForItems,
+  resaleShipmentLegs,
+  shouldCompleteOrderAfterResaleFlow,
+} from './resale-delivery.util';
+import {
+  finalizeEscrowsOnOrderComplete,
+  releaseResaleEscrowForShipment,
+} from './release-resale-escrow-on-confirm';
+import { syncOrderStatusFromShipments } from './order-shipment-status.sync';
 import {
   CreateOrderDto,
   ReturnPickupAddressDto,
@@ -130,6 +158,7 @@ export class OrderService {
     private eventEmitter: EventEmitter2,
     private topshipService: TopshipService,
     private readonly chowdeckRelayService: ChowdeckRelayService,
+    private readonly shipbubbleService: ShipbubbleService,
     private notificationService: NotificationService,
     private readonly mailService: MailService,
     @InjectQueue('shipment-dispatch')
@@ -322,6 +351,8 @@ export class OrderService {
       .toLowerCase();
     if (!t) return 'chowdeck';
     if (t === 'chowdeck_relay') return 'chowdeck_relay';
+    if (t.startsWith('shipbubble:')) return t;
+    if (t === 'shipbubble') return 'shipbubble';
     if (t === RELISTED_DISPATCH_SHIPPING_LABEL.toLowerCase())
       return 'relisted dispatch';
     if (t === 'glovo') return 'glovo';
@@ -700,11 +731,26 @@ export class OrderService {
     };
   }
 
+  private pushShippingQuoteWarning(
+    warnings: ShippingQuoteWarning[],
+    row: ShippingQuoteWarning,
+  ) {
+    const msg = String(row.message ?? '').trim();
+    if (!msg) return;
+    const key = `${row.provider}|${row.leg}|${row.bucketIndex ?? ''}|${msg}`;
+    if (warnings.some((w) => `${w.provider}|${w.leg}|${w.bucketIndex ?? ''}|${w.message}` === key)) {
+      return;
+    }
+    warnings.push(row);
+  }
+
   private async maybeAppendChowdeckRelayOutboundRate(
     rateData: any[],
     sourceAddressLine: string,
     destinationAddressLine: string,
     estimatedOrderAmountKobo: number,
+    warnings: ShippingQuoteWarning[],
+    ctx: { bucketIndex: number; listerName?: string },
   ): Promise<any[]> {
     if (!chowdeckRelayQuotesAvailable()) return rateData;
     const src = String(sourceAddressLine ?? '').trim();
@@ -723,10 +769,138 @@ export class OrderService {
       };
       return [...(Array.isArray(rateData) ? rateData : []), row];
     } catch (err: any) {
+      const message = String(err?.message ?? 'Chowdeck Relay quote unavailable');
       console.warn(
         `[Checkout] Chowdeck Relay fee quote failed (${src.slice(0, 40)}…):`,
-        err?.message ?? err,
+        message,
       );
+      this.pushShippingQuoteWarning(warnings, {
+        provider: 'chowdeck_relay',
+        message,
+        leg: 'outbound',
+        bucketIndex: ctx.bucketIndex,
+        listerName: ctx.listerName,
+      });
+      return rateData;
+    }
+  }
+
+  private async maybeAppendShipbubbleOutboundRate(
+    rateData: any[],
+    sender: {
+      name?: string;
+      email?: string;
+      phone?: string;
+      street?: string;
+      city?: string;
+      state?: string;
+      country?: string;
+    },
+    receiver: {
+      name?: string;
+      email?: string;
+      phone?: string;
+      street?: string;
+      city?: string;
+      state?: string;
+      country?: string;
+    },
+    packageValueNgn: number,
+    scheduledWindowStart: Date | null | undefined,
+    warnings: ShippingQuoteWarning[],
+    ctx: {
+      bucketIndex: number;
+      listerName?: string;
+      leg?: ShippingQuoteWarning['leg'];
+    },
+  ): Promise<any[]> {
+    if (!shipbubbleQuotesAvailable()) return rateData;
+    const leg = ctx.leg ?? 'outbound';
+
+    const senderLine = this.formatShipbubbleAddressLine({
+      street: sender.street,
+      city: sender.city,
+      state: sender.state,
+      country: sender.country,
+    });
+    const receiverLine = this.formatShipbubbleAddressLine({
+      street: receiver.street,
+      city: receiver.city,
+      state: receiver.state,
+      country: receiver.country,
+    });
+    if (!senderLine || !receiverLine) return rateData;
+
+    try {
+      const shipbubbleContact = {
+        sender: {
+          name: sanitizeShipbubbleContactName(
+            sender.name,
+            leg === 'return' ? 'Relisted Renter' : 'Relisted Lister',
+          ),
+          email: sender.email ?? 'noreply@relisted.com',
+          phone: sanitizeShipbubblePhone(sender.phone),
+          addressLine: senderLine,
+        },
+        receiver: {
+          name: sanitizeShipbubbleContactName(
+            receiver.name,
+            leg === 'return' ? 'Relisted Lister' : 'Relisted Renter',
+          ),
+          email: receiver.email ?? 'noreply@relisted.com',
+          phone: sanitizeShipbubblePhone(receiver.phone),
+          addressLine: receiverLine,
+        },
+        packageItems: this.shipbubbleService.buildDefaultPackageItems([
+          {
+            name: 'Relisted order',
+            valueNgn: Math.max(1, Math.round(packageValueNgn)),
+          },
+        ]),
+        scheduledWindowStart,
+      };
+      const quotes = await this.shipbubbleService.fetchPickupQuotes(
+        shipbubbleContact,
+        { sameDayOnly: leg !== 'return' },
+      );
+      const rows = quotes.map((q) => ({
+        pricingTier: shipbubblePricingTierSlug(q.serviceCode),
+        name: formatShipbubbleCheckoutTierName(q.courierName),
+        cost: Math.round(q.totalNgn * 100),
+        shipbubbleRequestToken: q.requestToken,
+        shipbubbleCourierId: q.courierId,
+        shipbubbleServiceCode: q.serviceCode,
+        description:
+          leg === 'return'
+            ? 'Return pickup via Shipbubble (priced for your return window)'
+            : 'Same-day courier pickup via Shipbubble',
+      }));
+      if (!rows.length) {
+        this.pushShippingQuoteWarning(warnings, {
+          provider: 'shipbubble',
+          message:
+            leg === 'return'
+              ? 'No Chowdeck, Glovo, or Gokada return pickup options are available on Shipbubble for your return date.'
+              : 'No same-day Chowdeck, Glovo, or Gokada pickup options are available for this route on Shipbubble.',
+          leg,
+          bucketIndex: ctx.bucketIndex,
+          listerName: ctx.listerName,
+        });
+      }
+      return [...(Array.isArray(rateData) ? rateData : []), ...rows];
+    } catch (err: any) {
+      const message = String(err?.message ?? 'Shipbubble quote unavailable');
+      console.warn(
+        `[Checkout] Shipbubble rate quote failed (${leg} ${senderLine} → ${receiverLine}):`,
+        message,
+      );
+      this.pushShippingQuoteWarning(warnings, {
+        provider: 'shipbubble',
+        message,
+        leg,
+        bucketIndex: ctx.bucketIndex,
+        listerName: ctx.listerName,
+      });
       return rateData;
     }
   }
@@ -759,6 +933,8 @@ export class OrderService {
       .filter(Boolean)
       .join(', ');
   }
+
+  private formatShipbubbleAddressLine = formatShipbubbleAddressLine;
 
   private buildReturnPickupAddressSnapshot(
     baseSnapshot: Record<string, any>,
@@ -810,14 +986,32 @@ export class OrderService {
     | 'glovo'
     | 'relisted_dispatch'
     | 'chowdeck_relay'
+    | string
     | null {
     const t = String(pricingTier ?? '').trim().toLowerCase();
     if (t === 'glovo') return 'glovo';
     if (t === 'chowdeck') return 'chowdeck';
     if (t === 'chowdeck_relay') return 'chowdeck_relay';
+    if (t.startsWith('shipbubble:')) return t;
+    if (t === 'shipbubble') return 'shipbubble';
     if (t === RELISTED_DISPATCH_SHIPPING_LABEL.toLowerCase())
       return 'relisted_dispatch';
     return null;
+  }
+
+  private isThirdPartyCheckoutShippingSlug(
+    slug: string | null | undefined,
+  ): boolean {
+    return Boolean(slug && slug !== 'relisted_dispatch');
+  }
+
+  private hasThirdPartyCheckoutShippingRates(rates: any[] | undefined): boolean {
+    if (!Array.isArray(rates)) return false;
+    return rates.some((r) =>
+      this.isThirdPartyCheckoutShippingSlug(
+        this.slugForCheckoutShippingTier(r?.pricingTier),
+      ),
+    );
   }
 
   private pickPreferredChowdeckOrGlovoOrRelayRate(
@@ -831,7 +1025,17 @@ export class OrderService {
       );
       if (found) return found;
     }
-    return null;
+    const shipbubbleRates = rates
+      .filter((r) => {
+        const slug = this.slugForCheckoutShippingTier(r?.pricingTier);
+        return slug === 'shipbubble' || slug?.startsWith('shipbubble:');
+      })
+      .sort(
+        (a, b) =>
+          Number(a?.cost ?? Number.MAX_SAFE_INTEGER) -
+          Number(b?.cost ?? Number.MAX_SAFE_INTEGER),
+      );
+    return shipbubbleRates[0] ?? null;
   }
 
   /** Chowdeck, Glovo, Chowdeck Relay, then Relisted dispatch fallback row from {@link ensureRatesIncludeAllowedCheckoutTier}. */
@@ -866,17 +1070,27 @@ export class OrderService {
     if (slug === 'glovo') return 'Glovo';
     if (slug === 'relisted_dispatch') return RELISTED_DISPATCH_SHIPPING_LABEL;
     if (slug === 'chowdeck_relay') return 'chowdeck_relay';
+    if (slug?.startsWith('shipbubble:') || slug === 'shipbubble') {
+      const raw = String(tier ?? '').trim();
+      if (raw.toLowerCase().startsWith('shipbubble:')) return raw.toLowerCase();
+      return 'shipbubble';
+    }
     return 'Chowdeck';
   }
 
   /**
-   * Keep only Chowdeck/Glovo Topship rows. If none remain, inject Relisted dispatch (not Budget).
+   * Keep checkout-eligible tiers. Relisted dispatch is only included when no third-party
+   * option exists (Topship, Chowdeck Relay, Shipbubble, etc.).
    */
   private ensureRatesIncludeAllowedCheckoutTier(rates: any[]): any[] {
     const list = Array.isArray(rates) ? rates : [];
-    const filtered = list.filter((r) =>
-      this.slugForCheckoutShippingTier(r?.pricingTier),
-    );
+    const hasThirdParty = this.hasThirdPartyCheckoutShippingRates(list);
+    const filtered = list.filter((r) => {
+      const slug = this.slugForCheckoutShippingTier(r?.pricingTier);
+      if (!slug) return false;
+      if (slug === 'relisted_dispatch' && hasThirdParty) return false;
+      return true;
+    });
     if (filtered.length > 0) return filtered;
     return [
       {
@@ -917,8 +1131,17 @@ export class OrderService {
             ? RELISTED_DISPATCH_SHIPPING_LABEL
             : slug === 'chowdeck_relay'
               ? 'Chowdeck Relay'
-              : 'Chowdeck');
-      map.set(slug, { slug, name: displayName, totalShippingCost: tierCost });
+              : slug.startsWith('shipbubble:')
+                ? formatShipbubbleCheckoutTierName(
+                    slug.slice('shipbubble:'.length).replace(/_/g, ' '),
+                  )
+                : slug === 'shipbubble'
+                  ? 'Shipbubble'
+                  : 'Chowdeck');
+      const existing = map.get(slug);
+      if (!existing || tierCost < existing.totalShippingCost) {
+        map.set(slug, { slug, name: displayName, totalShippingCost: tierCost });
+      }
     }
     const preferredSlugOrder = [
       'chowdeck',
@@ -929,18 +1152,33 @@ export class OrderService {
     const preferredSlugIndex = new Map<string, number>(
       preferredSlugOrder.map((t, i) => [t, i]),
     );
+    const slugSortRank = (slug: string) => {
+      if (slug.startsWith('shipbubble:')) return 3;
+      if (slug === 'shipbubble') return 3;
+      return preferredSlugIndex.get(slug) ?? Number.MAX_SAFE_INTEGER;
+    };
     return Array.from(map.values())
       .sort((a, b) => {
-        const ap = preferredSlugIndex.get(a.slug) ?? Number.MAX_SAFE_INTEGER;
-        const bp = preferredSlugIndex.get(b.slug) ?? Number.MAX_SAFE_INTEGER;
+        const ap = slugSortRank(a.slug);
+        const bp = slugSortRank(b.slug);
         if (ap !== bp) return ap - bp;
         return a.totalShippingCost - b.totalShippingCost;
       })
-      .map(({ slug: _s, name, totalShippingCost }) => ({
-        name,
-        totalShippingCost,
-        grandTotal: estimateGrandTotal(totalShippingCost),
-      }));
+      .map(({ slug: _s, name, totalShippingCost }) => {
+        const rate = rateData.find(
+          (r) =>
+            this.slugForCheckoutShippingTier(r?.pricingTier) === _s &&
+            Math.ceil((r?.cost || 0) / 100) === totalShippingCost,
+        );
+        const description =
+          rate?.description != null ? String(rate.description).trim() : '';
+        return {
+          name,
+          totalShippingCost,
+          grandTotal: estimateGrandTotal(totalShippingCost),
+          ...(description ? { description } : {}),
+        };
+      });
   }
 
   async getCheckoutSummary(
@@ -1206,8 +1444,10 @@ export class OrderService {
     }
     await Promise.all(topShipWarmup);
 
+    const shippingQuoteWarnings: ShippingQuoteWarning[] = [];
+
     const shippingResults = await Promise.all(
-      bucketContexts.map(async (ctx) => {
+      bucketContexts.map(async (ctx, bucketIndex) => {
         const senderCity = ctx.curatorAddress?.city || 'Lagos';
 
         const ratePayload = {
@@ -1231,16 +1471,6 @@ export class OrderService {
         /** Pickup leg not quoted to customer for now (matches common Chowdeck pickup ₦0). */
         const pickupChargeNGN = 0;
 
-        if (!rateData.length) {
-          rateData = [
-            {
-              pricingTier: RELISTED_DISPATCH_SHIPPING_LABEL,
-              name: RELISTED_DISPATCH_SHIPPING_LABEL,
-              cost: RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO,
-            },
-          ];
-        }
-
         const outboundSourceLine = this.formatAddressSnapshotLine({
           street: ctx.curatorAddress?.street,
           city: ctx.curatorAddress?.city,
@@ -1254,6 +1484,26 @@ export class OrderService {
           outboundSourceLine,
           outboundDestLine,
           this.estimateBucketOrderValueKobo(ctx.items),
+          shippingQuoteWarnings,
+          { bucketIndex, listerName: ctx.listerName },
+        );
+        const listerCurator = ctx.items[0]?.product?.curator;
+        rateData = await this.maybeAppendShipbubbleOutboundRate(
+          rateData,
+          {
+            name: ctx.listerName,
+            email: listerCurator?.email,
+            phone: listerCurator?.profile?.phoneNumber,
+            street: ctx.curatorAddress?.street,
+            city: ctx.curatorAddress?.city,
+            state: ctx.curatorAddress?.state,
+            country: ctx.curatorAddress?.country,
+          },
+          renterDeliveryAddressSnapshot,
+          Math.round(this.estimateBucketOrderValueKobo(ctx.items) / 100),
+          ctx.outboundWindow?.start ?? ctx.resaleWindow?.start ?? null,
+          shippingQuoteWarnings,
+          { bucketIndex, listerName: ctx.listerName },
         );
 
         rateData = this.ensureRatesIncludeAllowedCheckoutTier(rateData);
@@ -1271,19 +1521,49 @@ export class OrderService {
             totalWeight: 1,
           };
 
-          const returnRateArrRaw = topshipFulfillmentEnabled()
+          returnRateData = topshipFulfillmentEnabled()
             ? await quoteMemo.shipRates(returnRatePayload)
             : [];
+          if (!Array.isArray(returnRateData)) returnRateData = [];
 
-          if (!returnRateData.length) {
-            returnRateData = [
-              {
-                pricingTier: RELISTED_DISPATCH_SHIPPING_LABEL,
-                name: RELISTED_DISPATCH_SHIPPING_LABEL,
-                cost: RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO,
-              },
-            ];
-          }
+          const returnSourceLine = this.formatAddressSnapshotLine(
+            returnPickupAddressSnapshot,
+          );
+          const returnDestLine = this.formatAddressSnapshotLine({
+            street: ctx.curatorAddress?.street,
+            city: ctx.curatorAddress?.city,
+            state: ctx.curatorAddress?.state,
+          });
+          returnRateData = await this.maybeAppendShipbubbleOutboundRate(
+            returnRateData,
+            {
+              name: returnPickupAddressSnapshot.name,
+              email: renterDeliveryAddressSnapshot.email,
+              phone: returnPickupAddressSnapshot.phone,
+              street: returnPickupAddressSnapshot.street,
+              city: returnPickupAddressSnapshot.city,
+              state: returnPickupAddressSnapshot.state,
+              country: returnPickupAddressSnapshot.country,
+            },
+            {
+              name: ctx.listerName,
+              email: listerCurator?.email,
+              phone: listerCurator?.profile?.phoneNumber,
+              street: ctx.curatorAddress?.street,
+              city: ctx.curatorAddress?.city,
+              state: ctx.curatorAddress?.state,
+              country: ctx.curatorAddress?.country,
+            },
+            Math.round(this.estimateBucketOrderValueKobo(ctx.items) / 100),
+            ctx.returnWindow?.start ?? null,
+            shippingQuoteWarnings,
+            {
+              bucketIndex,
+              listerName: ctx.listerName,
+              leg: 'return',
+            },
+          );
+
           returnRateData =
             this.ensureRatesIncludeAllowedCheckoutTier(returnRateData);
         }
@@ -1303,9 +1583,20 @@ export class OrderService {
           );
         }
 
+        const listerCity =
+          ctx.curatorAddress?.city != null
+            ? String(ctx.curatorAddress.city).trim()
+            : '';
+        const listerState =
+          ctx.curatorAddress?.state != null
+            ? String(ctx.curatorAddress.state).trim()
+            : '';
+
         return {
           listerId: ctx.listerId,
           listerName: ctx.listerName,
+          listerCity: listerCity || undefined,
+          listerState: listerState || undefined,
           bucketMode: ctx.bucketMode,
           productIds: ctx.items.map((i: any) => i.product?.id),
           outboundDeliveryWindow:
@@ -1340,6 +1631,8 @@ export class OrderService {
       bucketIndex,
       listerId: r.listerId,
       listerName: r.listerName,
+      listerCity: r.listerCity,
+      listerState: r.listerState,
       bucketMode: r.bucketMode,
       productIds: r.productIds,
       outboundDeliveryWindow: r.outboundDeliveryWindow,
@@ -1556,6 +1849,7 @@ export class OrderService {
         returnShippingByBucket,
         listerBreakdowns,
         shipmentBuckets,
+        shippingQuoteWarnings,
       },
     };
   }
@@ -1715,8 +2009,6 @@ export class OrderService {
           outboundPricingByBucket?.find(
             (x) => x.bucketIndex === checkoutBucketIndex,
           )?.pricingTier ?? selectedPricingTier;
-        const effectiveOutboundForBucket =
-          this.coerceLegPricingTierSelection(outboundTierRaw);
 
         let effectiveReturnForBucket = this.coerceLegPricingTierSelection(
           selectedReturnPricingTier ?? selectedPricingTier,
@@ -1854,7 +2146,10 @@ export class OrderService {
       let pickupChargeRaw = 0;
       let pickupId = '';
       let pickupPartner = this.normalizeTopshipTier(
-        effectiveOutboundForBucket,
+        this.coerceLegPricingTierSelection(outboundTierRaw),
+      );
+      let effectiveOutboundForBucket = this.coerceLegPricingTierSelection(
+        outboundTierRaw,
       );
       const pickupCostNGN = 0;
 
@@ -1864,6 +2159,7 @@ export class OrderService {
       let returnShippingCost = 0;
       let returnShipmentChargeRaw = 0;
       let returnShipmentVatChargeRaw = 0;
+      const checkoutQuoteWarnings: ShippingQuoteWarning[] = [];
       try {
         const ratePayload = {
           senderDetails: { cityName: senderCity, countryCode: 'NG' },
@@ -1880,38 +2176,63 @@ export class OrderService {
             rateData.length,
           );
         }
-        if (!rateData.length) {
-          rateData = [
-            {
-              pricingTier: RELISTED_DISPATCH_SHIPPING_LABEL,
-              name: RELISTED_DISPATCH_SHIPPING_LABEL,
-              cost: RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO,
-            },
-          ];
-        }
+        const bucketCurator = bucketItems[0]?.product?.curator;
         rateData = await this.maybeAppendChowdeckRelayOutboundRate(
           rateData,
           listerDestinationLine,
           checkoutDeliveryLocationLine,
           this.estimateBucketOrderValueKobo(bucketItems),
+          checkoutQuoteWarnings,
+          {
+            bucketIndex: checkoutBucketIndex,
+            listerName: bucketCurator?.name,
+          },
+        );
+        rateData = await this.maybeAppendShipbubbleOutboundRate(
+          rateData,
+          {
+            name: bucketCurator?.name ?? 'Lister',
+            email: bucketCurator?.email,
+            phone: bucketCurator?.profile?.phoneNumber,
+            street: curatorAddress?.street,
+            city: curatorAddress?.city,
+            state: curatorAddress?.state,
+            country: curatorAddress?.country,
+          },
+          renterDeliveryAddressSnapshot,
+          Math.round(this.estimateBucketOrderValueKobo(bucketItems) / 100),
+          bucket.outboundWindow?.start ?? bucket.resaleWindow?.start ?? null,
+          checkoutQuoteWarnings,
+          {
+            bucketIndex: checkoutBucketIndex,
+            listerName: bucketCurator?.name ?? 'Lister',
+          },
         );
         rateData = this.ensureRatesIncludeAllowedCheckoutTier(rateData);
 
         let matchedRate = this.matchRateForLeg(
           rateData,
-          effectiveOutboundForBucket,
+          outboundTierRaw ?? '',
         );
 
         if (matchedRate) {
           shipmentChargeRaw = Number(matchedRate.cost) || 0;
-          // Topship VAT is always 7.5% of totalCharge (which is just shipmentCharge, not including pickupCharge)
-          // Use Math.ceil to match Topship's rounding behavior
-          shipmentVatChargeRaw = Math.ceil(shipmentChargeRaw * 0.075);
           const tierSlug = String(matchedRate.pricingTier ?? '')
             .trim()
             .toLowerCase();
-          if (tierSlug)
+          effectiveOutboundForBucket =
+            this.coerceLegPricingTierSelection(tierSlug);
+          // Topship VAT is 7.5% of shipment charge; Relay/Shipbubble quotes are all-in.
+          shipmentVatChargeRaw =
+            tierSlug === 'chowdeck_relay' || isShipbubblePricingTier(tierSlug)
+              ? 0
+              : Math.ceil(shipmentChargeRaw * 0.075);
+          if (isShipbubblePricingTier(tierSlug)) {
+            pickupId = String(matchedRate.shipbubbleRequestToken ?? '').trim();
+            pickupPartner = String(matchedRate.shipbubbleCourierId ?? '').trim();
+          } else if (tierSlug) {
             pickupPartner = this.normalizeTopshipTier(tierSlug);
+          }
         }
         // Pick selected or fallback price and convert from Kobo to NGN
         shippingCost = Math.ceil(shipmentChargeRaw / 100);
@@ -1947,15 +2268,37 @@ export class OrderService {
               returnRateData.length,
             );
           }
-          if (!returnRateData.length) {
-            returnRateData = [
-              {
-                pricingTier: RELISTED_DISPATCH_SHIPPING_LABEL,
-                name: RELISTED_DISPATCH_SHIPPING_LABEL,
-                cost: RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO,
-              },
-            ];
-          }
+          const bucketCuratorForReturn = bucketItems[0]?.product?.curator;
+          returnRateData = await this.maybeAppendShipbubbleOutboundRate(
+            returnRateData,
+            {
+              name: returnPickupAddressSnapshot.name,
+              email: renterDeliveryAddressSnapshot.email,
+              phone: returnPickupAddressSnapshot.phone,
+              street: returnPickupAddressSnapshot.street,
+              city: returnPickupAddressSnapshot.city,
+              state: returnPickupAddressSnapshot.state,
+              country: returnPickupAddressSnapshot.country,
+            },
+            {
+              name: bucketCuratorForReturn?.name ?? 'Lister',
+              email: bucketCuratorForReturn?.email,
+              phone: bucketCuratorForReturn?.profile?.phoneNumber,
+              street: curatorAddress?.street,
+              city: curatorAddress?.city,
+              state: curatorAddress?.state,
+              country: curatorAddress?.country,
+            },
+            Math.round(this.estimateBucketOrderValueKobo(bucketItems) / 100),
+            returnWindow?.start ?? null,
+            checkoutQuoteWarnings,
+            {
+              bucketIndex: checkoutBucketIndex,
+              listerName: bucketCuratorForReturn?.name ?? 'Lister',
+              leg: 'return',
+            },
+          );
+
           returnRateData =
             this.ensureRatesIncludeAllowedCheckoutTier(returnRateData);
 
@@ -1965,14 +2308,26 @@ export class OrderService {
           );
           if (matchedReturnRate) {
             returnShipmentChargeRaw = Number(matchedReturnRate.cost) || 0;
-            returnShipmentVatChargeRaw = Math.ceil(
-              returnShipmentChargeRaw * 0.075,
-            );
-            const rt = String(matchedReturnRate.pricingTier ?? '')
+            const returnTierSlug = String(matchedReturnRate.pricingTier ?? '')
               .trim()
               .toLowerCase();
-            if (rt)
-              returnPickupPartner = this.normalizeTopshipTier(rt);
+            effectiveReturnForBucket =
+              this.coerceLegPricingTierSelection(returnTierSlug);
+            returnShipmentVatChargeRaw =
+              returnTierSlug === 'chowdeck_relay' ||
+              isShipbubblePricingTier(returnTierSlug)
+                ? 0
+                : Math.ceil(returnShipmentChargeRaw * 0.075);
+            if (isShipbubblePricingTier(returnTierSlug)) {
+              returnPickupId = String(
+                matchedReturnRate.shipbubbleRequestToken ?? '',
+              ).trim();
+              returnPickupPartner = String(
+                matchedReturnRate.shipbubbleCourierId ?? '',
+              ).trim();
+            } else if (returnTierSlug) {
+              returnPickupPartner = this.normalizeTopshipTier(returnTierSlug);
+            }
           }
           returnShippingCost = Math.ceil(returnShipmentChargeRaw / 100);
         } catch (err: any) {
@@ -2838,23 +3193,100 @@ export class OrderService {
     return 0;
   }
 
-  async confirmResaleOrder(user: userEntity, orderId: string) {
+  /**
+   * Daily cron: complete DELIVERED resale orders past the inspection window (no open dispute).
+   */
+  async autoCompleteDeliveredResaleOrders(): Promise<{ processed: number }> {
+    const cutoff = getResaleInspectionCutoffDate();
+
+    const candidates = await this.prisma.order.findMany({
+      where: {
+        listingType: { in: [ListingType.RESALE, ListingType.RENT_OR_RESALE] },
+        status: {
+          notIn: [
+            OrderStatus.COMPLETED,
+            OrderStatus.CANCELLED,
+            OrderStatus.REJECTED,
+            OrderStatus.IN_DISPUTE,
+          ],
+        },
+        shipments: {
+          some: {
+            type: 'RESALE',
+            status: 'COMPLETED',
+            buyerConfirmedAt: null,
+            updatedAt: { lte: cutoff },
+          },
+        },
+      },
+      include: {
+        user: { select: { id: true, email: true, name: true } },
+        shipments: {
+          select: {
+            id: true,
+            type: true,
+            status: true,
+            buyerConfirmedAt: true,
+            updatedAt: true,
+          },
+        },
+        orderItems: { include: { product: { select: { listingType: true } } } },
+        disputes: {
+          where: {
+            status: { in: [DisputeStatus.PENDING, DisputeStatus.IN_REVIEW] },
+          },
+          select: { id: true },
+        },
+      },
+    });
+
+    let processed = 0;
+    for (const row of candidates) {
+      if (row.disputes.length > 0) continue;
+      if (!orderHasResalePurchaseItems(row.orderItems)) continue;
+
+      const legs = listConfirmableResaleShipments(row.shipments).filter((leg) => {
+        const t = leg.updatedAt ? new Date(leg.updatedAt) : null;
+        return t && t <= cutoff;
+      });
+
+      for (const leg of legs) {
+        if (!leg.id) continue;
+        try {
+          await this.confirmResaleOrder(
+            { ...row.user, sub: row.user.id } as userEntity,
+            row.orderId,
+            { auto: true, shipmentId: leg.id },
+          );
+          processed++;
+        } catch (err: any) {
+          console.warn(
+            `[OrderService] Resale auto-complete skipped for ${row.orderId} shipment ${leg.id}: ${err?.message ?? err}`,
+          );
+        }
+      }
+    }
+    return { processed };
+  }
+
+  async confirmResaleOrder(
+    user: userEntity,
+    orderId: string,
+    options?: { auto?: boolean; shipmentId?: string },
+  ) {
+    const isAuto = options?.auto === true;
+    const requestedShipmentId = options?.shipmentId?.trim() || null;
+
     try {
       let order: any;
+      let orderCompleted = false;
+      let confirmedShipmentId: string | null = null;
+
       await this.prisma.$transaction(async (tx) => {
-        // Use pessimistic locking to prevent race conditions - lock the row during the initial query
         const lockedOrder = await tx.$queryRaw<
-          Array<{
-            id: string;
-            orderId: string;
-            userId: string;
-            listingType: string;
-            status: string;
-            listerId: string | null;
-            totalAmountPaid: number | null;
-          }>
+          Array<{ id: string }>
         >`
-          SELECT * FROM "Order"
+          SELECT id FROM "Order"
           WHERE "orderId" = ${orderId}
             AND "userId" = ${user.id}
             AND "listingType" IN ('RESALE', 'RENT_OR_RESALE')
@@ -2868,89 +3300,160 @@ export class OrderService {
           FOR UPDATE
         `;
 
-        if (!lockedOrder || lockedOrder.length === 0) {
+        if (!lockedOrder?.length) {
           throw new BadRequestException(
             'Order not found or cannot be confirmed',
           );
         }
 
-        // Fetch full order with relations after locking
         order = await tx.order.findFirst({
           where: { id: lockedOrder[0].id },
           include: {
             orderListers: true,
-            orderItems: {
-              include: {
-                product: true,
+            shipments: {
+              select: {
+                id: true,
+                type: true,
+                status: true,
+                listerId: true,
+                buyerConfirmedAt: true,
+                updatedAt: true,
               },
             },
+            orderItems: { include: { product: true } },
           },
         });
 
+        if (!order) {
+          throw new BadRequestException('Order not found');
+        }
         if (order.status === 'COMPLETED') {
           throw new BadRequestException('Order is already completed');
         }
 
-        // Validate orderListers exists before making any state changes
-        const listerIds = order.orderListers.map((ol: any) => ol.listerId);
-        if (!listerIds || listerIds.length === 0) {
-          throw new BadRequestException('Order lister IDs are missing');
-        }
+        const shipmentLegs = order.shipments ?? [];
+        const confirmable = listConfirmableResaleShipments(shipmentLegs);
+        const hasResaleLegs = resaleShipmentLegs(shipmentLegs).length > 0;
 
-        // Update order status to COMPLETED
-        await tx.order.update({
-          where: { id: order.id },
-          data: { status: 'COMPLETED' },
-        });
+        if (hasResaleLegs) {
+          let target = confirmable.find((s) => s.id === requestedShipmentId);
+          if (requestedShipmentId && !target) {
+            throw new BadRequestException(
+              'This package is not ready to confirm or was already confirmed.',
+            );
+          }
+          if (!target) {
+            if (confirmable.length === 1) {
+              target = confirmable[0];
+            } else if (confirmable.length === 0) {
+              throw new BadRequestException(
+                'No delivered purchase is waiting for confirmation.',
+              );
+            } else {
+              throw new BadRequestException(
+                'Select which package you are confirming.',
+              );
+            }
+          }
 
-        // Update product status to SOLD and deactivate only for resale items
-        for (const orderItem of order.orderItems) {
-          // Check individual item's listingType to determine if it's a resale purchase
-          const itemListingType = orderItem.product?.listingType;
-          const isResaleItem =
-            itemListingType === 'RESALE' ||
-            (itemListingType === 'RENT_OR_RESALE' && orderItem.days === 0);
+          if (!target.id) {
+            throw new BadRequestException('Shipment not found');
+          }
+          confirmedShipmentId = target.id;
 
-          if (isResaleItem) {
+          await tx.shipment.update({
+            where: { id: target.id },
+            data: { buyerConfirmedAt: new Date() },
+          });
+
+          const linkedItems = orderItemsForResaleShipment(
+            order.orderItems,
+            target.id,
+            shipmentLegs,
+          );
+          const listerId =
+            target.listerId ??
+            linkedItems[0]?.product?.curator?.id ??
+            order.orderListers[0]?.listerId;
+          if (!listerId) {
+            throw new BadRequestException('Lister not found for this package');
+          }
+
+          const releaseAmount = resaleReleaseAmountForItems(linkedItems);
+          await releaseResaleEscrowForShipment(tx, {
+            orderInternalId: order.id,
+            orderDisplayId: order.orderId,
+            listerId,
+            releaseAmount,
+            isAuto,
+          });
+
+          for (const orderItem of linkedItems) {
             await tx.product.update({
               where: { id: orderItem.productId },
-              data: {
-                status: 'SOLD',
-                isActive: false,
-              },
+              data: { status: 'SOLD', isActive: false },
             });
           }
-        }
 
-        // Release escrows to lister wallets (per-lister escrows)
-        const escrows = await tx.escrow.findMany({
-          where: { orderId: order.id },
-        });
-
-        // Defensive check: escrows should exist for resale orders
-        if (!escrows || escrows.length === 0) {
-          throw new BadRequestException(
-            'Escrow records not found for this order',
-          );
-        }
-
-        // Determine transaction type for wallet transaction note
-        const isRentalTransaction = order.orderItems.some(
-          (item: any) => item.days > 0,
-        );
-        const isResaleTransaction = order.orderItems.some(
-          (item: any) => item.days === 0,
-        );
-
-        // Release funds to each lister's escrow
-        for (const escrow of escrows) {
-          const releaseAmount = this.calculateEscrowReleaseAmount(
-            order,
-            escrow,
+          const shipmentsAfter = shipmentLegs.map((s: any) =>
+            s.id === target!.id
+              ? { ...s, buyerConfirmedAt: new Date().toISOString() }
+              : s,
           );
 
-          if (releaseAmount > 0) {
-            // Credit lister wallet
+          orderCompleted = shouldCompleteOrderAfterResaleFlow({
+            orderItems: order.orderItems,
+            shipments: shipmentsAfter,
+            orderStatus: order.status,
+          });
+
+          if (orderCompleted) {
+            await tx.order.update({
+              where: { id: order.id },
+              data: { status: OrderStatus.COMPLETED },
+            });
+            await finalizeEscrowsOnOrderComplete(tx, order.id);
+          }
+        } else {
+          if (
+            !canBuyerConfirmResaleReceipt({
+              listingType: order.listingType,
+              status: order.status,
+              deliveredAt: order.deliveredAt,
+              shipments: shipmentLegs,
+              orderItems: order.orderItems,
+            })
+          ) {
+            throw new BadRequestException(
+              'You can confirm receipt after your order has been delivered.',
+            );
+          }
+
+          const escrows = await tx.escrow.findMany({
+            where: { orderId: order.id },
+          });
+          if (!escrows.length) {
+            throw new BadRequestException(
+              'Escrow records not found for this order',
+            );
+          }
+
+          for (const orderItem of order.orderItems) {
+            if (isResalePurchaseOrderItem(orderItem)) {
+              await tx.product.update({
+                where: { id: orderItem.productId },
+                data: { status: 'SOLD', isActive: false },
+              });
+            }
+          }
+
+          for (const escrow of escrows) {
+            const releaseAmount = this.calculateEscrowReleaseAmount(
+              order,
+              escrow,
+            );
+            if (releaseAmount <= 0) continue;
+
             const listerWallet = await tx.wallet.upsert({
               where: { userId: escrow.listerId },
               create: {
@@ -2964,19 +3467,15 @@ export class OrderService {
               },
             });
 
-            // Create wallet transaction for lister
             await tx.walletTransaction.create({
               data: {
                 walletId: listerWallet.id,
                 amount: releaseAmount,
                 type: 'MAIN',
                 status: 'SUCCESS',
-                note:
-                  isRentalTransaction && isResaleTransaction
-                    ? `Payment released for completed mixed order ${order.orderId} (rental + resale)`
-                    : isRentalTransaction
-                      ? `Payment released for completed rental order ${order.orderId}`
-                      : `Payment released for completed resale order ${order.orderId}`,
+                note: isAuto
+                  ? `Payment auto-released after ${getResaleInspectionPeriodLabel()} inspection period for order ${order.orderId}`
+                  : `Payment released for resale order ${order.orderId}`,
                 orderId: order.id,
               },
             });
@@ -2992,51 +3491,76 @@ export class OrderService {
               split,
             });
           }
-        }
 
-        // Update escrow statuses to RELEASED
-        for (const escrow of escrows) {
-          await tx.escrow.update({
-            where: { id: escrow.id },
-            data: {
-              status: 'RELEASED',
-              releasedAt: new Date(),
-            },
+          await finalizeEscrowsOnOrderComplete(tx, order.id);
+          orderCompleted = true;
+          await tx.order.update({
+            where: { id: order.id },
+            data: { status: OrderStatus.COMPLETED },
           });
         }
 
-        // Send notification to buyer
-        await this.notificationService.createNotification({
-          userId: user.id,
-          title: 'Order Completed',
-          message: `Your order ${order.orderId} has been completed and payment has been released to the listers.`,
-          type: 'ORDER_COMPLETED',
-          metadata: { orderId: order.id, orderNumber: order.orderId },
-          sendEmail: true,
-          emailData: {
-            email: user.email,
-            buyerName: user.name || 'Customer',
+        if (orderCompleted) {
+          await this.notificationService.createNotification({
+            userId: user.id,
+            title: isAuto ? 'Order completed automatically' : 'Order completed',
+            message: isAuto
+              ? `Your order ${order.orderId} was completed after the inspection period.`
+              : `Your order ${order.orderId} is now complete.`,
+            type: 'ORDER_COMPLETED',
+            metadata: { orderId: order.id, orderNumber: order.orderId },
+            sendEmail: true,
+            emailData: {
+              email: user.email,
+              buyerName: user.name || 'Customer',
+              orderId: order.orderId,
+              totalAmount: order.totalAmountPaid,
+              platformName: 'Relisted',
+            },
+          });
+          await this.eventEmitter.emit('order.escrow.released', {
             orderId: order.orderId,
-            totalAmount: order.totalAmountPaid,
-            platformName: 'Relisted',
-          },
-        });
+            buyerId: user.id,
+            buyerName: user.name,
+            buyerEmail: user.email,
+          });
+        } else {
+          await this.notificationService.createNotification({
+            userId: user.id,
+            title: 'Purchase delivery confirmed',
+            message: `Thanks for confirming. Seller payment for this package on order ${order.orderId} has been released.`,
+            type: 'ORDER_UPDATED',
+            metadata: {
+              orderId: order.id,
+              orderNumber: order.orderId,
+              shipmentId: confirmedShipmentId,
+            },
+            sendEmail: false,
+          });
+        }
+      });
 
-        // Emit notification event to buyer when escrow is released
-        await this.eventEmitter.emit('order.escrow.released', {
-          orderId: order.orderId,
-          buyerId: user.id,
-          buyerName: user.name,
-          buyerEmail: user.email,
-        });
+      if (!orderCompleted) {
+        await syncOrderStatusFromShipments(this.prisma, order.id);
+      }
+
+      const refreshed = await this.prisma.order.findUnique({
+        where: { id: order.id },
+        select: { orderId: true, status: true },
       });
 
       return {
         success: true,
-        message: 'Order confirmed and completed successfully',
+        message: orderCompleted
+          ? isAuto
+            ? 'Order auto-completed after inspection period'
+            : 'Order completed successfully'
+          : 'Purchase delivery confirmed. Your rental is still in progress.',
         data: {
-          orderId: order.orderId,
-          status: 'COMPLETED',
+          orderId: refreshed?.orderId ?? order.orderId,
+          status: refreshed?.status ?? order.status,
+          shipmentId: confirmedShipmentId,
+          orderCompleted,
         },
       };
     } catch (error) {

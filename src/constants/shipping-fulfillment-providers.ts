@@ -4,9 +4,12 @@ export const FULFILLMENT_TOPSHIP = 'topship';
 /** Chowdeck Relay direct API: string-address fee quote and REST booking. */
 export const FULFILLMENT_CHOWDECK_RELAY = 'chowdeck_relay';
 
+/** Shipbubble: verified addresses, fetch_rates, and label booking. */
+export const FULFILLMENT_SHIPBUBBLE = 'shipbubble';
+
 /**
  * Comma-separated env `SHIPPING_FULFILLMENT_PROVIDERS` (case-insensitive).
- * Examples: `topship` (default), `chowdeck_relay`, `topship,chowdeck_relay`.
+ * Examples: `topship` (default), `chowdeck_relay`, `shipbubble`, `topship,chowdeck_relay,shipbubble`.
  */
 export function parseShippingFulfillmentProviders(): Set<string> {
   const raw = process.env.SHIPPING_FULFILLMENT_PROVIDERS?.trim();
@@ -35,4 +38,16 @@ export function chowdeckRelayApiConfigured(): boolean {
 /** Relay quotes and dispatch require the API key. */
 export function chowdeckRelayQuotesAvailable(): boolean {
   return chowdeckRelayFulfillmentEnabled() && chowdeckRelayApiConfigured();
+}
+
+export function shipbubbleFulfillmentEnabled(): boolean {
+  return parseShippingFulfillmentProviders().has(FULFILLMENT_SHIPBUBBLE);
+}
+
+export function shipbubbleApiConfigured(): boolean {
+  return Boolean(process.env.SHIPBUBBLE_API_KEY?.trim());
+}
+
+export function shipbubbleQuotesAvailable(): boolean {
+  return shipbubbleFulfillmentEnabled() && shipbubbleApiConfigured();
 }
