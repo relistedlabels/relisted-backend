@@ -333,14 +333,14 @@ export class AdminService {
     let avgDeliveryTimeMinutes = 0;
     if (deliveryOrders.length > 0) {
       const totalDays = deliveryOrders.reduce((sum, o) => {
-        const ms =
+        const days =
           (o.deliveredAt!.getTime() - o.dispatchedAt!.getTime()) /
           (1000 * 60 * 60 * 24);
-        return sum + Math.max(0, ms);
+        return sum + Math.max(0, days);
       }, 0);
-      avgDeliveryTime =
-        Math.round((totalDays / deliveryOrders.length) * 10) / 10;
-      avgDeliveryTimeMinutes = Math.round(avgDeliveryTime * 24 * 60);
+      const avgDaysRaw = totalDays / deliveryOrders.length;
+      avgDeliveryTime = Math.round(avgDaysRaw * 10) / 10;
+      avgDeliveryTimeMinutes = Math.round(avgDaysRaw * 24 * 60);
     }
 
     const period =
