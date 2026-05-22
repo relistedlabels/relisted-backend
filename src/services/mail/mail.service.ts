@@ -870,6 +870,7 @@ export class MailService {
     shipmentType: string;
     providerStatus: string;
     providerMessage?: string;
+    providerLabel?: string;
     trackingUrl?: string;
     adminShipmentUrl?: string;
   }) {
@@ -880,6 +881,7 @@ export class MailService {
       shipmentType,
       providerStatus,
       providerMessage,
+      providerLabel = 'carrier',
       trackingUrl,
       adminShipmentUrl,
     } = dto;
@@ -892,10 +894,10 @@ export class MailService {
   <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
     <div style="padding:18px 20px;background:#b91c1c;color:#ffffff;">
       <div style="font-size:14px;opacity:0.9;">Relisted Admin Alert</div>
-      <div style="font-size:18px;font-weight:700;margin-top:6px;">🚨 Shipment Cancelled by Topship</div>
+      <div style="font-size:18px;font-weight:700;margin-top:6px;">🚨 Shipment cancelled by ${providerLabel}</div>
     </div>
     <div style="padding:20px;">
-      <p style="margin:0 0 16px;color:#374151;">Topship reported that this shipment has been cancelled. Please review and take action.</p>
+      <p style="margin:0 0 16px;color:#374151;">${providerLabel} reported that this shipment has been cancelled. Please review and take action.</p>
       <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
         <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
           <div style="min-width:220px;">
@@ -932,7 +934,7 @@ export class MailService {
         }
         ${
           trackingUrl
-            ? `<a href="${trackingUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">Topship Tracking</a>`
+            ? `<a href="${trackingUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">${providerLabel} tracking</a>`
             : ''
         }
       </div>

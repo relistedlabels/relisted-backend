@@ -14,6 +14,7 @@ import { ManualCompleteShipmentDto } from './dto/manual-complete-shipment.dto';
 import { selectOrderItemsForShipmentLeg } from './order-items-for-shipment-leg';
 import { formatDispatchWindowLagos } from 'src/module/shipment/dispatch-window-format';
 import { sendShipmentLegStatusNotification } from './shipment-status-notifications';
+import { buildShippingEmailTrackingFields } from './shipment-tracking-url.util';
 import { PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY } from 'src/utils/product-attachment-upload-order';
 
 const shipmentOrderItemProductInclude = {
@@ -314,6 +315,15 @@ export class ShipmentService {
       dto.trackingUrl !== undefined
         ? dto.trackingUrl.trim() || null
         : shipment.providerTrackingUrl;
+    const trackingFields = buildShippingEmailTrackingFields(
+      {
+        pricingTier: shipment.pricingTier,
+        providerTrackingUrl: turl,
+        trackingId: tid,
+        providerShipmentId: shipment.providerShipmentId,
+      },
+      { trackingNumber: tid ?? undefined, trackingUrl: turl ?? undefined },
+    );
 
     if (customer?.id && humanOrderId) {
       const isOutbound = shipment.type === 'OUTBOUND';
@@ -332,30 +342,28 @@ export class ShipmentService {
       if (isResale) {
         notify = {
           title: '🚚 Your purchase is on its way!',
-          message: `Your item is being dispatched. Track here: ${turl ?? 'Tracking link coming soon'}`,
+          message: `Your item is being dispatched. Track here: ${trackingFields.trackingUrl ?? turl ?? 'Tracking link coming soon'}`,
           notificationType: 'SHIPMENT_DISPATCHED',
           emailData: {
             email: customer.email,
             userName: customer.name,
             orderId: humanOrderId,
             status: 'Dispatched',
-            trackingNumber: tid ?? undefined,
-            trackingUrl: turl ?? undefined,
+            ...trackingFields,
             estimatedDelivery: undefined,
           },
         };
       } else if (isOutbound) {
         notify = {
           title: '🚚 Your rental is on its way!',
-          message: `Your item is being dispatched. Track here: ${turl ?? 'Tracking link coming soon'}`,
+          message: `Your item is being dispatched. Track here: ${trackingFields.trackingUrl ?? turl ?? 'Tracking link coming soon'}`,
           notificationType: 'SHIPMENT_DISPATCHED',
           emailData: {
             email: customer.email,
             userName: customer.name,
             orderId: humanOrderId,
             status: 'Dispatched',
-            trackingNumber: tid ?? undefined,
-            trackingUrl: turl ?? undefined,
+            ...trackingFields,
             estimatedDelivery: undefined,
           },
         };
@@ -379,8 +387,7 @@ export class ShipmentService {
             userName: customer.name,
             orderId: humanOrderId,
             status: 'Scheduled for dispatch (pickup not started yet)',
-            trackingNumber: tid ?? undefined,
-            trackingUrl: turl ?? undefined,
+            ...trackingFields,
             estimatedDelivery: undefined,
             ...(wStart && wEnd
               ? {
@@ -471,6 +478,9 @@ export class ShipmentService {
           id: shipment.id,
           type: shipment.type,
           trackingId: shipment.trackingId,
+          pricingTier: shipment.pricingTier,
+          providerTrackingUrl: shipment.providerTrackingUrl,
+          providerShipmentId: shipment.providerShipmentId,
           order: shipment.order
             ? {
                 orderId: shipment.order.orderId,

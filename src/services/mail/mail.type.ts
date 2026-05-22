@@ -200,10 +200,14 @@ export class ShippingDto {
   @IsString()
   @IsOptional()
   trackingNumber?: string;
-  /** When set (e.g. manual Relisted dispatch), shown instead of the default Topship tracking page hint. */
+  /** Carrier tracking page URL (from dispatch or resolved from pricing tier). */
   @IsString()
   @IsOptional()
   trackingUrl?: string;
+  /** e.g. Topship, Shipbubble, Chowdeck Relay — used in email copy when no trackingUrl. */
+  @IsString()
+  @IsOptional()
+  trackingProviderLabel?: string;
   @IsString()
   @IsOptional()
   estimatedDelivery?: string;
@@ -238,6 +242,12 @@ export class ListerReturnInTransitDto {
   @IsString()
   @IsOptional()
   trackingNumber?: string;
+  @IsString()
+  @IsOptional()
+  trackingUrl?: string;
+  @IsString()
+  @IsOptional()
+  trackingProviderLabel?: string;
 }
 
 /** Lister: carrier shows delivered — prompt confirm receipt flow */

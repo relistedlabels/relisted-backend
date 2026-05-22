@@ -6,6 +6,7 @@ import {
   topshipCombinedOrderItemsDescription,
   topshipSanitizeDescription,
 } from '../../topship/topship-description';
+import { SHIPBUBBLE_TRACKING_PAGE_URL } from 'src/module/shipment/shipment-tracking-url.util';
 import { formatShipbubbleAddressLine } from '../../shipbubble/shipbubble-address-normalize';
 import {
   isShipbubblePricingTier,
@@ -154,7 +155,11 @@ export class ShipbubbleProvider implements DeliveryProvider {
     }
 
     const trackingUrl =
-      data?.tracking_url != null ? String(data.tracking_url) : null;
+      data?.tracking_url != null
+        ? String(data.tracking_url)
+        : orderId
+          ? `${SHIPBUBBLE_TRACKING_PAGE_URL}?order_id=${encodeURIComponent(orderId)}`
+          : SHIPBUBBLE_TRACKING_PAGE_URL;
     const trackingCode =
       data?.courier?.tracking_code != null
         ? String(data.courier.tracking_code)

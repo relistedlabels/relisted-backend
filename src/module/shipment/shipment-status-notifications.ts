@@ -3,11 +3,15 @@ import {
   buildRenterOrderPageUrl,
   getResaleInspectionPeriodLabel,
 } from 'src/module/order/resale-delivery.util';
+import { buildShippingEmailTrackingFields } from './shipment-tracking-url.util';
 
 type ShipmentNotifyCtx = {
   id: string;
   type: string;
   trackingId?: string | null;
+  pricingTier?: string | null;
+  providerTrackingUrl?: string | null;
+  providerShipmentId?: string | null;
   order?: {
     orderId: string;
     user?: { id: string; name: string; email: string } | null;
@@ -29,6 +33,7 @@ export async function sendShipmentLegStatusNotification(
   const isOutbound = shipment.type === 'OUTBOUND';
   const isResale = shipment.type === 'RESALE';
   const isReturn = shipment.type === 'RETURN';
+  const trackingFields = buildShippingEmailTrackingFields(shipment);
 
   if (newStatus === 'IN_TRANSIT') {
     const title = isResale
@@ -54,6 +59,7 @@ export async function sendShipmentLegStatusNotification(
       metadata: {
         shipmentId: shipment.id,
         orderId: order.orderId,
+        trackingUrl: trackingFields.trackingUrl,
       },
       sendEmail: true,
       emailData: {
@@ -65,7 +71,7 @@ export async function sendShipmentLegStatusNotification(
           : isOutbound
             ? 'In Transit'
             : 'Return Pickup In Progress',
-        trackingNumber: shipment.trackingId ?? undefined,
+        ...trackingFields,
         estimatedDelivery: undefined,
       },
     });
@@ -93,7 +99,7 @@ export async function sendShipmentLegStatusNotification(
         status: 'Delivered to lister (pending lister confirmation)',
         emailSubject: 'Your return was delivered',
         emailHeading: 'Return delivered',
-        trackingNumber: shipment.trackingId ?? undefined,
+        ...trackingFields,
         extraNote:
           'Your rental is not fully closed until the lister confirms they received the item in the expected condition.',
       },
@@ -128,7 +134,7 @@ export async function sendShipmentLegStatusNotification(
       userName: customer.name,
       orderId: order.orderId,
       status: 'Delivered',
-      trackingNumber: shipment.trackingId ?? undefined,
+      ...trackingFields,
       estimatedDelivery: undefined,
       ...(isResale
         ? {
