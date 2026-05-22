@@ -44,6 +44,7 @@ import {
   incrementClosetRevenueForListerPayout,
 } from '../closet/closet-revenue.util';
 import { ProductAvailabilityNotifyService } from 'src/services/product-availability-notify/product-availability-notify.service';
+import { guessExternalTrackingUrlFromReference } from '../shipment/shipment-tracking-url.util';
 
 const CURRENCY = 'NGN';
 
@@ -207,9 +208,7 @@ export class ListersService {
   ) {}
 
   private buildExternalTrackingUrl(trackingNumber: string) {
-    const trimmed = trackingNumber.trim();
-    if (!trimmed) return null;
-    return `https://ship.topship.africa/tracking/${encodeURIComponent(trimmed)}`;
+    return guessExternalTrackingUrlFromReference(trackingNumber);
   }
 
   /** GET /api/listers/inventory/top-items */

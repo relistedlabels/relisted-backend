@@ -185,6 +185,7 @@ export class ShipmentDispatchScheduler {
         status: true,
         type: true,
         pricingTier: true,
+        providerTrackingUrl: true,
         order: {
           select: {
             id: true,

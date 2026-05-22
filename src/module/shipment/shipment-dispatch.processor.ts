@@ -11,6 +11,7 @@ import { syncOrderStatusFromShipments } from 'src/module/order/order-shipment-st
 import { fetchAdminAlertRecipients } from 'src/module/shipment/shipment-admin-alert-recipients';
 import { buildAdminShipmentsPageUrl } from 'src/module/shipment/build-admin-shipments-page-url';
 import { formatDispatchWindowLagos } from 'src/module/shipment/dispatch-window-format';
+import { buildShippingEmailTrackingFields } from 'src/module/shipment/shipment-tracking-url.util';
 
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAYS_MS = [
@@ -281,6 +282,16 @@ export class ShipmentDispatchProcessor {
       return; // Unknown shipment type
     }
 
+    const trackingFields = buildShippingEmailTrackingFields(
+      {
+        pricingTier: shipment.pricingTier,
+        providerTrackingUrl: result.providerTrackingUrl,
+        trackingId: result.trackingId,
+        providerShipmentId: result.providerShipmentId,
+      },
+      { trackingNumber: result.trackingId ?? undefined },
+    );
+
     await this.notification.createNotification({
       userId: customer.id,
       title,
@@ -289,7 +300,7 @@ export class ShipmentDispatchProcessor {
       metadata: {
         shipmentId: shipment.id,
         orderId: order.orderId,
-        trackingUrl: result.providerTrackingUrl,
+        trackingUrl: trackingFields.trackingUrl ?? result.providerTrackingUrl,
       },
       sendEmail: true,
       emailData: {
@@ -297,8 +308,7 @@ export class ShipmentDispatchProcessor {
         userName: customer.name,
         orderId: order.orderId,
         status,
-        trackingNumber: result.trackingId ?? undefined,
-        trackingUrl: result.providerTrackingUrl ?? undefined,
+        ...trackingFields,
         estimatedDelivery: undefined,
         ...(isReturn &&
         shipment.scheduledWindowStart &&

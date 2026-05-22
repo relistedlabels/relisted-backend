@@ -78,8 +78,9 @@
                 <p><strong>📦 Tracking Information</strong></p>
                 <p><strong>Tracking Number:</strong> {{trackingNumber}}</p>
                 {{#unless trackingUrl}}
-                <p>Track your shipment at: <a href="https://ship.topship.africa/tracking" target="_blank">https://ship.topship.africa/tracking</a></p>
-                <p><em>Copy your tracking number above and paste it on the Topship tracking page.</em></p>
+                {{#if trackingProviderLabel}}
+                <p><em>Copy your tracking number above and look it up on the {{trackingProviderLabel}} tracking page.</em></p>
+                {{/if}}
                 {{/unless}}
             </div>
             {{/if}}

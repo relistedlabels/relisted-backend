@@ -59,7 +59,13 @@
 
             {{#if trackingNumber}}
             <p><strong>Tracking reference:</strong> {{trackingNumber}}</p>
-            <p>You can track on Topship: <a href="https://ship.topship.africa/tracking" target="_blank">ship.topship.africa/tracking</a></p>
+            {{#if trackingUrl}}
+            <p>Track the return: <a href="{{trackingUrl}}" target="_blank" rel="noopener noreferrer">Open tracking page</a> ({{#if trackingProviderLabel}}{{trackingProviderLabel}}{{else}}carrier{{/if}})</p>
+            {{else}}
+            {{#if trackingProviderLabel}}
+            <p>Look up this reference on the {{trackingProviderLabel}} tracking page.</p>
+            {{/if}}
+            {{/if}}
             {{/if}}
 
             <p>When the parcel arrives and you have inspected the item, open your order on {{platformName}} and complete <strong>Confirm return receipt</strong> to close the rental.</p>

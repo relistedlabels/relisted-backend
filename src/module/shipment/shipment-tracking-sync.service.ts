@@ -9,6 +9,11 @@ import { fetchAdminAlertRecipients } from 'src/module/shipment/shipment-admin-al
 import { buildAdminShipmentsPageUrl } from 'src/module/shipment/build-admin-shipments-page-url';
 import { sendShipmentLegStatusNotification } from './shipment-status-notifications';
 import {
+  buildShippingEmailTrackingFields,
+  getShippingProviderDisplayName,
+  resolveShipmentFulfillmentProvider,
+} from './shipment-tracking-url.util';
+import {
   canAdvanceShipmentStatus,
   mapProviderStatusToShipmentStatus,
   type ShipmentLifecycleStatus,
@@ -134,7 +139,14 @@ export class ShipmentTrackingSyncService {
       );
     }
 
-    await this.sendTrackingNotification(shipment, mappedStatus);
+    const shipmentForNotify: ShipmentTrackingPollRow = {
+      ...shipment,
+      trackingId:
+        input.trackingId?.trim() || shipment.trackingId,
+      providerTrackingUrl:
+        input.providerTrackingUrl?.trim() || shipment.providerTrackingUrl,
+    };
+    await this.sendTrackingNotification(shipmentForNotify, mappedStatus);
 
     return { updated: true, mappedStatus };
   }
@@ -277,7 +289,7 @@ export class ShipmentTrackingSyncService {
 
     const clientUrl = process.env.CLIENT_URL || 'https://relisted.com';
     const orderPageUrl = `${clientUrl}/listers/orders/${full.id}`;
-    const trackingNumber = shipment.trackingId ?? undefined;
+    const trackingFields = buildShippingEmailTrackingFields(shipment);
 
     const listers = new Map<
       string,
@@ -318,8 +330,8 @@ export class ShipmentTrackingSyncService {
             curatorName,
             orderNumber: full.orderId,
             orderPageUrl,
-            trackingNumber,
             platformName: 'Relisted',
+            ...trackingFields,
           },
         });
       } else {
@@ -339,8 +351,8 @@ export class ShipmentTrackingSyncService {
             curatorName,
             orderNumber: full.orderId,
             orderPageUrl,
-            trackingNumber,
             platformName: 'Relisted',
+            trackingNumber: trackingFields.trackingNumber,
           },
         });
       }
@@ -353,9 +365,9 @@ export class ShipmentTrackingSyncService {
   ): Promise<void> {
     const providerStatus = tracking.status || 'Cancelled';
     const order = shipment.order;
-    const providerLabel = isShipbubblePricingTier(shipment.pricingTier)
-      ? 'Shipbubble'
-      : 'carrier';
+    const providerLabel = getShippingProviderDisplayName(
+      resolveShipmentFulfillmentProvider(shipment.pricingTier),
+    );
 
     const admins = await fetchAdminAlertRecipients(this.prisma);
     if (admins.length === 0) {
@@ -393,7 +405,10 @@ export class ShipmentTrackingSyncService {
           shipmentType: shipment.type,
           providerStatus,
           providerMessage: tracking.message,
-          trackingUrl: shipment.providerTrackingUrl ?? undefined,
+          providerLabel,
+          trackingUrl:
+            shipment.providerTrackingUrl ??
+            buildShippingEmailTrackingFields(shipment).trackingUrl,
           adminShipmentUrl,
         });
       } catch (err: unknown) {

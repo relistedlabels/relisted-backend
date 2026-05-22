@@ -62,6 +62,7 @@ import {
 } from '../cart-items/withdraw-availability-for-cart-item';
 import { syncOrderStatusFromShipments } from '../order/order-shipment-status.sync';
 import { ShipbubbleAddressCacheService } from '../../services/shipbubble/shipbubble-address-cache.service';
+import { TOPSHIP_TRACKING_PAGE_URL } from '../shipment/shipment-tracking-url.util';
 
 /** Renter progress ordering (subset of shipment-driven flow; excludes terminal edge cases). */
 const RENTER_PROGRESS_RANK: OrderStatus[] = [
@@ -4348,7 +4349,7 @@ export class RentersService {
           data: {
             providerShipmentId: topshipProviderShipmentId,
             trackingId: topshipTrackingNumber,
-            providerTrackingUrl: 'https://ship.topship.africa/tracking',
+            providerTrackingUrl: TOPSHIP_TRACKING_PAGE_URL,
             status: 'DISPATCHED',
             dispatchedAt: new Date(),
             shipmentCharge: toKobo(selectedRate.shipmentCharge),
@@ -4495,6 +4496,10 @@ export class RentersService {
           ? 'Return pickup scheduled'
           : 'Return request submitted',
         trackingNumber: topshipTrackingNumber ?? undefined,
+        trackingUrl: topshipProviderShipmentId
+          ? TOPSHIP_TRACKING_PAGE_URL
+          : undefined,
+        trackingProviderLabel: topshipProviderShipmentId ? 'Topship' : undefined,
         pickupWindowSummary: windowSummary ?? undefined,
         extraNote: topshipProviderShipmentId
           ? 'The carrier is booked for your pickup window. The package is not yet on the way to the lister until you see an in-transit update.'

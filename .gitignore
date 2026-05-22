@@ -64,3 +64,5 @@ scripts/
 /scripts/delete-account-by-email.ts
 /scripts/fix-product-statuses.ts
 /.md
+/dev-emails
+/docs
