@@ -152,11 +152,12 @@ export function parseDispatchWindowFromInput(
     bad(`${type} dispatch window must start and end on the same day.`);
   }
 
-  // Convert times to Lagos hours for validation
-  const startHourLagos = parseInt(start.toLocaleString('en-US', { timeZone: 'Africa/Lagos', hour: 'numeric', hour12: false }), 10);
-  const endHourLagos = parseInt(end.toLocaleString('en-US', { timeZone: 'Africa/Lagos', hour: 'numeric', hour12: false }), 10);
+  const dayStartMinutes = DISPATCH_WINDOW_START_HOUR * 60;
+  const dayEndMinutes = DISPATCH_WINDOW_END_HOUR * 60;
+  const startMinutes = getLagosMinutesFromMidnight(start);
+  const endMinutes = getLagosMinutesFromMidnight(end);
 
-  if (startHourLagos < DISPATCH_WINDOW_START_HOUR || endHourLagos >= DISPATCH_WINDOW_END_HOUR) {
+  if (startMinutes < dayStartMinutes || endMinutes > dayEndMinutes) {
     bad(
       `${type} dispatch window must fall between ${DISPATCH_WINDOW_START_HOUR}:00 and ${DISPATCH_WINDOW_END_HOUR}:00 local time.`,
     );
@@ -197,6 +198,24 @@ export function isWindowExpired(
 /** Calendar day (YYYY-MM-DD) for `date` in Africa/Lagos. */
 export function getLagosCalendarDateKey(date: Date): string {
   return date.toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' });
+}
+
+function getLagosMinutesFromMidnight(date: Date): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Africa/Lagos',
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false,
+  }).formatToParts(date);
+  const hour = Number.parseInt(
+    parts.find((p) => p.type === 'hour')?.value ?? '0',
+    10,
+  );
+  const minute = Number.parseInt(
+    parts.find((p) => p.type === 'minute')?.value ?? '0',
+    10,
+  );
+  return hour * 60 + minute;
 }
 
 /**
