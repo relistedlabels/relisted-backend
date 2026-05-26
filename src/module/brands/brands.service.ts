@@ -69,8 +69,12 @@ export class BrandsService {
       throw new ForbiddenException('You cannot delete this brand');
     }
 
-    return this.prisma.brand.delete({
-      where: { id },
+    return this.prisma.$transaction(async (tx) => {
+      await tx.product.updateMany({
+        where: { brandId: id },
+        data: { brandId: null },
+      });
+      return tx.brand.delete({ where: { id } });
     });
   }
 }

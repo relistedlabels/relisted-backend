@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { Request, Response } from 'express';
 
 @Catch()
@@ -53,8 +54,23 @@ export class AllExceptionsFilter implements ExceptionFilter {
       );
     }
 
-   
-    else if (exception instanceof Error) {
+    else if (
+      exception instanceof Prisma.PrismaClientKnownRequestError &&
+      exception.code === 'P2003'
+    ) {
+      status = HttpStatus.CONFLICT;
+      message =
+        'This record cannot be deleted because other data still depends on it. Remove related items first or contact support.';
+      errorResponse = {
+        success: false,
+        statusCode: status,
+        message,
+        error: 'ForeignKeyConstraint',
+      };
+      this.logger.warn(
+        `${status} ${request.method} ${request.url} - FK constraint (${exception.meta?.field_name ?? 'unknown'})`,
+      );
+    } else if (exception instanceof Error) {
       message = exception.message;
 
       errorResponse = {

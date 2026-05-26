@@ -22,10 +22,17 @@ import {
 } from 'src/utils/product-attachment-upload-order';
 import { ADMIN_ORDER_ANALYTICS_CUTOFF } from 'src/constants/admin-analytics';
 import {
+  buildProductionWalletTransactionWhere,
   buildWalletStatsOrderWhere,
   buildWalletStatsUserWhere,
   getStagingInternalCuratorId,
 } from 'src/utils/admin-wallet-filters';
+import {
+  collectOrderIdsForUser,
+  deleteOrderCascade,
+  deleteProductCascade,
+  deleteProfileCascade,
+} from 'src/utils/cascade-delete';
 
 @Injectable()
 export class AdminService {
@@ -670,57 +677,35 @@ export class AdminService {
 
     await this.prisma.$transaction(
       async (tx) => {
-        // 1. Auth OTP tokens
         await tx.authOtpToken.deleteMany({ where: { userId } });
 
-        // 2. Profile and related (EmergencyContact, BusinessInfo, Address)
         const profile = await tx.profile.findUnique({ where: { userId } });
         if (profile) {
-          const profileId = profile.id;
-          await tx.emergencyContact.deleteMany({ where: { profileId } });
-          await tx.businessInfo.deleteMany({ where: { profileId } });
-          await tx.address.deleteMany({ where: { profileId } });
-          await tx.profile.update({
-            where: { id: profileId },
-            data: { avatarUploadId: null, ninUploadId: null },
-          });
-          await tx.profile.delete({ where: { id: profileId } });
+          await deleteProfileCascade(tx, profile.id);
         }
 
-        // 3. Cart and cart items
         const cart = await tx.cart.findUnique({ where: { userId } });
         if (cart) {
           await tx.cartItem.deleteMany({ where: { cartId: cart.id } });
           await tx.cart.delete({ where: { id: cart.id } });
         }
 
-        // 4. Favourites
         await tx.favourite.deleteMany({ where: { userId } });
-
-        // 5. Virtual accounts (by userId)
+        await tx.productAvailabilityNotification.deleteMany({
+          where: { userId },
+        });
+        await tx.vaultClosetSaleInterest.deleteMany({ where: { userId } });
         await tx.virtualAccount.deleteMany({ where: { userId } });
-
-        // 6. Bank accounts
         await tx.bankAccount.deleteMany({ where: { userId } });
-
-        // 7. Withdrawal requests
         await tx.withdrawalRequest.deleteMany({ where: { userId } });
-
-        // 8. Availability requests where user is lister or requester
         await tx.availabilityRequest.deleteMany({
           where: { listerId: userId },
         });
         await tx.availabilityRequest.deleteMany({
           where: { requesterId: userId },
         });
-
-        // 9. Transactions (by userId)
         await tx.transaction.deleteMany({ where: { userId } });
 
-        // 10. Uploads
-        await tx.upload.deleteMany({ where: { userId } });
-
-        // 11. Nullify user-owned Brand, Tag, ProductCategory
         await tx.brand.updateMany({
           where: { userId },
           data: { userId: null },
@@ -731,72 +716,28 @@ export class AdminService {
         });
         await tx.tag.updateMany({ where: { userId }, data: { userId: null } });
 
-        // 12. Orders and their dependencies
-        const orders = await tx.order.findMany({
-          where: { userId },
-          select: { id: true },
-        });
-        for (const order of orders) {
-          const orderId = order.id;
-          const rental = await tx.rental.findFirst({ where: { orderId } });
-          if (rental) {
-            await tx.review.deleteMany({ where: { rentalId: rental.id } });
-          }
-          await tx.rental.deleteMany({ where: { orderId } });
-          await tx.orderItem.deleteMany({ where: { orderId } });
-          await tx.walletTransaction.deleteMany({ where: { orderId } });
-          await tx.transaction.deleteMany({ where: { orderId } });
-          await tx.virtualAccount.deleteMany({ where: { orderId } });
-          await tx.escrow.deleteMany({ where: { orderId } });
-          const dispute = await tx.dispute.findFirst({ where: { orderId } });
-          if (dispute) {
-            const chatRoom = await tx.chatRoom.findUnique({
-              where: { disputeId: dispute.id },
-            });
-            if (chatRoom) {
-              await tx.message.deleteMany({
-                where: { chatRoomId: chatRoom.id },
-              });
-              await tx.chatRoom.delete({ where: { id: chatRoom.id } });
-            }
-            await tx.attachments.updateMany({
-              where: { disputeId: dispute.id },
-              data: { disputeId: null },
-            });
-            await tx.dispute.delete({ where: { id: dispute.id } });
-          }
-          await tx.order.delete({ where: { id: orderId } });
+        const orderIds = await collectOrderIdsForUser(tx, userId);
+        for (const orderId of orderIds) {
+          await deleteOrderCascade(tx, orderId);
         }
 
-        // 13. Rentals where user is curator or rentee (not already deleted via order)
-        await tx.rental.deleteMany({ where: { userId } });
-        await tx.rental.deleteMany({ where: { curatorId: userId } });
-
-        // 14. Reviews by this user
-        await tx.review.deleteMany({ where: { userId } });
-        await tx.review.deleteMany({ where: { curatorId: userId } });
-
-        // 15. Products owned by user (curator)
         const products = await tx.product.findMany({
           where: { curatorId: userId },
           select: { id: true },
         });
         for (const product of products) {
-          const productId = product.id;
-          await tx.availabilityRequest.deleteMany({ where: { productId } });
-          await tx.cartItem.deleteMany({ where: { productId } });
-          await tx.favourite.deleteMany({ where: { productId } });
-          await tx.review.deleteMany({ where: { productId } });
-          await tx.orderItem.deleteMany({ where: { productId } });
-          const att = await tx.attachments.findFirst({ where: { productId } });
-          if (att) {
-            await tx.upload.deleteMany({ where: { attachmentId: att.id } });
-            await tx.attachments.delete({ where: { id: att.id } });
-          }
-          await tx.product.delete({ where: { id: productId } });
+          await deleteProductCascade(tx, product.id);
         }
 
-        // 16. Wallet and wallet transactions
+        await tx.closet.deleteMany({ where: { ownerId: userId } });
+        await tx.rental.deleteMany({
+          where: { OR: [{ userId }, { curatorId: userId }] },
+        });
+        await tx.review.deleteMany({
+          where: { OR: [{ userId }, { curatorId: userId }] },
+        });
+        await tx.upload.deleteMany({ where: { userId } });
+
         const wallet = await tx.wallet.findUnique({ where: { userId } });
         if (wallet) {
           await tx.walletTransaction.deleteMany({
@@ -805,15 +746,13 @@ export class AdminService {
           await tx.wallet.delete({ where: { id: wallet.id } });
         }
 
-        // 17. Disputes, Notifications and Settings
         await tx.dispute.deleteMany({ where: { userId } });
         await tx.notification.deleteMany({ where: { userId } });
         await tx.notificationSettings.deleteMany({ where: { userId } });
 
-        // 18. User
         await tx.user.delete({ where: { id: userId } });
       },
-      { timeout: 60_000 },
+      { timeout: 120_000 },
     );
 
     return {
@@ -1963,10 +1902,12 @@ export class AdminService {
 
   async getAllWalletTransactions(page: number, limit: number) {
     const skip = (page - 1) * limit;
+    const where = buildProductionWalletTransactionWhere();
 
     const [total, transactions] = await this.prisma.$transaction([
-      this.prisma.walletTransaction.count(),
+      this.prisma.walletTransaction.count({ where }),
       this.prisma.walletTransaction.findMany({
+        where,
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
@@ -2624,8 +2565,8 @@ export class AdminService {
     });
     if (!product) throw new NotFoundException('Product not found');
 
-    await this.prisma.product.delete({
-      where: { id: productId },
+    await this.prisma.$transaction(async (tx) => {
+      await deleteProductCascade(tx, productId);
     });
 
     return {
