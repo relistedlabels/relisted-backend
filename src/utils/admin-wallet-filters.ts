@@ -38,3 +38,41 @@ export function buildWalletStatsOrderWhere(): Prisma.OrderWhereInput {
     user: buildWalletStatsUserWhere(),
   };
 }
+
+/** Internal/test accounts whose wallet ledger should not count as production. */
+export function buildTestOrInternalUserWhere(): Prisma.UserWhereInput {
+  return {
+    OR: [
+      { role: Role.ADMIN },
+      { id: getStagingInternalCuratorId() },
+      { email: { contains: 'mailtrap', mode: 'insensitive' } },
+      { email: { endsWith: '@example.com', mode: 'insensitive' } },
+      { email: { startsWith: 'test@', mode: 'insensitive' } },
+      { email: { contains: '@test.', mode: 'insensitive' } },
+    ],
+  };
+}
+
+/** Rows to remove in wallet cleanup (pre-launch, non-success, or test/internal users). */
+export function buildWalletTransactionCleanupWhere(
+  cutoff: Date = ADMIN_ORDER_ANALYTICS_CUTOFF,
+): Prisma.WalletTransactionWhereInput {
+  return {
+    OR: [
+      { createdAt: { lt: cutoff } },
+      { status: { not: 'SUCCESS' } },
+      { wallet: { user: buildTestOrInternalUserWhere() } },
+    ],
+  };
+}
+
+/** Production ledger rows kept after cleanup. */
+export function buildProductionWalletTransactionWhere(
+  cutoff: Date = ADMIN_ORDER_ANALYTICS_CUTOFF,
+): Prisma.WalletTransactionWhereInput {
+  return {
+    status: 'SUCCESS',
+    createdAt: { gte: cutoff },
+    wallet: { user: buildWalletStatsUserWhere() },
+  };
+}
