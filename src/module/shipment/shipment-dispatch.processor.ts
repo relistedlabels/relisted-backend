@@ -93,7 +93,7 @@ export class ShipmentDispatchProcessor {
 
     if (shipment.type === 'RETURN') {
       const returnRequest = await this.prisma.returnRequest.findFirst({
-        where: { orderId: shipment.orderId },
+        where: { orderId: shipment.orderId, shipmentId },
       });
       if (!returnRequest) {
         this.logger.log(

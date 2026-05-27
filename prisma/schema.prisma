@@ -933,6 +933,10 @@ model Shipment {
   manualDueReminder24hSentAt     DateTime?
   /// Admin due reminder dedupe: Relisted dispatch leg due today (morning ping, Lagos).
   manualDueReminderMorningSentAt DateTime?
+  /// Renter return reminder dedupe (per RETURN leg): ~24h before pickup window.
+  returnDueReminder24hSentAt     DateTime?
+  /// Renter return reminder dedupe (per RETURN leg): morning-of pickup (Lagos).
+  returnDueReminderMorningSentAt DateTime?
   dispatchAttempts     Int                  @default(0)
   dispatchedAt         DateTime?
   /// Buyer confirmed receipt for RESALE legs (releases resale payout for this shipment only).

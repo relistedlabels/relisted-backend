@@ -774,6 +774,8 @@ Table Shipment {
   manualFulfillment Boolean [not null, default: false, note: 'Relisted dispatch fallback: skip automated Topship booking until an admin marks dispatched.']
   manualDueReminder24hSentAt DateTime [note: 'Admin due reminder dedupe: Relisted dispatch leg starts within 24h (not same calendar day in Lagos).']
   manualDueReminderMorningSentAt DateTime [note: 'Admin due reminder dedupe: Relisted dispatch leg due today (morning ping, Lagos).']
+  returnDueReminder24hSentAt DateTime [note: 'Renter return reminder dedupe (per RETURN leg): ~24h before pickup window.']
+  returnDueReminderMorningSentAt DateTime [note: 'Renter return reminder dedupe (per RETURN leg): morning-of pickup (Lagos).']
   dispatchAttempts Int [not null, default: 0]
   dispatchedAt DateTime
   buyerConfirmedAt DateTime [note: 'Buyer confirmed receipt for RESALE legs (releases resale payout for this shipment only).']
