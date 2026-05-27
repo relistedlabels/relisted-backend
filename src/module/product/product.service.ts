@@ -27,6 +27,7 @@ import {
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductStatus } from '@prisma/client';
 import { ClosetService } from '../closet/closet.service';
+import { deleteProductCascade } from 'src/utils/cascade-delete';
 
 @Injectable()
 export class ProductService {
@@ -1470,9 +1471,8 @@ export class ProductService {
         throw new ForbiddenException('You can only delete your own products');
       }
 
-      // Actually delete the product (not just disable)
-      await this.prisma.product.delete({
-        where: { id },
+      await this.prisma.$transaction(async (tx) => {
+        await deleteProductCascade(tx, id);
       });
 
       return {

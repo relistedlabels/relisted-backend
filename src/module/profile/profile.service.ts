@@ -10,6 +10,7 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import { userEntity } from '../auth/auth.types';
 import { PrismaService } from 'src/services/prisma/prisma.service';
 import { bad } from 'src/utils/error';
+import { deleteProfileCascade } from 'src/utils/cascade-delete';
 
 @Injectable()
 export class ProfileService {
@@ -345,8 +346,8 @@ export class ProfileService {
       throw new NotFoundException('Profile not found');
     }
 
-    await this.prisma.profile.delete({
-      where: { id },
+    await this.prisma.$transaction(async (tx) => {
+      await deleteProfileCascade(tx, id);
     });
 
     return {
