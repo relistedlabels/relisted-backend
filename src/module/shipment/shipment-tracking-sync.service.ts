@@ -21,6 +21,7 @@ import {
 
 export type ShipmentTrackingPollRow = {
   id: string;
+  listerId: string | null;
   providerShipmentId: string | null;
   trackingId: string | null;
   status: string;
@@ -161,6 +162,7 @@ export class ShipmentTrackingSyncService {
       where: { providerShipmentId: id },
       select: {
         id: true,
+        listerId: true,
         providerShipmentId: true,
         trackingId: true,
         status: true,
@@ -291,71 +293,59 @@ export class ShipmentTrackingSyncService {
     const orderPageUrl = `${clientUrl}/listers/orders/${full.id}`;
     const trackingFields = buildShippingEmailTrackingFields(shipment);
 
-    const listers = new Map<
-      string,
-      {
-        id: string;
-        email: string | null;
-        name: string | null;
-        profile: {
-          businessInfo: { businessName: string | null } | null;
-        } | null;
-      }
-    >();
+    const listerId = shipment.listerId;
+    if (!listerId) return;
 
-    for (const oi of full.orderItems) {
-      const c = oi.product?.curator;
-      if (c?.id) listers.set(c.id, c as any);
-    }
+    const lister = full.orderItems
+      .map((oi) => oi.product?.curator)
+      .find((c) => c?.id === listerId);
+    if (!lister?.email?.trim()) return;
 
-    for (const lister of listers.values()) {
-      if (!lister.email?.trim()) continue;
-      const curatorName =
-        lister.profile?.businessInfo?.businessName || lister.name || 'there';
+    const curatorName =
+      lister.profile?.businessInfo?.businessName || lister.name || 'there';
 
-      if (phase === 'IN_TRANSIT') {
-        await this.notification.createNotification({
-          userId: lister.id,
-          title: 'Return on its way to you',
-          message: `The renter's return for order ${full.orderId} is in transit to your address.`,
-          type: 'LISTER_RETURN_IN_TRANSIT',
-          metadata: {
-            orderId: full.id,
-            orderNumber: full.orderId,
-            shipmentId: shipment.id,
-          },
-          sendEmail: true,
-          emailData: {
-            email: lister.email.trim(),
-            curatorName,
-            orderNumber: full.orderId,
-            orderPageUrl,
-            platformName: 'Relisted',
-            ...trackingFields,
-          },
-        });
-      } else {
-        await this.notification.createNotification({
-          userId: lister.id,
-          title: 'Confirm return receipt to finish this rental',
-          message: `Tracking shows the return for order ${full.orderId} was delivered. Open your order, review the renter's condition report, then confirm return receipt. That completes the order: collateral goes back to the renter and your rental earnings plus cleaning fee are released to your wallet.`,
-          type: 'LISTER_RETURN_DELIVERED_CONFIRM',
-          metadata: {
-            orderId: full.id,
-            orderNumber: full.orderId,
-            shipmentId: shipment.id,
-          },
-          sendEmail: true,
-          emailData: {
-            email: lister.email.trim(),
-            curatorName,
-            orderNumber: full.orderId,
-            orderPageUrl,
-            platformName: 'Relisted',
-            trackingNumber: trackingFields.trackingNumber,
-          },
-        });
-      }
+    if (phase === 'IN_TRANSIT') {
+      await this.notification.createNotification({
+        userId: listerId,
+        title: 'Return on its way to you',
+        message: `The renter's return for order ${full.orderId} is in transit to your address.`,
+        type: 'LISTER_RETURN_IN_TRANSIT',
+        metadata: {
+          orderId: full.id,
+          orderNumber: full.orderId,
+          shipmentId: shipment.id,
+        },
+        sendEmail: true,
+        emailData: {
+          email: lister.email.trim(),
+          curatorName,
+          orderNumber: full.orderId,
+          orderPageUrl,
+          platformName: 'Relisted',
+          ...trackingFields,
+        },
+      });
+    } else {
+      await this.notification.createNotification({
+        userId: listerId,
+        title: 'Confirm return receipt to finish this rental',
+        message: `Tracking shows the return for order ${full.orderId} was delivered. Open your order, review the renter's condition report, then confirm return receipt. That completes the order: collateral goes back to the renter and your rental earnings plus cleaning fee are released to your wallet.`,
+        type: 'LISTER_RETURN_DELIVERED_CONFIRM',
+        metadata: {
+          orderId: full.id,
+          orderNumber: full.orderId,
+          shipmentId: shipment.id,
+        },
+        sendEmail: true,
+        emailData: {
+          email: lister.email.trim(),
+          curatorName,
+          orderNumber: full.orderId,
+          orderPageUrl,
+          platformName: 'Relisted',
+          trackingNumber: trackingFields.trackingNumber,
+        },
+      });
     }
   }
 

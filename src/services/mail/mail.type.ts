@@ -310,6 +310,9 @@ export class ReturnInitiatedDto {
   @IsString()
   @IsOptional()
   orderPageUrl?: string;
+  @IsString()
+  @IsOptional()
+  itemSummary?: string;
 }
 
 export class ReturnCompletedDto {

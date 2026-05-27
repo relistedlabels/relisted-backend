@@ -25,6 +25,10 @@
       <p>Hello {{curatorName}},</p>
       <p><strong>{{renterName}}</strong> started a return for order <strong>{{orderId}}</strong>. Return shipping was paid at checkout; our courier will collect from them.</p>
 
+      {{#if itemSummary}}
+      <p><strong>Items in this return:</strong> {{itemSummary}}</p>
+      {{/if}}
+
       {{#if returnWindowSummary}}
       <div class="box">
         <strong>Return window</strong><br />

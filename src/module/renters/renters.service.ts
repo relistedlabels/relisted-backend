@@ -40,6 +40,12 @@ import {
   summarizeResaleLegStatuses,
 } from '../order/resale-delivery.util';
 import { buildShipmentProgressOverview } from '../order/shipment-progress-groups.util';
+import {
+  listerDisplayName,
+  productNamesForReturnLeg,
+  returnLegItemPreviews,
+  returnRequestExistsForShipment,
+} from '../order/return-request-leg.util';
 import { bad } from '../../utils/error';
 import {
   CreateReturnRequestDto,
@@ -1779,8 +1785,7 @@ export class RentersService {
           orderBy: { createdAt: 'asc' },
         },
         returnRequests: {
-          orderBy: { createdAt: 'desc' },
-          take: 1,
+          orderBy: { createdAt: 'asc' },
         },
         user: { include: { profile: { include: { address: true } } } },
       } as any,
@@ -1790,62 +1795,58 @@ export class RentersService {
       throw new NotFoundException('Order not found');
 
     const typedOrder = order as any;
-    const latestRr = typedOrder.returnRequests?.[0] ?? null;
+    const allReturnRequests = typedOrder.returnRequests ?? [];
     const returnShipments = (typedOrder.shipments ?? []).filter(
       (s: { type: string }) => s.type === 'RETURN',
     );
-    const latestReturnLeg =
-      returnShipments.length > 0
-        ? returnShipments[returnShipments.length - 1]
-        : null;
-    const unifiedReturnWindow = resolveReturnWindowForDisplay({
-      returnShipment: latestReturnLeg,
-      returnRequest: latestRr,
+    const returnLegDetails = returnShipments.map((leg: any) => {
+      const rr = allReturnRequests.find(
+        (r: { shipmentId: string | null }) => r.shipmentId === leg.id,
+      );
+      const unified = resolveReturnWindowForDisplay({
+        returnShipment: leg,
+        returnRequest: rr ?? null,
+      });
+      return {
+        shipmentId: leg.id,
+        listerId: leg.listerId ?? null,
+        legStatus: leg.status,
+        trackingId: leg.trackingId ?? null,
+        providerTrackingUrl: leg.providerTrackingUrl ?? null,
+        windowSummary: unified?.summary ?? null,
+        items: returnLegItemPreviews(
+          typedOrder.orderItems,
+          leg.id,
+          leg.listerId,
+        ),
+        returnRequest: rr
+          ? {
+              id: rr.id,
+              status: rr.status,
+              itemCondition: rr.itemCondition,
+              trackingNumber: rr.trackingNumber ?? null,
+            }
+          : null,
+      };
     });
-    const returnPickup =
-      latestRr &&
-      (latestRr.pickupWindowStart ||
-        latestRr.pickupWindowEnd ||
-        latestRr.trackingNumber ||
-        latestRr.shipmentId)
-        ? {
-            requestStatus: latestRr.status,
-            trackingNumber: latestRr.trackingNumber ?? null,
-            carrierShipmentId: latestRr.shipmentId ?? null,
-            pickupWindowStart:
-              unifiedReturnWindow?.start.toISOString() ??
-              latestRr.pickupWindowStart?.toISOString?.() ??
-              null,
-            pickupWindowEnd:
-              unifiedReturnWindow?.end.toISOString() ??
-              latestRr.pickupWindowEnd?.toISOString?.() ??
-              null,
-            pickupScheduledAt: latestRr.pickupScheduledAt?.toISOString?.() ?? null,
-            pickupWindowSummary:
-              unifiedReturnWindow?.summary ??
-              (latestRr.pickupWindowStart && latestRr.pickupWindowEnd
-                ? formatPickupWindowLagos(
-                    new Date(latestRr.pickupWindowStart),
-                    new Date(latestRr.pickupWindowEnd),
-                  )
-                : null),
-          }
-        : null;
-    const returnLeg = latestReturnLeg
+    const tip = returnLegDetails[returnLegDetails.length - 1];
+    const returnPickup = tip?.returnRequest
       ? {
-          status: latestReturnLeg.status,
-          label: returnLegStatusLabel(String(latestReturnLeg.status)),
-          trackingId: latestReturnLeg.trackingId ?? null,
-          providerTrackingUrl: latestReturnLeg.providerTrackingUrl ?? null,
-          windowSummary:
-            unifiedReturnWindow?.summary ??
-            (latestReturnLeg.scheduledWindowStart &&
-            latestReturnLeg.scheduledWindowEnd
-              ? formatPickupWindowLagos(
-                  new Date(latestReturnLeg.scheduledWindowStart),
-                  new Date(latestReturnLeg.scheduledWindowEnd),
-                )
-              : null),
+          requestStatus: tip.returnRequest.status,
+          trackingNumber: tip.returnRequest.trackingNumber,
+          carrierShipmentId: tip.shipmentId,
+          pickupWindowSummary: tip.windowSummary,
+        }
+      : tip?.windowSummary
+        ? { pickupWindowSummary: tip.windowSummary }
+        : null;
+    const returnLeg = tip
+      ? {
+          status: tip.legStatus,
+          label: returnLegStatusLabel(String(tip.legStatus)),
+          trackingId: tip.trackingId,
+          providerTrackingUrl: tip.providerTrackingUrl,
+          windowSummary: tip.windowSummary,
         }
       : null;
     const totalAmount =
@@ -2061,6 +2062,7 @@ export class RentersService {
           merchandiseBreakdown,
           returnPickup,
           returnLeg,
+          returnLegDetails,
           lister: {
             userId:
               (typedOrder.orderListers && typedOrder.orderListers[0]?.listerId) ||
@@ -3207,8 +3209,8 @@ export class RentersService {
         rentals: { select: { returnedAt: true } },
         returnRequests: {
           orderBy: { createdAt: 'desc' },
-          take: 1,
           select: {
+            id: true,
             status: true,
             trackingNumber: true,
             shipmentId: true,
@@ -3771,6 +3773,21 @@ export class RentersService {
         percentComplete,
         returnScheduling: returnSchedulingProg,
         returnLeg: returnLegProg,
+        returnRequests: (order.returnRequests ?? []).map((rr) => {
+          const leg = (order.shipments ?? []).find(
+            (s: { id: string }) => s.id === rr.shipmentId,
+          );
+          const unified = resolveReturnWindowForDisplay({
+            returnShipment: leg ?? null,
+            returnRequest: rr,
+          });
+          return {
+            id: rr.id,
+            shipmentId: rr.shipmentId,
+            status: rr.status,
+            pickupWindowSummary: unified?.summary ?? null,
+          };
+        }),
         outboundLegs: outboundLegsPayload,
         rentalLegs: rentalLegsPayload,
         outboundSummary,
@@ -3835,9 +3852,21 @@ export class RentersService {
       throw new BadRequestException('Unauthorized to return this order');
     }
 
-    if (order.returnRequests && order.returnRequests.length > 0) {
+    const returnLegsReady = (order.shipments ?? []).filter(
+      (s: { type: string }) => s.type === 'RETURN',
+    );
+    if (returnLegsReady.length > 1 && !data.shipmentId) {
       throw new BadRequestException(
-        'Return request already exists for this order',
+        'shipmentId is required when returning items from multiple sellers',
+      );
+    }
+    const targetShipmentId =
+      data.shipmentId ?? returnLegsReady[0]?.id ?? null;
+    if (
+      returnRequestExistsForShipment(order.returnRequests, targetShipmentId)
+    ) {
+      throw new BadRequestException(
+        'Return request already exists for this return shipment',
       );
     }
 
@@ -3870,8 +3899,8 @@ export class RentersService {
       if (!onOrder) {
         throw new BadRequestException('Invalid shipment ID for this order');
       }
-    } else if (order.shipments?.length) {
-      returnShipmentId = order.shipments[0].id;
+    } else if (returnLegsReady[0]?.id) {
+      returnShipmentId = returnLegsReady[0].id;
     }
 
     if (returnShipmentId) {
@@ -4093,12 +4122,49 @@ export class RentersService {
       throw new BadRequestException('Not authorized to return this order');
     }
 
-    if (order.returnRequests && order.returnRequests.length > 0) {
+    const returnLegsShip = (order.shipments as any[]).filter(
+      (s: { type: string }) => s.type === 'RETURN',
+    );
+    if (returnLegsShip.length > 1 && !data.shipmentId) {
+      throw new BadRequestException(
+        'shipmentId is required when returning items from multiple sellers',
+      );
+    }
+
+    let returnShipmentRow: any = data.shipmentId
+      ? returnLegsShip.find((s: { id: string }) => s.id === data.shipmentId) ??
+        null
+      : null;
+    if (data.shipmentId && !returnShipmentRow) {
+      throw new BadRequestException('Invalid return shipment for this order');
+    }
+
+    const pickupWindow =
+      data.pickupWindow != null
+        ? this.resolveReturnPickupWindow(data.pickupWindow)
+        : returnShipmentRow?.scheduledWindowStart &&
+            returnShipmentRow?.scheduledWindowEnd
+          ? parseDispatchWindowFromInput('RETURN', {
+              start: new Date(
+                returnShipmentRow.scheduledWindowStart,
+              ).toISOString(),
+              end: new Date(
+                returnShipmentRow.scheduledWindowEnd,
+              ).toISOString(),
+            })
+          : this.resolveReturnPickupWindow(data.pickupWindow);
+
+    if (
+      returnRequestExistsForShipment(
+        order.returnRequests,
+        data.shipmentId ?? returnShipmentRow?.id,
+      )
+    ) {
       console.log(
-        `[RentersService] Return request already exists for order ${orderId}`,
+        `[RentersService] Return request already exists for shipment on order ${orderId}`,
       );
       throw new BadRequestException(
-        'Return request already exists for this order',
+        'Return request already exists for this return shipment',
       );
     }
 
@@ -4115,15 +4181,15 @@ export class RentersService {
       );
     }
 
-    const pickupWindow = this.resolveReturnPickupWindow(data.pickupWindow);
-
-    let returnShipmentRow = this.resolveReturnShipmentLeg(
-      order.shipments as any[],
-      {
-        shipmentId: data.shipmentId,
-        pickupWindow,
-      },
-    );
+    if (!returnShipmentRow) {
+      returnShipmentRow = this.resolveReturnShipmentLeg(
+        order.shipments as any[],
+        {
+          shipmentId: data.shipmentId,
+          pickupWindow,
+        },
+      );
+    }
     if (!returnShipmentRow) {
       returnShipmentRow = await this.prisma.shipment.findFirst({
         where: { orderId: order.id, type: 'RETURN' },
@@ -4156,8 +4222,16 @@ export class RentersService {
       }
     }
 
+    const returnListerId = returnShipmentRow?.listerId ?? null;
+    const legOrderItems = returnListerId
+      ? (order.orderItems as any[]).filter(
+          (i) => i.product?.curator?.id === returnListerId,
+        )
+      : (order.orderItems as any[]);
+    const primaryLegItem = legOrderItems[0] ?? (order.orderItems as any[])[0];
+
     // Get lister's address for pickup
-    const listerForAddress = order.orderItems[0]?.product?.curator;
+    const listerForAddress = primaryLegItem?.product?.curator;
     const listerAddress = listerForAddress?.profile?.address
       ? `${listerForAddress.profile.address.street}, ${listerForAddress.profile.address.city}, ${listerForAddress.profile.address.state}`
       : '';
@@ -4204,7 +4278,7 @@ export class RentersService {
           `[RentersService] Booking Topship pickup for order ${orderId}`,
         );
 
-      const firstItem = order.orderItems[0];
+      const firstItem = primaryLegItem;
       const curatorProfile = firstItem.product.curator.profile;
       const curatorBusiness = curatorProfile?.businessInfo;
       const curatorAddress = curatorProfile?.address;
@@ -4213,7 +4287,7 @@ export class RentersService {
         curatorBusiness?.businessCity || curatorAddress?.city || 'Lagos';
       const renterCity = renterSenderDetail.city;
 
-      const value = order.orderItems.reduce(
+      const value = legOrderItems.reduce(
         (acc: number, i: any) =>
           acc + (i.product.resalePrice || i.product.originalValue || 0),
         0,
@@ -4424,30 +4498,29 @@ export class RentersService {
       ? `${clientUrl}/listers/orders/${order.id}`
       : '';
 
-    // Notify all listers about return (for multi-lister orders)
-    const uniqueListers = new Map(
-      order.orderItems
-        .map((item: any) => item.product?.curator)
-        .filter((curator: any) => curator)
-        .map((curator: any) => [curator.id, curator]),
+    const legLister = listerForAddress;
+    const legItemSummary = productNamesForReturnLeg(
+      order.orderItems as any[],
+      returnShipmentRow?.id ?? '',
+      returnListerId,
+      'your rental item',
     );
-
-    for (const lister of uniqueListers.values()) {
+    if (legLister?.id && legLister?.email) {
       await this.notificationService.createNotification({
-        userId: lister.id,
+        userId: legLister.id,
         title: 'Return started',
-        message: `Return started for order ${order.orderId}. Check your email for the window and condition.`,
+        message: `Return started for order ${order.orderId} (${legItemSummary}). Check your email for the window and condition.`,
         type: 'RETURN_INITIATED',
         metadata: {
           orderId: order.id,
           orderNumber: order.orderId,
           returnRequestId: result.id,
+          shipmentId: returnShipmentRow?.id ?? null,
         },
         sendEmail: true,
         emailData: {
-          email: lister.email,
-          curatorName:
-            lister.profile?.businessInfo?.businessName || lister.name,
+          email: legLister.email,
+          curatorName: listerDisplayName(legLister),
           renterName: order.user.name,
           renterEmail: order.user.email,
           renterPhone: renterSenderDetail.phoneNumber || '',
@@ -4456,30 +4529,35 @@ export class RentersService {
           itemCondition: data.itemCondition,
           damageNotes: data.damageNotes,
           platformName: 'Relisted',
-          returnWindowSummary,
+          returnWindowSummary: windowSummary ?? undefined,
+          itemSummary: legItemSummary,
           orderPageUrl: listerOrderPageUrl || undefined,
         },
       });
     }
 
+    const renterLegNote = legItemSummary
+      ? `Items in this return: ${legItemSummary}.`
+      : '';
     await this.notificationService.createNotification({
       userId: order.userId,
       title: topshipProviderShipmentId
         ? 'Return pickup scheduled'
         : 'Return request submitted',
       message: windowSummary
-        ? `Your carrier pickup is scheduled for: ${windowSummary}. Have your item ready during this window. You will get another update when the rider collects the package.`
+        ? `Your carrier pickup is scheduled for: ${windowSummary}. ${renterLegNote} Have your item ready during this window. You will get another update when the rider collects the package.`
         : topshipProviderShipmentId
-          ? 'Your return has been booked with the carrier. You will get another update when pickup starts.'
+          ? `Your return has been booked with the carrier. ${renterLegNote} You will get another update when pickup starts.`
           : shouldBookImmediately
-            ? 'Your return request has been submitted. We will book your return shipment when the pickup window approaches.'
-            : 'Your return request has been submitted. We will book your return shipment closer to the return date.',
+            ? `Your return request has been submitted. ${renterLegNote} We will book your return shipment when the pickup window approaches.`
+            : `Your return request has been submitted. ${renterLegNote} We will book your return shipment closer to the return date.`,
       type: topshipProviderShipmentId
         ? 'RETURN_PICKUP_SCHEDULED'
         : 'RETURN_REQUEST_SUBMITTED',
       metadata: {
         orderId: order.orderId,
         returnRequestId: rr.id,
+        shipmentId: returnShipmentRow?.id ?? null,
       },
       sendEmail: true,
       emailData: {
@@ -4490,8 +4568,8 @@ export class RentersService {
           ? 'Return pickup scheduled (not collected yet)'
           : 'Return request submitted',
         emailSubject: topshipProviderShipmentId
-          ? 'Return pickup scheduled'
-          : 'Return request submitted',
+          ? `Return pickup scheduled (${legItemSummary})`
+          : `Return request submitted (${legItemSummary})`,
         emailHeading: topshipProviderShipmentId
           ? 'Return pickup scheduled'
           : 'Return request submitted',
@@ -4502,10 +4580,10 @@ export class RentersService {
         trackingProviderLabel: topshipProviderShipmentId ? 'Topship' : undefined,
         pickupWindowSummary: windowSummary ?? undefined,
         extraNote: topshipProviderShipmentId
-          ? 'The carrier is booked for your pickup window. The package is not yet on the way to the lister until you see an in-transit update.'
+          ? `The carrier is booked for your pickup window. ${renterLegNote} The package is not yet on the way to the lister until you see an in-transit update.`
           : !isSameDay
-            ? 'Shipping was paid at checkout. We’ll confirm pickup before your window. Watch for another email once it’s booked.'
-            : undefined,
+            ? `Shipping was paid at checkout. We’ll confirm pickup before your window. ${renterLegNote} Watch for another email once it’s booked.`
+            : renterLegNote || undefined,
       },
     });
 
