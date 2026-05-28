@@ -46,6 +46,7 @@ import {
 import { ProductAvailabilityNotifyService } from 'src/services/product-availability-notify/product-availability-notify.service';
 import { guessExternalTrackingUrlFromReference } from '../shipment/shipment-tracking-url.util';
 import { findReturnRequestForLister } from '../order/return-request-leg.util';
+import { markRentalsReturnedForOrder } from '../order/mark-rentals-returned.util';
 
 const CURRENCY = 'NGN';
 
@@ -2055,6 +2056,8 @@ export class ListersService {
             status: { not: 'RELEASED' },
           },
         });
+        await markRentalsReturnedForOrder(tx, order.id);
+
         if (pendingEscrows === 0) {
           await tx.order.update({
             where: { id: order.id },

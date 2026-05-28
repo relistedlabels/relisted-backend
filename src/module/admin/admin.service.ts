@@ -17,6 +17,11 @@ import {
 } from '@prisma/client';
 import { incrementClosetRevenueForListerPayout } from '../closet/closet-revenue.util';
 import {
+  markRentalProductsAvailableForOrder,
+  markRentalsReturnedForOrder,
+  orderHasCompletedReturnRequest,
+} from '../order/mark-rentals-returned.util';
+import {
   MESSAGE_CHAT_UPLOADS_ORDER_BY,
   PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
 } from 'src/utils/product-attachment-upload-order';
@@ -1475,10 +1480,14 @@ export class AdminService {
         data: { status: 'RELEASED' as any, releasedAt: new Date() },
       });
 
-      if (
-        order.returnRequest?.status === 'COMPLETED' &&
-        order.status !== 'COMPLETED'
-      ) {
+      await markRentalsReturnedForOrder(tx, order.id);
+
+      const returnCompleted = orderHasCompletedReturnRequest(order);
+      if (returnCompleted) {
+        await markRentalProductsAvailableForOrder(tx, order.id);
+      }
+
+      if (returnCompleted && order.status !== OrderStatus.COMPLETED) {
         await tx.order.update({
           where: { id: order.id },
           data: { status: OrderStatus.COMPLETED },
