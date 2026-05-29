@@ -880,8 +880,8 @@ export class OrderService {
           provider: 'shipbubble',
           message:
             leg === 'return'
-              ? 'No Chowdeck, Glovo, or Gokada return pickup options are available on Shipbubble for your return date.'
-              : 'No same-day Chowdeck, Glovo, or Gokada pickup options are available for this route on Shipbubble.',
+              ? 'No Chowdeck or Glovo return pickup options are available on Shipbubble for your return date.'
+              : 'No same-day Chowdeck or Glovo pickup options are available for this route on Shipbubble.',
           leg,
           bucketIndex: ctx.bucketIndex,
           listerName: ctx.listerName,

@@ -1646,6 +1646,30 @@ export class AdminService {
             mode: 'insensitive',
           },
         },
+        {
+          note: {
+            contains: 'Resale payment auto-released for order',
+            mode: 'insensitive',
+          },
+        },
+        {
+          note: {
+            contains: 'Resale payment released for order',
+            mode: 'insensitive',
+          },
+        },
+        {
+          note: {
+            contains: 'Payment auto-released after',
+            mode: 'insensitive',
+          },
+        },
+        {
+          note: {
+            contains: 'Payment released for resale order',
+            mode: 'insensitive',
+          },
+        },
       ],
     };
 
