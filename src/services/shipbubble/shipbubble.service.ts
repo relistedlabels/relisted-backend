@@ -62,11 +62,7 @@ export function formatShipbubbleCheckoutTierName(courierName: string): string {
 }
 
 /** Same-day Shipbubble couriers we expose at checkout (matched on name and service_code). */
-export const SHIPBUBBLE_ALLOWED_COURIER_KEYS = [
-  'chowdeck',
-  'glovo',
-  'gokada',
-] as const;
+export const SHIPBUBBLE_ALLOWED_COURIER_KEYS = ['chowdeck', 'glovo'] as const;
 
 export { isShipbubbleSandboxApiKey } from './shipbubble-address-normalize';
 
@@ -82,14 +78,9 @@ export function isAllowedShipbubbleCourier(
   const name = String(courier.courier_name ?? '').toLowerCase();
   const code = String(courier.service_code ?? '').toLowerCase();
   const normalized = `${name} ${code}`.replace(/[^a-z0-9]+/g, ' ');
-  return SHIPBUBBLE_ALLOWED_COURIER_KEYS.some((key) => {
-    if (key === 'gokada') {
-      return (
-        normalized.includes('gokada') || normalized.includes('go kada')
-      );
-    }
-    return normalized.includes(key);
-  });
+  return SHIPBUBBLE_ALLOWED_COURIER_KEYS.some((key) =>
+    normalized.includes(key),
+  );
 }
 
 /** Pickup quotes where delivery is same-day (hours / same calendar day), not multi-day. */
@@ -502,8 +493,8 @@ export class ShipbubbleService {
     if (!couriers.length) {
       throw new InternalServerErrorException(
         sameDayOnly
-          ? 'Shipbubble has no same-day Chowdeck, Glovo, or Gokada pickup options for this route'
-          : 'Shipbubble has no Chowdeck, Glovo, or Gokada pickup options for this route on the selected pickup date',
+          ? 'Shipbubble has no same-day Chowdeck or Glovo pickup options for this route'
+          : 'Shipbubble has no Chowdeck or Glovo pickup options for this route on the selected pickup date',
       );
     }
 

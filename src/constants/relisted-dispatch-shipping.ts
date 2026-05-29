@@ -2,7 +2,7 @@
 export const RELISTED_DISPATCH_SHIPPING_LABEL = 'Relisted dispatch';
 
 /** Flat per-leg shipment charge in kobo when no carrier quote. */
-export const RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO = 800_000;
+export const RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO = 500_000;
 
 export function isRelistedDispatchShippingTier(
   tier: string | null | undefined,
