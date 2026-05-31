@@ -11,12 +11,27 @@ import {
 } from 'date-fns';
 import { bad } from './error';
 
-export const DEFAULT_DISPATCH_WINDOW_HOURS = Number(
-  process.env.DEFAULT_DISPATCH_WINDOW_HOURS ?? 2,
-);
 export const MIN_DISPATCH_WINDOW_MINUTES = Number(
   process.env.MIN_DISPATCH_WINDOW_MINUTES ?? 60,
 );
+function resolveDefaultDispatchWindowMinutes(): number {
+  const fromMinutes = process.env.DEFAULT_DISPATCH_WINDOW_MINUTES;
+  if (fromMinutes != null && fromMinutes !== '') {
+    return Number(fromMinutes);
+  }
+  const fromHours = process.env.DEFAULT_DISPATCH_WINDOW_HOURS;
+  if (fromHours != null && fromHours !== '') {
+    return Number(fromHours) * 60;
+  }
+  return MIN_DISPATCH_WINDOW_MINUTES;
+}
+
+/** Default slot length for server-built windows; matches frontend 60-minute dispatch slots. */
+export const DEFAULT_DISPATCH_WINDOW_MINUTES =
+  resolveDefaultDispatchWindowMinutes();
+/** @deprecated Prefer DEFAULT_DISPATCH_WINDOW_MINUTES / MIN_DISPATCH_WINDOW_MINUTES */
+export const DEFAULT_DISPATCH_WINDOW_HOURS =
+  DEFAULT_DISPATCH_WINDOW_MINUTES / 60;
 export const MAX_DISPATCH_WINDOW_MINUTES = Number(
   process.env.MAX_DISPATCH_WINDOW_MINUTES ?? 240,
 );
@@ -111,11 +126,10 @@ export function buildDefaultDispatchWindow(baseDate: Date): DispatchWindowRange 
     start.setTime(bounds.start.getTime());
   }
 
+  const defaultDurationMs = DEFAULT_DISPATCH_WINDOW_MINUTES * 60 * 1000;
+
   let end = new Date(
-    Math.min(
-      bounds.end.getTime(),
-      start.getTime() + DEFAULT_DISPATCH_WINDOW_HOURS * 60 * 60 * 1000,
-    ),
+    Math.min(bounds.end.getTime(), start.getTime() + defaultDurationMs),
   );
 
   if (differenceInMinutes(end, start) < MIN_DISPATCH_WINDOW_MINUTES) {
@@ -123,19 +137,22 @@ export function buildDefaultDispatchWindow(baseDate: Date): DispatchWindowRange 
     bounds = getDailyWindowBounds(reference);
     start.setTime(bounds.start.getTime());
     end = new Date(
-      Math.min(
-        bounds.end.getTime(),
-        start.getTime() + DEFAULT_DISPATCH_WINDOW_HOURS * 60 * 60 * 1000,
-      ),
+      Math.min(bounds.end.getTime(), start.getTime() + defaultDurationMs),
     );
   }
 
   return { start, end };
 }
 
+export type ParseDispatchWindowOptions = {
+  /** When true, do not reject windows whose end time is already in the past. */
+  allowPast?: boolean;
+};
+
 export function parseDispatchWindowFromInput(
   type: DispatchWindowType,
   manual: DispatchWindowInput,
+  options?: ParseDispatchWindowOptions,
 ): DispatchWindowRange {
   // Parse ISO strings with timezone offset to get correct UTC time
   const start = new Date(manual.start);
@@ -180,11 +197,54 @@ export function parseDispatchWindowFromInput(
   }
 
   const now = new Date();
-  if (end <= now) {
+  if (!options?.allowPast && end <= now) {
     bad(`${type} dispatch window has already passed.`);
   }
 
   return { start, end };
+}
+
+export type ResolveNextReturnWindowResult = {
+  window: DispatchWindowRange;
+  rescheduled: boolean;
+  originalWindow?: DispatchWindowRange;
+};
+
+/**
+ * Resolve a return pickup window. When the preferred window has passed, roll
+ * forward to the next available slot within daily dispatch bounds (8am–end hour).
+ */
+export function resolveNextReturnPickupWindow(
+  reference = new Date(),
+  preferred?: DispatchWindowInput | DispatchWindowRange | null,
+): ResolveNextReturnWindowResult {
+  let candidate: DispatchWindowRange | null = null;
+
+  if (preferred) {
+    if (preferred.start instanceof Date && preferred.end instanceof Date) {
+      candidate = { start: preferred.start, end: preferred.end };
+    } else {
+      try {
+        candidate = parseDispatchWindowFromInput(
+          'RETURN',
+          preferred as DispatchWindowInput,
+          { allowPast: true },
+        );
+      } catch {
+        candidate = null;
+      }
+    }
+  }
+
+  if (candidate && !isWindowExpired(candidate, reference)) {
+    return { window: candidate, rescheduled: false };
+  }
+
+  return {
+    window: buildDefaultDispatchWindow(reference),
+    rescheduled: Boolean(candidate),
+    originalWindow: candidate ?? undefined,
+  };
 }
 
 export function isWindowExpired(
