@@ -11,12 +11,27 @@ import {
 } from 'date-fns';
 import { bad } from './error';
 
-export const DEFAULT_DISPATCH_WINDOW_HOURS = Number(
-  process.env.DEFAULT_DISPATCH_WINDOW_HOURS ?? 2,
-);
 export const MIN_DISPATCH_WINDOW_MINUTES = Number(
   process.env.MIN_DISPATCH_WINDOW_MINUTES ?? 60,
 );
+function resolveDefaultDispatchWindowMinutes(): number {
+  const fromMinutes = process.env.DEFAULT_DISPATCH_WINDOW_MINUTES;
+  if (fromMinutes != null && fromMinutes !== '') {
+    return Number(fromMinutes);
+  }
+  const fromHours = process.env.DEFAULT_DISPATCH_WINDOW_HOURS;
+  if (fromHours != null && fromHours !== '') {
+    return Number(fromHours) * 60;
+  }
+  return MIN_DISPATCH_WINDOW_MINUTES;
+}
+
+/** Default slot length for server-built windows; matches frontend 60-minute dispatch slots. */
+export const DEFAULT_DISPATCH_WINDOW_MINUTES =
+  resolveDefaultDispatchWindowMinutes();
+/** @deprecated Prefer DEFAULT_DISPATCH_WINDOW_MINUTES / MIN_DISPATCH_WINDOW_MINUTES */
+export const DEFAULT_DISPATCH_WINDOW_HOURS =
+  DEFAULT_DISPATCH_WINDOW_MINUTES / 60;
 export const MAX_DISPATCH_WINDOW_MINUTES = Number(
   process.env.MAX_DISPATCH_WINDOW_MINUTES ?? 240,
 );
@@ -26,6 +41,18 @@ export const DISPATCH_WINDOW_START_HOUR = Number(
 export const DISPATCH_WINDOW_END_HOUR = Number(
   process.env.DISPATCH_WINDOW_END_HOUR ?? 14,
 );
+/** Renter return pickup slots (UI + booking); defaults to 8am–5pm Lagos. */
+export const RETURN_DISPATCH_WINDOW_START_HOUR = Number(
+  process.env.RETURN_DISPATCH_WINDOW_START_HOUR ??
+    process.env.DISPATCH_WINDOW_START_HOUR ??
+    8,
+);
+export const RETURN_DISPATCH_WINDOW_END_HOUR = Number(
+  process.env.RETURN_DISPATCH_WINDOW_END_HOUR ?? 17,
+);
+
+const LAGOS_TZ = 'Africa/Lagos';
+const LAGOS_ISO_OFFSET = '+01:00';
 
 export type DispatchWindowType = 'OUTBOUND' | 'RETURN' | 'RESALE';
 
@@ -86,6 +113,87 @@ export function getDailyWindowBounds(date: Date) {
   return { start, end } as const;
 }
 
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+function buildLagosDateFromCalendarKey(
+  ymd: string,
+  minutesFromMidnight: number,
+): Date {
+  const hours = Math.floor(minutesFromMidnight / 60);
+  const minutes = minutesFromMidnight % 60;
+  return new Date(
+    `${ymd}T${pad2(hours)}:${pad2(minutes)}:00${LAGOS_ISO_OFFSET}`,
+  );
+}
+
+function getReturnDailyWindowBounds(date: Date) {
+  const lagosDay = new Date(date.toLocaleString('en-US', { timeZone: LAGOS_TZ }));
+  const dayStart = startOfDay(lagosDay);
+  const start = addHours(dayStart, RETURN_DISPATCH_WINDOW_START_HOUR);
+  const end = addHours(dayStart, RETURN_DISPATCH_WINDOW_END_HOUR);
+
+  if (!isAfter(end, start)) {
+    throw new InternalServerErrorException(
+      'RETURN_DISPATCH_WINDOW_END_HOUR must be greater than RETURN_DISPATCH_WINDOW_START_HOUR',
+    );
+  }
+
+  if (differenceInMinutes(end, start) < MIN_DISPATCH_WINDOW_MINUTES) {
+    throw new InternalServerErrorException(
+      'Return dispatch window span is shorter than the enforced minimum duration.',
+    );
+  }
+
+  return { start, end } as const;
+}
+
+export function buildDefaultReturnDispatchWindow(
+  baseDate: Date,
+): DispatchWindowRange {
+  let reference = new Date(baseDate);
+  let bounds = getReturnDailyWindowBounds(reference);
+
+  if (reference >= bounds.end) {
+    reference = addDays(startOfDay(reference), 1);
+    bounds = getReturnDailyWindowBounds(reference);
+  }
+
+  const lagosMinutes = getLagosMinutesFromMidnight(reference);
+  const roundedMinutes =
+    lagosMinutes % 60 >= 30
+      ? lagosMinutes + (60 - (lagosMinutes % 60))
+      : lagosMinutes - (lagosMinutes % 60);
+  const dayKey = getLagosCalendarDateKey(reference);
+  let start = buildLagosDateFromCalendarKey(dayKey, roundedMinutes);
+
+  if (start < bounds.start) {
+    start = new Date(bounds.start);
+  }
+  if (start >= bounds.end) {
+    reference = addDays(startOfDay(reference), 1);
+    bounds = getReturnDailyWindowBounds(reference);
+    start = new Date(bounds.start);
+  }
+
+  const defaultDurationMs = DEFAULT_DISPATCH_WINDOW_MINUTES * 60 * 1000;
+  let end = new Date(
+    Math.min(bounds.end.getTime(), start.getTime() + defaultDurationMs),
+  );
+
+  if (differenceInMinutes(end, start) < MIN_DISPATCH_WINDOW_MINUTES) {
+    reference = addDays(startOfDay(start), 1);
+    bounds = getReturnDailyWindowBounds(reference);
+    start = new Date(bounds.start);
+    end = new Date(
+      Math.min(bounds.end.getTime(), start.getTime() + defaultDurationMs),
+    );
+  }
+
+  return { start, end };
+}
+
 export function buildDefaultDispatchWindow(baseDate: Date): DispatchWindowRange {
   let reference = new Date(baseDate);
   let bounds = getDailyWindowBounds(reference);
@@ -111,11 +219,10 @@ export function buildDefaultDispatchWindow(baseDate: Date): DispatchWindowRange 
     start.setTime(bounds.start.getTime());
   }
 
+  const defaultDurationMs = DEFAULT_DISPATCH_WINDOW_MINUTES * 60 * 1000;
+
   let end = new Date(
-    Math.min(
-      bounds.end.getTime(),
-      start.getTime() + DEFAULT_DISPATCH_WINDOW_HOURS * 60 * 60 * 1000,
-    ),
+    Math.min(bounds.end.getTime(), start.getTime() + defaultDurationMs),
   );
 
   if (differenceInMinutes(end, start) < MIN_DISPATCH_WINDOW_MINUTES) {
@@ -123,19 +230,22 @@ export function buildDefaultDispatchWindow(baseDate: Date): DispatchWindowRange 
     bounds = getDailyWindowBounds(reference);
     start.setTime(bounds.start.getTime());
     end = new Date(
-      Math.min(
-        bounds.end.getTime(),
-        start.getTime() + DEFAULT_DISPATCH_WINDOW_HOURS * 60 * 60 * 1000,
-      ),
+      Math.min(bounds.end.getTime(), start.getTime() + defaultDurationMs),
     );
   }
 
   return { start, end };
 }
 
+export type ParseDispatchWindowOptions = {
+  /** When true, do not reject windows whose end time is already in the past. */
+  allowPast?: boolean;
+};
+
 export function parseDispatchWindowFromInput(
   type: DispatchWindowType,
   manual: DispatchWindowInput,
+  options?: ParseDispatchWindowOptions,
 ): DispatchWindowRange {
   // Parse ISO strings with timezone offset to get correct UTC time
   const start = new Date(manual.start);
@@ -180,11 +290,266 @@ export function parseDispatchWindowFromInput(
   }
 
   const now = new Date();
-  if (end <= now) {
+  if (!options?.allowPast && end <= now) {
     bad(`${type} dispatch window has already passed.`);
   }
 
   return { start, end };
+}
+
+export type ResolveNextReturnWindowResult = {
+  window: DispatchWindowRange;
+  rescheduled: boolean;
+  originalWindow?: DispatchWindowRange;
+};
+
+/**
+ * Resolve a return pickup window. When the preferred window has passed, roll
+ * forward to the next available slot within daily dispatch bounds (8am–end hour).
+ */
+export function resolveNextReturnPickupWindow(
+  reference = new Date(),
+  preferred?: DispatchWindowInput | DispatchWindowRange | null,
+): ResolveNextReturnWindowResult {
+  let candidate: DispatchWindowRange | null = null;
+
+  if (preferred) {
+    if (preferred.start instanceof Date && preferred.end instanceof Date) {
+      candidate = { start: preferred.start, end: preferred.end };
+    } else {
+      try {
+        candidate = parseDispatchWindowFromInput(
+          'RETURN',
+          preferred as DispatchWindowInput,
+          { allowPast: true },
+        );
+      } catch {
+        candidate = null;
+      }
+    }
+  }
+
+  if (candidate && !isWindowExpired(candidate, reference)) {
+    return { window: candidate, rescheduled: false };
+  }
+
+  return {
+    window: buildDefaultReturnDispatchWindow(reference),
+    rescheduled: Boolean(candidate),
+    originalWindow: candidate ?? undefined,
+  };
+}
+
+export type ReturnPickupWindowOptionDto = {
+  start: string;
+  end: string;
+  summary: string;
+};
+
+export type ReturnPickupWindowOptionsResult = {
+  scheduledDay: string;
+  scheduledDayLabel: string;
+  originalWindow: (ReturnPickupWindowOptionDto & { expired: boolean }) | null;
+  rescheduled: boolean;
+  suggested: ReturnPickupWindowOptionDto;
+  sameDayOptions: ReturnPickupWindowOptionDto[];
+};
+
+function formatReturnWindowSummaryLagos(start: Date, end: Date): string {
+  const tz = LAGOS_TZ;
+  const dateOpts: Intl.DateTimeFormatOptions = {
+    timeZone: tz,
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  };
+  const timeOpts: Intl.DateTimeFormatOptions = {
+    timeZone: tz,
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  };
+  return `${start.toLocaleDateString('en-NG', dateOpts)}, ${start.toLocaleTimeString('en-NG', timeOpts)} to ${end.toLocaleTimeString('en-NG', timeOpts)}`;
+}
+
+function returnWindowOptionFromRange(range: DispatchWindowRange): ReturnPickupWindowOptionDto {
+  return {
+    start: range.start.toISOString(),
+    end: range.end.toISOString(),
+    summary: formatReturnWindowSummaryLagos(range.start, range.end),
+  };
+}
+
+/** Hourly return pickup slots on one Lagos calendar day (8am–5pm, 60-minute windows). */
+export function listReturnPickupSlotsForDay(
+  scheduledDay: string,
+  now = new Date(),
+): DispatchWindowRange[] {
+  const dayStartMinutes = RETURN_DISPATCH_WINDOW_START_HOUR * 60;
+  const dayEndMinutes = RETURN_DISPATCH_WINDOW_END_HOUR * 60;
+  const duration = DEFAULT_DISPATCH_WINDOW_MINUTES;
+  const lastStart = dayEndMinutes - duration;
+  const todayKey = getLagosCalendarDateKey(now);
+  const slots: DispatchWindowRange[] = [];
+
+  for (let startMin = dayStartMinutes; startMin <= lastStart; startMin += 60) {
+    const start = buildLagosDateFromCalendarKey(scheduledDay, startMin);
+    const end = buildLagosDateFromCalendarKey(scheduledDay, startMin + duration);
+    if (scheduledDay === todayKey && start.getTime() <= now.getTime()) {
+      continue;
+    }
+    if (end.getTime() > now.getTime()) {
+      slots.push({ start, end });
+    }
+  }
+
+  return slots;
+}
+
+export function buildReturnPickupWindowOptions(
+  reference = new Date(),
+  preferred?: DispatchWindowInput | DispatchWindowRange | null,
+): ReturnPickupWindowOptionsResult {
+  const resolved = resolveNextReturnPickupWindow(reference, preferred);
+  const scheduledDay = getLagosCalendarDateKey(resolved.window.start);
+  const scheduledDayLabel = new Date(resolved.window.start).toLocaleDateString(
+    'en-NG',
+    {
+      timeZone: LAGOS_TZ,
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+    },
+  );
+
+  let originalWindow: (ReturnPickupWindowOptionDto & { expired: boolean }) | null =
+    null;
+  if (preferred) {
+    let candidate: DispatchWindowRange | null = null;
+    if (preferred.start instanceof Date && preferred.end instanceof Date) {
+      candidate = { start: preferred.start, end: preferred.end };
+    }
+    if (candidate) {
+      originalWindow = {
+        ...returnWindowOptionFromRange(candidate),
+        expired: isWindowExpired(candidate, reference),
+      };
+    }
+  }
+
+  const sameDaySlots = listReturnPickupSlotsForDay(scheduledDay, reference);
+  const suggestedOption = returnWindowOptionFromRange(resolved.window);
+  const sameDayOptions =
+    sameDaySlots.length > 0
+      ? sameDaySlots.map(returnWindowOptionFromRange)
+      : [suggestedOption];
+
+  return {
+    scheduledDay,
+    scheduledDayLabel,
+    originalWindow,
+    rescheduled: resolved.rescheduled,
+    suggested: suggestedOption,
+    sameDayOptions,
+  };
+}
+
+/** Validate renter-selected return window: same scheduled day, 8am–5pm, future, known slot. */
+export function parseReturnPickupWindowChoice(
+  choice: DispatchWindowInput,
+  scheduledDay: string,
+  reference = new Date(),
+): DispatchWindowRange {
+  const start = new Date(choice.start);
+  const end = new Date(choice.end);
+
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+    bad('Return pickup window timestamps must be valid ISO-8601 strings.');
+  }
+
+  const startDay = getLagosCalendarDateKey(start);
+  const endDay = getLagosCalendarDateKey(end);
+  if (startDay !== scheduledDay || endDay !== scheduledDay) {
+    bad('Return pickup must stay on the scheduled return day.');
+  }
+
+  const dayStartMinutes = RETURN_DISPATCH_WINDOW_START_HOUR * 60;
+  const dayEndMinutes = RETURN_DISPATCH_WINDOW_END_HOUR * 60;
+  const startMinutes = getLagosMinutesFromMidnight(start);
+  const endMinutes = getLagosMinutesFromMidnight(end);
+
+  if (startMinutes < dayStartMinutes || endMinutes > dayEndMinutes) {
+    bad(
+      `Return pickup must fall between ${RETURN_DISPATCH_WINDOW_START_HOUR}:00 and ${RETURN_DISPATCH_WINDOW_END_HOUR}:00 local time.`,
+    );
+  }
+
+  if (!isAfter(end, start)) {
+    bad('Return pickup window end must be after the start time.');
+  }
+
+  const durationMinutes = differenceInMinutes(end, start);
+  if (durationMinutes < MIN_DISPATCH_WINDOW_MINUTES) {
+    bad(
+      `Return pickup window must be at least ${MIN_DISPATCH_WINDOW_MINUTES} minute(s).`,
+    );
+  }
+  if (durationMinutes > MAX_DISPATCH_WINDOW_MINUTES) {
+    bad(
+      `Return pickup window cannot exceed ${MAX_DISPATCH_WINDOW_MINUTES} minute(s).`,
+    );
+  }
+
+  if (end <= reference) {
+    bad('Return pickup window has already passed.');
+  }
+
+  const allowed = listReturnPickupSlotsForDay(scheduledDay, reference);
+  const match = allowed.find(
+    (slot) =>
+      slot.start.getTime() === start.getTime() &&
+      slot.end.getTime() === end.getTime(),
+  );
+  if (!match) {
+    bad('Selected return pickup window is not available.');
+  }
+
+  return match;
+}
+
+export function resolveReturnPickupWindowForSubmit(
+  reference = new Date(),
+  preferred?: DispatchWindowInput | DispatchWindowRange | null,
+  choice?: DispatchWindowInput | null,
+): { window: DispatchWindowRange; rescheduled: boolean; scheduledDay: string } {
+  const options = buildReturnPickupWindowOptions(reference, preferred);
+
+  if (choice?.start && choice?.end) {
+    const window = parseReturnPickupWindowChoice(
+      choice,
+      options.scheduledDay,
+      reference,
+    );
+    const originalExpired = options.originalWindow?.expired ?? false;
+    const keptOriginal =
+      !originalExpired &&
+      options.originalWindow &&
+      new Date(options.originalWindow.start).getTime() === window.start.getTime();
+    return {
+      window,
+      rescheduled: originalExpired || !keptOriginal,
+      scheduledDay: options.scheduledDay,
+    };
+  }
+
+  return {
+    window: {
+      start: new Date(options.suggested.start),
+      end: new Date(options.suggested.end),
+    },
+    rescheduled: options.rescheduled,
+    scheduledDay: options.scheduledDay,
+  };
 }
 
 export function isWindowExpired(

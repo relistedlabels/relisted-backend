@@ -60,6 +60,9 @@ import {
   buildDefaultDispatchWindow,
   isWindowExpired,
   parseDispatchWindowFromInput,
+  resolveNextReturnPickupWindow,
+  buildReturnPickupWindowOptions,
+  resolveReturnPickupWindowForSubmit,
   applyRangeMapToData,
 } from '../../utils/dispatch-windows';
 import {
@@ -198,16 +201,16 @@ function resolveReturnWindowForDisplay(args: {
     pickupWindowEnd: Date | null;
   } | null;
 }): { start: Date; end: Date; summary: string } | null {
-  const ship = args.returnShipment;
-  if (ship?.scheduledWindowStart && ship?.scheduledWindowEnd) {
-    const start = new Date(ship.scheduledWindowStart);
-    const end = new Date(ship.scheduledWindowEnd);
-    return { start, end, summary: formatPickupWindowLagos(start, end) };
-  }
   const rr = args.returnRequest;
   if (rr?.pickupWindowStart && rr?.pickupWindowEnd) {
     const start = new Date(rr.pickupWindowStart);
     const end = new Date(rr.pickupWindowEnd);
+    return { start, end, summary: formatPickupWindowLagos(start, end) };
+  }
+  const ship = args.returnShipment;
+  if (ship?.scheduledWindowStart && ship?.scheduledWindowEnd) {
+    const start = new Date(ship.scheduledWindowStart);
+    const end = new Date(ship.scheduledWindowEnd);
     return { start, end, summary: formatPickupWindowLagos(start, end) };
   }
   return null;
@@ -346,24 +349,6 @@ export class RentersService {
       default:
         return dbStatus.toLowerCase();
     }
-  }
-
-  private resolveReturnPickupWindow(
-    pickupWindow?: CreateReturnRequestDto['pickupWindow'],
-  ): DispatchWindowRange {
-    const reference = new Date();
-    const resolved = pickupWindow
-      ? parseDispatchWindowFromInput('RETURN', {
-          start: pickupWindow.start,
-          end: pickupWindow.end,
-        })
-      : buildDefaultDispatchWindow(reference);
-
-    if (isWindowExpired(resolved, reference)) {
-      bad('Return pickup window must be in the future.');
-    }
-
-    return resolved;
   }
 
   /** Single-line pickup location from JSON saved on RETURN shipment at checkout. */
@@ -3983,6 +3968,59 @@ export class RentersService {
     };
   }
 
+  async getReturnPickupWindowOptions(
+    userId: string,
+    orderId: string,
+    shipmentId?: string | null,
+  ) {
+    const order = await this.prisma.order.findUnique({
+      where: { orderId },
+      include: { shipments: true },
+    });
+
+    if (!order || order.userId !== userId) {
+      throw new NotFoundException('Order not found');
+    }
+
+    const returnLegs = (order.shipments as any[]).filter(
+      (s) => s.type === 'RETURN',
+    );
+    if (returnLegs.length === 0) {
+      throw new BadRequestException('No return shipment for this order');
+    }
+
+    let returnShipmentRow: any = shipmentId
+      ? returnLegs.find((s) => s.id === shipmentId) ?? null
+      : returnLegs.length === 1
+        ? returnLegs[0]
+        : null;
+
+    if (shipmentId && !returnShipmentRow) {
+      throw new BadRequestException('Invalid return shipment for this order');
+    }
+    if (!returnShipmentRow && returnLegs.length > 1) {
+      throw new BadRequestException(
+        'shipmentId is required when returning items from multiple sellers',
+      );
+    }
+
+    const scheduledFromShipment =
+      returnShipmentRow?.scheduledWindowStart &&
+      returnShipmentRow?.scheduledWindowEnd
+        ? {
+            start: new Date(returnShipmentRow.scheduledWindowStart),
+            end: new Date(returnShipmentRow.scheduledWindowEnd),
+          }
+        : null;
+
+    const options = buildReturnPickupWindowOptions(
+      new Date(),
+      scheduledFromShipment,
+    );
+
+    return { success: true, data: options };
+  }
+
   async getReturnShippingRates(userId: string, orderId: string) {
     const order = await this.prisma.order.findUnique({
       where: { orderId },
@@ -4139,20 +4177,27 @@ export class RentersService {
       throw new BadRequestException('Invalid return shipment for this order');
     }
 
-    const pickupWindow =
-      data.pickupWindow != null
-        ? this.resolveReturnPickupWindow(data.pickupWindow)
-        : returnShipmentRow?.scheduledWindowStart &&
-            returnShipmentRow?.scheduledWindowEnd
-          ? parseDispatchWindowFromInput('RETURN', {
-              start: new Date(
-                returnShipmentRow.scheduledWindowStart,
-              ).toISOString(),
-              end: new Date(
-                returnShipmentRow.scheduledWindowEnd,
-              ).toISOString(),
-            })
-          : this.resolveReturnPickupWindow(data.pickupWindow);
+    const scheduledFromShipment =
+      returnShipmentRow?.scheduledWindowStart &&
+      returnShipmentRow?.scheduledWindowEnd
+        ? {
+            start: new Date(returnShipmentRow.scheduledWindowStart),
+            end: new Date(returnShipmentRow.scheduledWindowEnd),
+          }
+        : null;
+
+    const {
+      window: pickupWindow,
+      rescheduled: pickupWindowRescheduled,
+    } = resolveReturnPickupWindowForSubmit(
+      new Date(),
+      scheduledFromShipment,
+      data.pickupWindow ?? null,
+    );
+
+    const rescheduledPickupSummary = pickupWindowRescheduled
+      ? formatPickupWindowLagos(pickupWindow.start, pickupWindow.end)
+      : null;
 
     if (
       returnRequestExistsForShipment(
@@ -4417,22 +4462,30 @@ export class RentersService {
             orderBy: [{ scheduledWindowStart: 'asc' }, { createdAt: 'asc' }],
           });
 
-      if (returnLeg && topshipProviderShipmentId) {
-        await tx.shipment.update({
-          where: { id: returnLeg.id },
-          data: {
-            providerShipmentId: topshipProviderShipmentId,
-            trackingId: topshipTrackingNumber,
-            providerTrackingUrl: TOPSHIP_TRACKING_PAGE_URL,
-            status: 'DISPATCHED',
-            dispatchedAt: new Date(),
-            shipmentCharge: toKobo(selectedRate.shipmentCharge),
-            pickupCharge: toKobo(selectedRate.pickupCharge),
-            vatCharge: toKobo(selectedRate.vatCharge),
-            pricingTier: selectedRate.pricingTier,
-            pickupPartner: selectedRate.pickupPartner,
-          },
-        });
+      if (returnLeg) {
+        const shipmentUpdate: Record<string, unknown> = {};
+        if (topshipProviderShipmentId) {
+          shipmentUpdate.providerShipmentId = topshipProviderShipmentId;
+          shipmentUpdate.trackingId = topshipTrackingNumber;
+          shipmentUpdate.providerTrackingUrl = TOPSHIP_TRACKING_PAGE_URL;
+          shipmentUpdate.status = 'DISPATCHED';
+          shipmentUpdate.dispatchedAt = new Date();
+          shipmentUpdate.shipmentCharge = toKobo(selectedRate.shipmentCharge);
+          shipmentUpdate.pickupCharge = toKobo(selectedRate.pickupCharge);
+          shipmentUpdate.vatCharge = toKobo(selectedRate.vatCharge);
+          shipmentUpdate.pricingTier = selectedRate.pricingTier;
+          shipmentUpdate.pickupPartner = selectedRate.pickupPartner;
+        }
+        if (pickupWindowRescheduled) {
+          shipmentUpdate.scheduledWindowStart = pickupWindow.start;
+          shipmentUpdate.scheduledWindowEnd = pickupWindow.end;
+        }
+        if (Object.keys(shipmentUpdate).length > 0) {
+          await tx.shipment.update({
+            where: { id: returnLeg.id },
+            data: shipmentUpdate,
+          });
+        }
       }
 
       const prismaReturnShipmentId = returnLeg?.id ?? null;
@@ -4539,18 +4592,23 @@ export class RentersService {
     const renterLegNote = legItemSummary
       ? `Items in this return: ${legItemSummary}.`
       : '';
+    const rescheduleNote = pickupWindowRescheduled && rescheduledPickupSummary
+      ? `Your original return window had passed. Your pickup is now scheduled for: ${rescheduledPickupSummary}. `
+      : '';
     await this.notificationService.createNotification({
       userId: order.userId,
       title: topshipProviderShipmentId
         ? 'Return pickup scheduled'
-        : 'Return request submitted',
+        : pickupWindowRescheduled
+          ? 'Return pickup rescheduled'
+          : 'Return request submitted',
       message: windowSummary
-        ? `Your carrier pickup is scheduled for: ${windowSummary}. ${renterLegNote} Have your item ready during this window. You will get another update when the rider collects the package.`
+        ? `${rescheduleNote}Your carrier pickup is scheduled for: ${windowSummary}. ${renterLegNote} Have your item ready during this window. You will get another update when the rider collects the package.`
         : topshipProviderShipmentId
-          ? `Your return has been booked with the carrier. ${renterLegNote} You will get another update when pickup starts.`
+          ? `${rescheduleNote}Your return has been booked with the carrier. ${renterLegNote} You will get another update when pickup starts.`
           : shouldBookImmediately
-            ? `Your return request has been submitted. ${renterLegNote} We will book your return shipment when the pickup window approaches.`
-            : `Your return request has been submitted. ${renterLegNote} We will book your return shipment closer to the return date.`,
+            ? `${rescheduleNote}Your return request has been submitted. ${renterLegNote} We will book your return shipment when the pickup window approaches.`
+            : `${rescheduleNote}Your return request has been submitted. ${renterLegNote} We will book your return shipment closer to the return date.`,
       type: topshipProviderShipmentId
         ? 'RETURN_PICKUP_SCHEDULED'
         : 'RETURN_REQUEST_SUBMITTED',
@@ -4579,23 +4637,29 @@ export class RentersService {
           : undefined,
         trackingProviderLabel: topshipProviderShipmentId ? 'Topship' : undefined,
         pickupWindowSummary: windowSummary ?? undefined,
-        extraNote: topshipProviderShipmentId
-          ? `The carrier is booked for your pickup window. ${renterLegNote} The package is not yet on the way to the lister until you see an in-transit update.`
-          : !isSameDay
-            ? `Shipping was paid at checkout. We’ll confirm pickup before your window. ${renterLegNote} Watch for another email once it’s booked.`
-            : renterLegNote || undefined,
+        extraNote: pickupWindowRescheduled && rescheduledPickupSummary
+          ? `Your original return window had passed, so we scheduled the next available pickup: ${rescheduledPickupSummary}. ${renterLegNote}`
+          : topshipProviderShipmentId
+            ? `The carrier is booked for your pickup window. ${renterLegNote} The package is not yet on the way to the lister until you see an in-transit update.`
+            : !isSameDay
+              ? `Shipping was paid at checkout. We’ll confirm pickup before your window. ${renterLegNote} Watch for another email once it’s booked.`
+              : renterLegNote || undefined,
       },
     });
 
     return {
       success: true,
-      message: 'Return request created successfully',
+      message: pickupWindowRescheduled
+        ? `Return request created. Pickup rescheduled to ${rescheduledPickupSummary}.`
+        : 'Return request created successfully',
       data: {
         returnRequest: result,
         order: {
           orderId: order.orderId,
           status: 'RETURN_DUE',
         },
+        pickupWindowRescheduled,
+        pickupWindowSummary: windowSummary ?? rescheduledPickupSummary ?? null,
       },
     };
   }

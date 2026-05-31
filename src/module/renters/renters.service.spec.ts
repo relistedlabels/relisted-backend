@@ -5,8 +5,13 @@ import { UploadService } from '../upload/upload.service';
 import { WemaServiceService } from 'src/services/wema-service/wema-service.service';
 import { NotificationService } from 'src/services/notification/notification.service';
 import { TopshipService } from 'src/services/topship/topship.service';
+import { ShipbubbleAddressCacheService } from 'src/services/shipbubble/shipbubble-address-cache.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
-import { DisputeStatus } from '@prisma/client';
+import { DisputeStatus, ItemCondition } from '@prisma/client';
+
+jest.mock('../order/order-shipment-status.sync', () => ({
+  syncOrderStatusFromShipments: jest.fn().mockResolvedValue(undefined),
+}));
 
 const mockPrisma = {
   rental: {
@@ -98,6 +103,17 @@ const mockPrisma = {
   product: {
     findUnique: jest.fn(),
   },
+  returnRequest: {
+    create: jest.fn(),
+  },
+  shipment: {
+    findUnique: jest.fn(),
+    findFirst: jest.fn(),
+    update: jest.fn(),
+  },
+  upload: {
+    findUnique: jest.fn(),
+  },
 };
 
 const mockUploadService = {
@@ -113,6 +129,8 @@ const mockNotificationService = {
 };
 
 const mockTopshipService = {};
+
+const mockShipbubbleAddressCache = {};
 
 const mockUser = {
   id: 'renter-uuid',
@@ -133,6 +151,10 @@ describe('RentersService', () => {
         { provide: WemaServiceService, useValue: mockWemaService },
         { provide: NotificationService, useValue: mockNotificationService },
         { provide: TopshipService, useValue: mockTopshipService },
+        {
+          provide: ShipbubbleAddressCacheService,
+          useValue: mockShipbubbleAddressCache,
+        },
       ],
     }).compile();
     service = module.get<RentersService>(RentersService);
@@ -728,6 +750,371 @@ describe('RentersService', () => {
       });
 
       expect(result.success).toBe(true);
+    });
+  });
+
+  describe('multi-lister returns', () => {
+    const futureDay = new Date();
+    futureDay.setUTCDate(futureDay.getUTCDate() + 7);
+    const y = futureDay.getUTCFullYear();
+    const m = String(futureDay.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(futureDay.getUTCDate()).padStart(2, '0');
+    const futureStart = new Date(`${y}-${m}-${d}T09:00:00.000Z`);
+    const futureEnd = new Date(`${y}-${m}-${d}T11:00:00.000Z`);
+
+    const curatorProfile = {
+      address: { street: '12 Lister Rd', city: 'Lagos', state: 'Lagos' },
+      businessInfo: null,
+      phoneNumber: '08011111111',
+    };
+
+    function buildMultiListerOrder(
+      returnRequests: Array<{ id: string; shipmentId: string }> = [],
+    ) {
+      return {
+        id: 'order-internal-id',
+        orderId: 'ORD-MULTI',
+        userId: mockUser.id,
+        returnRequests,
+        orderItems: [
+          {
+            productId: 'prod-a',
+            days: 3,
+            product: {
+              curator: {
+                id: 'lister-a',
+                name: 'Lister A',
+                email: 'a@test.com',
+                profile: curatorProfile,
+              },
+              resalePrice: 10000,
+              originalValue: 10000,
+            },
+          },
+          {
+            productId: 'prod-b',
+            days: 3,
+            product: {
+              curator: {
+                id: 'lister-b',
+                name: 'Lister B',
+                email: 'b@test.com',
+                profile: curatorProfile,
+              },
+              resalePrice: 12000,
+              originalValue: 12000,
+            },
+          },
+        ],
+        user: {
+          name: 'Renter',
+          email: 'renter@test.com',
+          profile: {
+            address: { street: 'Renter St', city: 'Lagos', state: 'Lagos' },
+          },
+        },
+        shipments: [
+          {
+            id: 'ret-a',
+            type: 'RETURN',
+            listerId: 'lister-a',
+            scheduledWindowStart: futureStart,
+            scheduledWindowEnd: futureEnd,
+            pricingTier: 'chowdeck',
+            pickupPartner: 'Standard',
+            shipmentCharge: 350000,
+            pickupCharge: 100000,
+            vatCharge: 25000,
+          },
+          {
+            id: 'ret-b',
+            type: 'RETURN',
+            listerId: 'lister-b',
+            scheduledWindowStart: futureStart,
+            scheduledWindowEnd: futureEnd,
+            pricingTier: 'chowdeck',
+            pickupPartner: 'Standard',
+            shipmentCharge: 350000,
+            pickupCharge: 100000,
+            vatCharge: 25000,
+          },
+        ],
+      };
+    }
+
+    it('processReturnWithShipping allows a second return when shipmentId differs', async () => {
+      const order = buildMultiListerOrder([
+        { id: 'rr-a', shipmentId: 'ret-a' },
+      ]);
+      mockPrisma.order.findUnique.mockResolvedValue(order);
+
+      const created: Array<{ shipmentId: string | null }> = [];
+      mockPrisma.$transaction.mockImplementation(async (cb) => {
+        const tx = {
+          shipment: {
+            findUnique: jest.fn().mockResolvedValue({ id: 'ret-b' }),
+            findFirst: jest.fn(),
+            update: jest.fn(),
+          },
+          returnRequest: {
+            create: jest.fn().mockImplementation(({ data }) => {
+              created.push({ shipmentId: data.shipmentId });
+              return { id: 'rr-b', ...data };
+            }),
+          },
+          order: { update: jest.fn().mockResolvedValue({}) },
+        };
+        return cb(tx);
+      });
+
+      await service.processReturnWithShipping(mockUser.id, 'ORD-MULTI', {
+        itemCondition: ItemCondition.GOOD,
+        shipmentId: 'ret-b',
+      });
+
+      expect(created).toHaveLength(1);
+      expect(created[0].shipmentId).toBe('ret-b');
+      expect(mockNotificationService.createNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'RETURN_INITIATED',
+          userId: 'lister-b',
+        }),
+      );
+      expect(mockNotificationService.createNotification).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'RETURN_INITIATED',
+          userId: 'lister-a',
+        }),
+      );
+    });
+
+    it('processReturnWithShipping rejects duplicate return for same shipmentId', async () => {
+      mockPrisma.order.findUnique.mockResolvedValue(
+        buildMultiListerOrder([{ id: 'rr-a', shipmentId: 'ret-a' }]),
+      );
+
+      await expect(
+        service.processReturnWithShipping(mockUser.id, 'ORD-MULTI', {
+          itemCondition: ItemCondition.GOOD,
+          shipmentId: 'ret-a',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('processReturnWithShipping requires shipmentId when multiple RETURN legs exist', async () => {
+      mockPrisma.order.findUnique.mockResolvedValue(buildMultiListerOrder());
+
+      await expect(
+        service.processReturnWithShipping(mockUser.id, 'ORD-MULTI', {
+          itemCondition: ItemCondition.GOOD,
+        }),
+      ).rejects.toThrow(/shipmentId is required/i);
+    });
+
+    it('processReturnWithShipping reschedules when checkout return window has passed', async () => {
+      const pastStart = new Date('2020-01-01T08:00:00+01:00');
+      const pastEnd = new Date('2020-01-01T09:00:00+01:00');
+      const order = {
+        ...buildMultiListerOrder(),
+        shipments: [
+          {
+            id: 'ret-a',
+            type: 'RETURN',
+            listerId: 'lister-a',
+            scheduledWindowStart: pastStart,
+            scheduledWindowEnd: pastEnd,
+            pricingTier: 'chowdeck',
+            pickupPartner: 'Standard',
+            shipmentCharge: 350000,
+            pickupCharge: 100000,
+            vatCharge: 25000,
+          },
+        ],
+      };
+      mockPrisma.order.findUnique.mockResolvedValue(order);
+
+      let shipmentUpdateData: Record<string, unknown> | undefined;
+      mockPrisma.$transaction.mockImplementation(async (cb) => {
+        const tx = {
+          shipment: {
+            findUnique: jest.fn().mockResolvedValue({ id: 'ret-a' }),
+            findFirst: jest.fn(),
+            update: jest.fn().mockImplementation(({ data }) => {
+              shipmentUpdateData = data;
+              return { id: 'ret-a' };
+            }),
+          },
+          returnRequest: {
+            create: jest.fn().mockImplementation(({ data }) => ({
+              id: 'rr-new',
+              ...data,
+            })),
+          },
+          order: { update: jest.fn().mockResolvedValue({}) },
+        };
+        return cb(tx);
+      });
+
+      const result = await service.processReturnWithShipping(
+        mockUser.id,
+        'ORD-MULTI',
+        {
+          itemCondition: ItemCondition.GOOD,
+          shipmentId: 'ret-a',
+        },
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.data.pickupWindowRescheduled).toBe(true);
+      expect(result.data.pickupWindowSummary).toBeTruthy();
+      expect(shipmentUpdateData?.scheduledWindowStart).toBeInstanceOf(Date);
+      expect(shipmentUpdateData?.scheduledWindowEnd).toBeInstanceOf(Date);
+      expect(
+        (shipmentUpdateData!.scheduledWindowEnd as Date).getTime(),
+      ).toBeGreaterThan(Date.now());
+    });
+
+    it('readyToReturn allows second leg after first is submitted', async () => {
+      mockPrisma.order.findUnique.mockResolvedValue(
+        buildMultiListerOrder([{ id: 'rr-a', shipmentId: 'ret-a' }]),
+      );
+      mockPrisma.shipment.findUnique.mockResolvedValue({
+        id: 'ret-b',
+        orderId: 'order-internal-id',
+      });
+      mockPrisma.returnRequest.create.mockResolvedValue({
+        id: 'rr-b',
+        shipmentId: 'ret-b',
+      });
+      mockPrisma.order.update.mockResolvedValue({});
+
+      const result = await service.readyToReturn(
+        mockUser.id,
+        'ORD-MULTI',
+        [],
+        { itemCondition: 'GOOD', shipmentId: 'ret-b' },
+      );
+
+      expect(result.success).toBe(true);
+      expect(mockPrisma.returnRequest.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ shipmentId: 'ret-b' }),
+        }),
+      );
+    });
+
+    it('getOrderProgress exposes returnRequests for each leg', async () => {
+      mockPrisma.order.findUnique.mockResolvedValue({
+        userId: mockUser.id,
+        status: 'RETURN_DUE',
+        totalAmountPaid: 50000,
+        listingType: 'RENTAL',
+        createdAt: new Date(),
+        approvedAt: new Date(),
+        dispatchedAt: new Date(),
+        deliveredAt: new Date(),
+        returnDueAt: new Date(),
+        updatedAt: new Date(),
+        rentals: [],
+        returnRequests: [
+          { id: 'rr-a', shipmentId: 'ret-a', status: 'PENDING_PICKUP' },
+          { id: 'rr-b', shipmentId: 'ret-b', status: 'PENDING_PICKUP' },
+        ],
+        orderItems: [
+          {
+            id: 'oi-a',
+            productId: 'prod-a',
+            days: 3,
+            product: {
+              listingType: 'RENTAL',
+              name: 'Dress A',
+              curator: { id: 'lister-a', profile: {} },
+            },
+          },
+          {
+            id: 'oi-b',
+            productId: 'prod-b',
+            days: 3,
+            product: {
+              listingType: 'RENTAL',
+              name: 'Dress B',
+              curator: { id: 'lister-b', profile: {} },
+            },
+          },
+        ],
+        shipments: [
+          {
+            id: 'ob-a',
+            type: 'OUTBOUND',
+            status: 'COMPLETED',
+            listerId: 'lister-a',
+            scheduledDate: new Date(),
+            scheduledWindowStart: futureStart,
+            scheduledWindowEnd: futureEnd,
+            trackingId: null,
+            providerTrackingUrl: null,
+            dispatchedAt: null,
+            updatedAt: new Date(),
+          },
+          {
+            id: 'ret-a',
+            type: 'RETURN',
+            status: 'PENDING',
+            listerId: 'lister-a',
+            scheduledDate: futureStart,
+            scheduledWindowStart: futureStart,
+            scheduledWindowEnd: futureEnd,
+            trackingId: null,
+            providerTrackingUrl: null,
+            dispatchedAt: null,
+            updatedAt: new Date(),
+          },
+          {
+            id: 'ob-b',
+            type: 'OUTBOUND',
+            status: 'COMPLETED',
+            listerId: 'lister-b',
+            scheduledDate: new Date(),
+            scheduledWindowStart: futureStart,
+            scheduledWindowEnd: futureEnd,
+            trackingId: null,
+            providerTrackingUrl: null,
+            dispatchedAt: null,
+            updatedAt: new Date(),
+          },
+          {
+            id: 'ret-b',
+            type: 'RETURN',
+            status: 'PENDING',
+            listerId: 'lister-b',
+            scheduledDate: futureStart,
+            scheduledWindowStart: futureStart,
+            scheduledWindowEnd: futureEnd,
+            trackingId: null,
+            providerTrackingUrl: null,
+            dispatchedAt: null,
+            updatedAt: new Date(),
+          },
+        ],
+      });
+      mockPrisma.user.findMany.mockResolvedValue([
+        { id: 'lister-a', name: 'Shop A', profile: { businessName: 'Shop A' } },
+        { id: 'lister-b', name: 'Shop B', profile: { businessName: 'Shop B' } },
+      ]);
+
+      const result = await service.getOrderProgress(mockUser.id, 'ORD-MULTI');
+
+      expect(result.success).toBe(true);
+      expect(result.data.returnRequests).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ shipmentId: 'ret-a', status: 'PENDING_PICKUP' }),
+          expect.objectContaining({ shipmentId: 'ret-b', status: 'PENDING_PICKUP' }),
+        ]),
+      );
+      const rentalGroups = result.data.shipmentGroups?.filter(
+        (g: { kind: string }) => g.kind === 'rental',
+      );
+      expect(rentalGroups).toHaveLength(2);
     });
   });
 
