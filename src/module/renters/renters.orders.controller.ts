@@ -105,6 +105,22 @@ export class RentersOrdersController {
     return this.rentersService.getReturnRequest(req.user.id, orderId);
   }
 
+  @Get(':orderId/return-pickup-window-options')
+  @ApiOperation({
+    summary: 'Return pickup window options for the scheduled return day',
+  })
+  async getReturnPickupWindowOptions(
+    @Request() req,
+    @Param('orderId') orderId: string,
+    @Query('shipmentId') shipmentId?: string,
+  ) {
+    return this.rentersService.getReturnPickupWindowOptions(
+      req.user.id,
+      orderId,
+      shipmentId,
+    );
+  }
+
   @Post(':orderId/return-with-shipping')
   @ApiOperation({
     summary: 'Initiate return request with item condition and photos',

@@ -61,6 +61,8 @@ import {
   isWindowExpired,
   parseDispatchWindowFromInput,
   resolveNextReturnPickupWindow,
+  buildReturnPickupWindowOptions,
+  resolveReturnPickupWindowForSubmit,
   applyRangeMapToData,
 } from '../../utils/dispatch-windows';
 import {
@@ -3966,6 +3968,59 @@ export class RentersService {
     };
   }
 
+  async getReturnPickupWindowOptions(
+    userId: string,
+    orderId: string,
+    shipmentId?: string | null,
+  ) {
+    const order = await this.prisma.order.findUnique({
+      where: { orderId },
+      include: { shipments: true },
+    });
+
+    if (!order || order.userId !== userId) {
+      throw new NotFoundException('Order not found');
+    }
+
+    const returnLegs = (order.shipments as any[]).filter(
+      (s) => s.type === 'RETURN',
+    );
+    if (returnLegs.length === 0) {
+      throw new BadRequestException('No return shipment for this order');
+    }
+
+    let returnShipmentRow: any = shipmentId
+      ? returnLegs.find((s) => s.id === shipmentId) ?? null
+      : returnLegs.length === 1
+        ? returnLegs[0]
+        : null;
+
+    if (shipmentId && !returnShipmentRow) {
+      throw new BadRequestException('Invalid return shipment for this order');
+    }
+    if (!returnShipmentRow && returnLegs.length > 1) {
+      throw new BadRequestException(
+        'shipmentId is required when returning items from multiple sellers',
+      );
+    }
+
+    const scheduledFromShipment =
+      returnShipmentRow?.scheduledWindowStart &&
+      returnShipmentRow?.scheduledWindowEnd
+        ? {
+            start: new Date(returnShipmentRow.scheduledWindowStart),
+            end: new Date(returnShipmentRow.scheduledWindowEnd),
+          }
+        : null;
+
+    const options = buildReturnPickupWindowOptions(
+      new Date(),
+      scheduledFromShipment,
+    );
+
+    return { success: true, data: options };
+  }
+
   async getReturnShippingRates(userId: string, orderId: string) {
     const order = await this.prisma.order.findUnique({
       where: { orderId },
@@ -4134,14 +4189,10 @@ export class RentersService {
     const {
       window: pickupWindow,
       rescheduled: pickupWindowRescheduled,
-    } = resolveNextReturnPickupWindow(
+    } = resolveReturnPickupWindowForSubmit(
       new Date(),
-      data.pickupWindow != null
-        ? {
-            start: data.pickupWindow.start,
-            end: data.pickupWindow.end,
-          }
-        : scheduledFromShipment,
+      scheduledFromShipment,
+      data.pickupWindow ?? null,
     );
 
     const rescheduledPickupSummary = pickupWindowRescheduled
