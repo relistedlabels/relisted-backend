@@ -1,4 +1,5 @@
 import { OrderStatus } from '@prisma/client';
+import { isWindowExpired } from 'src/utils/dispatch-windows';
 import {
   RESALE_LEG_BOOKED_STATUSES,
   type ResalePackageOrderItem,
@@ -27,6 +28,8 @@ export type ShipmentLegDetail = {
   providerTrackingUrl: string | null;
   scheduledDate: string | null;
   windowSummary: string | null;
+  /** True when scheduledWindowEnd is in the past (return pickup window missed). */
+  returnWindowExpired: boolean;
   isBooked: boolean;
   isDelivered: boolean;
 };
@@ -56,13 +59,21 @@ function legDetail(
   legType: 'OUTBOUND' | 'RETURN' | 'RESALE',
   formatWindow?: (start: Date, end: Date) => string,
 ): ShipmentLegDetail {
+  const windowStart = leg.scheduledWindowStart
+    ? new Date(leg.scheduledWindowStart)
+    : null;
+  const windowEnd = leg.scheduledWindowEnd
+    ? new Date(leg.scheduledWindowEnd)
+    : null;
   const windowSummary =
-    leg.scheduledWindowStart && leg.scheduledWindowEnd && formatWindow
-      ? formatWindow(
-          new Date(leg.scheduledWindowStart),
-          new Date(leg.scheduledWindowEnd),
-        )
+    windowStart && windowEnd && formatWindow
+      ? formatWindow(windowStart, windowEnd)
       : null;
+  const returnWindowExpired =
+    legType === 'RETURN' &&
+    windowStart != null &&
+    windowEnd != null &&
+    isWindowExpired({ start: windowStart, end: windowEnd });
   return {
     legType,
     shipmentId: leg.id,
@@ -73,6 +84,7 @@ function legDetail(
       ? new Date(leg.scheduledDate).toISOString()
       : null,
     windowSummary,
+    returnWindowExpired,
     isBooked: RESALE_LEG_BOOKED_STATUSES.has(leg.status),
     isDelivered: leg.status === 'COMPLETED',
   };
