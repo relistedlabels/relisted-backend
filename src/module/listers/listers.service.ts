@@ -51,13 +51,15 @@ import {
   listerEscrowDisplaySummary,
   listerEscrowPayoutOnReturnConfirm,
 } from '../order/escrow-lister.util';
+import {
+  isResalePurchaseLine,
+  listerOrderListingTypeFromItems,
+  orderItemsForListerInclude,
+  orderItemsForListerWhere,
+  shipmentsForListerWhere,
+} from '../order/lister-order-scope.util';
 
 const CURRENCY = 'NGN';
-
-/** Scope order lines to the viewing lister's products (multi-lister checkout). */
-const orderItemsForLister = (listerId: string) => ({
-  where: { product: { curatorId: listerId } },
-});
 
 const formatLocalDate = (value: Date | string) =>
   new Date(value).toLocaleDateString('en-CA', {
@@ -807,7 +809,7 @@ export class ListersService {
                 },
               },
               orderItems: {
-                ...orderItemsForLister(user.id),
+                ...orderItemsForListerInclude(user.id),
                 include: {
                   product: {
                     select: {
@@ -836,7 +838,9 @@ export class ListersService {
           }),
         ]);
 
-        const formattedOrders = orders.map((o) => this.formatOrderForList(o));
+        const formattedOrders = orders.map((o) =>
+          this.formatOrderForList(o, user.id),
+        );
         allItems = [...allItems, ...formattedOrders];
         total += orderCount;
       }
@@ -907,7 +911,7 @@ export class ListersService {
           rentals: { where: { curatorId: user.id } },
           returnRequests: true,
           shipments: {
-            where: { listerId: user.id },
+            where: shipmentsForListerWhere(user.id),
             select: {
               id: true,
               type: true,
@@ -929,7 +933,7 @@ export class ListersService {
             },
           },
           orderItems: {
-            ...orderItemsForLister(user.id),
+            ...orderItemsForListerInclude(user.id),
             include: {
               product: {
                 select: {
@@ -1137,7 +1141,7 @@ export class ListersService {
         where: { id: orderId },
         include: {
           orderItems: {
-            where: { product: { curatorId: user.id } },
+            ...orderItemsForListerInclude(user.id),
             include: {
               product: {
                 select: {
@@ -1163,7 +1167,7 @@ export class ListersService {
               },
             },
           },
-          rentals: true,
+          rentals: { where: { curatorId: user.id } },
         },
       });
       if (!order) throw new NotFoundException('Order not found');
@@ -1236,9 +1240,10 @@ export class ListersService {
           createdAt: true,
           listingType: true,
           shipments: {
-            where: { type: 'OUTBOUND', listerId: user.id },
+            where: shipmentsForListerWhere(user.id),
             select: {
               id: true,
+              type: true,
               status: true,
               scheduledDate: true,
               scheduledWindowStart: true,
@@ -1254,9 +1259,15 @@ export class ListersService {
       const currentStep =
         ORDER_STATUS_TO_API[order.status] ?? order.status.toLowerCase();
 
-      const isPureResale =
-        order.listingType === ListingType.RESALE ||
-        order.listingType === ListingType.RENT_OR_RESALE;
+      const listerItems = await this.prisma.orderItem.findMany({
+        where: { orderId: order.id, ...orderItemsForListerWhere(user.id) },
+        select: {
+          days: true,
+          product: { select: { listingType: true } },
+        },
+      });
+      const listerListingType = listerOrderListingTypeFromItems(listerItems);
+      const isPureResale = listerListingType === ListingType.RESALE;
 
       let currentStepIndex: number;
       let steps: Array<{
@@ -1269,7 +1280,7 @@ export class ListersService {
       }>;
       let progressPercentage: number;
 
-      if (isPureResale && order.listingType === ListingType.RESALE) {
+      if (isPureResale) {
         const stepIndex = PROGRESS_STEPS.findIndex(
           (s) =>
             s.orderStatus === order.status ||
@@ -1315,10 +1326,12 @@ export class ListersService {
           steps,
           progressPercentage,
           orderId: order.id,
-          myOutboundShipments:
-            order.listingType === ListingType.RESALE
-              ? []
-              : (order.shipments ?? []).map((s) => ({
+          listingType: listerListingType,
+          myOutboundShipments: isPureResale
+            ? []
+            : (order.shipments ?? [])
+                .filter((s) => s.type === 'OUTBOUND')
+                .map((s) => ({
                   shipmentId: s.id,
                   status: s.status,
                   scheduledDate: s.scheduledDate.toISOString(),
@@ -1326,6 +1339,16 @@ export class ListersService {
                   providerTrackingUrl: s.providerTrackingUrl,
                   isBooked: LISTER_OUTBOUND_BOOKED.has(s.status),
                 })),
+          myResaleShipments: (order.shipments ?? [])
+            .filter((s) => s.type === 'RESALE')
+            .map((s) => ({
+              shipmentId: s.id,
+              status: s.status,
+              scheduledDate: s.scheduledDate.toISOString(),
+              trackingId: s.trackingId,
+              providerTrackingUrl: s.providerTrackingUrl,
+              isBooked: LISTER_OUTBOUND_BOOKED.has(s.status),
+            })),
         },
       };
     } catch (e) {
@@ -1630,7 +1653,7 @@ export class ListersService {
         include: {
           user: true,
           orderItems: {
-            ...orderItemsForLister(user.id),
+            ...orderItemsForListerInclude(user.id),
             include: { product: true },
           },
         },
@@ -1704,7 +1727,7 @@ export class ListersService {
         include: {
           user: true,
           orderItems: {
-            ...orderItemsForLister(user.id),
+            ...orderItemsForListerInclude(user.id),
             include: { product: true },
           },
         },
@@ -1844,7 +1867,7 @@ export class ListersService {
           },
           user: true,
           orderItems: {
-            ...orderItemsForLister(listerId),
+            ...orderItemsForListerInclude(listerId),
             include: {
               product: {
                 select: {
@@ -2521,7 +2544,7 @@ export class ListersService {
     };
   }
 
-  private formatOrderForList(order: any) {
+  private formatOrderForList(order: any, listerId?: string) {
     const expiresAt = order.expiresAt;
     const now = new Date();
     const timeRemainingSeconds =
@@ -2540,9 +2563,15 @@ export class ListersService {
       // For rental items, use pricePerDay * days
       return sum + (oi.pricePerDay ?? 0) * (oi.days ?? 0);
     }, 0);
+    const listerListingType =
+      listerId && order.orderItems?.length
+        ? listerOrderListingTypeFromItems(order.orderItems)
+        : order.listingType;
+
     return {
       id: order.id,
       orderNumber: order.orderId,
+      listingType: listerListingType,
       createdAt: order.createdAt.toISOString(),
       expiresAt: expiresAt?.toISOString() ?? null,
       timeRemainingSeconds,
@@ -2565,6 +2594,8 @@ export class ListersService {
         name: oi.product.name,
         size: oi.product.measurement ?? 'N/A',
         color: oi.product.color ?? 'N/A',
+        days: oi.days,
+        listingType: oi.product?.listingType,
         image:
           oi.product.attachments?.uploads?.[0]?.url ??
           'https://via.placeholder.com/300?text=No+Image',
@@ -2687,11 +2718,27 @@ export class ListersService {
     const displayTotalAmount = listerEscrow
       ? merchandiseTotal
       : totalAmount;
+    const listerListingType =
+      listerId && order.orderItems?.length
+        ? listerOrderListingTypeFromItems(order.orderItems)
+        : order.listingType;
+    const listerHasResale = order.orderItems.some((oi: any) =>
+      isResalePurchaseLine({
+        days: oi.days,
+        product: oi.product,
+      }),
+    );
+    const listerHasRental = order.orderItems.some(
+      (oi: any) =>
+        oi.days > 0 &&
+        (oi.product?.listingType === 'RENTAL' ||
+          oi.product?.listingType === 'RENT_OR_RESALE'),
+    );
 
     return {
       id: order.id,
       orderNumber: order.orderId,
-      listingType: order.listingType,
+      listingType: listerListingType,
       createdAt: order.createdAt.toISOString(),
       expiresAt: expiresAt?.toISOString() ?? null,
       timeRemainingSeconds,
@@ -2803,8 +2850,7 @@ export class ListersService {
             totalHeld: escrowFromDb.totalHeld,
             currency: CURRENCY,
             releaseCondition:
-              order.listingType === 'RESALE' ||
-              order.orderItems.some((oi: any) => oi.days === 0)
+              listerHasResale && !listerHasRental
                 ? 'Upon buyer confirmation of receipt'
                 : 'Upon successful return confirmation',
           }
@@ -2849,8 +2895,7 @@ export class ListersService {
             ),
             currency: CURRENCY,
             releaseCondition:
-              order.listingType === 'RESALE' ||
-              order.orderItems.some((oi: any) => oi.days === 0)
+              listerHasResale && !listerHasRental
                 ? 'Upon buyer confirmation of receipt'
                 : 'Upon successful return confirmation',
           },
