@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bull';
 import { RentersService } from './renters.service';
 import { PrismaModule } from '../../services/prisma/prisma.module';
 import { UploadModule } from '../upload/upload.module';
 import { ShipbubbleModule } from '../../services/shipbubble/shipbubble.module';
-import { TopshipModule } from '../../services/topship/topship.module';
 import { RentersDashboardController } from './renters.dashboard.controller';
 import { RentersProfileController } from './renters.profile.controller';
 import { RentersWalletController } from './renters.wallet.controller';
@@ -21,7 +21,7 @@ import { ProductAvailabilityNotifyModule } from '../../services/product-availabi
   imports: [
     PrismaModule,
     UploadModule,
-    TopshipModule,
+    BullModule.registerQueue({ name: 'shipment-dispatch' }),
     ShipbubbleModule,
     ProductAvailabilityNotifyModule,
   ],
