@@ -546,4 +546,8 @@ export class EscrowReleaseNotificationDto {
   @IsString()
   @IsOptional()
   productName?: string;
+
+  @IsString()
+  @IsOptional()
+  walletUrl?: string;
 }
