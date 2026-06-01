@@ -4018,6 +4018,20 @@ export class RentersService {
       scheduledFromShipment,
     );
 
+    const checkoutWindowExpired = scheduledFromShipment
+      ? isWindowExpired(scheduledFromShipment)
+      : false;
+    /** Only true when the checkout return slot has passed and the renter must pick a new time. */
+    const pickupWindowSelectable = checkoutWindowExpired;
+    const bookedPickupWindow =
+      options.originalWindow && !checkoutWindowExpired
+        ? {
+            start: options.originalWindow.start,
+            end: options.originalWindow.end,
+            summary: options.originalWindow.summary,
+          }
+        : null;
+
     return {
       success: true,
       data: {
@@ -4026,6 +4040,8 @@ export class RentersService {
           this.formatReturnPickupLineFromShipmentJson(
             returnShipmentRow?.pickupAddress,
           ) || null,
+        pickupWindowSelectable,
+        bookedPickupWindow,
       },
     };
   }
