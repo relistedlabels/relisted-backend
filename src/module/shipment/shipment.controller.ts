@@ -16,6 +16,12 @@ export class ShipmentController {
     return this.shipmentService.listShipments(dto);
   }
 
+  @Auth([Role.ADMIN])
+  @Get('shipments/costs')
+  getShipmentCosts(@Query() dto: ListShipmentsDto) {
+    return this.shipmentService.getShipmentCosts(dto);
+  }
+
   // ─── Admin: single shipment + attempt logs ──────────────────────────────────
   @Auth([Role.ADMIN])
   @Get('shipments/:id')
