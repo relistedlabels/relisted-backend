@@ -4018,7 +4018,16 @@ export class RentersService {
       scheduledFromShipment,
     );
 
-    return { success: true, data: options };
+    return {
+      success: true,
+      data: {
+        ...options,
+        pickupAddressSummary:
+          this.formatReturnPickupLineFromShipmentJson(
+            returnShipmentRow?.pickupAddress,
+          ) || null,
+      },
+    };
   }
 
   async getReturnShippingRates(userId: string, orderId: string) {
