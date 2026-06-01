@@ -47,8 +47,17 @@ import { ProductAvailabilityNotifyService } from 'src/services/product-availabil
 import { guessExternalTrackingUrlFromReference } from '../shipment/shipment-tracking-url.util';
 import { findReturnRequestForLister } from '../order/return-request-leg.util';
 import { markRentalsReturnedForOrder } from '../order/mark-rentals-returned.util';
+import {
+  listerEscrowDisplaySummary,
+  listerEscrowPayoutOnReturnConfirm,
+} from '../order/escrow-lister.util';
 
 const CURRENCY = 'NGN';
+
+/** Scope order lines to the viewing lister's products (multi-lister checkout). */
+const orderItemsForLister = (listerId: string) => ({
+  where: { product: { curatorId: listerId } },
+});
 
 const formatLocalDate = (value: Date | string) =>
   new Date(value).toLocaleDateString('en-CA', {
@@ -798,6 +807,7 @@ export class ListersService {
                 },
               },
               orderItems: {
+                ...orderItemsForLister(user.id),
                 include: {
                   product: {
                     select: {
@@ -894,9 +904,10 @@ export class ListersService {
       const order = await (this.prisma.order as any).findUnique({
         where: { id: orderId },
         include: {
-          rentals: true,
+          rentals: { where: { curatorId: user.id } },
           returnRequests: true,
           shipments: {
+            where: { listerId: user.id },
             select: {
               id: true,
               type: true,
@@ -918,6 +929,7 @@ export class ListersService {
             },
           },
           orderItems: {
+            ...orderItemsForLister(user.id),
             include: {
               product: {
                 select: {
@@ -943,6 +955,7 @@ export class ListersService {
               },
             },
           },
+          escrows: { where: { listerId: user.id } },
         },
       });
       if (!order) throw new NotFoundException('Order not found');
@@ -1614,7 +1627,13 @@ export class ListersService {
 
       const order = await this.prisma.order.findUnique({
         where: { id: orderId },
-        include: { user: true, orderItems: { include: { product: true } } },
+        include: {
+          user: true,
+          orderItems: {
+            ...orderItemsForLister(user.id),
+            include: { product: true },
+          },
+        },
       });
 
       if (!order) {
@@ -1655,7 +1674,7 @@ export class ListersService {
       }
       if (mapped === OrderStatus.CANCELLED || mapped === OrderStatus.REJECTED) {
         await this.prisma.rental.deleteMany({
-          where: { orderId },
+          where: { orderId, curatorId: user.id },
         });
 
         // Restore product status when order is cancelled or rejected
@@ -1684,7 +1703,10 @@ export class ListersService {
         data: updateData,
         include: {
           user: true,
-          orderItems: { include: { product: true } },
+          orderItems: {
+            ...orderItemsForLister(user.id),
+            include: { product: true },
+          },
         },
       });
 
@@ -1822,6 +1844,7 @@ export class ListersService {
           },
           user: true,
           orderItems: {
+            ...orderItemsForLister(listerId),
             include: {
               product: {
                 select: {
@@ -1831,7 +1854,7 @@ export class ListersService {
               },
             },
           },
-          escrows: true,
+          escrows: { where: { listerId } },
         },
       });
 
@@ -1989,10 +2012,8 @@ export class ListersService {
             }
           }
 
-          const rentalAmount = listerEscrow.rentalAmount || 0;
-          const cleaningFee = listerEscrow.cleaningFee || 0;
-          const resaleAmount = listerEscrow.resaleAmount || 0;
-          const totalListerPayout = rentalAmount + cleaningFee + resaleAmount;
+          const totalListerPayout =
+            listerEscrowPayoutOnReturnConfirm(listerEscrow);
 
           if (totalListerPayout > 0) {
             console.log(
@@ -2056,7 +2077,7 @@ export class ListersService {
             status: { not: 'RELEASED' },
           },
         });
-        await markRentalsReturnedForOrder(tx, order.id);
+        await markRentalsReturnedForOrder(tx, order.id, new Date(), listerId);
 
         if (pendingEscrows === 0) {
           await tx.order.update({
@@ -2115,16 +2136,12 @@ export class ListersService {
       }
     }
 
-    // Send notification to listers about rental payment release
-    for (const escrow of order.escrows) {
-      const rentalAmount = escrow.rentalAmount || 0;
-      const cleaningFee = escrow.cleaningFee || 0;
-      const resaleAmount = escrow.resaleAmount || 0;
-      const totalListerPayout = rentalAmount + cleaningFee + resaleAmount;
-
+    if (listerEscrow) {
+      const totalListerPayout =
+        listerEscrowPayoutOnReturnConfirm(listerEscrow);
       if (totalListerPayout > 0) {
         const lister = await this.prisma.user.findUnique({
-          where: { id: escrow.listerId },
+          where: { id: listerEscrow.listerId },
         });
         if (lister?.email) {
           const firstItem = order.orderItems[0] as any;
@@ -2656,6 +2673,21 @@ export class ListersService {
       0,
     );
 
+    const listerEscrow =
+      listerId && order.escrows?.length
+        ? order.escrows.find((e: { listerId: string }) => e.listerId === listerId) ??
+          order.escrows[0]
+        : null;
+    const escrowFromDb = listerEscrow
+      ? listerEscrowDisplaySummary(listerEscrow)
+      : null;
+    const merchandiseTotal = listerEscrow
+      ? (listerEscrow.rentalAmount ?? 0) + (listerEscrow.resaleAmount ?? 0)
+      : listerRentalSubtotal + listerCleaningFeesTotal + listerResaleSubtotal;
+    const displayTotalAmount = listerEscrow
+      ? merchandiseTotal
+      : totalAmount;
+
     return {
       id: order.id,
       orderNumber: order.orderId,
@@ -2668,7 +2700,7 @@ export class ListersService {
       statusColor: colors.bg,
       statusTextColor: colors.text,
       itemCount: order.orderItems.length,
-      totalAmount,
+      totalAmount: displayTotalAmount,
       currency: CURRENCY,
       dresser: {
         id: order.user.id,
@@ -2747,61 +2779,81 @@ export class ListersService {
         order,
         availabilityRequests,
       ),
-      listerMerchandise: {
-        rentalSubtotal: listerRentalSubtotal,
-        cleaningFeesTotal: listerCleaningFeesTotal,
-        resaleSubtotal: listerResaleSubtotal,
-        total:
-          listerRentalSubtotal +
-          listerCleaningFeesTotal +
-          listerResaleSubtotal,
-      },
-      escrow: {
-        rentalFeeTotal: order.orderItems.reduce(
-          (sum: number, oi: any) =>
-            oi.days === 0 &&
-            (oi.product?.listingType === 'RESALE' ||
-              oi.product?.listingType === 'RENT_OR_RESALE')
-              ? sum
-              : sum + (oi.pricePerDay ?? oi.product?.dailyPrice) * oi.days,
-          0,
-        ),
-        itemValueHeld: order.orderItems.reduce(
-          (sum: number, oi: any) =>
-            oi.days === 0 &&
-            (oi.product?.listingType === 'RESALE' ||
-              oi.product?.listingType === 'RENT_OR_RESALE')
-              ? sum + (oi.product?.resalePrice || 0)
-              : sum + this.rentalDepositNgn(oi),
-          0,
-        ),
-        purchasePrice: order.orderItems.reduce(
-          (sum: number, oi: any) =>
-            oi.days === 0 &&
-            (oi.product?.listingType === 'RESALE' ||
-              oi.product?.listingType === 'RENT_OR_RESALE')
-              ? sum + (oi.product?.resalePrice || 0)
-              : sum,
-          0,
-        ),
-        totalHeld: order.orderItems.reduce(
-          (sum: number, oi: any) =>
-            oi.days === 0 &&
-            (oi.product?.listingType === 'RESALE' ||
-              oi.product?.listingType === 'RENT_OR_RESALE')
-              ? sum + (oi.product?.resalePrice || 0)
-              : sum +
-                (oi.pricePerDay ?? oi.product?.dailyPrice) * oi.days +
-                this.rentalDepositNgn(oi),
-          0,
-        ),
-        currency: CURRENCY,
-        releaseCondition:
-          order.listingType === 'RESALE' ||
-          order.orderItems.some((oi: any) => oi.days === 0)
-            ? 'Upon buyer confirmation of receipt'
-            : 'Upon successful return confirmation',
-      },
+      listerMerchandise: listerEscrow
+        ? {
+            rentalSubtotal: escrowFromDb!.rentalFeeTotal,
+            cleaningFeesTotal: escrowFromDb!.cleaningFeeTotal,
+            resaleSubtotal: escrowFromDb!.purchasePrice,
+            total: merchandiseTotal,
+          }
+        : {
+            rentalSubtotal: listerRentalSubtotal,
+            cleaningFeesTotal: listerCleaningFeesTotal,
+            resaleSubtotal: listerResaleSubtotal,
+            total:
+              listerRentalSubtotal +
+              listerCleaningFeesTotal +
+              listerResaleSubtotal,
+          },
+      escrow: escrowFromDb
+        ? {
+            rentalFeeTotal: escrowFromDb.rentalFeeTotal,
+            itemValueHeld: escrowFromDb.itemValueHeld,
+            purchasePrice: escrowFromDb.purchasePrice,
+            totalHeld: escrowFromDb.totalHeld,
+            currency: CURRENCY,
+            releaseCondition:
+              order.listingType === 'RESALE' ||
+              order.orderItems.some((oi: any) => oi.days === 0)
+                ? 'Upon buyer confirmation of receipt'
+                : 'Upon successful return confirmation',
+          }
+        : {
+            rentalFeeTotal: order.orderItems.reduce(
+              (sum: number, oi: any) =>
+                oi.days === 0 &&
+                (oi.product?.listingType === 'RESALE' ||
+                  oi.product?.listingType === 'RENT_OR_RESALE')
+                  ? sum
+                  : sum + (oi.pricePerDay ?? oi.product?.dailyPrice) * oi.days,
+              0,
+            ),
+            itemValueHeld: order.orderItems.reduce(
+              (sum: number, oi: any) =>
+                oi.days === 0 &&
+                (oi.product?.listingType === 'RESALE' ||
+                  oi.product?.listingType === 'RENT_OR_RESALE')
+                  ? sum + (oi.product?.resalePrice || 0)
+                  : sum + this.rentalDepositNgn(oi),
+              0,
+            ),
+            purchasePrice: order.orderItems.reduce(
+              (sum: number, oi: any) =>
+                oi.days === 0 &&
+                (oi.product?.listingType === 'RESALE' ||
+                  oi.product?.listingType === 'RENT_OR_RESALE')
+                  ? sum + (oi.product?.resalePrice || 0)
+                  : sum,
+              0,
+            ),
+            totalHeld: order.orderItems.reduce(
+              (sum: number, oi: any) =>
+                oi.days === 0 &&
+                (oi.product?.listingType === 'RESALE' ||
+                  oi.product?.listingType === 'RENT_OR_RESALE')
+                  ? sum + (oi.product?.resalePrice || 0)
+                  : sum +
+                    (oi.pricePerDay ?? oi.product?.dailyPrice) * oi.days +
+                    this.rentalDepositNgn(oi),
+              0,
+            ),
+            currency: CURRENCY,
+            releaseCondition:
+              order.listingType === 'RESALE' ||
+              order.orderItems.some((oi: any) => oi.days === 0)
+                ? 'Upon buyer confirmation of receipt'
+                : 'Upon successful return confirmation',
+          },
     };
   }
 
