@@ -50,6 +50,11 @@ import { markRentalsReturnedForOrder } from '../order/mark-rentals-returned.util
 
 const CURRENCY = 'NGN';
 
+/** Scope order lines to the viewing lister's products (multi-lister checkout). */
+const orderItemsForLister = (listerId: string) => ({
+  where: { product: { curatorId: listerId } },
+});
+
 const formatLocalDate = (value: Date | string) =>
   new Date(value).toLocaleDateString('en-CA', {
     timeZone: 'Africa/Lagos',
@@ -798,6 +803,7 @@ export class ListersService {
                 },
               },
               orderItems: {
+                ...orderItemsForLister(user.id),
                 include: {
                   product: {
                     select: {
@@ -894,9 +900,10 @@ export class ListersService {
       const order = await (this.prisma.order as any).findUnique({
         where: { id: orderId },
         include: {
-          rentals: true,
+          rentals: { where: { curatorId: user.id } },
           returnRequests: true,
           shipments: {
+            where: { listerId: user.id },
             select: {
               id: true,
               type: true,
@@ -918,6 +925,7 @@ export class ListersService {
             },
           },
           orderItems: {
+            ...orderItemsForLister(user.id),
             include: {
               product: {
                 select: {
@@ -1614,7 +1622,13 @@ export class ListersService {
 
       const order = await this.prisma.order.findUnique({
         where: { id: orderId },
-        include: { user: true, orderItems: { include: { product: true } } },
+        include: {
+          user: true,
+          orderItems: {
+            ...orderItemsForLister(user.id),
+            include: { product: true },
+          },
+        },
       });
 
       if (!order) {
@@ -1655,7 +1669,7 @@ export class ListersService {
       }
       if (mapped === OrderStatus.CANCELLED || mapped === OrderStatus.REJECTED) {
         await this.prisma.rental.deleteMany({
-          where: { orderId },
+          where: { orderId, curatorId: user.id },
         });
 
         // Restore product status when order is cancelled or rejected
@@ -1684,7 +1698,10 @@ export class ListersService {
         data: updateData,
         include: {
           user: true,
-          orderItems: { include: { product: true } },
+          orderItems: {
+            ...orderItemsForLister(user.id),
+            include: { product: true },
+          },
         },
       });
 
@@ -1822,6 +1839,7 @@ export class ListersService {
           },
           user: true,
           orderItems: {
+            ...orderItemsForLister(listerId),
             include: {
               product: {
                 select: {
