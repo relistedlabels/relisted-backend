@@ -5,9 +5,14 @@ export async function markRentalsReturnedForOrder(
   tx: Prisma.TransactionClient,
   orderId: string,
   returnedAt: Date = new Date(),
+  curatorId?: string,
 ): Promise<number> {
   const result = await tx.rental.updateMany({
-    where: { orderId, isReturned: false },
+    where: {
+      orderId,
+      isReturned: false,
+      ...(curatorId ? { curatorId } : {}),
+    },
     data: { isReturned: true, returnedAt },
   });
   return result.count;
