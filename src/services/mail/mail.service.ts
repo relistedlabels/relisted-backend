@@ -1121,9 +1121,16 @@ export class MailService {
   async sendEscrowReleaseNotification(dto: EscrowReleaseNotificationDto) {
     const { email, userName, orderId, orderLink, amountReleased, userType, productName } = dto;
     const isRenter = userType === 'renter';
+    const clientBase = (process.env.CLIENT_URL || 'https://relisted.com').replace(
+      /\/$/,
+      '',
+    );
+    const walletUrl =
+      dto.walletUrl ||
+      `${clientBase}/${isRenter ? 'renters' : 'listers'}/wallet`;
     const subject = isRenter
       ? 'Your collateral is now available'
-      : 'Your payment is now available';
+      : 'Your rental payout is in your wallet';
     const safeName = (userName || 'there').replace(/</g, '');
     const safeProduct = (productName || 'your order').replace(/</g, '');
     const amountStr = amountReleased
@@ -1134,36 +1141,38 @@ export class MailService {
   <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
     <div style="padding:18px 20px;background:#111827;color:#ffffff;">
       <div style="font-size:14px;opacity:0.9;">Relisted</div>
-      <div style="font-size:18px;font-weight:700;margin-top:6px;">${isRenter ? 'Collateral Available' : 'Payment Available'}</div>
+      <div style="font-size:18px;font-weight:700;margin-top:6px;">${isRenter ? 'Collateral Available' : 'Payout Available'}</div>
     </div>
     <div style="padding:20px;">
       <p style="margin:0 0 12px;color:#374151;">Hi ${safeName},</p>
       <p style="margin:0 0 16px;color:#374151;">
         ${isRenter
           ? `Your collateral for <strong>${safeProduct}</strong> has been returned and is now available in your wallet.`
-          : `Your rental payment for <strong>${safeProduct}</strong> has been processed and is now available in your wallet.`
+          : `The rental for <strong>${safeProduct}</strong> is complete. Your earnings (rental fee and cleaning fee, where applicable) have been credited to your wallet.`
         }
       </p>
       <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;margin:16px 0;">
         <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Order ID</div>
         <div style="font-weight:600;color:#111827;">${orderId}</div>
-        <div style="font-size:12px;color:#6b7280;margin:16px 0 4px;">${isRenter ? 'Collateral Returned' : 'Payment Received'}</div>
+        <div style="font-size:12px;color:#6b7280;margin:16px 0 4px;">${isRenter ? 'Collateral Returned' : 'Amount Credited'}</div>
         <div style="font-weight:600;color:#111827;">${amountStr}</div>
       </div>
       <div style="margin:20px 0;">
-        <a href="${orderLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">View Order</a>
+        <a href="${walletUrl}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;margin-right:8px;margin-bottom:8px;">Open wallet</a>
+        <a href="${orderLink}" style="display:inline-block;background:#ffffff;color:#111827;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;border:1px solid #d1d5db;margin-bottom:8px;">View order</a>
         <div style="margin-top:10px;font-size:12px;color:#6b7280;">
-          If the button doesn't work, open: <span style="color:#111827;">${orderLink}</span>
+          Wallet: <a href="${walletUrl}" style="color:#111827;">${walletUrl}</a><br/>
+          Order: <span style="color:#111827;">${orderLink}</span>
         </div>
       </div>
-      <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin:16px 0;">
-        <p style="margin:0 0 8px;color:#374151;font-weight:600;">How to withdraw your funds:</p>
-        <ol style="margin:0;padding-left:20px;color:#374151;font-size:14px;">
-          <li style="margin-bottom:6px;">Go to your wallet dashboard</li>
-          <li style="margin-bottom:6px;">Click on "Withdraw Funds"</li>
-          <li style="margin-bottom:6px;">Select your preferred withdrawal method</li>
-          <li>Enter the amount and confirm the withdrawal</li>
-        </ol>
+      <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;margin:16px 0;">
+        <p style="margin:0 0 10px;color:#374151;font-weight:600;">How to withdraw your funds</p>
+        <ul style="margin:0 0 14px;padding-left:20px;color:#374151;font-size:14px;">
+          <li style="margin-bottom:6px;">Open your wallet in Relisted.</li>
+          <li style="margin-bottom:6px;">Request a withdrawal to your bank account.</li>
+          <li>Funds are sent after your withdrawal request is approved.</li>
+        </ul>
+        <a href="${walletUrl}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">Go to wallet</a>
       </div>
     </div>
   </div>
