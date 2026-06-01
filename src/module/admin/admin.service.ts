@@ -13,6 +13,7 @@ import {
   Prisma,
   ProductStatus,
   Role,
+  ShipmentType,
   WalletTransactionStatus,
 } from '@prisma/client';
 import { incrementClosetRevenueForListerPayout } from '../closet/closet-revenue.util';
@@ -2740,12 +2741,43 @@ export class AdminService {
     status?: string,
     tab?: string,
     search?: string,
+    dateFrom?: string,
+    dateTo?: string,
+    type?: string,
+    manualFulfillment?: boolean,
   ) {
     const pageSafe = Math.max(1, page);
     const limitSafe = Math.min(Math.max(1, limit), 100);
     const skip = (pageSafe - 1) * limitSafe;
 
     const where: Prisma.OrderWhereInput = {};
+
+    if (dateFrom || dateTo) {
+      where.createdAt = {};
+      if (dateFrom) {
+        where.createdAt.gte = new Date(`${dateFrom}T00:00:00.000Z`);
+      }
+      if (dateTo) {
+        where.createdAt.lte = new Date(`${dateTo}T23:59:59.999Z`);
+      }
+    }
+
+    const shipmentSome: Prisma.ShipmentWhereInput = {};
+    const typeNorm = type?.trim().toUpperCase();
+    if (
+      typeNorm &&
+      Object.values(ShipmentType).includes(typeNorm as ShipmentType)
+    ) {
+      shipmentSome.type = typeNorm as ShipmentType;
+    }
+    if (manualFulfillment === true) {
+      shipmentSome.manualFulfillment = true;
+    } else if (manualFulfillment === false) {
+      shipmentSome.manualFulfillment = false;
+    }
+    if (Object.keys(shipmentSome).length > 0) {
+      where.shipments = { some: shipmentSome };
+    }
 
     if (status && status !== 'ALL') {
       where.status = status as OrderStatus;
@@ -3155,12 +3187,29 @@ export class AdminService {
     return { success: true, data: [] };
   }
 
-  async getReturnRequests(page: number = 1, limit: number = 20) {
+  async getReturnRequests(
+    page: number = 1,
+    limit: number = 20,
+    dateFrom?: string,
+    dateTo?: string,
+  ) {
     const skip = (page - 1) * limit;
+    const where: Prisma.ReturnRequestWhereInput = {};
+
+    if (dateFrom || dateTo) {
+      where.createdAt = {};
+      if (dateFrom) {
+        where.createdAt.gte = new Date(`${dateFrom}T00:00:00.000Z`);
+      }
+      if (dateTo) {
+        where.createdAt.lte = new Date(`${dateTo}T23:59:59.999Z`);
+      }
+    }
 
     const [total, returns] = await this.prisma.$transaction([
-      this.prisma.returnRequest.count(),
+      this.prisma.returnRequest.count({ where }),
       this.prisma.returnRequest.findMany({
+        where,
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },

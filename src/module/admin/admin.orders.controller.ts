@@ -37,13 +37,28 @@ export class AdminOrdersController {
     @Query('status') status?: string,
     @Query('tab') tab?: string,
     @Query('search') search?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('type') type?: string,
+    @Query('manualFulfillment') manualFulfillment?: string,
   ) {
+    const manualFulfillmentFilter =
+      manualFulfillment === 'true'
+        ? true
+        : manualFulfillment === 'false'
+          ? false
+          : undefined;
+
     return this.adminService.getAllOrders(
       page ? parseInt(page, 10) : 1,
       limit ? parseInt(limit, 10) : 20,
       status,
       tab,
       search,
+      dateFrom,
+      dateTo,
+      type,
+      manualFulfillmentFilter,
     );
   }
 
@@ -52,10 +67,14 @@ export class AdminOrdersController {
   async getReturnRequests(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
   ) {
     return this.adminService.getReturnRequests(
       page ? parseInt(page, 10) : 1,
       limit ? parseInt(limit, 10) : 20,
+      dateFrom,
+      dateTo,
     );
   }
 
