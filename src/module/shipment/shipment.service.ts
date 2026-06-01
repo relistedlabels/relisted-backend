@@ -43,19 +43,15 @@ export class ShipmentService {
 
   // ─── List ──────────────────────────────────────────────────────────────────
 
-  async listShipments(dto: ListShipmentsDto) {
-    const {
-      status,
-      type,
-      dateFrom,
-      dateTo,
-      orderId,
-      manualFulfillment,
-      page = 1,
-      limit = 20,
-    } = dto;
+  private async buildListShipmentsWhere(
+    dto: Pick<
+      ListShipmentsDto,
+      'status' | 'type' | 'dateFrom' | 'dateTo' | 'orderId' | 'manualFulfillment'
+    >,
+  ): Promise<{ where: Record<string, unknown>; orderMissing: boolean }> {
+    const { status, type, dateFrom, dateTo, orderId, manualFulfillment } = dto;
 
-    const where: any = {};
+    const where: Record<string, unknown> = {};
     if (status) where.status = status;
     if (type) where.type = type;
     if (orderId) {
@@ -64,16 +60,7 @@ export class ShipmentService {
         select: { id: true },
       });
       if (!order) {
-        return {
-          success: true,
-          data: {
-            shipments: [],
-            total: 0,
-            page,
-            limit,
-            totalPages: 0,
-          },
-        };
+        return { where, orderMissing: true };
       }
       where.orderId = order.id;
     }
@@ -84,8 +71,35 @@ export class ShipmentService {
     }
     if (dateFrom || dateTo) {
       where.scheduledDate = {};
-      if (dateFrom) where.scheduledDate.gte = new Date(dateFrom);
-      if (dateTo) where.scheduledDate.lte = new Date(dateTo);
+      if (dateFrom) {
+        (where.scheduledDate as Record<string, Date>).gte = new Date(
+          `${dateFrom}T00:00:00.000Z`,
+        );
+      }
+      if (dateTo) {
+        (where.scheduledDate as Record<string, Date>).lte = new Date(
+          `${dateTo}T23:59:59.999Z`,
+        );
+      }
+    }
+
+    return { where, orderMissing: false };
+  }
+
+  async listShipments(dto: ListShipmentsDto) {
+    const { page = 1, limit = 20 } = dto;
+    const { where, orderMissing } = await this.buildListShipmentsWhere(dto);
+    if (orderMissing) {
+      return {
+        success: true,
+        data: {
+          shipments: [],
+          total: 0,
+          page,
+          limit,
+          totalPages: 0,
+        },
+      };
     }
 
     const [shipments, total] = await Promise.all([
@@ -118,6 +132,106 @@ export class ShipmentService {
         page,
         limit,
         totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async getShipmentCosts(dto: ListShipmentsDto) {
+    const providerF = String(dto.provider ?? 'all').trim().toLowerCase();
+    const courierF = String(dto.courier ?? 'all').trim().toLowerCase();
+    const empty = {
+      totalKobo: 0,
+      count: 0,
+      trend: [] as { month: string; kobo: number; count: number }[],
+      groups: [] as { key: string; label: string; kobo: number; count: number }[],
+      providers: [] as string[],
+      couriers: [] as string[],
+    };
+    const { where, orderMissing } = await this.buildListShipmentsWhere(dto);
+    if (orderMissing) return { success: true, data: empty };
+
+    const rows = await this.prisma.shipment.findMany({
+      where,
+      select: {
+        scheduledDate: true,
+        pricingTier: true,
+        pickupPartner: true,
+        manualFulfillment: true,
+        shipmentCharge: true,
+        pickupCharge: true,
+        vatCharge: true,
+      },
+    });
+
+    const costKobo = (r: (typeof rows)[0]) =>
+      (r.shipmentCharge ?? 0) + (r.pickupCharge ?? 0) + (r.vatCharge ?? 0);
+    const providerOf = (r: (typeof rows)[0]) => {
+      if (r.manualFulfillment) return 'manual';
+      const t = String(r.pricingTier ?? '').toLowerCase();
+      if (t === 'shipbubble' || t.startsWith('shipbubble:')) return 'shipbubble';
+      if (t === 'chowdeck_relay') return 'chowdeck_relay';
+      return 'topship';
+    };
+    const courierOf = (r: (typeof rows)[0]) => {
+      if (r.manualFulfillment) return 'relisted';
+      const t = String(r.pricingTier ?? '').toLowerCase();
+      if (t.startsWith('shipbubble:')) return t.slice('shipbubble:'.length);
+      if (t) return t;
+      return String(r.pickupPartner ?? '').toLowerCase() || 'unknown';
+    };
+    const label = (key: string) =>
+      key === 'topship'
+        ? 'Topship'
+        : key === 'shipbubble'
+          ? 'Shipbubble'
+          : key === 'chowdeck_relay'
+            ? 'Chowdeck Relay'
+            : key === 'manual'
+              ? 'Relisted dispatch'
+              : key.charAt(0).toUpperCase() + key.slice(1);
+
+    const providers = [...new Set(rows.map(providerOf))];
+    const couriers = [
+      ...new Set(
+        rows
+          .filter((r) => providerF === 'all' || providerOf(r) === providerF)
+          .map(courierOf),
+      ),
+    ];
+    const filtered = rows.filter(
+      (r) =>
+        (providerF === 'all' || providerOf(r) === providerF) &&
+        (courierF === 'all' || courierOf(r) === courierF),
+    );
+
+    const trendMap = new Map<string, { month: string; kobo: number; count: number }>();
+    const groupMap = new Map<string, { key: string; label: string; kobo: number; count: number }>();
+    let totalKobo = 0;
+    for (const r of filtered) {
+      const kobo = costKobo(r);
+      totalKobo += kobo;
+      const month = r.scheduledDate.toISOString().slice(0, 7);
+      const t = trendMap.get(month) ?? { month, kobo: 0, count: 0 };
+      t.kobo += kobo;
+      t.count += 1;
+      trendMap.set(month, t);
+      const gKey =
+        providerF !== 'all' || courierF !== 'all' ? courierOf(r) : providerOf(r);
+      const g = groupMap.get(gKey) ?? { key: gKey, label: label(gKey), kobo: 0, count: 0 };
+      g.kobo += kobo;
+      g.count += 1;
+      groupMap.set(gKey, g);
+    }
+
+    return {
+      success: true,
+      data: {
+        totalKobo,
+        count: filtered.length,
+        trend: [...trendMap.values()].sort((a, b) => a.month.localeCompare(b.month)),
+        groups: [...groupMap.values()].sort((a, b) => b.kobo - a.kobo),
+        providers,
+        couriers,
       },
     };
   }

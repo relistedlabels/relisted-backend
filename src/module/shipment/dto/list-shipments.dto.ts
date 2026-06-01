@@ -53,4 +53,14 @@ export class ListShipmentsDto {
   @Min(1)
   @Max(100)
   limit?: number = 20;
+
+  /** Costs endpoint only: topship | shipbubble | chowdeck_relay | manual | all */
+  @IsOptional()
+  @IsString()
+  provider?: string;
+
+  /** Costs endpoint only: courier slug e.g. chowdeck, glovo, gokada */
+  @IsOptional()
+  @IsString()
+  courier?: string;
 }
