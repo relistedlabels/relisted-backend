@@ -4018,7 +4018,32 @@ export class RentersService {
       scheduledFromShipment,
     );
 
-    return { success: true, data: options };
+    const checkoutWindowExpired = scheduledFromShipment
+      ? isWindowExpired(scheduledFromShipment)
+      : false;
+    /** Only true when the checkout return slot has passed and the renter must pick a new time. */
+    const pickupWindowSelectable = checkoutWindowExpired;
+    const bookedPickupWindow =
+      options.originalWindow && !checkoutWindowExpired
+        ? {
+            start: options.originalWindow.start,
+            end: options.originalWindow.end,
+            summary: options.originalWindow.summary,
+          }
+        : null;
+
+    return {
+      success: true,
+      data: {
+        ...options,
+        pickupAddressSummary:
+          this.formatReturnPickupLineFromShipmentJson(
+            returnShipmentRow?.pickupAddress,
+          ) || null,
+        pickupWindowSelectable,
+        bookedPickupWindow,
+      },
+    };
   }
 
   async getReturnShippingRates(userId: string, orderId: string) {
