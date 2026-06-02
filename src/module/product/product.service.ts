@@ -189,7 +189,8 @@ export class ProductService {
           color: dto.color,
           originalValue: dto.originalValue || 0,
           collateralPrice: dto.collateralPrice,
-          dailyPrice: dto.dailyPrice || 0,
+          dailyPrice:
+            listingType === 'RESALE' ? 0 : dto.dailyPrice || 0,
           careInstruction: dto.careInstruction,
           careSteps: dto.careSteps ?? '',
           stylingTip: dto.stylingTip,
@@ -1311,6 +1312,10 @@ export class ProductService {
           );
           updateData.closet = { connect: { id: dto.closetId } };
         }
+      }
+
+      if (updateData.listingType === 'RESALE') {
+        updateData.dailyPrice = 0;
       }
 
       const updatedProduct = await this.prisma.product.update({
