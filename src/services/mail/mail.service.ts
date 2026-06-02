@@ -1287,7 +1287,7 @@ export class MailService {
     </div>
     <div style="padding:20px;">
       <p style="margin:0 0 12px;color:#374151;">Hello ${safe(adminName || 'Admin')},</p>
-      <p style="margin:0 0 16px;color:#374151;line-height:1.5;">A user submitted a withdrawal request that needs review. Open <strong>Wallets</strong>, then the <strong>Withdrawals</strong> tab to approve, reject, or mark as paid.</p>
+      <p style="margin:0 0 16px;color:#374151;line-height:1.5;">A user submitted a withdrawal request that needs review. Open <strong>Payments & balances</strong>, then the <strong>Withdrawals</strong> tab to approve, reject, or mark as paid.</p>
       <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
         <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
           <div style="min-width:220px;">
