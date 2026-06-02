@@ -34,7 +34,11 @@ export class NotificationService {
 
     // 2. Handle Email if requested
     if (sendEmail) {
-      if (type === 'DISPUTE_CREATED' || type === 'DISPUTE_STATUS') {
+      if (
+        type === 'DISPUTE_CREATED' ||
+        type === 'DISPUTE_STATUS' ||
+        type === 'ADMIN_WITHDRAWAL_REQUEST'
+      ) {
         await this.triggerEmail(type, emailData);
         return notification;
       }
@@ -135,6 +139,9 @@ export class NotificationService {
           break;
         case 'WALLET_FUNDED':
           await this.mailService.sendWalletFundedEmail(data);
+          break;
+        case 'ADMIN_WITHDRAWAL_REQUEST':
+          await this.mailService.sendAdminWithdrawalRequestAlert(data);
           break;
         default:
           console.warn(`No mail handler for notification type: ${type}`);

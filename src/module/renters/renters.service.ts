@@ -19,6 +19,8 @@ import { addMinutes, addDays } from 'date-fns';
 import { createAttachments } from 'prisma/prisma.utils';
 
 import { NotificationService } from '../../services/notification/notification.service';
+import { MailService } from '../../services/mail/mail.service';
+import { notifyAdminsNewWithdrawalRequest } from '../wallet/withdrawal-admin-notify.util';
 import { assertNoOpenAvailabilityRequestForProduct } from '../../utils/assert-no-open-availability-for-product';
 import { DEFAULT_CLEANING_FEE_NGN } from '../../constants/rental-pricing';
 import {
@@ -270,6 +272,7 @@ export class RentersService {
     private uploadService: UploadService,
     private wemaService: WemaServiceService,
     private notificationService: NotificationService,
+    private mailService: MailService,
     @InjectQueue('shipment-dispatch')
     private readonly dispatchQueue: Queue,
     private readonly shipbubbleAddressCache: ShipbubbleAddressCacheService,
@@ -1066,6 +1069,28 @@ export class RentersService {
         },
       });
     });
+
+    void notifyAdminsNewWithdrawalRequest(
+      this.prisma,
+      this.notificationService,
+      this.mailService,
+      {
+        withdrawalId: withdrawal.id,
+        reference: withdrawal.reference,
+        amount: withdrawal.amount,
+        userId,
+        bankAccount: {
+          bankName: bankAccount.bankName,
+          accountNumber: bankAccount.accountNumber,
+          accountName: bankAccount.accountName,
+        },
+      },
+    ).catch((err) =>
+      console.error(
+        `[RentersService] Admin withdrawal alert failed for ${withdrawal.reference}:`,
+        err?.message ?? err,
+      ),
+    );
 
     return {
       success: true,

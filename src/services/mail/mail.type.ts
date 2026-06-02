@@ -551,3 +551,39 @@ export class EscrowReleaseNotificationDto {
   @IsOptional()
   walletUrl?: string;
 }
+
+export class AdminWithdrawalRequestAlertDto {
+  @IsEmail()
+  email: string;
+
+  @IsString()
+  adminName: string;
+
+  @IsString()
+  reference: string;
+
+  @IsNumber()
+  amount: number;
+
+  @IsString()
+  requesterName: string;
+
+  @IsString()
+  requesterEmail: string;
+
+  @IsString()
+  requesterRole: string;
+
+  @IsString()
+  bankName: string;
+
+  @IsString()
+  accountNumber: string;
+
+  @IsString()
+  @IsOptional()
+  accountName?: string;
+
+  @IsString()
+  adminLink: string;
+}
