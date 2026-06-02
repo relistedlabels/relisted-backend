@@ -7,12 +7,12 @@ import { PrismaService } from 'src/services/prisma/prisma.service';
  */
 export async function fetchAdminAlertRecipients(
   prisma: PrismaService,
-): Promise<Array<{ id: string; email: string }>> {
+): Promise<Array<{ id: string; email: string; name: string }>> {
   return prisma.user.findMany({
     where: {
       isSuspended: false,
       OR: [{ role: Role.ADMIN }, { adminRoleId: { not: null } }],
     },
-    select: { id: true, email: true },
+    select: { id: true, email: true, name: true },
   });
 }

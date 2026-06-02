@@ -32,6 +32,7 @@ import {
 import { randomUUID } from 'crypto';
 import { WemaServiceService } from 'src/services/wema-service/wema-service.service';
 import { NotificationService } from 'src/services/notification/notification.service';
+import { MailService } from 'src/services/mail/mail.service';
 import { UploadService } from '../upload/upload.service';
 import {
   buildDefaultDispatchWindow,
@@ -58,6 +59,7 @@ import {
   orderItemsForListerWhere,
   shipmentsForListerWhere,
 } from '../order/lister-order-scope.util';
+import { notifyAdminsNewWithdrawalRequest } from '../wallet/withdrawal-admin-notify.util';
 
 const CURRENCY = 'NGN';
 
@@ -216,6 +218,7 @@ export class ListersService {
     private readonly prisma: PrismaService,
     private readonly wemaService: WemaServiceService,
     private readonly notificationService: NotificationService,
+    private readonly mailService: MailService,
     private readonly uploadService: UploadService,
     private readonly productAvailabilityNotifyService: ProductAvailabilityNotifyService,
   ) {}
@@ -5918,6 +5921,28 @@ export class ListersService {
         },
       });
     });
+
+    void notifyAdminsNewWithdrawalRequest(
+      this.prisma,
+      this.notificationService,
+      this.mailService,
+      {
+        withdrawalId: withdrawal.id,
+        reference: withdrawal.reference,
+        amount: withdrawal.amount,
+        userId,
+        bankAccount: {
+          bankName: bankAccount.bankName,
+          accountNumber: bankAccount.accountNumber,
+          accountName: bankAccount.accountName,
+        },
+      },
+    ).catch((err) =>
+      console.error(
+        `[ListersService] Admin withdrawal alert failed for ${withdrawal.reference}:`,
+        err?.message ?? err,
+      ),
+    );
 
     return {
       success: true,

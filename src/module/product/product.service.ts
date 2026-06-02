@@ -28,6 +28,8 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductStatus } from '@prisma/client';
 import { ClosetService } from '../closet/closet.service';
 import { deleteProductCascade } from 'src/utils/cascade-delete';
+import { MailService } from 'src/services/mail/mail.service';
+import { fetchAdminAlertRecipients } from '../shipment/shipment-admin-alert-recipients';
 
 @Injectable()
 export class ProductService {
@@ -35,6 +37,7 @@ export class ProductService {
     private readonly prisma: PrismaService,
     @Inject(forwardRef(() => ClosetService))
     private readonly closetService: ClosetService,
+    private readonly mailService: MailService,
   ) {}
 
   async create(dto: CreateProductDto, user: userEntity) {
@@ -238,6 +241,36 @@ export class ProductService {
             include: productDetailIncludeOrdered,
           })
         : newProduct;
+
+      try {
+        const admins = await fetchAdminAlertRecipients(this.prisma);
+        const origin = (
+          process.env.CLIENT_URL ||
+          process.env.FRONTEND_URL ||
+          'http://localhost:3000'
+        ).replace(/\/$/, '');
+        const adminSegment =
+          process.env.ADMIN_SECRET_SEGMENT?.trim() || 'k340eol21';
+        const adminLink = `${origin}/admin/${adminSegment}/listings`;
+        const created = product ?? newProduct;
+        await Promise.all(
+          admins
+            .filter((admin) => admin.email?.trim())
+            .map((admin) =>
+              this.mailService.sendAdminNewListingAlert({
+                to: admin.email.trim(),
+                adminName: admin.name,
+                productName: created.name,
+                listingType,
+                listerName: user.name,
+                listerEmail: user.email,
+                adminLink,
+              }),
+            ),
+        );
+      } catch (err) {
+        console.warn('[Product] Admin new listing email failed:', err);
+      }
 
       return {
         success: true,

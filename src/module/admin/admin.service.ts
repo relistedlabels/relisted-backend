@@ -2574,6 +2574,9 @@ export class AdminService {
   ) {
     const product = await this.prisma.product.findUnique({
       where: { id: productId },
+      include: {
+        curator: { select: { name: true, email: true } },
+      },
     });
     if (!product) throw new NotFoundException('Product not found');
 
@@ -2585,6 +2588,35 @@ export class AdminService {
         ...(status === 'APPROVED' ? { productVerified: true } : {}),
       },
     });
+
+    if (product.curator?.email) {
+      const origin = (
+        process.env.CLIENT_URL ||
+        process.env.FRONTEND_URL ||
+        'http://localhost:3000'
+      ).replace(/\/$/, '');
+
+      try {
+        if (status === 'REJECTED') {
+          await this.mailService.sendListingRejectedEmail({
+            email: product.curator.email,
+            userName: product.curator.name,
+            productName: product.name,
+            rejectionReason: reason || 'No reason provided.',
+            editUrl: `${origin}/listers/inventory/product-edit/${productId}`,
+          });
+        } else if (status === 'APPROVED') {
+          await this.mailService.sendListingApprovedEmail({
+            email: product.curator.email,
+            userName: product.curator.name,
+            productName: product.name,
+            listingUrl: `${origin}/shop/product-details/${productId}`,
+          });
+        }
+      } catch {
+        // Status update should succeed even if email delivery fails.
+      }
+    }
 
     return {
       success: true,

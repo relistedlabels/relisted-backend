@@ -17,6 +17,7 @@ import {
   ReturnDueReminderDto,
   ReturnRequestReminderDto,
   EscrowReleaseNotificationDto,
+  AdminWithdrawalRequestAlertDto,
   ListerReturnInTransitDto,
   ListerReturnDeliveredConfirmDto,
   ListerReturnWindowPassedDto,
@@ -992,6 +993,145 @@ export class MailService {
     });
   }
 
+  async sendListingRejectedEmail(dto: {
+    email: string;
+    userName: string;
+    productName: string;
+    rejectionReason: string;
+    editUrl: string;
+  }) {
+    const { email, userName, productName, rejectionReason, editUrl } = dto;
+    const subject = `Your listing needs changes: ${productName}`;
+    const safeName = (userName || 'there').replace(/</g, '');
+    const safeProduct = (productName || 'Your item').replace(/</g, '');
+    const safeReason = (rejectionReason || '').replace(/</g, '');
+
+    const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f6f7fb;padding:24px;">
+  <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
+    <div style="padding:18px 20px;background:#111827;color:#ffffff;">
+      <div style="font-size:14px;opacity:0.9;">Relisted</div>
+      <div style="font-size:18px;font-weight:700;margin-top:6px;">Listing not approved</div>
+    </div>
+    <div style="padding:20px;">
+      <p style="margin:0 0 12px;color:#374151;">Hi ${safeName},</p>
+      <p style="margin:0 0 16px;color:#374151;">Your listing <strong>${safeProduct}</strong> was not approved.</p>
+      <p style="margin:0 0 8px;color:#374151;font-weight:600;">Reason:</p>
+      <p style="margin:0 0 16px;color:#374151;white-space:pre-wrap;">${safeReason}</p>
+      <p style="margin:0 0 16px;color:#374151;">You can update the item and submit it again for review.</p>
+      <a href="${editUrl}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">Edit listing</a>
+    </div>
+  </div>
+</div>`;
+
+    if (this.devBypass) {
+      await this.handleDevBypassHtml(subject, html, email);
+      return;
+    }
+
+    await this.deliverMail({
+      to: email,
+      subject,
+      html,
+    });
+  }
+
+  async sendListingApprovedEmail(dto: {
+    email: string;
+    userName: string;
+    productName: string;
+    listingUrl: string;
+  }) {
+    const { email, userName, productName, listingUrl } = dto;
+    const subject = `Your listing is live: ${productName}`;
+    const safeName = (userName || 'there').replace(/</g, '');
+    const safeProduct = (productName || 'Your item').replace(/</g, '');
+
+    const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f6f7fb;padding:24px;">
+  <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
+    <div style="padding:18px 20px;background:#111827;color:#ffffff;">
+      <div style="font-size:14px;opacity:0.9;">Relisted</div>
+      <div style="font-size:18px;font-weight:700;margin-top:6px;">Listing approved</div>
+    </div>
+    <div style="padding:20px;">
+      <p style="margin:0 0 12px;color:#374151;">Hi ${safeName},</p>
+      <p style="margin:0 0 16px;color:#374151;">Great news. Your listing <strong>${safeProduct}</strong> has been approved and is now live on Relisted.</p>
+      <a href="${listingUrl}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">View listing</a>
+    </div>
+  </div>
+</div>`;
+
+    if (this.devBypass) {
+      await this.handleDevBypassHtml(subject, html, email);
+      return;
+    }
+
+    await this.deliverMail({
+      to: email,
+      subject,
+      html,
+    });
+  }
+
+  async sendAdminNewListingAlert(dto: {
+    to: string;
+    adminName: string;
+    productName: string;
+    listingType: string;
+    listerName: string;
+    listerEmail: string;
+    adminLink: string;
+  }) {
+    const {
+      to,
+      adminName,
+      productName,
+      listingType,
+      listerName,
+      listerEmail,
+      adminLink,
+    } = dto;
+    const safe = (s: string) => s.replace(/</g, '');
+    const typeLabel =
+      listingType === 'RESALE'
+        ? 'Resale'
+        : listingType === 'RENT_OR_RESALE'
+          ? 'Rental & Resale'
+          : 'Rental';
+    const subject = `New listing pending review: ${productName}`;
+
+    const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f6f7fb;padding:24px;">
+  <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
+    <div style="padding:18px 20px;background:#111827;color:#ffffff;">
+      <div style="font-size:14px;opacity:0.9;">Relisted Admin</div>
+      <div style="font-size:18px;font-weight:700;margin-top:6px;">New listing to review</div>
+    </div>
+    <div style="padding:20px;">
+      <p style="margin:0 0 12px;color:#374151;">Hello ${safe(adminName || 'Admin')},</p>
+      <p style="margin:0 0 16px;color:#374151;line-height:1.5;">A lister submitted a new item that needs approval before it goes live.</p>
+      <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
+        <div style="font-size:12px;color:#6b7280;">Listing</div>
+        <div style="font-weight:600;color:#111827;">${safe(productName)}</div>
+        <div style="font-size:12px;color:#6b7280;margin-top:12px;">Type</div>
+        <div style="font-weight:600;color:#111827;">${typeLabel}</div>
+        <div style="font-size:12px;color:#6b7280;margin-top:12px;">Submitted by</div>
+        <div style="font-weight:600;color:#111827;">${safe(listerName)}</div>
+        <div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(listerEmail)}</div>
+      </div>
+      <div style="margin-top:18px;">
+        <a href="${adminLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">Review pending listings</a>
+      </div>
+    </div>
+  </div>
+</div>`;
+
+    if (this.devBypass) {
+      await this.handleDevBypassHtml(subject, html, to);
+      return;
+    }
+
+    await this.deliverMail({ to, subject, html });
+  }
+
   async sendReturnDueReminderMail(dto: ReturnDueReminderDto) {
     const { email, userName, orderId, orderLink, dueDate, productName, reminderType } = dto;
     const is24Hour = reminderType === '24_hours';
@@ -1116,6 +1256,77 @@ export class MailService {
       subject,
       html,
     });
+  }
+
+  async sendAdminWithdrawalRequestAlert(dto: AdminWithdrawalRequestAlertDto) {
+    const {
+      email,
+      adminName,
+      reference,
+      amount,
+      requesterName,
+      requesterEmail,
+      requesterRole,
+      bankName,
+      accountNumber,
+      accountName,
+      adminLink,
+    } = dto;
+
+    const safe = (s: string) => s.replace(/</g, '');
+    const amountStr = `NGN ${Number(amount).toLocaleString()}`;
+    const subject = `New withdrawal request: ${reference}`;
+
+    console.log(`[EMAIL] Sending admin withdrawal alert to ${email} (${reference})`);
+
+    const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f6f7fb;padding:24px;">
+  <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
+    <div style="padding:18px 20px;background:#111827;color:#ffffff;">
+      <div style="font-size:14px;opacity:0.9;">Relisted Admin</div>
+      <div style="font-size:18px;font-weight:700;margin-top:6px;">New withdrawal request</div>
+    </div>
+    <div style="padding:20px;">
+      <p style="margin:0 0 12px;color:#374151;">Hello ${safe(adminName || 'Admin')},</p>
+      <p style="margin:0 0 16px;color:#374151;line-height:1.5;">A user submitted a withdrawal request that needs review. Open <strong>Payments & balances</strong>, then the <strong>Withdrawals</strong> tab to approve, reject, or mark as paid.</p>
+      <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Reference</div>
+            <div style="font-weight:600;">${safe(reference)}</div>
+          </div>
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Amount</div>
+            <div style="font-weight:600;">${amountStr}</div>
+          </div>
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Requested by</div>
+            <div style="font-weight:600;">${safe(requesterName)} (${safe(requesterRole)})</div>
+            <div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(requesterEmail)}</div>
+          </div>
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Bank account</div>
+            <div style="font-weight:600;">${safe(bankName)}</div>
+            <div style="font-size:13px;color:#111827;margin-top:4px;font-family:ui-monospace,monospace;">${safe(accountNumber)}</div>
+            ${accountName ? `<div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(accountName)}</div>` : ''}
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:18px;">
+        <a href="${adminLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">Review in admin</a>
+        <div style="margin-top:10px;font-size:12px;color:#6b7280;">
+          If the button does not work, open: <span style="color:#111827;">${adminLink}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>`;
+
+    if (this.devBypass) {
+      await this.handleDevBypassHtml(subject, html, email);
+      return;
+    }
+
+    await this.deliverMail({ to: email, subject, html });
   }
 
   async sendEscrowReleaseNotification(dto: EscrowReleaseNotificationDto) {
