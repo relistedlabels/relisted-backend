@@ -1264,9 +1264,12 @@ export class ProductService {
       //   );
       // }
 
-      // If editing a rejected product, reset to pending
+      // Non-admin edits require re-approval, except during active rental or after sale.
       const updateData: any = { ...dto };
-      if (!isAdmin) {
+      const preserveStatus =
+        product.status === ProductStatus.RENTED ||
+        product.status === ProductStatus.SOLD;
+      if (!isAdmin && !preserveStatus) {
         updateData.status = ProductStatus.PENDING;
         updateData.rejectionComment = null;
       }
