@@ -2484,12 +2484,24 @@ export class AdminService {
     status: 'PENDING' | 'REJECTED' | 'APPROVED',
     page: number,
     limit: number,
+    search?: string,
   ) {
     const skip = (page - 1) * limit;
+    const where: Prisma.ProductWhereInput = { status: status as any };
+    const q = search?.trim();
+    if (q) {
+      where.OR = [
+        { name: { contains: q, mode: 'insensitive' } },
+        { curator: { name: { contains: q, mode: 'insensitive' } } },
+        { curator: { email: { contains: q, mode: 'insensitive' } } },
+        { brand: { name: { contains: q, mode: 'insensitive' } } },
+        { category: { name: { contains: q, mode: 'insensitive' } } },
+      ];
+    }
     const [total, products] = await this.prisma.$transaction([
-      this.prisma.product.count({ where: { status: status as any } }),
+      this.prisma.product.count({ where }),
       this.prisma.product.findMany({
-        where: { status: status as any },
+        where,
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
