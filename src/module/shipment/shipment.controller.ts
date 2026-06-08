@@ -65,4 +65,10 @@ export class ShipmentController {
   ) {
     return this.shipmentService.completeManualFulfillment(id, dto);
   }
+
+  @Auth([Role.ADMIN])
+  @Post('shipments/:id/manual-delivered')
+  markManualDelivered(@Param('id') id: string) {
+    return this.shipmentService.markManualDelivered(id);
+  }
 }
