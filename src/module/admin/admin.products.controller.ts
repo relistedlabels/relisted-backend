@@ -36,11 +36,19 @@ export class AdminProductsController {
   async getPendingProducts(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('count') count?: string,
+    @Query('search') search?: string,
   ) {
+    const pageSize = limit
+      ? parseInt(limit, 10)
+      : count
+        ? parseInt(count, 10)
+        : 10;
     return this.adminService.getProductsByStatus(
       'PENDING',
       page ? parseInt(page, 10) : 1,
-      limit ? parseInt(limit, 10) : 10,
+      pageSize,
+      search,
     );
   }
 
@@ -49,11 +57,19 @@ export class AdminProductsController {
   async getRejectedProducts(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('count') count?: string,
+    @Query('search') search?: string,
   ) {
+    const pageSize = limit
+      ? parseInt(limit, 10)
+      : count
+        ? parseInt(count, 10)
+        : 10;
     return this.adminService.getProductsByStatus(
       'REJECTED',
       page ? parseInt(page, 10) : 1,
-      limit ? parseInt(limit, 10) : 10,
+      pageSize,
+      search,
     );
   }
 
@@ -62,11 +78,19 @@ export class AdminProductsController {
   async getActiveProducts(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('count') count?: string,
+    @Query('search') search?: string,
   ) {
+    const pageSize = limit
+      ? parseInt(limit, 10)
+      : count
+        ? parseInt(count, 10)
+        : 10;
     return this.adminService.getProductsByStatus(
       'APPROVED',
       page ? parseInt(page, 10) : 1,
-      limit ? parseInt(limit, 10) : 10,
+      pageSize,
+      search,
     );
   }
 
