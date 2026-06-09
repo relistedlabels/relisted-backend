@@ -524,7 +524,29 @@ export class ReturnRequestReminderDto {
 
   @IsString()
   @IsOptional()
-  reminderType?: 'end_date_reached' | 'past_due';
+  reminderType?:
+    | '24_hours_before'
+    | 'morning_of'
+    | 'hourly'
+    | '30_minutes'
+    | '15_minutes'
+    | '5_minutes'
+    | 'past_due_morning'
+    | 'past_due_afternoon'
+    | 'past_due_evening';
+
+  @IsString()
+  @IsOptional()
+  windowLabel?: string;
+
+  @IsOptional()
+  daysPastDue?: number;
+
+  @IsOptional()
+  collateralAtRisk?: number;
+
+  @IsOptional()
+  penaltyPercent?: number;
 }
 
 export class EscrowReleaseNotificationDto {

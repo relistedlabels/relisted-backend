@@ -937,6 +937,8 @@ model Shipment {
   returnDueReminder24hSentAt     DateTime?
   /// Renter return reminder dedupe (per RETURN leg): morning-of pickup (Lagos).
   returnDueReminderMorningSentAt DateTime?
+  /// Return-request completion nudges dedupe (per RETURN leg, no ReturnRequest yet).
+  returnRequestReminderState Json?
   dispatchAttempts     Int                  @default(0)
   dispatchedAt         DateTime?
   /// Buyer confirmed receipt for RESALE legs (releases resale payout for this shipment only).

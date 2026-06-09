@@ -776,6 +776,7 @@ Table Shipment {
   manualDueReminderMorningSentAt DateTime [note: 'Admin due reminder dedupe: Relisted dispatch leg due today (morning ping, Lagos).']
   returnDueReminder24hSentAt DateTime [note: 'Renter return reminder dedupe (per RETURN leg): ~24h before pickup window.']
   returnDueReminderMorningSentAt DateTime [note: 'Renter return reminder dedupe (per RETURN leg): morning-of pickup (Lagos).']
+  returnRequestReminderState Json [note: 'Return-request completion nudges dedupe (per RETURN leg, no ReturnRequest yet).']
   dispatchAttempts Int [not null, default: 0]
   dispatchedAt DateTime
   buyerConfirmedAt DateTime [note: 'Buyer confirmed receipt for RESALE legs (releases resale payout for this shipment only).']
