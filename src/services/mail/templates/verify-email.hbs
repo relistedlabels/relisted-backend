@@ -88,6 +88,11 @@
     </div>
     <div class="content">
       <p>Hello {{name}},</p>
+      {{#if adminMfa}}
+      <p>Use this code to complete your admin sign-in:</p>
+      <div class="otp-fallback">{{code}}</div>
+      <p class="note">This code expires in <strong>{{#if expiryMinutes}}{{expiryMinutes}}{{else}}10{{/if}} minutes</strong>. If you didn't try to sign in, you can ignore this email.</p>
+      {{else}}
       <p>Thanks for signing up. To complete your registration and start listing or renting, verify your email by clicking the button below.</p>
 
       {{#if verificationLink}}
@@ -102,6 +107,7 @@
       <p>Use this code to verify your email:</p>
       <div class="otp-fallback">{{code}}</div>
       <p class="note">This code expires in <strong>10 minutes</strong>. If you didn’t create a Relisted account, you can ignore this email.</p>
+      {{/if}}
       {{/if}}
     </div>
     <div class="footer">

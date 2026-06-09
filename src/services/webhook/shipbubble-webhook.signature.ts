@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 
 /**
  * Verify Shipbubble webhook HMAC-SHA512 signature.
+ * Shipbubble signs with SECRET_KEY (= SHIPBUBBLE_API_KEY).
  * @see https://docs.shipbubble.com/api-reference/webhooks
  */
 export function verifyShipbubbleWebhookSignature(

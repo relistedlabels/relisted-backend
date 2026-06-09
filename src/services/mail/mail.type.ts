@@ -26,6 +26,10 @@ export class VerificationDto {
   @IsNumber()
   @IsOptional()
   expiryMinutes?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  adminMfa?: boolean;
 }
 
 export class VerifyOrderDto {

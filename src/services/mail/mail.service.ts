@@ -206,22 +206,20 @@ export class MailService {
 
   async SendVerficationMail(dto: VerificationDto) {
     const { email, ...rest } = dto;
+    const subject = rest.adminMfa
+      ? Auth_Otp_Token_Subject.Admin_MFA
+      : Auth_Otp_Token_Subject.Verify_Email;
     console.log(`[EMAIL] Sending verify-email to ${email}`);
 
     if (this.devBypass) {
-      await this.handleDevBypass(
-        'verify-email',
-        Auth_Otp_Token_Subject.Verify_Email,
-        rest,
-        email,
-      );
+      await this.handleDevBypass('verify-email', subject, rest, email);
       return;
     }
 
     await this.deliverMail({
       to: email,
       template: './verify-email',
-      subject: Auth_Otp_Token_Subject.Verify_Email,
+      subject,
       context: rest,
     });
   }

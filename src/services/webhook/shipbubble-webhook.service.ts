@@ -30,25 +30,17 @@ export class ShipbubbleWebhookService {
     return process.env.SHIPBUBBLE_WEBHOOK_ENABLED !== '0';
   }
 
-  private webhookSecret(): string {
-    return (
-      process.env.SHIPBUBBLE_WEBHOOK_SECRET?.trim() ||
-      process.env.SHIPBUBBLE_WEBHOOK_SECRET_KEY?.trim() ||
-      ''
-    );
-  }
-
   assertValidSignature(rawBody: Buffer, signatureHeader: string | undefined): void {
-    const secret = this.webhookSecret();
+    const secret = process.env.SHIPBUBBLE_API_KEY?.trim() || '';
     if (!secret) {
       if (process.env.NODE_ENV === 'production') {
         throw new UnauthorizedException(
-          'SHIPBUBBLE_WEBHOOK_SECRET is not configured',
+          'Shipbubble webhook signing key is not configured (set SHIPBUBBLE_API_KEY)',
         );
       }
       if (process.env.SHIPBUBBLE_WEBHOOK_SKIP_VERIFY !== '1') {
         throw new UnauthorizedException(
-          'SHIPBUBBLE_WEBHOOK_SECRET is not configured (set SHIPBUBBLE_WEBHOOK_SKIP_VERIFY=1 for local testing only)',
+          'Shipbubble webhook signing key is not configured (set SHIPBUBBLE_API_KEY or SHIPBUBBLE_WEBHOOK_SKIP_VERIFY=1 for local testing only)',
         );
       }
       this.logger.warn(

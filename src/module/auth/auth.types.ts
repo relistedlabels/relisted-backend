@@ -8,7 +8,7 @@ export const Auth_Otp_Token_Subject = {
   RESET_PASSWORD: 'RESET Password',
   CONFIRM_ORDER: 'Verify Order ',
   LISTER_ORDER_PLACED: 'New order on Relisted',
-  Admin_MFA: 'admin mfa',
+  Admin_MFA: 'Your admin login code',
   RENTAL_REQUEST: 'New Rental Request',
   PURCHASE_REQUEST: 'New Purchase Request',
   RENTAL_REQUEST_WITHDRAWN: 'Rental request withdrawn',
@@ -16,7 +16,7 @@ export const Auth_Otp_Token_Subject = {
   RENTAL_RESPONSE: 'Update on your Rental Request',
   PURCHASE_RESPONSE: 'Update on your Purchase Request',
   AVAILABILITY_REMINDER_REREQUEST: 'Reminder: send a new request on Relisted',
-  AVAILABILITY_REMINDER_AVAILABLE: 'A curator is ready for your request',
+  AVAILABILITY_REMINDER_AVAILABLE: 'A lister is ready for your request',
   WITHDRAWAL_STATUS: 'Withdrawal Request Status',
   SHIPPING_UPDATE: 'Shipping Status Update',
 };
