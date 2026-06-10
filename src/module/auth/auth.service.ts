@@ -221,6 +221,7 @@ export class AuthService {
         name: user.name,
         year,
         expiryMinutes,
+        adminMfa: true,
       });
 
       return {

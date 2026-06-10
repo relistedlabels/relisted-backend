@@ -23,6 +23,14 @@ import {
   productNamesForReturnLeg,
   resolveCuratorForReturnLeg,
 } from 'src/module/order/return-request-leg.util';
+import {
+  applyLateReturnCollateralPenaltyIfEnabled,
+  applyReturnRequestReminderState,
+  buildReturnRequestReminderConfigFromEnv,
+  computeReturnRequestReminderActions,
+  getPastDueDaysNotified,
+  returnRequestReminderNotificationCopy,
+} from './return-request-reminder.util';
 
 const DISPATCH_CRON_LOOKAHEAD_MINUTES = Number(
   process.env.DISPATCH_CRON_LOOKAHEAD_MINUTES ?? 59,
@@ -53,6 +61,8 @@ const MANUAL_FULFILLMENT_DUE_REMINDER_CRON_SCHEDULE =
   RETURN_DUE_REMINDER_CRON_SCHEDULE;
 const RESALE_INSPECTION_RELEASE_CRON_SCHEDULE =
   process.env.RESALE_INSPECTION_RELEASE_CRON?.trim() || '0 * * * *';
+const RETURN_REQUEST_REMINDER_CRON_SCHEDULE =
+  process.env.RETURN_REQUEST_REMINDER_CRON?.trim() || '* * * * *';
 
 @Injectable()
 export class ShipmentDispatchScheduler {
@@ -369,6 +379,170 @@ export class ShipmentDispatchScheduler {
   }
 
   /**
+   * Nudge renters to complete their return request before the RETURN window opens,
+   * then past-due alerts (8 AM / 2 PM / 8 PM Lagos) if the window passes with no request.
+   */
+  @Cron(RETURN_REQUEST_REMINDER_CRON_SCHEDULE, {
+    timeZone: 'Africa/Lagos',
+  })
+  async sendReturnRequestCompletionReminders() {
+    const now = new Date();
+    const config = buildReturnRequestReminderConfigFromEnv();
+    const lookbackStart = subHours(now, 26);
+    const lookaheadEnd = addHours(now, 7 * 24);
+    const rentalish = [ListingType.RENTAL, ListingType.RENT_OR_RESALE];
+    const clientUrl = process.env.CLIENT_URL || 'https://relisted.com';
+
+    const legs = await this.prisma.shipment.findMany({
+      where: {
+        type: 'RETURN',
+        status: { notIn: ['COMPLETED', 'CANCELLED'] },
+        returnRequests: { none: {} },
+        scheduledWindowStart: { not: null },
+        OR: [
+          { scheduledWindowStart: { gte: lookbackStart, lte: lookaheadEnd } },
+          { scheduledWindowEnd: { lte: now } },
+        ],
+        order: {
+          listingType: { in: rentalish },
+          status: {
+            notIn: ['RETURNED', 'COMPLETED', 'CANCELLED', 'REJECTED'],
+          },
+        },
+      },
+      select: {
+        id: true,
+        listerId: true,
+        scheduledWindowStart: true,
+        scheduledWindowEnd: true,
+        returnRequestReminderState: true,
+        order: {
+          select: {
+            id: true,
+            orderId: true,
+            userId: true,
+            user: { select: { email: true, name: true } },
+            escrows: {
+              select: {
+                listerId: true,
+                collateralAmount: true,
+              },
+            },
+            orderItems: {
+              select: {
+                returnShipmentId: true,
+                product: {
+                  select: { name: true, curator: { select: { id: true } } },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (legs.length === 0) return;
+
+    let sent = 0;
+
+    for (const leg of legs) {
+      const order = leg.order;
+      if (!order?.user?.email?.trim()) continue;
+
+      const actions = computeReturnRequestReminderActions(now, leg, config);
+
+      if (actions.length === 0) continue;
+
+      const productName = productNamesForReturnLeg(
+        order.orderItems,
+        leg.id,
+        leg.listerId,
+      );
+      const orderLink = `${clientUrl}/renters/orders/${order.orderId}`;
+      const windowStart = leg.scheduledWindowStart
+        ? new Date(leg.scheduledWindowStart)
+        : null;
+      const windowEnd = leg.scheduledWindowEnd
+        ? new Date(leg.scheduledWindowEnd)
+        : null;
+      const windowLabel = windowStart
+        ? this.formatLagosPickupWindow(windowStart, windowEnd)
+        : '';
+
+      const listerEscrow = order.escrows.find(
+        (e) => e.listerId === leg.listerId,
+      );
+      const collateralAtRisk = listerEscrow?.collateralAmount ?? 0;
+
+      for (const action of actions) {
+        const daysPastDue = action.incrementPastDueDay
+          ? getPastDueDaysNotified(leg.returnRequestReminderState) + 1
+          : getPastDueDaysNotified(leg.returnRequestReminderState);
+
+        const { title, message } = returnRequestReminderNotificationCopy(
+          action.type,
+          order.orderId,
+          productName,
+          daysPastDue,
+        );
+
+        await this.notification.createNotification({
+          userId: order.userId,
+          title,
+          message,
+          type: 'RETURN_REQUEST_REMINDER',
+          metadata: {
+            orderId: order.id,
+            orderNumber: order.orderId,
+            shipmentId: leg.id,
+            reminderType: action.type,
+          },
+          sendEmail: true,
+          emailData: {
+            email: order.user.email.trim(),
+            userName: order.user.name || 'there',
+            orderId: order.orderId,
+            orderLink,
+            productName,
+            reminderType: action.type,
+            windowLabel,
+            daysPastDue,
+            collateralAtRisk,
+            penaltyPercent: Number(
+              process.env.LATE_RETURN_COLLATERAL_PENALTY_PERCENT ?? 5,
+            ),
+          },
+        });
+
+        if (action.incrementPastDueDay) {
+          await applyLateReturnCollateralPenaltyIfEnabled(this.prisma, {
+            collateralAmount: collateralAtRisk,
+          });
+        }
+
+        const nextState = applyReturnRequestReminderState(
+          leg.returnRequestReminderState,
+          action,
+          now,
+        );
+        await this.prisma.shipment.update({
+          where: { id: leg.id },
+          data: { returnRequestReminderState: nextState },
+        });
+        leg.returnRequestReminderState = nextState;
+
+        sent += 1;
+      }
+    }
+
+    if (sent > 0) {
+      this.logger.log(
+        `[ReturnRequestReminder] Sent ${sent} return-request completion reminder(s).`,
+      );
+    }
+  }
+
+  /**
    * Renter return due reminders (per RETURN shipment leg):
    * - 24-hour reminder (day before pickup window)
    * - morning-of reminder (default 8 AM Africa/Lagos)
@@ -445,7 +619,9 @@ export class ShipmentDispatchScheduler {
       if (!order?.user?.email?.trim()) continue;
 
       const linkedRr = leg.returnRequests[0] ?? null;
-      const pickupStart = linkedRr?.pickupWindowStart
+      if (!linkedRr) continue;
+
+      const pickupStart = linkedRr.pickupWindowStart
         ? new Date(linkedRr.pickupWindowStart)
         : leg.scheduledWindowStart
           ? new Date(leg.scheduledWindowStart)

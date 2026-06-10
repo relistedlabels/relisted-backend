@@ -28,6 +28,10 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 import * as Handlebars from 'handlebars';
 import { ResendService } from './resend.service';
+import {
+  returnRequestReminderEmailCopy,
+  type ReturnRequestReminderType,
+} from 'src/module/shipment/return-request-reminder.util';
 
 @Injectable()
 export class MailService {
@@ -206,22 +210,20 @@ export class MailService {
 
   async SendVerficationMail(dto: VerificationDto) {
     const { email, ...rest } = dto;
+    const subject = rest.adminMfa
+      ? Auth_Otp_Token_Subject.Admin_MFA
+      : Auth_Otp_Token_Subject.Verify_Email;
     console.log(`[EMAIL] Sending verify-email to ${email}`);
 
     if (this.devBypass) {
-      await this.handleDevBypass(
-        'verify-email',
-        Auth_Otp_Token_Subject.Verify_Email,
-        rest,
-        email,
-      );
+      await this.handleDevBypass('verify-email', subject, rest, email);
       return;
     }
 
     await this.deliverMail({
       to: email,
       template: './verify-email',
-      subject: Auth_Otp_Token_Subject.Verify_Email,
+      subject,
       context: rest,
     });
   }
@@ -1200,31 +1202,74 @@ export class MailService {
   }
 
   async sendReturnRequestReminderMail(dto: ReturnRequestReminderDto) {
-    const { email, userName, orderId, orderLink, productName, reminderType } = dto;
-    const isEndDateReached = reminderType === 'end_date_reached';
-    const subject = isEndDateReached
-      ? 'Your rental period has ended - Start your return'
-      : 'Action required: Complete your return request';
+    const {
+      email,
+      userName,
+      orderId,
+      orderLink,
+      productName,
+      reminderType,
+      windowLabel,
+      daysPastDue,
+      collateralAtRisk,
+      penaltyPercent = 5,
+    } = dto;
+
     const safeName = (userName || 'there').replace(/</g, '');
     const safeProduct = (productName || 'your rental item').replace(/</g, '');
+    const type = (reminderType ?? 'morning_of') as ReturnRequestReminderType;
+    const isPastDue = type.startsWith('past_due');
+    const isUrgent =
+      type === '15_minutes' ||
+      type === '5_minutes' ||
+      type === 'past_due_afternoon' ||
+      type === 'past_due_evening';
+    const headerBg = isPastDue ? '#991b1b' : isUrgent ? '#b45309' : '#111827';
+    const copy = returnRequestReminderEmailCopy(
+      type,
+      safeProduct,
+      windowLabel,
+      daysPastDue,
+      collateralAtRisk,
+      penaltyPercent,
+    );
+
+    const collateralBlock =
+      isPastDue && collateralAtRisk && collateralAtRisk > 0
+        ? `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px;margin:16px 0;">
+        <p style="margin:0 0 8px;color:#991b1b;font-weight:600;">Collateral at risk</p>
+        <p style="margin:0;color:#7f1d1d;font-size:14px;">
+          Each calendar day your return remains incomplete, up to <strong>${penaltyPercent}%</strong>
+          of your collateral (NGN ${collateralAtRisk.toLocaleString()}) may be applied as a late-return penalty.
+        </p>
+      </div>`
+        : '';
+
+    const windowBlock = windowLabel
+      ? `<div style="font-size:12px;color:#6b7280;margin:16px 0 4px;">Return window</div>
+        <div style="font-weight:600;color:#111827;">${windowLabel}</div>`
+      : '';
 
     const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f6f7fb;padding:24px;">
   <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
-    <div style="padding:18px 20px;background:#111827;color:#ffffff;">
+    <div style="padding:18px 20px;background:${headerBg};color:#ffffff;">
       <div style="font-size:14px;opacity:0.9;">Relisted</div>
-      <div style="font-size:18px;font-weight:700;margin-top:6px;">${isEndDateReached ? 'Time to Return' : 'Return Request Overdue'}</div>
+      <div style="font-size:18px;font-weight:700;margin-top:6px;">${copy.heading}</div>
     </div>
     <div style="padding:20px;">
       <p style="margin:0 0 12px;color:#374151;">Hi ${safeName},</p>
-      <p style="margin:0 0 16px;color:#374151;">
-        ${isEndDateReached
-          ? `Your rental period for <strong>${safeProduct}</strong> has ended. Please initiate your return to schedule pickup.`
-          : `Your rental return for <strong>${safeProduct}</strong> is overdue. Please complete your return request immediately to avoid additional charges.`
-        }
-      </p>
+      <p style="margin:0 0 16px;color:#374151;">${copy.body}</p>
       <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;margin:16px 0;">
         <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Order ID</div>
         <div style="font-weight:600;color:#111827;">${orderId}</div>
+        ${windowBlock}
+      </div>
+      ${collateralBlock}
+      <div style="background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:12px;margin:16px 0;">
+        <p style="margin:0;color:#9a3412;font-weight:600;">You must complete your return request</p>
+        <p style="margin:8px 0 0;color:#7c2d12;font-size:14px;">
+          A rider will not be sent automatically. Open your order, tap <strong>Start Return Process</strong>, upload photos, and submit. Only then can we book pickup with the carrier.
+        </p>
       </div>
       <div style="margin:20px 0;">
         <a href="${orderLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">View Order & Start Return</a>
@@ -1235,25 +1280,25 @@ export class MailService {
       <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin:16px 0;">
         <p style="margin:0 0 8px;color:#374151;font-weight:600;">How to complete your return:</p>
         <ol style="margin:0;padding-left:20px;color:#374151;font-size:14px;">
-          <li style="margin-bottom:6px;">Click the button above to view your order</li>
-          <li style="margin-bottom:6px;">Scroll down to the "Ready to Return?" section</li>
-          <li style="margin-bottom:6px;">Click the <strong>"Start Return Process"</strong> button</li>
-          <li>Upload photos of the item's current condition and submit</li>
+          <li style="margin-bottom:6px;">Open your order using the button above</li>
+          <li style="margin-bottom:6px;">Go to the "Ready to Return?" section</li>
+          <li style="margin-bottom:6px;">Tap <strong>"Start Return Process"</strong></li>
+          <li>Upload current-condition photos and submit</li>
         </ol>
       </div>
-      ${!isEndDateReached ? '<p style="margin:16px 0 0;color:#dc2626;font-weight:600;">Late returns may incur additional rental charges. Please act now.</p>' : ''}
+      ${copy.footer ? `<p style="margin:16px 0 0;color:#dc2626;font-weight:600;">${copy.footer}</p>` : ''}
     </div>
   </div>
 </div>`;
 
     if (this.devBypass) {
-      await this.handleDevBypassHtml(subject, html, email);
+      await this.handleDevBypassHtml(copy.subject, html, email);
       return;
     }
 
     await this.deliverMail({
       to: email,
-      subject,
+      subject: copy.subject,
       html,
     });
   }

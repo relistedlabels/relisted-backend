@@ -116,6 +116,9 @@ export class NotificationService {
         case 'RETURN_DUE_REMINDER':
           await this.mailService.sendReturnDueReminderMail(data);
           break;
+        case 'RETURN_REQUEST_REMINDER':
+          await this.mailService.sendReturnRequestReminderMail(data);
+          break;
         case 'SHIPPING_UPDATE':
           await this.mailService.SendShippingUpdateMail(data);
           break;

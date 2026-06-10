@@ -43,6 +43,7 @@ export class EventService {
         ...(typeof p.expiryMinutes === 'number' && {
           expiryMinutes: p.expiryMinutes,
         }),
+        ...(p.adminMfa === true && { adminMfa: true }),
       };
       await this.mailService.SendVerficationMail(dto);
       this.logger.log(`Verification email sent to ${dto.email}`);
