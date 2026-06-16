@@ -131,6 +131,12 @@ export class AdminProductsController {
     );
   }
 
+  @Patch(':productId/pending')
+  @ApiOperation({ summary: 'Revert an approved product to pending' })
+  async revertProductToPending(@Param('productId') productId: string) {
+    return this.adminService.revertProductToPending(productId);
+  }
+
   @Get('listings/:productId/availability')
   @ApiOperation({ summary: 'Get product rental availability & calendar' })
   async getProductAvailability(
