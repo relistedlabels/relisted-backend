@@ -2579,6 +2579,81 @@ export class AdminService {
     return { success: true, data: product };
   }
 
+  async revertProductToPending(productId: string) {
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+    });
+    if (!product) throw new NotFoundException('Product not found');
+
+    const revertableStatuses: ProductStatus[] = [
+      ProductStatus.APPROVED,
+      ProductStatus.AVAILABLE,
+      ProductStatus.UNAVAILABLE,
+    ];
+
+    if (product.status === ProductStatus.PENDING) {
+      throw new BadRequestException('Product is already pending');
+    }
+
+    if (!revertableStatuses.includes(product.status)) {
+      throw new BadRequestException(
+        `Cannot revert to pending from status "${product.status}"`,
+      );
+    }
+
+    const activeRental = await this.prisma.rental.findFirst({
+      where: {
+        productId,
+        isReturned: false,
+        endDate: { gt: new Date() },
+      },
+      select: { id: true },
+    });
+    if (activeRental) {
+      throw new BadRequestException(
+        'Cannot revert to pending while the product is out on rental',
+      );
+    }
+
+    const activeOrder = await this.prisma.orderItem.findFirst({
+      where: {
+        productId,
+        order: {
+          status: {
+            in: [
+              OrderStatus.CONFIRMED,
+              OrderStatus.IN_TRANSIT,
+              OrderStatus.DELIVERED,
+              OrderStatus.ACTIVE,
+            ],
+          },
+        },
+      },
+      select: { id: true },
+    });
+    if (activeOrder) {
+      throw new BadRequestException(
+        'Cannot revert to pending while the product has an active order',
+      );
+    }
+
+    const updated = await this.prisma.product.update({
+      where: { id: productId },
+      data: {
+        status: ProductStatus.PENDING,
+        productVerified: false,
+        isActive: false,
+        rejectionComment: null,
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Product reverted to pending',
+      data: updated,
+    };
+  }
+
   async updateProductStatus(
     productId: string,
     status: 'APPROVED' | 'REJECTED',
