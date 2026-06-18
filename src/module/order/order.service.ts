@@ -372,6 +372,11 @@ export class OrderService {
     );
   }
 
+  /** Return pickup day: calendar day after the last wear day (`start + days`). */
+  private rentalReturnPickupDate(rentalStart: Date, days: number): Date {
+    return addDays(rentalStart, days > 0 ? days : 1);
+  }
+
   /** Group cart lines into shipment buckets (same lister, same resolved dispatch windows). */
   private buildShipmentBucketsForLister(
     items: any[],
@@ -398,9 +403,6 @@ export class OrderService {
     const rentalGroups = new Map<string, any[]>();
     for (const it of rentalItems) {
       const rentalStart = it.startDate ? new Date(it.startDate) : new Date();
-      const rentalEnd = it.endDate
-        ? new Date(it.endDate)
-        : addDays(rentalStart, it.days ?? 1);
       const ob = this.resolveDispatchWindow(
         'OUTBOUND',
         rentalStart,
@@ -409,7 +411,7 @@ export class OrderService {
       );
       const ret = this.resolveDispatchWindow(
         'RETURN',
-        rentalEnd,
+        this.rentalReturnPickupDate(rentalStart, it.days ?? 1),
         dispatchWindowsInput,
         it.dispatchWindows?.RETURN,
       );
@@ -444,9 +446,6 @@ export class OrderService {
       const rentalStart = sample.startDate
         ? new Date(sample.startDate)
         : new Date();
-      const rentalEnd = sample.endDate
-        ? new Date(sample.endDate)
-        : addDays(rentalStart, sample.days ?? 1);
       const outboundWindow = this.resolveDispatchWindow(
         'OUTBOUND',
         rentalStart,
@@ -455,7 +454,7 @@ export class OrderService {
       );
       const returnWindow = this.resolveDispatchWindow(
         'RETURN',
-        rentalEnd,
+        this.rentalReturnPickupDate(rentalStart, sample.days ?? 1),
         dispatchWindowsInput,
         sample.dispatchWindows?.RETURN,
       );
