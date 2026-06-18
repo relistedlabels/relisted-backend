@@ -389,18 +389,15 @@ export function listReturnPickupSlotsForDay(
   const dayEndMinutes = RETURN_DISPATCH_WINDOW_END_HOUR * 60;
   const duration = DEFAULT_DISPATCH_WINDOW_MINUTES;
   const lastStart = dayEndMinutes - duration;
-  const todayKey = getLagosCalendarDateKey(now);
   const slots: DispatchWindowRange[] = [];
 
   for (let startMin = dayStartMinutes; startMin <= lastStart; startMin += 60) {
     const start = buildLagosDateFromCalendarKey(scheduledDay, startMin);
     const end = buildLagosDateFromCalendarKey(scheduledDay, startMin + duration);
-    if (scheduledDay === todayKey && start.getTime() <= now.getTime()) {
+    if (end.getTime() <= now.getTime()) {
       continue;
     }
-    if (end.getTime() > now.getTime()) {
-      slots.push({ start, end });
-    }
+    slots.push({ start, end });
   }
 
   return slots;
@@ -525,21 +522,26 @@ export function resolveReturnPickupWindowForSubmit(
   const options = buildReturnPickupWindowOptions(reference, preferred);
 
   if (choice?.start && choice?.end) {
-    const window = parseReturnPickupWindowChoice(
-      choice,
-      options.scheduledDay,
-      reference,
-    );
-    const originalExpired = options.originalWindow?.expired ?? false;
-    const keptOriginal =
-      !originalExpired &&
-      options.originalWindow &&
-      new Date(options.originalWindow.start).getTime() === window.start.getTime();
-    return {
-      window,
-      rescheduled: originalExpired || !keptOriginal,
-      scheduledDay: options.scheduledDay,
-    };
+    try {
+      const window = parseReturnPickupWindowChoice(
+        choice,
+        options.scheduledDay,
+        reference,
+      );
+      const originalExpired = options.originalWindow?.expired ?? false;
+      const keptOriginal =
+        !originalExpired &&
+        options.originalWindow &&
+        new Date(options.originalWindow.start).getTime() ===
+          window.start.getTime();
+      return {
+        window,
+        rescheduled: originalExpired || !keptOriginal,
+        scheduledDay: options.scheduledDay,
+      };
+    } catch {
+      // Stale client selection (e.g. checkout slot that already started) — next slot.
+    }
   }
 
   return {

@@ -1199,8 +1199,14 @@ export class RentersService {
     const now = new Date();
     const outboundBase =
       startDate && startDate.getTime() > now.getTime() ? startDate : now;
+    const returnPickupDate =
+      startDate && data.rentalDays && data.rentalDays > 0
+        ? addDays(startDate, data.rentalDays)
+        : endDate
+          ? addDays(endDate, 1)
+          : now;
     const returnBase =
-      endDate && endDate.getTime() > now.getTime() ? endDate : now;
+      returnPickupDate.getTime() > now.getTime() ? returnPickupDate : now;
 
     let windowMap: Partial<Record<DispatchWindowType, DispatchWindowRange>> =
       {};
@@ -4033,18 +4039,21 @@ export class RentersService {
           }
         : null;
 
-    const options = buildReturnPickupWindowOptions(
-      new Date(),
-      scheduledFromShipment,
-    );
+    const now = new Date();
+    const options = buildReturnPickupWindowOptions(now, scheduledFromShipment);
 
-    const checkoutWindowExpired = scheduledFromShipment
-      ? isWindowExpired(scheduledFromShipment)
-      : false;
-    /** Only true when the checkout return slot has passed and the renter must pick a new time. */
-    const pickupWindowSelectable = checkoutWindowExpired;
+    /** Checkout slot can still be submitted (future start, window not ended). */
+    const checkoutWindowStillBookable = Boolean(
+      scheduledFromShipment &&
+        !isWindowExpired(scheduledFromShipment, now) &&
+        scheduledFromShipment.start.getTime() > now.getTime(),
+    );
+    /** True when checkout slot ended or already started (submit rejects started slots). */
+    const pickupWindowSelectable = Boolean(
+      scheduledFromShipment && !checkoutWindowStillBookable,
+    );
     const bookedPickupWindow =
-      options.originalWindow && !checkoutWindowExpired
+      options.originalWindow && checkoutWindowStillBookable
         ? {
             start: options.originalWindow.start,
             end: options.originalWindow.end,
