@@ -30,6 +30,7 @@ import { ClosetService } from '../closet/closet.service';
 import { deleteProductCascade } from 'src/utils/cascade-delete';
 import { MailService } from 'src/services/mail/mail.service';
 import { fetchAdminAlertRecipients } from '../shipment/shipment-admin-alert-recipients';
+import { assertProductAttachmentUploads } from 'src/utils/validate-product-attachment-uploads';
 
 @Injectable()
 export class ProductService {
@@ -162,24 +163,11 @@ export class ProductService {
       }
 
       if (dto.attachments?.length) {
-        const existingUploads = await this.prisma.upload.findMany({
-          where: {
-            id: { in: dto.attachments },
-          },
-          select: { id: true },
-        });
-
-        const existingIds = existingUploads.map((upload) => upload.id);
-        const missingIds = dto.attachments.filter(
-          (id) => !existingIds.includes(id),
+        await assertProductAttachmentUploads(
+          this.prisma,
+          dto.attachments,
+          user.id,
         );
-
-        if (missingIds.length > 0) {
-          throw new BadRequestException(
-            `The following upload IDs do not exist: ${missingIds.join(', ')}. ` +
-              'Please upload files first or use valid upload IDs.',
-          );
-        }
       }
 
       const newProduct = await this.prisma.product.create({
@@ -291,9 +279,12 @@ export class ProductService {
       const skip = (page - 1) * limit;
 
       // 1. Build where clause
+      const saleSlug = query.sale?.trim();
+      const inSaleContext = Boolean(saleSlug);
       const inClosetListContext = Boolean(
         query.closetId || query.onlyWithCloset,
       );
+      const inCampaignContext = inClosetListContext || inSaleContext;
       const liveShopStatuses: ProductStatus[] = [
         ProductStatus.AVAILABLE,
         ProductStatus.APPROVED,
@@ -302,8 +293,8 @@ export class ProductService {
 
       const where: any = {};
 
-      if (inClosetListContext) {
-        // Closet / "closet drops" views: keep sold resale items visible (greyed on client)
+      if (inCampaignContext) {
+        // Sale / closet views: keep sold resale items visible (greyed on client)
         where.AND = [
           {
             OR: [
@@ -317,7 +308,22 @@ export class ProductService {
         where.isActive = true;
       }
 
-      if (query.closetId) {
+      if (saleSlug) {
+        const sale = await this.prisma.shopSale.findUnique({
+          where: { slug: saleSlug },
+          select: {
+            isEnabled: true,
+            products: { select: { productId: true } },
+          },
+        });
+        const saleProductIds =
+          sale?.isEnabled === true
+            ? sale.products.map((row) => row.productId)
+            : [];
+        where.id = {
+          in: saleProductIds.length > 0 ? saleProductIds : ['__no_sale_items__'],
+        };
+      } else if (query.closetId) {
         where.closetId = query.closetId;
         // Public storefront only: hide inventory from deactivated closets (owner tools use same list without this flag).
         if (query.excludeStagingCurator === true) {
@@ -540,13 +546,20 @@ export class ProductService {
         }
       }
 
+      const applyShopBrandPriority = !inClosetListContext;
+      const finalOrderBy = applyShopBrandPriority
+        ? Array.isArray(orderBy)
+          ? [{ brand: { isShopPrioritized: 'desc' as const } }, ...orderBy]
+          : [{ brand: { isShopPrioritized: 'desc' as const } }, orderBy]
+        : orderBy;
+
       // Fetch products and total count in parallel
       const [products, total] = await Promise.all([
         this.prisma.product.findMany({
           where,
           skip,
           take: limit,
-          orderBy,
+          orderBy: finalOrderBy,
           include: {
             brand: {
               select: { id: true, name: true },
@@ -1254,6 +1267,15 @@ export class ProductService {
 
       if (!isOwner && !isAdmin) {
         throw new ForbiddenException('You can only edit your own products');
+      }
+
+      if (Array.isArray(dto.attachments) && dto.attachments.length > 0) {
+        await assertProductAttachmentUploads(
+          this.prisma,
+          dto.attachments,
+          user.id,
+          id,
+        );
       }
 
       // Users can only edit pending or rejected products (to resubmit)
