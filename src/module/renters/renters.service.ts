@@ -37,6 +37,16 @@ import {
   resaleProgressPercent,
   summarizeResaleLegStatuses,
 } from '../order/resale-delivery.util';
+import {
+  canBuyerConfirmRentalReceipt,
+  canRenterRaiseRentalDeliveryDispute,
+  getRentalInspectionPeriodLabel,
+  isRentalShipmentWithinInspectionWindow,
+  listConfirmableRentalShipments,
+  orderItemsForRentalShipment,
+  rentalInspectionDeadlineForLeg,
+} from '../order/rental-delivery.util';
+import { orderHasRentalLines } from '../order/resale-delivery.util';
 import { buildShipmentProgressOverview } from '../order/shipment-progress-groups.util';
 import {
   listerDisplayName,
@@ -56,6 +66,7 @@ import {
   DispatchWindowsInput,
   availabilityRequestWindowFieldMap,
   buildDefaultDispatchWindow,
+  ensureRentalReturnDispatchWindow,
   isWindowExpired,
   parseDispatchWindowFromInput,
   resolveNextReturnPickupWindow,
@@ -1231,6 +1242,17 @@ export class RentersService {
       }
     }
 
+    if (data.rentalDays && data.rentalDays > 0 && startDate) {
+      Object.assign(
+        windowMap,
+        ensureRentalReturnDispatchWindow(
+          windowMap as DispatchWindowRangeMap,
+          { startDate, rentalDays: data.rentalDays },
+          now,
+        ),
+      );
+    }
+
     const windowData = applyRangeMapToData(
       windowMap as DispatchWindowRangeMap,
       availabilityRequestWindowFieldMap,
@@ -2022,6 +2044,60 @@ export class RentersService {
       })),
     });
 
+    const confirmableRentalShipments = listConfirmableRentalShipments(
+      typedOrder.shipments ?? [],
+    )
+      .filter(
+        (leg) => leg.id && isRentalShipmentWithinInspectionWindow(leg),
+      )
+      .map((leg) => {
+        const items = orderItemsForRentalShipment(
+          typedOrder.orderItems,
+          leg.id!,
+          typedOrder.shipments ?? [],
+        );
+        const deadline = rentalInspectionDeadlineForLeg(leg);
+        return {
+          shipmentId: leg.id!,
+          itemNames: items
+            .map((i: { product?: { name?: string | null } }) =>
+              i.product?.name?.trim(),
+            )
+            .filter((n): n is string => Boolean(n)),
+          inspectionDeadline: deadline?.toISOString() ?? null,
+        };
+      });
+
+    const orderItemLines = typedOrder.orderItems.map((i: any) => ({
+      days: i.days,
+      product: { listingType: i.product?.listingType },
+    }));
+
+    const openDispute = await this.prisma.dispute.findFirst({
+      where: {
+        orderId: typedOrder.id,
+        status: { in: ['PENDING', 'IN_REVIEW'] },
+      },
+      select: { id: true },
+    });
+
+    const canConfirmRentalDelivery = canBuyerConfirmRentalReceipt({
+      listingType: typedOrder.listingType,
+      status: typedOrder.status,
+      deliveredAt: typedOrder.deliveredAt,
+      shipments: shipmentLegs,
+      orderItems: orderItemLines,
+    });
+
+    const canRaiseRentalDeliveryDispute = canRenterRaiseRentalDeliveryDispute({
+      listingType: typedOrder.listingType,
+      status: typedOrder.status,
+      deliveredAt: typedOrder.deliveredAt,
+      shipments: shipmentLegs,
+      orderItems: orderItemLines,
+      hasOpenDispute: Boolean(openDispute),
+    });
+
     const resalePackages = buildResalePackageRows({
       orderItems: typedOrder.orderItems,
       shipments: typedOrder.shipments ?? [],
@@ -2052,6 +2128,10 @@ export class RentersService {
           rentalPackages,
           canConfirmResaleDelivery,
           confirmableResaleShipments,
+          canConfirmRentalDelivery,
+          confirmableRentalShipments,
+          canRaiseRentalDeliveryDispute,
+          rentalInspectionPeriodLabel: getRentalInspectionPeriodLabel(),
           totalAmount: totalAmount,
           rentalId: rentals.length === 1 ? (rentals[0]?.id ?? null) : null,
           rentals: rentals.map((r: any) => ({
@@ -2702,6 +2782,22 @@ export class RentersService {
   ) {
     const order = await this.prisma.order.findUnique({
       where: { orderId: data.orderId },
+      include: {
+        shipments: {
+          select: {
+            id: true,
+            type: true,
+            status: true,
+            buyerConfirmedAt: true,
+            updatedAt: true,
+          },
+        },
+        orderItems: { include: { product: { select: { listingType: true } } } },
+        disputes: {
+          where: { status: { in: ['PENDING', 'IN_REVIEW'] } },
+          select: { id: true },
+        },
+      },
     });
     if (!order || order.userId !== userId)
       throw new NotFoundException('Order not found');
@@ -2712,6 +2808,27 @@ export class RentersService {
     });
     if (existing) {
       throw new BadRequestException('A dispute already exists for this order');
+    }
+
+    const orderItemLines = order.orderItems.map((i) => ({
+      days: i.days,
+      product: { listingType: i.product?.listingType },
+    }));
+
+    if (orderHasRentalLines(orderItemLines)) {
+      const mayRaiseDeliveryDispute = canRenterRaiseRentalDeliveryDispute({
+        listingType: order.listingType,
+        status: order.status,
+        deliveredAt: order.deliveredAt,
+        shipments: order.shipments,
+        orderItems: orderItemLines,
+        hasOpenDispute: order.disputes.length > 0,
+      });
+      if (!mayRaiseDeliveryDispute) {
+        throw new BadRequestException(
+          `Delivery disputes must be raised within ${getRentalInspectionPeriodLabel()} of delivery.`,
+        );
+      }
     }
 
     const raisedBy = await this.prisma.user.findUnique({
@@ -3440,7 +3557,8 @@ export class RentersService {
           {
             milestone: 'with_you',
             label: 'With you',
-            description: 'Rental period is active. Enjoy your rental.',
+            description:
+              'Confirm delivery when your item arrives, or report a problem within the inspection window.',
             doneAtRank: 5,
             timestamp: order.deliveredAt,
           },
