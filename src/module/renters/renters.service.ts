@@ -78,6 +78,7 @@ import {
   buildListerWithdrawRentalRequestEmailContext,
   type ListerWithdrawNotify,
 } from '../cart-items/withdraw-availability-for-cart-item';
+import { formatRentalBoundaryDateLagos } from '../shipment/dispatch-window-format';
 import { syncOrderStatusFromShipments } from '../order/order-shipment-status.sync';
 import { ShipbubbleAddressCacheService } from '../../services/shipbubble/shipbubble-address-cache.service';
 
@@ -1306,8 +1307,12 @@ export class RentersService {
         requestId: request.id,
         rentalDays: request.rentalDays,
         totalPrice: request.totalPrice,
-        startDate: request.startDate ? request.startDate.toDateString() : 'N/A',
-        endDate: request.endDate ? request.endDate.toDateString() : 'N/A',
+        startDate: request.startDate
+          ? formatRentalBoundaryDateLagos(request.startDate)
+          : 'N/A',
+        endDate: request.endDate
+          ? formatRentalBoundaryDateLagos(request.endDate)
+          : 'N/A',
         viewLink: `${process.env.CLIENT_URL}/listers/orders/${request.id}`,
         requestType: isResaleRequest ? 'purchase' : 'rental',
         dispatchWindows: Object.entries(windowMap).map(([type, window]) => ({
