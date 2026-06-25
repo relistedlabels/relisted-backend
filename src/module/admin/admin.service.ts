@@ -1421,6 +1421,9 @@ export class AdminService {
           data: {
             collateralBalance: { decrement: totalCollateralLocked },
             availableBalance: { increment: collateralReturnedToRenter },
+            ...(collateralWithheldToLister > 0
+              ? { mainBalance: { decrement: collateralWithheldToLister } }
+              : {}),
           },
         });
 
