@@ -5,7 +5,7 @@ import { RequestAvailabilityDto } from './dto/request-availability.dto';
 import { PrismaService } from 'src/services/prisma/prisma.service';
 import { bad } from 'src/utils/error';
 import { userEntity } from '../auth/auth.types';
-import { addMinutes, differenceInMinutes, isAfter } from 'date-fns';
+import { addDays, addMinutes, differenceInMinutes, isAfter } from 'date-fns';
 
 import { NotificationService } from 'src/services/notification/notification.service';
 import { withdrawAvailabilityRequestsForCartItem } from './withdraw-availability-for-cart-item';
@@ -18,8 +18,12 @@ import {
   availabilityRequestWindowFieldMap,
   buildDefaultDispatchWindow,
   extractRangeMapFromEntity,
+  ensureRentalReturnDispatchWindow,
+  getLagosCalendarDateKey,
   isWindowExpired,
+  lagosMidnightFromCalendarKey,
   parseDispatchWindowFromInput,
+  resolveRentalDispatchWindowBases,
 } from 'src/utils/dispatch-windows';
 
 @Injectable()
@@ -77,18 +81,30 @@ export class CartService {
     return required;
   }
 
-  /** Prefer rental dates when still in the future; otherwise anchor defaults to now. */
-  private basesForReactivatedDispatchWindows(
-    existing: { startDate: Date | null; endDate: Date | null },
+  /** Rental dates for cart availability: reuse request row or default to today in Lagos. */
+  private rentalContextForCartAvailability(
+    cartItem: { days: number },
+    existing: {
+      startDate: Date | null;
+      endDate: Date | null;
+      rentalDays?: number | null;
+    } | null,
     now: Date,
-  ) {
-    const start = existing.startDate;
-    const end = existing.endDate;
-    return {
-      outbound: start && start.getTime() > now.getTime() ? start : now,
-      returnLeg: end && end.getTime() > now.getTime() ? end : now,
-      resale: now,
-    };
+  ): { startDate: Date | null; endDate: Date | null; rentalDays: number } {
+    const rentalDays = existing?.rentalDays ?? cartItem.days;
+    if (existing?.startDate) {
+      return {
+        startDate: existing.startDate,
+        endDate: existing.endDate,
+        rentalDays,
+      };
+    }
+    if (rentalDays <= 0) {
+      return { startDate: null, endDate: null, rentalDays: 0 };
+    }
+    const startDate = lagosMidnightFromCalendarKey(getLagosCalendarDateKey(now));
+    const endDate = addDays(startDate, Math.max(0, rentalDays - 1));
+    return { startDate, endDate, rentalDays };
   }
 
   /** Stale windows trip renter-side expiry (window end in the past); refresh before PENDING. */
@@ -187,18 +203,26 @@ export class CartService {
     requiredTypes: DispatchWindowType[],
     manual: DispatchWindowsInput | undefined,
     persisted: DispatchWindowRangeMap | undefined,
-    basesSource: { startDate: Date | null; endDate: Date | null },
+    rentalContext: {
+      startDate: Date | null;
+      endDate: Date | null;
+      rentalDays: number;
+    },
     now: Date,
   ): DispatchWindowRangeMap {
     let map: DispatchWindowRangeMap = { ...(persisted ?? {}) };
     map = this.mergeManualDispatchWindows(requiredTypes, manual, map);
-    const bases = this.basesForReactivatedDispatchWindows(basesSource, now);
-    return this.refreshExpiredDispatchWindowsOnReactivate(
+    const bases = resolveRentalDispatchWindowBases({ ...rentalContext, now });
+    map = this.refreshExpiredDispatchWindowsOnReactivate(
       requiredTypes,
       map,
       bases,
       now,
     );
+    if (requiredTypes.includes('RETURN')) {
+      map = ensureRentalReturnDispatchWindow(map, rentalContext, now);
+    }
+    return map;
   }
 
   async requestAvailability(
@@ -264,14 +288,16 @@ export class CartService {
             availabilityRequestWindowFieldMap,
           )
         : undefined;
+      const rentalContext = this.rentalContextForCartAvailability(
+        cartItem,
+        existingExpired,
+        now,
+      );
       const windowMap = this.resolveDispatchWindowsForCartAvailabilityRequest(
         requiredWindowTypes,
         dispatchWindowsInput,
         persistedWindows,
-        {
-          startDate: existingExpired.startDate,
-          endDate: existingExpired.endDate,
-        },
+        rentalContext,
         now,
       );
       const windowData = applyRangeMapToData(
@@ -284,6 +310,9 @@ export class CartService {
         data: {
           status: 'PENDING',
           expiresAt,
+          rentalDays: rentalContext.rentalDays,
+          startDate: rentalContext.startDate,
+          endDate: rentalContext.endDate,
           ...windowData,
         },
         include: {
@@ -352,11 +381,16 @@ export class CartService {
     const now = new Date();
     const expiresAt = addMinutes(now, 15);
 
+    const rentalContext = this.rentalContextForCartAvailability(
+      cartItem,
+      null,
+      now,
+    );
     const windowMap = this.resolveDispatchWindowsForCartAvailabilityRequest(
       requiredWindowTypes,
       dispatchWindowsInput,
       undefined,
-      { startDate: null, endDate: null },
+      rentalContext,
       now,
     );
     const windowData = applyRangeMapToData(
@@ -371,6 +405,12 @@ export class CartService {
         requesterId: user.id,
         listerId: cartItem.product.curatorId,
         expiresAt,
+        rentalDays: rentalContext.rentalDays,
+        startDate: rentalContext.startDate,
+        endDate: rentalContext.endDate,
+        totalPrice: isResaleRequest
+          ? (cartItem.product as any)?.resalePrice || 0
+          : (cartItem.product?.dailyPrice || 0) * (cartItem.days || 0),
         ...windowData,
       },
       include: {

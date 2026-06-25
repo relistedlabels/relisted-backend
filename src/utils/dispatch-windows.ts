@@ -567,6 +567,75 @@ export function getLagosCalendarDateKey(date: Date): string {
   return date.toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' });
 }
 
+/** Return pickup day: calendar day after the last wear day (`start + days`). */
+export function rentalReturnPickupDate(rentalStart: Date, days: number): Date {
+  return addDays(rentalStart, days > 0 ? days : 1);
+}
+
+/** Lagos midnight for a YYYY-MM-DD calendar key. */
+export function lagosMidnightFromCalendarKey(ymd: string): Date {
+  return new Date(`${ymd}T00:00:00${LAGOS_ISO_OFFSET}`);
+}
+
+export function resolveRentalDispatchWindowBases(input: {
+  startDate: Date | null;
+  endDate: Date | null;
+  rentalDays: number;
+  now?: Date;
+}): { outbound: Date; returnLeg: Date; resale: Date } {
+  const now = input.now ?? new Date();
+  const start = input.startDate;
+  const outbound =
+    start && start.getTime() > now.getTime() ? start : now;
+
+  let returnLeg = now;
+  if (start && input.rentalDays > 0) {
+    const pickup = rentalReturnPickupDate(start, input.rentalDays);
+    returnLeg = pickup.getTime() > now.getTime() ? pickup : now;
+  } else if (input.endDate) {
+    const pickup = addDays(input.endDate, 1);
+    returnLeg = pickup.getTime() > now.getTime() ? pickup : now;
+  }
+
+  return { outbound, returnLeg, resale: now };
+}
+
+export function returnDispatchWindowMatchesPickupDay(
+  window: DispatchWindowRange | undefined,
+  pickupDate: Date,
+): boolean {
+  if (!window) return false;
+  return (
+    getLagosCalendarDateKey(window.start) === getLagosCalendarDateKey(pickupDate)
+  );
+}
+
+/** Rebuild RETURN when it is not scheduled on the rental pickup day (`start + days`). */
+export function ensureRentalReturnDispatchWindow(
+  map: DispatchWindowRangeMap,
+  rentalContext: { startDate: Date | null; rentalDays: number },
+  now?: Date,
+): DispatchWindowRangeMap {
+  const { startDate, rentalDays } = rentalContext;
+  if (rentalDays <= 0 || !startDate || !map.RETURN) {
+    return map;
+  }
+  const pickup = rentalReturnPickupDate(startDate, rentalDays);
+  if (returnDispatchWindowMatchesPickupDay(map.RETURN, pickup)) {
+    return map;
+  }
+  const bases = resolveRentalDispatchWindowBases({
+    startDate,
+    endDate: null,
+    rentalDays,
+    now,
+  });
+  return {
+    ...map,
+    RETURN: buildDefaultDispatchWindow(bases.returnLeg),
+  };
+}
+
 function getLagosMinutesFromMidnight(date: Date): number {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Africa/Lagos',
