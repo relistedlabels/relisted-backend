@@ -31,6 +31,18 @@ export class AdminSettingsController {
     return this.adminService.getAdminProfile(req.user.id);
   }
 
+  @Get('nav-state')
+  @ApiOperation({ summary: 'Get admin nav badge state' })
+  async getNavState(@Request() req) {
+    return this.adminService.getAdminNavState(req.user.id);
+  }
+
+  @Post('nav-state/dismiss')
+  @ApiOperation({ summary: 'Dismiss a new nav badge' })
+  async dismissNav(@Request() req, @Body() body: { navId: string }) {
+    return this.adminService.dismissAdminNav(req.user.id, body.navId);
+  }
+
   @Put('profile')
   @ApiOperation({ summary: 'Update admin profile' })
   async updateProfile(@Request() req, @Body() data: any) {

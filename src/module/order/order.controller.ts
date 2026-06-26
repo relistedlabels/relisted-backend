@@ -61,4 +61,14 @@ export class OrderController {
   ) {
     return this.orderService.confirmResaleOrder(user, orderId, { shipmentId });
   }
+
+  @Auth()
+  @Post('rental/confirm')
+  confirmRentalOrder(
+    @AuthUser() user: userEntity,
+    @Body('orderId') orderId: string,
+    @Body('shipmentId') shipmentId?: string,
+  ) {
+    return this.orderService.confirmRentalOrder(user, orderId, { shipmentId });
+  }
 }

@@ -59,6 +59,11 @@ export class ProductPublicController {
     description:
       'If true and closetId is omitted, only products in any closet (closet drops). If both are omitted, only products not in a closet (main shop).',
   })
+  @ApiQuery({
+    name: 'sale',
+    required: false,
+    description: 'Filter products to a shop sale campaign (slug)',
+  })
   @ApiResponse({
     status: 200,
     description: 'Products retrieved successfully',
@@ -82,6 +87,7 @@ export class ProductPublicController {
       closetId: query.closetId,
       onlyWithCloset:
         query.onlyWithCloset === true || query.onlyWithCloset === 'true',
+      sale: query.sale,
       excludeStagingCurator: true,
     };
     return this.productService.list(listQuery);

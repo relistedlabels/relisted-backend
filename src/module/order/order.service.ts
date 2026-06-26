@@ -38,15 +38,26 @@ import {
   isResalePurchaseOrderItem,
   listConfirmableResaleShipments,
   orderHasResalePurchaseItems,
+  orderHasRentalLines,
   orderItemsForResaleShipment,
   resaleReleaseAmountForItems,
   resaleShipmentLegs,
   shouldCompleteOrderAfterResaleFlow,
 } from './resale-delivery.util';
 import {
+  canBuyerConfirmRentalReceipt,
+  getRentalInspectionCutoffDate,
+  getRentalInspectionPeriodLabel,
+  listConfirmableRentalShipments,
+  orderItemsForRentalShipment,
+  rentalOutboundShipmentLegs,
+  shouldActivateRentalAfterOutboundConfirm,
+} from './rental-delivery.util';
+import {
   finalizeEscrowsOnOrderComplete,
   releaseResaleEscrowForShipment,
 } from './release-resale-escrow-on-confirm';
+import { releaseRentalEscrowForListerOnConfirm } from './release-rental-escrow-on-confirm';
 import { syncOrderStatusFromShipments } from './order-shipment-status.sync';
 import {
   CreateOrderDto,
@@ -3566,6 +3577,298 @@ export class OrderService {
       console.error('Confirm order error:', error);
       throw new BadRequestException(
         error instanceof Error ? error.message : 'Failed to confirm order',
+      );
+    }
+  }
+
+  /**
+   * Daily cron: auto-confirm rental outbound deliveries past the inspection window.
+   */
+  async autoConfirmDeliveredRentalOrders(): Promise<{ processed: number }> {
+    const cutoff = getRentalInspectionCutoffDate();
+
+    const candidates = await this.prisma.order.findMany({
+      where: {
+        listingType: { in: [ListingType.RENTAL, ListingType.RENT_OR_RESALE] },
+        status: {
+          notIn: [
+            OrderStatus.COMPLETED,
+            OrderStatus.CANCELLED,
+            OrderStatus.REJECTED,
+            OrderStatus.IN_DISPUTE,
+            OrderStatus.RETURNED,
+          ],
+        },
+        shipments: {
+          some: {
+            type: 'OUTBOUND',
+            status: 'COMPLETED',
+            buyerConfirmedAt: null,
+            updatedAt: { lte: cutoff },
+          },
+        },
+      },
+      include: {
+        user: { select: { id: true, email: true, name: true } },
+        shipments: {
+          select: {
+            id: true,
+            type: true,
+            status: true,
+            listerId: true,
+            buyerConfirmedAt: true,
+            updatedAt: true,
+          },
+        },
+        orderItems: { include: { product: { select: { listingType: true } } } },
+        disputes: {
+          where: {
+            status: { in: [DisputeStatus.PENDING, DisputeStatus.IN_REVIEW] },
+          },
+          select: { id: true },
+        },
+      },
+    });
+
+    let processed = 0;
+    for (const row of candidates) {
+      if (row.disputes.length > 0) continue;
+      if (!orderHasRentalLines(row.orderItems)) continue;
+
+      const legs = listConfirmableRentalShipments(row.shipments).filter((leg) => {
+        const t = leg.updatedAt ? new Date(leg.updatedAt) : null;
+        return t && t <= cutoff;
+      });
+
+      for (const leg of legs) {
+        if (!leg.id) continue;
+        try {
+          await this.confirmRentalOrder(
+            { ...row.user, sub: row.user.id } as userEntity,
+            row.orderId,
+            { auto: true, shipmentId: leg.id },
+          );
+          processed++;
+        } catch (err: any) {
+          console.warn(
+            `[OrderService] Rental auto-confirm skipped for ${row.orderId} shipment ${leg.id}: ${err?.message ?? err}`,
+          );
+        }
+      }
+    }
+    return { processed };
+  }
+
+  async confirmRentalOrder(
+    user: userEntity,
+    orderId: string,
+    options?: { auto?: boolean; shipmentId?: string },
+  ) {
+    const isAuto = options?.auto === true;
+    const requestedShipmentId = options?.shipmentId?.trim() || null;
+
+    try {
+      let order: any;
+      let rentalActivated = false;
+      let confirmedShipmentId: string | null = null;
+
+      await this.prisma.$transaction(async (tx) => {
+        const lockedOrder = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT id FROM "Order"
+          WHERE "orderId" = ${orderId}
+            AND "userId" = ${user.id}
+            AND "listingType" IN ('RENTAL', 'RENT_OR_RESALE')
+            AND "status" NOT IN (
+              'COMPLETED',
+              'CANCELLED',
+              'REJECTED',
+              'IN_DISPUTE',
+              'RETURNED'
+            )
+          FOR UPDATE
+        `;
+
+        if (!lockedOrder?.length) {
+          throw new BadRequestException(
+            'Order not found or cannot be confirmed',
+          );
+        }
+
+        order = await tx.order.findFirst({
+          where: { id: lockedOrder[0].id },
+          include: {
+            orderListers: true,
+            shipments: {
+              select: {
+                id: true,
+                type: true,
+                status: true,
+                listerId: true,
+                buyerConfirmedAt: true,
+                updatedAt: true,
+              },
+            },
+            orderItems: { include: { product: true } },
+          },
+        });
+
+        if (!order) {
+          throw new BadRequestException('Order not found');
+        }
+
+        const shipmentLegs = order.shipments ?? [];
+        const confirmable = listConfirmableRentalShipments(shipmentLegs);
+        const hasOutboundLegs = rentalOutboundShipmentLegs(shipmentLegs).length > 0;
+
+        if (hasOutboundLegs) {
+          let target = confirmable.find((s) => s.id === requestedShipmentId);
+          if (requestedShipmentId && !target) {
+            throw new BadRequestException(
+              'This package is not ready to confirm or was already confirmed.',
+            );
+          }
+          if (!target) {
+            if (confirmable.length === 1) {
+              target = confirmable[0];
+            } else if (confirmable.length === 0) {
+              throw new BadRequestException(
+                'No delivered rental is waiting for confirmation.',
+              );
+            } else {
+              throw new BadRequestException(
+                'Select which package you are confirming.',
+              );
+            }
+          }
+
+          if (!target.id) {
+            throw new BadRequestException('Shipment not found');
+          }
+          confirmedShipmentId = target.id;
+
+          await tx.shipment.update({
+            where: { id: target.id },
+            data: { buyerConfirmedAt: new Date() },
+          });
+
+          const linkedItems = orderItemsForRentalShipment(
+            order.orderItems,
+            target.id,
+            shipmentLegs,
+          );
+          const listerId =
+            target.listerId ??
+            linkedItems[0]?.product?.curator?.id ??
+            order.orderListers[0]?.listerId;
+          if (!listerId) {
+            throw new BadRequestException('Lister not found for this package');
+          }
+
+          await releaseRentalEscrowForListerOnConfirm(tx, {
+            orderInternalId: order.id,
+            orderDisplayId: order.orderId,
+            listerId,
+            isAuto,
+          });
+
+          const shipmentsAfter = shipmentLegs.map((s: any) =>
+            s.id === target!.id
+              ? { ...s, buyerConfirmedAt: new Date().toISOString() }
+              : s,
+          );
+
+          rentalActivated = shouldActivateRentalAfterOutboundConfirm({
+            orderItems: order.orderItems,
+            shipments: shipmentsAfter,
+          });
+
+          if (rentalActivated && order.status !== OrderStatus.ACTIVE) {
+            await tx.order.update({
+              where: { id: order.id },
+              data: { status: OrderStatus.ACTIVE },
+            });
+          }
+        } else {
+          if (
+            !canBuyerConfirmRentalReceipt({
+              listingType: order.listingType,
+              status: order.status,
+              deliveredAt: order.deliveredAt,
+              shipments: shipmentLegs,
+              orderItems: order.orderItems,
+            })
+          ) {
+            throw new BadRequestException(
+              'You can confirm receipt after your rental has been delivered.',
+            );
+          }
+
+          const escrows = await tx.escrow.findMany({
+            where: { orderId: order.id },
+          });
+          for (const escrow of escrows) {
+            await releaseRentalEscrowForListerOnConfirm(tx, {
+              orderInternalId: order.id,
+              orderDisplayId: order.orderId,
+              listerId: escrow.listerId,
+              isAuto,
+            });
+          }
+
+          rentalActivated = true;
+          await tx.order.update({
+            where: { id: order.id },
+            data: { status: OrderStatus.ACTIVE },
+          });
+        }
+
+        await this.notificationService.createNotification({
+          userId: user.id,
+          title: isAuto
+            ? 'Rental delivery confirmed automatically'
+            : 'Rental delivery confirmed',
+          message: isAuto
+            ? `Your rental for order ${order.orderId} was confirmed after the ${getRentalInspectionPeriodLabel()} inspection period. Enjoy your rental!`
+            : rentalActivated
+              ? `Thanks for confirming. Your rental period for order ${order.orderId} is now active.`
+              : `Thanks for confirming delivery for this package on order ${order.orderId}.`,
+          type: 'ORDER_UPDATED',
+          metadata: {
+            orderId: order.id,
+            orderNumber: order.orderId,
+            shipmentId: confirmedShipmentId,
+          },
+          sendEmail: false,
+        });
+      });
+
+      if (!rentalActivated) {
+        await syncOrderStatusFromShipments(this.prisma, order.id);
+      }
+
+      const refreshed = await this.prisma.order.findUnique({
+        where: { id: order.id },
+        select: { orderId: true, status: true },
+      });
+
+      return {
+        success: true,
+        message: rentalActivated
+          ? isAuto
+            ? 'Rental auto-confirmed after inspection period'
+            : 'Rental confirmed. Your rental period is now active.'
+          : 'Rental delivery confirmed for this package.',
+        data: {
+          orderId: refreshed?.orderId ?? order.orderId,
+          status: refreshed?.status ?? order.status,
+          shipmentId: confirmedShipmentId,
+          rentalActivated,
+        },
+      };
+    } catch (error) {
+      console.error('Confirm rental order error:', error);
+      throw new BadRequestException(
+        error instanceof Error ? error.message : 'Failed to confirm rental',
       );
     }
   }

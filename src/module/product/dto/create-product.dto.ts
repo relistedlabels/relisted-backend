@@ -213,6 +213,13 @@ export class ListProductQuery extends PaginationQuery {
   onlyWithCloset?: boolean;
 
   @ApiPropertyOptional({
+    description: 'Filter products to a shop sale campaign (slug)',
+  })
+  @IsOptional()
+  @IsString()
+  sale?: string;
+
+  @ApiPropertyOptional({
     description:
       'When true, omit listings from the internal staging curator (public storefront pagination).',
   })

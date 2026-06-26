@@ -31,6 +31,7 @@ import { deleteProductCascade } from 'src/utils/cascade-delete';
 import { MailService } from 'src/services/mail/mail.service';
 import { fetchAdminAlertRecipients } from '../shipment/shipment-admin-alert-recipients';
 import { assertProductAttachmentUploads } from 'src/utils/validate-product-attachment-uploads';
+import { getShopSalePhase } from '../shop-sale/shop-sale.util';
 
 @Injectable()
 export class ProductService {
@@ -985,6 +986,28 @@ export class ProductService {
 
   //  Get product by ID with detailed information
 
+  private async getActiveSaleContextForProduct(productId: string) {
+    const row = await this.prisma.shopSaleProduct.findFirst({
+      where: {
+        productId,
+        sale: { isEnabled: true },
+      },
+      include: { sale: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!row) return null;
+    const phase = getShopSalePhase(row.sale);
+    if (phase === 'ended' || phase === 'off') return null;
+    return {
+      slug: row.sale.slug,
+      headline: row.sale.headline,
+      preSaleMessage: row.sale.preSaleMessage,
+      shopAccessEnabled: row.sale.shopAccessEnabled,
+      phase,
+      earliestDeliveryAt: row.sale.earliestDeliveryAt?.toISOString() ?? null,
+    };
+  }
+
   async findOne(id: string) {
     try {
       const product = await this.prisma.product.findUnique({
@@ -1023,10 +1046,12 @@ export class ProductService {
         }
       }
 
+      const activeSale = await this.getActiveSaleContextForProduct(product.id);
+
       return {
         success: true,
         message: 'Product retrieved successfully',
-        data: product,
+        data: { ...product, activeSale },
       };
     } catch (error) {
       console.error('Find one product error:', error);

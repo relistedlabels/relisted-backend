@@ -52,6 +52,15 @@ export class AdminService {
     return disputeId.startsWith('DQ-') ? { disputeId } : { id: disputeId };
   }
 
+  private buildListPagination(total: number, page: number, limit: number) {
+    return {
+      total,
+      page,
+      limit,
+      pages: Math.ceil(total / limit) || 1,
+    };
+  }
+
   /** `Order.escrows` is a list; settlement uses a single row — same as first element. */
   private pickOrderEscrow(order: any): any | null {
     if (!order?.escrows) return null;
@@ -554,6 +563,36 @@ export class AdminService {
     });
     if (!admin) throw new NotFoundException('Admin profile not found');
     return { success: true, data: admin };
+  }
+
+  async getAdminNavState(adminId: string) {
+    const admin = await this.prisma.user.findUnique({
+      where: { id: adminId, role: 'ADMIN' },
+      select: { adminSeenNavIds: true },
+    });
+    if (!admin) throw new NotFoundException('Admin profile not found');
+    return { success: true, data: { seenNavIds: admin.adminSeenNavIds } };
+  }
+
+  async dismissAdminNav(adminId: string, navId: string) {
+    const id = navId?.trim();
+    if (!id) throw new BadRequestException('navId is required');
+
+    const admin = await this.prisma.user.findUnique({
+      where: { id: adminId, role: 'ADMIN' },
+      select: { adminSeenNavIds: true },
+    });
+    if (!admin) throw new NotFoundException('Admin profile not found');
+    if (admin.adminSeenNavIds.includes(id)) {
+      return { success: true, data: { seenNavIds: admin.adminSeenNavIds } };
+    }
+
+    const seenNavIds = [...admin.adminSeenNavIds, id];
+    await this.prisma.user.update({
+      where: { id: adminId },
+      data: { adminSeenNavIds: seenNavIds },
+    });
+    return { success: true, data: { seenNavIds } };
   }
 
   async updateAdminProfile(adminId: string, data: any) {
@@ -1491,7 +1530,10 @@ export class AdminService {
         await markRentalProductsAvailableForOrder(tx, order.id);
       }
 
-      if (returnCompleted && order.status !== OrderStatus.COMPLETED) {
+      if (
+        order.status === OrderStatus.IN_DISPUTE ||
+        (returnCompleted && order.status !== OrderStatus.COMPLETED)
+      ) {
         await tx.order.update({
           where: { id: order.id },
           data: { status: OrderStatus.COMPLETED },
@@ -1763,12 +1805,24 @@ export class AdminService {
     };
   }
 
-  async getAllWallets(page: number, limit: number) {
+  async getAllWallets(page: number, limit: number, search?: string) {
     const skip = (page - 1) * limit;
+    const where: Prisma.WalletWhereInput = {};
+
+    const trimmedSearch = search?.trim();
+    if (trimmedSearch) {
+      where.user = {
+        OR: [
+          { name: { contains: trimmedSearch, mode: 'insensitive' } },
+          { email: { contains: trimmedSearch, mode: 'insensitive' } },
+        ],
+      };
+    }
 
     const [total, wallets] = await this.prisma.$transaction([
-      this.prisma.wallet.count(),
+      this.prisma.wallet.count({ where }),
       this.prisma.wallet.findMany({
+        where,
         skip,
         take: limit,
         orderBy: { updatedAt: 'desc' },
@@ -1780,9 +1834,7 @@ export class AdminService {
       success: true,
       data: {
         wallets,
-        total,
-        page,
-        totalPages: Math.ceil(total / limit),
+        pagination: this.buildListPagination(total, page, limit),
       },
     };
   }
@@ -1899,15 +1951,7 @@ export class AdminService {
       success: true,
       data: {
         escrows: mappedEscrows,
-        pagination: {
-          total,
-          page,
-          limit,
-          pages: Math.ceil(total / limit) || 1,
-        },
-        total,
-        page,
-        totalPages: Math.ceil(total / limit) || 1,
+        pagination: this.buildListPagination(total, page, limit),
       },
     };
   }
@@ -1937,9 +1981,49 @@ export class AdminService {
     };
   }
 
-  async getAllWalletTransactions(page: number, limit: number) {
+  async getAllWalletTransactions(page: number, limit: number, search?: string) {
     const skip = (page - 1) * limit;
-    const where = buildProductionWalletTransactionWhere();
+    const baseWhere = buildProductionWalletTransactionWhere();
+    const trimmedSearch = search?.trim();
+
+    const where: Prisma.WalletTransactionWhereInput = trimmedSearch
+      ? {
+          AND: [
+            baseWhere,
+            {
+              OR: [
+                { id: { contains: trimmedSearch, mode: 'insensitive' } },
+                { note: { contains: trimmedSearch, mode: 'insensitive' } },
+                {
+                  wallet: {
+                    user: {
+                      OR: [
+                        {
+                          name: {
+                            contains: trimmedSearch,
+                            mode: 'insensitive',
+                          },
+                        },
+                        {
+                          email: {
+                            contains: trimmedSearch,
+                            mode: 'insensitive',
+                          },
+                        },
+                      ],
+                    },
+                  },
+                },
+                {
+                  order: {
+                    orderId: { contains: trimmedSearch, mode: 'insensitive' },
+                  },
+                },
+              ],
+            },
+          ],
+        }
+      : baseWhere;
 
     const [total, transactions] = await this.prisma.$transaction([
       this.prisma.walletTransaction.count({ where }),
@@ -1958,9 +2042,7 @@ export class AdminService {
       success: true,
       data: {
         transactions,
-        total,
-        page,
-        totalPages: Math.ceil(total / limit),
+        pagination: this.buildListPagination(total, page, limit),
       },
     };
   }
@@ -2047,15 +2129,29 @@ export class AdminService {
       success: true,
       data: {
         withdrawals: formatted,
-        total,
-        page,
-        totalPages: Math.ceil(total / limit),
+        pagination: this.buildListPagination(total, page, limit),
       },
     };
   }
 
   async getPayouts(page: number, limit: number, search?: string) {
-    return this.getAllWithdrawals(page, limit, 'paid', search);
+    const { data } = await this.getAllWithdrawals(page, limit, 'paid', search);
+
+    return {
+      success: true,
+      data: {
+        payouts: data.withdrawals.map((w) => ({
+          id: w.id,
+          userId: w.userId,
+          user: w.user,
+          bankAccount: w.bankAccount,
+          amount: w.amount,
+          status: 'completed' as const,
+          completedDate: w.paidDate ?? w.requestedDate,
+        })),
+        pagination: data.pagination,
+      },
+    };
   }
 
   async markWithdrawalAsPaid(withdrawalId: string, trackingId: string) {

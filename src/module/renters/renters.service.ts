@@ -4165,24 +4165,26 @@ export class RentersService {
     const now = new Date();
     const options = buildReturnPickupWindowOptions(now, scheduledFromShipment);
 
-    /** Checkout slot can still be submitted (future start, window not ended). */
-    const checkoutWindowStillBookable = Boolean(
-      scheduledFromShipment &&
-        !isWindowExpired(scheduledFromShipment, now) &&
-        scheduledFromShipment.start.getTime() > now.getTime(),
-    );
-    /** True when checkout slot ended or already started (submit rejects started slots). */
-    const pickupWindowSelectable = Boolean(
-      scheduledFromShipment && !checkoutWindowStillBookable,
-    );
-    const bookedPickupWindow =
-      options.originalWindow && checkoutWindowStillBookable
+    /** True only when the checkout return slot has fully passed (renter must pick a new time). */
+    const checkoutWindowExpired = scheduledFromShipment
+      ? isWindowExpired(scheduledFromShipment, now)
+      : false;
+    const pickupWindowSelectable = checkoutWindowExpired;
+    const bookedPickupWindow = !checkoutWindowExpired
+      ? options.originalWindow
         ? {
             start: options.originalWindow.start,
             end: options.originalWindow.end,
             summary: options.originalWindow.summary,
           }
-        : null;
+        : scheduledFromShipment
+          ? {
+              start: options.suggested.start,
+              end: options.suggested.end,
+              summary: options.suggested.summary,
+            }
+          : null
+      : null;
 
     return {
       success: true,
