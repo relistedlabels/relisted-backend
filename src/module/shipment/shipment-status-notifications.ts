@@ -3,6 +3,7 @@ import {
   buildRenterOrderPageUrl,
   getResaleInspectionPeriodLabel,
 } from 'src/module/order/resale-delivery.util';
+import { getRentalInspectionPeriodLabel } from 'src/module/order/rental-delivery.util';
 import { buildShippingEmailTrackingFields } from './shipment-tracking-url.util';
 
 type ShipmentNotifyCtx = {
@@ -107,18 +108,28 @@ export async function sendShipmentLegStatusNotification(
     return;
   }
 
-  const inspectionLabel = getResaleInspectionPeriodLabel();
-  const orderPageUrl = isResale ? buildRenterOrderPageUrl(order.orderId) : undefined;
+  const inspectionLabel = isResale
+    ? getResaleInspectionPeriodLabel()
+    : isOutbound
+      ? getRentalInspectionPeriodLabel()
+      : undefined;
+  const orderPageUrl =
+    isResale || isOutbound
+      ? buildRenterOrderPageUrl(order.orderId)
+      : undefined;
+  const rentalDeliveredMessage = isOutbound
+    ? `Your rental was delivered. Confirm receipt in the app if everything looks good, or report a problem within ${inspectionLabel}. After that window you will not be able to open a delivery dispute for this shipment.`
+    : 'Your item has been delivered. Enjoy your rental!';
   const resaleDeliveredMessage = isResale
     ? `Your item was delivered. Confirm receipt in the app if everything is correct, or report a problem within ${inspectionLabel}. Otherwise we will complete the order and release payment to the seller automatically.`
-    : 'Your item has been delivered. Enjoy your rental!';
+    : rentalDeliveredMessage;
 
   await notification.createNotification({
     userId: customer.id,
     title: isResale
       ? 'Your purchase has been delivered!'
       : 'Your rental has been delivered!',
-    message: isResale
+    message: isResale || isOutbound
       ? `${resaleDeliveredMessage} Open your order: ${orderPageUrl}`
       : resaleDeliveredMessage,
     type: 'SHIPMENT_DELIVERED',
@@ -127,6 +138,7 @@ export async function sendShipmentLegStatusNotification(
       orderId: order.orderId,
       orderPageUrl,
       resaleInspectionHours: isResale ? getResaleInspectionPeriodLabel() : undefined,
+      rentalInspectionHours: isOutbound ? getRentalInspectionPeriodLabel() : undefined,
     },
     sendEmail: true,
     emailData: {
@@ -136,11 +148,13 @@ export async function sendShipmentLegStatusNotification(
       status: 'Delivered',
       ...trackingFields,
       estimatedDelivery: undefined,
-      ...(isResale
+      ...(isResale || isOutbound
         ? {
-            emailSubject: 'Your purchase was delivered: confirm receipt',
-            emailHeading: 'Confirm your purchase',
-            extraNote: resaleDeliveredMessage,
+            emailSubject: isResale
+              ? 'Your purchase was delivered: confirm receipt'
+              : 'Your rental was delivered: confirm receipt',
+            emailHeading: isResale ? 'Confirm your purchase' : 'Confirm your rental',
+            extraNote: isResale ? resaleDeliveredMessage : rentalDeliveredMessage,
             orderPageUrl,
             ctaLabel: 'View order and confirm delivery',
           }

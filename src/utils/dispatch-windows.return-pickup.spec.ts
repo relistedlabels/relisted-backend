@@ -5,12 +5,16 @@ import {
   RETURN_DISPATCH_WINDOW_START_HOUR,
   buildDefaultReturnDispatchWindow,
   buildReturnPickupWindowOptions,
+  ensureRentalReturnDispatchWindow,
   getLagosCalendarDateKey,
   listReturnPickupSlotsForDay,
   MIN_DISPATCH_WINDOW_MINUTES,
   parseReturnPickupWindowChoice,
+  rentalReturnPickupDate,
   resolveNextReturnPickupWindow,
+  resolveRentalDispatchWindowBases,
   resolveReturnPickupWindowForSubmit,
+  returnDispatchWindowMatchesPickupDay,
 } from './dispatch-windows';
 
 const LAGOS = '+01:00';
@@ -24,6 +28,62 @@ function lagosIso(ymd: string, hour: number, minute = 0): string {
 describe('return pickup window selection', () => {
   afterEach(() => {
     jest.useRealTimers();
+  });
+
+  describe('rentalReturnPickupDate', () => {
+    it('schedules 1-day return on the day after wear (start + days)', () => {
+      const start = new Date('2026-06-25T00:00:00+01:00');
+      const pickup = rentalReturnPickupDate(start, 1);
+      expect(getLagosCalendarDateKey(pickup)).toBe('2026-06-26');
+    });
+  });
+
+  describe('resolveRentalDispatchWindowBases', () => {
+    it('uses start + rentalDays for return leg when same-day 1-day rental is in the past', () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-06-25T06:24:00+01:00'));
+
+      const startDate = new Date('2026-06-25T00:00:00+01:00');
+      const endDate = new Date('2026-06-25T00:00:00+01:00');
+      const bases = resolveRentalDispatchWindowBases({
+        startDate,
+        endDate,
+        rentalDays: 1,
+        now: new Date(),
+      });
+
+      expect(getLagosCalendarDateKey(bases.outbound)).toBe('2026-06-25');
+      expect(getLagosCalendarDateKey(bases.returnLeg)).toBe('2026-06-26');
+    });
+  });
+
+  describe('ensureRentalReturnDispatchWindow', () => {
+    it('rebuilds RETURN when it was wrongly scheduled on the wear day', () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-06-25T06:24:00+01:00'));
+
+      const startDate = new Date('2026-06-25T00:00:00+01:00');
+      const wrongReturn = {
+        start: new Date('2026-06-25T10:00:00+01:00'),
+        end: new Date('2026-06-25T11:00:00+01:00'),
+      };
+      const outbound = {
+        start: new Date('2026-06-25T10:00:00+01:00'),
+        end: new Date('2026-06-25T11:00:00+01:00'),
+      };
+
+      const fixed = ensureRentalReturnDispatchWindow(
+        { OUTBOUND: outbound, RETURN: wrongReturn },
+        { startDate, rentalDays: 1 },
+        new Date(),
+      );
+
+      expect(returnDispatchWindowMatchesPickupDay(fixed.RETURN, rentalReturnPickupDate(startDate, 1))).toBe(true);
+      expect(getLagosCalendarDateKey(fixed.RETURN!.start)).toBe('2026-06-26');
+      expect(getLagosCalendarDateKey(fixed.RETURN!.start)).not.toBe(
+        getLagosCalendarDateKey(wrongReturn.start),
+      );
+    });
   });
 
   describe('listReturnPickupSlotsForDay', () => {

@@ -28,6 +28,7 @@ model User {
   tokenVersion                     Int                               @default(0)
   isSuspended                      Boolean                           @default(false)
   adminRoleId                      String?
+  adminSeenNavIds                  String[]                          @default([])
   auditLogs                        AuditLog[]                        @relation("AdminAuditLogs")
   tokens                           AuthOtpToken[]
   listerRequests                   AvailabilityRequest[]             @relation("ListerAvailability")
@@ -59,6 +60,7 @@ model User {
   closets                          Closet[]
   productAvailabilityNotifications ProductAvailabilityNotification[]
   vaultClosetSaleInterests         VaultClosetSaleInterest[]
+  shopSaleInterests                ShopSaleInterest[]
 
   @@index([lastSeenAt])
 }
@@ -232,6 +234,7 @@ model Product {
   reviews                          Review[]
   tags                             Tag[]                             @relation("ProductToTag")
   productAvailabilityNotifications ProductAvailabilityNotification[]
+  shopSales                        ShopSaleProduct[]
 
   @@index([listingType])
   @@index([resalePrice])
@@ -240,12 +243,13 @@ model Product {
 }
 
 model Brand {
-  id        String    @id @default(uuid())
-  name      String
-  createdAt DateTime  @default(now())
-  userId    String?
-  user      User?     @relation(fields: [userId], references: [id])
-  products  Product[]
+  id                String    @id @default(uuid())
+  name              String
+  createdAt         DateTime  @default(now())
+  userId            String?
+  isShopPrioritized Boolean   @default(false)
+  user              User?     @relation(fields: [userId], references: [id])
+  products          Product[]
 }
 
 model Tag {
@@ -582,6 +586,58 @@ model VaultClosetSaleInterest {
   createdAt DateTime @default(now())
   user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
 
+  @@index([userId])
+}
+
+model ShopSale {
+  id                 String             @id @default(uuid())
+  slug               String             @unique
+  internalName       String
+  headline           String
+  subheadline        String?
+  shopTitle          String
+  shopDescription    String?
+  preSaleMessage     String?
+  startsAt           DateTime
+  endsAt             DateTime
+  earliestDeliveryAt DateTime?
+  isEnabled          Boolean            @default(false)
+  bannerEnabled      Boolean            @default(true)
+  waitlistEnabled    Boolean            @default(true)
+  shopAccessEnabled  Boolean            @default(false)
+  showCountdown      Boolean            @default(true)
+  notifyEmailSubject String?
+  notifyEmailBody    String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  products           ShopSaleProduct[]
+  interests          ShopSaleInterest[]
+
+  @@index([isEnabled])
+  @@index([startsAt, endsAt])
+}
+
+model ShopSaleProduct {
+  saleId    String
+  productId String
+  createdAt DateTime @default(now())
+  sale      ShopSale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([saleId, productId])
+  @@index([productId])
+}
+
+model ShopSaleInterest {
+  id        String   @id @default(uuid())
+  saleId    String
+  email     String
+  userId    String?
+  createdAt DateTime @default(now())
+  sale      ShopSale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([saleId, email])
   @@index([userId])
 }
 

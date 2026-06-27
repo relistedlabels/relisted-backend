@@ -32,6 +32,8 @@ import {
   returnRequestReminderEmailCopy,
   type ReturnRequestReminderType,
 } from 'src/module/shipment/return-request-reminder.util';
+import { formatDateTimeLagos } from 'src/module/shipment/dispatch-window-format';
+import { formatShopSaleNotifyEmailBodyHtml } from '../../module/shop-sale/shop-sale.util';
 
 @Injectable()
 export class MailService {
@@ -50,18 +52,9 @@ export class MailService {
     // Register custom helpers
     Handlebars.registerHelper('eq', (v1, v2) => v1 === v2);
     Handlebars.registerHelper('gt', (a: unknown, b: unknown) => Number(a) > Number(b));
-    Handlebars.registerHelper('formatDateTime', (isoString: string) => {
-      if (!isoString) return '';
-      const date = new Date(isoString);
-      return date.toLocaleString('en-NG', {
-        weekday: 'short',
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
-      });
-    });
+    Handlebars.registerHelper('formatDateTime', (isoString: string) =>
+      formatDateTimeLagos(isoString),
+    );
     Handlebars.registerHelper('currentYear', () =>
       String(new Date().getFullYear()),
     );
@@ -1524,6 +1517,55 @@ export class MailService {
           to: email,
           template: './vault-closet-sale-live',
           subject: this.vaultClosetSaleLiveSubject,
+          context,
+        });
+        sent++;
+      } catch (err) {
+        failed.push({
+          email,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    return { sent, failed };
+  }
+
+  async sendShopSaleLiveMailBatch(
+    emails: string[],
+    shopUrl: string,
+    options: { headline: string; subject: string; body?: string | null },
+  ): Promise<{ sent: number; failed: { email: string; error: string }[] }> {
+    const context = {
+      shopUrl,
+      headline: options.headline,
+      emailBodyHtml: formatShopSaleNotifyEmailBodyHtml(options.body),
+      currentYear: new Date().getFullYear(),
+    };
+    const failed: { email: string; error: string }[] = [];
+    let sent = 0;
+
+    if (this.devBypass) {
+      const html = await this.renderTemplateToHtml('shop-sale-live', context);
+      const filepath = join(
+        this.emailOutputDir,
+        `shop-sale-live-batch-${Date.now()}.html`,
+      );
+      await writeFile(filepath, html);
+      console.log(
+        `[DEV EMAIL BYPASS] Shop sale live batch: ${emails.length} recipient(s). Sample HTML: ${filepath}`,
+      );
+      const { default: open } = await import('open');
+      await open(filepath);
+      return { sent: emails.length, failed: [] };
+    }
+
+    for (const email of emails) {
+      try {
+        await this.deliverMail({
+          to: email,
+          template: './shop-sale-live',
+          subject: options.subject,
           context,
         });
         sent++;

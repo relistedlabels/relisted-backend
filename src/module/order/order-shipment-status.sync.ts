@@ -1,6 +1,5 @@
 import { ListingType, OrderStatus } from '@prisma/client';
 import type { PrismaService } from 'src/services/prisma/prisma.service';
-import { releaseRentalEscrowOnOutboundDelivery } from './release-rental-escrow-on-delivery';
 
 const TERMINAL_ORDER: OrderStatus[] = [
   OrderStatus.CANCELLED,
@@ -33,15 +32,10 @@ function allLegsIn(
   return legs.every((l) => terminal.has(l.status));
 }
 
-function deriveOutboundTarget(
-  statuses: string[],
-  rentalOutboundCompleteIsActive: boolean,
-): OrderStatus | null {
+function deriveOutboundTarget(statuses: string[]): OrderStatus | null {
   if (statuses.length === 0) return null;
   if (statuses.every((s) => s === 'COMPLETED')) {
-    return rentalOutboundCompleteIsActive
-      ? OrderStatus.ACTIVE
-      : OrderStatus.DELIVERED;
+    return OrderStatus.DELIVERED;
   }
   const allAtLeastInTransit = statuses.every((s) =>
     ['IN_TRANSIT', 'COMPLETED'].includes(s),
@@ -100,7 +94,7 @@ export async function syncOrderStatusFromShipments(
     const resaleLegs = order.shipments.filter((s) => s.type === 'RESALE');
     const statuses = resaleLegs.map((l) => l.status);
     if (statuses.length === 0) return;
-    target = deriveOutboundTarget(statuses, false);
+    target = deriveOutboundTarget(statuses);
   } else if (isRentalish(order.listingType)) {
     const outbound = order.shipments.filter((s) => s.type === 'OUTBOUND');
     const returnLegs = order.shipments.filter((s) => s.type === 'RETURN');
@@ -111,11 +105,11 @@ export async function syncOrderStatusFromShipments(
       target = returnTarget;
     } else if (resaleLegs.length > 0 && outbound.length === 0) {
       const statuses = resaleLegs.map((l) => l.status);
-      target = deriveOutboundTarget(statuses, false);
+      target = deriveOutboundTarget(statuses);
     } else {
       const obStatuses = outbound.map((l) => l.status);
       if (obStatuses.length === 0) return;
-      target = deriveOutboundTarget(obStatuses, true);
+      target = deriveOutboundTarget(obStatuses);
     }
   } else {
     return;
@@ -152,14 +146,6 @@ export async function syncOrderStatusFromShipments(
     !order.deliveredAt
   ) {
     data.deliveredAt = now;
-  }
-
-  if (target === OrderStatus.ACTIVE && isRentalish(order.listingType)) {
-    await releaseRentalEscrowOnOutboundDelivery(
-      prisma,
-      order.id,
-      order.orderId,
-    );
   }
 
   await prisma.order.update({

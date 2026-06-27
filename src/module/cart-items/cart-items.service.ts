@@ -25,6 +25,7 @@ import {
   parseDispatchWindowFromInput,
   resolveRentalDispatchWindowBases,
 } from 'src/utils/dispatch-windows';
+import { formatRentalBoundaryDateLagos } from '../shipment/dispatch-window-format';
 
 @Injectable()
 export class CartService {
@@ -340,10 +341,12 @@ export class CartService {
           requestId: updated.id,
           rentalDays: existingExpired.rentalDays || 0,
           totalPrice: existingExpired.totalPrice || 0,
-          startDate:
-            existingExpired.startDate?.toISOString().split('T')[0] || 'TBD',
-          endDate:
-            existingExpired.endDate?.toISOString().split('T')[0] || 'TBD',
+          startDate: existingExpired.startDate
+            ? formatRentalBoundaryDateLagos(existingExpired.startDate)
+            : 'TBD',
+          endDate: existingExpired.endDate
+            ? formatRentalBoundaryDateLagos(existingExpired.endDate)
+            : 'TBD',
           dispatchWindows: Object.entries(
             extractRangeMapFromEntity(
               updated,

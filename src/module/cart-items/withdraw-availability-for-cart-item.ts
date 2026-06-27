@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { formatRentalBoundaryDateLagos } from '../shipment/dispatch-window-format';
 
 const withdrawInclude = {
   product: { include: { curator: { select: { email: true, name: true } } } },
@@ -52,8 +53,10 @@ export function buildListerWithdrawRentalRequestEmailContext(
     requestId: r.id,
     rentalDays: r.rentalDays ?? 0,
     totalPrice: r.totalPrice ?? 0,
-    startDate: r.startDate ? r.startDate.toDateString() : 'N/A',
-    endDate: r.endDate ? r.endDate.toDateString() : 'N/A',
+    startDate: r.startDate
+      ? formatRentalBoundaryDateLagos(r.startDate)
+      : 'N/A',
+    endDate: r.endDate ? formatRentalBoundaryDateLagos(r.endDate) : 'N/A',
     viewLink: `${base}/listers/orders/${r.id}`,
     withdrawn: true,
     afterApproval,

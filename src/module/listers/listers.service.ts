@@ -39,7 +39,6 @@ import {
   DispatchWindowRangeMap,
   DispatchWindowType,
 } from 'src/utils/dispatch-windows';
-import { releaseRentalEscrowOnOutboundDelivery } from '../order/release-rental-escrow-on-delivery';
 import {
   closetCreditForReturnReceiptEscrow,
   incrementClosetRevenueForListerPayout,
@@ -60,6 +59,7 @@ import {
   shipmentsForListerWhere,
 } from '../order/lister-order-scope.util';
 import { notifyAdminsNewWithdrawalRequest } from '../wallet/withdrawal-admin-notify.util';
+import { formatRentalBoundaryDateLagos } from '../shipment/dispatch-window-format';
 
 const CURRENCY = 'NGN';
 
@@ -1689,11 +1689,6 @@ export class ListersService {
       }
       if (mapped === OrderStatus.DELIVERED) {
         updateData.deliveredAt = now;
-        await releaseRentalEscrowOnOutboundDelivery(
-          this.prisma,
-          orderId,
-          order.orderId,
-        );
       }
       if (mapped === OrderStatus.RETURN_DUE) {
         updateData.returnDueAt = now;
@@ -1822,8 +1817,9 @@ export class ListersService {
             status: ORDER_STATUS_TO_LABEL[updated.status],
             productName: firstProduct?.name || 'Your Item',
             trackingNumber: updated.trackingNumber || 'N/A',
-            estimatedDelivery:
-              updated.estimatedDeliveryDate?.toDateString() || 'N/A',
+            estimatedDelivery: updated.estimatedDeliveryDate
+              ? formatRentalBoundaryDateLagos(updated.estimatedDeliveryDate)
+              : 'N/A',
           },
         });
       }

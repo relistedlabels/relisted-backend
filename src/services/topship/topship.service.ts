@@ -397,12 +397,12 @@ export class TopshipService {
         : '';
     const data = error.response?.data;
     console.error(
-      'Topship API error:',
+      'Carrier API error:',
       data || error.message,
       hint,
     );
     throw new InternalServerErrorException(
-      error.response?.data?.message || 'Topship API request failed',
+      error.response?.data?.message || 'Carrier API request failed',
     );
   }
 }

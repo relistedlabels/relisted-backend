@@ -30,6 +30,14 @@ import { ClosetService } from '../closet/closet.service';
 import { deleteProductCascade } from 'src/utils/cascade-delete';
 import { MailService } from 'src/services/mail/mail.service';
 import { fetchAdminAlertRecipients } from '../shipment/shipment-admin-alert-recipients';
+import { assertProductAttachmentUploads } from 'src/utils/validate-product-attachment-uploads';
+import { getShopSalePhase } from '../shop-sale/shop-sale.util';
+import { applyProductListFilters } from './product-list-filters.util';
+import {
+  buildAdminPickerScopeWhere,
+  buildProductListScopeWhere,
+  collectProductFilterOptions,
+} from './product-list-scope.util';
 
 @Injectable()
 export class ProductService {
@@ -162,24 +170,11 @@ export class ProductService {
       }
 
       if (dto.attachments?.length) {
-        const existingUploads = await this.prisma.upload.findMany({
-          where: {
-            id: { in: dto.attachments },
-          },
-          select: { id: true },
-        });
-
-        const existingIds = existingUploads.map((upload) => upload.id);
-        const missingIds = dto.attachments.filter(
-          (id) => !existingIds.includes(id),
+        await assertProductAttachmentUploads(
+          this.prisma,
+          dto.attachments,
+          user.id,
         );
-
-        if (missingIds.length > 0) {
-          throw new BadRequestException(
-            `The following upload IDs do not exist: ${missingIds.join(', ')}. ` +
-              'Please upload files first or use valid upload IDs.',
-          );
-        }
       }
 
       const newProduct = await this.prisma.product.create({
@@ -291,113 +286,29 @@ export class ProductService {
       const skip = (page - 1) * limit;
 
       // 1. Build where clause
+      const where: any = await buildProductListScopeWhere(this.prisma, {
+        sale: query.sale,
+        closetId: query.closetId,
+        onlyWithCloset: query.onlyWithCloset,
+        excludeStagingCurator: query.excludeStagingCurator,
+      });
       const inClosetListContext = Boolean(
         query.closetId || query.onlyWithCloset,
       );
-      const liveShopStatuses: ProductStatus[] = [
-        ProductStatus.AVAILABLE,
-        ProductStatus.APPROVED,
-        ProductStatus.RENTED,
-      ];
 
-      const where: any = {};
-
-      if (inClosetListContext) {
-        // Closet / "closet drops" views: keep sold resale items visible (greyed on client)
-        where.AND = [
-          {
-            OR: [
-              { status: { in: liveShopStatuses }, isActive: true },
-              { status: ProductStatus.SOLD },
-            ],
-          },
-        ];
-      } else {
-        where.status = { in: liveShopStatuses };
-        where.isActive = true;
-      }
-
-      if (query.closetId) {
-        where.closetId = query.closetId;
-        // Public storefront only: hide inventory from deactivated closets (owner tools use same list without this flag).
-        if (query.excludeStagingCurator === true) {
-          where.closet = { is: { isActive: true } };
-        }
-      } else if (query.onlyWithCloset) {
-        if (query.excludeStagingCurator === true) {
-          where.closet = { is: { isActive: true } };
-        } else {
-          where.closetId = { not: null };
-        }
-      } else {
-        // Main shop and generic lists: closet inventory only appears when
-        // `closetId` or `onlyWithCloset` is set (closet page / closet drops).
-        where.closetId = null;
-      }
-
-      if (query.category) {
-        where.categoryId = query.category;
-      }
-
-      if (query.brand) {
-        const brandNames = Array.isArray(query.brand)
-          ? query.brand
-          : query.brand.split(',').map((s) => s.trim());
-        where.brand = {
-          name: { in: brandNames, mode: 'insensitive' },
-        };
-      }
-
-      if (query.minPrice || query.maxPrice) {
-        // Filter by price based on listing type
-        // RENTAL: use dailyPrice, RESALE: use resalePrice, RENT_OR_RESALE: check both
-        const minPrice = query.minPrice ? Number(query.minPrice) : undefined;
-        const maxPrice = query.maxPrice ? Number(query.maxPrice) : undefined;
-
-        if (minPrice !== undefined || maxPrice !== undefined) {
-          const priceFilter = {
-            OR: [
-              // RENTAL products: filter by dailyPrice
-              {
-                listingType: 'RENTAL',
-                dailyPrice: {
-                  ...(minPrice !== undefined && { gte: minPrice }),
-                  ...(maxPrice !== undefined && { lte: maxPrice }),
-                },
-              },
-              // RESALE products: filter by resalePrice
-              {
-                listingType: 'RESALE',
-                resalePrice: {
-                  ...(minPrice !== undefined && { gte: minPrice }),
-                  ...(maxPrice !== undefined && { lte: maxPrice }),
-                },
-              },
-              // RENT_OR_RESALE products: filter by either dailyPrice or resalePrice
-              {
-                listingType: 'RENT_OR_RESALE',
-                OR: [
-                  {
-                    dailyPrice: {
-                      ...(minPrice !== undefined && { gte: minPrice }),
-                      ...(maxPrice !== undefined && { lte: maxPrice }),
-                    },
-                  },
-                  {
-                    resalePrice: {
-                      ...(minPrice !== undefined && { gte: minPrice }),
-                      ...(maxPrice !== undefined && { lte: maxPrice }),
-                    },
-                  },
-                ],
-              },
-            ],
-          };
-
-          if (!where.AND) where.AND = [];
-          where.AND.push(priceFilter);
-        }
-      }
+      applyProductListFilters(where, {
+        category: query.category,
+        brand: query.brand,
+        tags: query.tags,
+        listingType: query.listingType,
+        curatorId: query.curatorId,
+        color: query.color,
+        size: query.size,
+        condition: query.condition,
+        material: query.material,
+        minPrice: query.minPrice,
+        maxPrice: query.maxPrice,
+      });
 
       if (query.search) {
         const searchOr: Record<string, unknown>[] = [
@@ -454,49 +365,6 @@ export class ProductService {
         where.AND.push(searchFilter);
       }
 
-      if (query.color) {
-        const colors = query.color.split(',').map((s) => s.trim());
-        where.color = { in: colors, mode: 'insensitive' };
-      }
-
-      if (query.size) {
-        const sizes = query.size.split(',').map((s) => s.trim());
-        where.measurement = { in: sizes, mode: 'insensitive' };
-      }
-
-      if (query.condition) {
-        const conditionMap: Record<string, string[]> = {
-          new: ['brand new', 'new', 'brand_new'],
-          'like new': ['like new', 'like_new', 'like new'],
-          good: ['good', 'great'],
-          fair: ['fair', 'okay'],
-          poor: ['poor', 'worn'],
-        };
-        const inputConditions = query.condition
-          .split(',')
-          .map((s) => s.trim().toLowerCase());
-        const mappedConditions = inputConditions.flatMap(
-          (c) => conditionMap[c] || [c],
-        );
-        where.condition = { in: mappedConditions, mode: 'insensitive' };
-      }
-
-      if (query.material) {
-        const materials = query.material.split(',').map((s) => s.trim());
-        where.material = { in: materials, mode: 'insensitive' };
-      }
-
-      if (query.tags) {
-        const tags = query.tags.split(',').map((s) => s.trim());
-        where.tags = {
-          some: {
-            OR: tags.map((tag) => ({
-              name: { contains: tag, mode: 'insensitive' },
-            })),
-          },
-        };
-      }
-
       if (query.excludeStagingCurator === true) {
         const stagingCuratorId =
           process.env.STAGING_INTERNAL_CURATOR_ID ??
@@ -540,13 +408,20 @@ export class ProductService {
         }
       }
 
+      const applyShopBrandPriority = !inClosetListContext;
+      const finalOrderBy = applyShopBrandPriority
+        ? Array.isArray(orderBy)
+          ? [{ brand: { isShopPrioritized: 'desc' as const } }, ...orderBy]
+          : [{ brand: { isShopPrioritized: 'desc' as const } }, orderBy]
+        : orderBy;
+
       // Fetch products and total count in parallel
       const [products, total] = await Promise.all([
         this.prisma.product.findMany({
           where,
           skip,
           take: limit,
-          orderBy,
+          orderBy: finalOrderBy,
           include: {
             brand: {
               select: { id: true, name: true },
@@ -602,6 +477,36 @@ export class ProductService {
       console.error('List products error:', error);
       throw new InternalServerErrorException('Failed to retrieve products');
     }
+  }
+
+  async getShopFilterOptions(
+    query: Pick<
+      ListProductQuery,
+      'sale' | 'closetId' | 'onlyWithCloset' | 'excludeStagingCurator'
+    >,
+  ) {
+    const where = await buildProductListScopeWhere(this.prisma, query);
+
+    if (query.excludeStagingCurator === true) {
+      const stagingCuratorId =
+        process.env.STAGING_INTERNAL_CURATOR_ID ??
+        '7d172d18-daad-46cd-ab6d-8d8af28c0b16';
+      const omitStaging = { NOT: { curatorId: stagingCuratorId } };
+      if (!where.AND) where.AND = [omitStaging];
+      else if (Array.isArray(where.AND)) where.AND.push(omitStaging);
+      else where.AND = [where.AND, omitStaging];
+    }
+
+    const data = await collectProductFilterOptions(this.prisma, where);
+    return { success: true, data };
+  }
+
+  async getAdminPickerFilterOptions() {
+    const data = await collectProductFilterOptions(
+      this.prisma,
+      buildAdminPickerScopeWhere(),
+    );
+    return { success: true, data };
   }
 
   // Get pending products for admin review
@@ -972,6 +877,28 @@ export class ProductService {
 
   //  Get product by ID with detailed information
 
+  private async getActiveSaleContextForProduct(productId: string) {
+    const row = await this.prisma.shopSaleProduct.findFirst({
+      where: {
+        productId,
+        sale: { isEnabled: true },
+      },
+      include: { sale: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!row) return null;
+    const phase = getShopSalePhase(row.sale);
+    if (phase === 'ended' || phase === 'off') return null;
+    return {
+      slug: row.sale.slug,
+      headline: row.sale.headline,
+      preSaleMessage: row.sale.preSaleMessage,
+      shopAccessEnabled: row.sale.shopAccessEnabled,
+      phase,
+      earliestDeliveryAt: row.sale.earliestDeliveryAt?.toISOString() ?? null,
+    };
+  }
+
   async findOne(id: string) {
     try {
       const product = await this.prisma.product.findUnique({
@@ -1010,10 +937,12 @@ export class ProductService {
         }
       }
 
+      const activeSale = await this.getActiveSaleContextForProduct(product.id);
+
       return {
         success: true,
         message: 'Product retrieved successfully',
-        data: product,
+        data: { ...product, activeSale },
       };
     } catch (error) {
       console.error('Find one product error:', error);
@@ -1254,6 +1183,15 @@ export class ProductService {
 
       if (!isOwner && !isAdmin) {
         throw new ForbiddenException('You can only edit your own products');
+      }
+
+      if (Array.isArray(dto.attachments) && dto.attachments.length > 0) {
+        await assertProductAttachmentUploads(
+          this.prisma,
+          dto.attachments,
+          user.id,
+          id,
+        );
       }
 
       // Users can only edit pending or rejected products (to resubmit)

@@ -61,6 +61,8 @@ const MANUAL_FULFILLMENT_DUE_REMINDER_CRON_SCHEDULE =
   RETURN_DUE_REMINDER_CRON_SCHEDULE;
 const RESALE_INSPECTION_RELEASE_CRON_SCHEDULE =
   process.env.RESALE_INSPECTION_RELEASE_CRON?.trim() || '0 * * * *';
+const RENTAL_INSPECTION_CONFIRM_CRON_SCHEDULE =
+  process.env.RENTAL_INSPECTION_CONFIRM_CRON?.trim() || '*/5 * * * *';
 const RETURN_REQUEST_REMINDER_CRON_SCHEDULE =
   process.env.RETURN_REQUEST_REMINDER_CRON?.trim() || '* * * * *';
 
@@ -252,7 +254,7 @@ export class ShipmentDispatchScheduler {
           err.message.toLowerCase().includes('shipment does not exist')
         ) {
           this.logger.warn(
-            `[Polling] Ignoring "shipment does not exist" for ${shipment.id} — check trackingId vs providerShipmentId and Topship env; local status unchanged.`,
+            `[Polling] Ignoring "shipment does not exist" for ${shipment.id} — check trackingId vs providerShipmentId and carrier API env; local status unchanged.`,
           );
         }
       }
@@ -966,6 +968,23 @@ export class ShipmentDispatchScheduler {
     } catch (err: any) {
       this.logger.error(
         `[ResaleInspection] Auto-complete failed: ${err?.message ?? err}`,
+      );
+    }
+  }
+
+  /** Auto-confirm rental outbound deliveries after the 1-hour inspection window. */
+  @Cron(RENTAL_INSPECTION_CONFIRM_CRON_SCHEDULE, { timeZone: 'Africa/Lagos' })
+  async autoConfirmRentalAfterInspectionPeriod() {
+    try {
+      const result = await this.orderService.autoConfirmDeliveredRentalOrders();
+      if (result.processed > 0) {
+        this.logger.log(
+          `[RentalInspection] Auto-confirmed ${result.processed} rental shipment(s)`,
+        );
+      }
+    } catch (err: any) {
+      this.logger.error(
+        `[RentalInspection] Auto-confirm failed: ${err?.message ?? err}`,
       );
     }
   }
