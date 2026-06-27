@@ -80,6 +80,7 @@ import {
 } from '../cart-items/withdraw-availability-for-cart-item';
 import { formatRentalBoundaryDateLagos } from '../shipment/dispatch-window-format';
 import { syncOrderStatusFromShipments } from '../order/order-shipment-status.sync';
+import { resolveRenterStartReturn } from '../order/renter-start-return.util';
 import { ShipbubbleAddressCacheService } from '../../services/shipbubble/shipbubble-address-cache.service';
 
 /** Renter progress ordering (subset of shipment-driven flow; excludes terminal edge cases). */
@@ -1748,6 +1749,20 @@ export class RentersService {
             },
           },
           rentals: true,
+          shipments: {
+            select: {
+              id: true,
+              type: true,
+              status: true,
+              listerId: true,
+            },
+          },
+          returnRequests: {
+            select: {
+              shipmentId: true,
+              status: true,
+            },
+          },
         } as any,
       }),
     ]);
@@ -1767,6 +1782,16 @@ export class RentersService {
             );
           const firstItem = o.orderItems[0];
           const image = firstItem?.imageUrl || null;
+          const startReturn = resolveRenterStartReturn({
+            listingType: o.listingType,
+            status: o.status,
+            orderItems: o.orderItems.map((i: any) => ({
+              days: i.days,
+              product: { listingType: i.product?.listingType },
+            })),
+            shipments: o.shipments ?? [],
+            returnRequests: o.returnRequests ?? [],
+          });
 
           return {
             id: o.id,
@@ -1785,6 +1810,8 @@ export class RentersService {
             date: o.createdAt,
             image: image,
             listerName: o.listerBusinessName || 'Unknown',
+            showStartReturn: startReturn.showStartReturn,
+            startReturnShipmentId: startReturn.returnShipmentId,
           };
         }),
         totalOrders: total,
@@ -4165,24 +4192,26 @@ export class RentersService {
     const now = new Date();
     const options = buildReturnPickupWindowOptions(now, scheduledFromShipment);
 
-    /** Checkout slot can still be submitted (future start, window not ended). */
-    const checkoutWindowStillBookable = Boolean(
-      scheduledFromShipment &&
-        !isWindowExpired(scheduledFromShipment, now) &&
-        scheduledFromShipment.start.getTime() > now.getTime(),
-    );
-    /** True when checkout slot ended or already started (submit rejects started slots). */
-    const pickupWindowSelectable = Boolean(
-      scheduledFromShipment && !checkoutWindowStillBookable,
-    );
-    const bookedPickupWindow =
-      options.originalWindow && checkoutWindowStillBookable
+    /** True only when the checkout return slot has fully passed (renter must pick a new time). */
+    const checkoutWindowExpired = scheduledFromShipment
+      ? isWindowExpired(scheduledFromShipment, now)
+      : false;
+    const pickupWindowSelectable = checkoutWindowExpired;
+    const bookedPickupWindow = !checkoutWindowExpired
+      ? options.originalWindow
         ? {
             start: options.originalWindow.start,
             end: options.originalWindow.end,
             summary: options.originalWindow.summary,
           }
-        : null;
+        : scheduledFromShipment
+          ? {
+              start: options.suggested.start,
+              end: options.suggested.end,
+              summary: options.suggested.summary,
+            }
+          : null
+      : null;
 
     return {
       success: true,

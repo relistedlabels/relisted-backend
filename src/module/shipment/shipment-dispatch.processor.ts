@@ -80,7 +80,7 @@ export class ShipmentDispatchProcessor {
 
     if (shipment.manualFulfillment) {
       this.logger.warn(
-        `[Worker] Shipment ${shipmentId} is manual Relisted dispatch — skipping Topship (reset DISPATCHING if needed)`,
+        `[Worker] Shipment ${shipmentId} is manual Relisted dispatch — skipping carrier booking (reset DISPATCHING if needed)`,
       );
       if (shipment.status === 'DISPATCHING') {
         await this.prisma.shipment.update({
@@ -113,7 +113,7 @@ export class ShipmentDispatchProcessor {
     try {
       const provider = this.delivery.forShipment(shipment);
       this.logger.log(
-        `[Worker] Calling Topship to book shipment ${shipmentId} (${shipment.type})...`,
+        `[Worker] Calling carrier to book shipment ${shipmentId} (${shipment.type})...`,
       );
       const result = await provider.dispatch(
         shipment as any,
@@ -123,7 +123,7 @@ export class ShipmentDispatchProcessor {
       const durationMs = Date.now() - start;
 
       this.logger.log(
-        `[Worker] ✅ Topship booking SUCCESS for shipment ${shipmentId}: providerShipmentId=${result.providerShipmentId}, trackingId=${result.trackingId}, trackingUrl=${result.providerTrackingUrl}`,
+        `[Worker] ✅ Carrier booking SUCCESS for shipment ${shipmentId}: providerShipmentId=${result.providerShipmentId}, trackingId=${result.trackingId}, trackingUrl=${result.providerTrackingUrl}`,
       );
 
       await this.prisma.$transaction([

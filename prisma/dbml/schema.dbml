@@ -17,6 +17,7 @@ Table User {
   tokenVersion Int [not null, default: 0]
   isSuspended Boolean [not null, default: false]
   adminRoleId String
+  adminSeenNavIds String[] [not null]
   auditLogs AuditLog [not null]
   tokens AuthOtpToken [not null]
   listerRequests AvailabilityRequest [not null]
@@ -48,6 +49,7 @@ Table User {
   closets Closet [not null]
   productAvailabilityNotifications ProductAvailabilityNotification [not null]
   vaultClosetSaleInterests VaultClosetSaleInterest [not null]
+  shopSaleInterests ShopSaleInterest [not null]
 }
 
 Table Profile {
@@ -215,6 +217,7 @@ Table Product {
   reviews Review [not null]
   tags Tag [not null]
   productAvailabilityNotifications ProductAvailabilityNotification [not null]
+  shopSales ShopSaleProduct [not null]
 }
 
 Table Brand {
@@ -222,6 +225,7 @@ Table Brand {
   name String [not null]
   createdAt DateTime [default: `now()`, not null]
   userId String
+  isShopPrioritized Boolean [not null, default: false]
   user User
   products Product [not null]
 }
@@ -557,6 +561,57 @@ Table VaultClosetSaleInterest {
   userId String
   createdAt DateTime [default: `now()`, not null]
   user User
+}
+
+Table ShopSale {
+  id String [pk]
+  slug String [unique, not null]
+  internalName String [not null]
+  headline String [not null]
+  subheadline String
+  shopTitle String [not null]
+  shopDescription String
+  preSaleMessage String
+  startsAt DateTime [not null]
+  endsAt DateTime [not null]
+  earliestDeliveryAt DateTime
+  isEnabled Boolean [not null, default: false]
+  bannerEnabled Boolean [not null, default: true]
+  waitlistEnabled Boolean [not null, default: true]
+  shopAccessEnabled Boolean [not null, default: false]
+  showCountdown Boolean [not null, default: true]
+  notifyEmailSubject String
+  notifyEmailBody String
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+  products ShopSaleProduct [not null]
+  interests ShopSaleInterest [not null]
+}
+
+Table ShopSaleProduct {
+  saleId String [not null]
+  productId String [not null]
+  createdAt DateTime [default: `now()`, not null]
+  sale ShopSale [not null]
+  product Product [not null]
+
+  indexes {
+    (saleId, productId) [pk]
+  }
+}
+
+Table ShopSaleInterest {
+  id String [pk]
+  saleId String [not null]
+  email String [not null]
+  userId String
+  createdAt DateTime [default: `now()`, not null]
+  sale ShopSale [not null]
+  user User
+
+  indexes {
+    (saleId, email) [unique]
+  }
 }
 
 Table WalletTransaction {
@@ -1045,6 +1100,14 @@ Ref: Transaction.virtualAccountId > VirtualAccount.id
 Ref: Wallet.userId - User.id
 
 Ref: VaultClosetSaleInterest.userId > User.id [delete: Set Null]
+
+Ref: ShopSaleProduct.saleId > ShopSale.id [delete: Cascade]
+
+Ref: ShopSaleProduct.productId > Product.id [delete: Cascade]
+
+Ref: ShopSaleInterest.saleId > ShopSale.id [delete: Cascade]
+
+Ref: ShopSaleInterest.userId > User.id [delete: Set Null]
 
 Ref: WalletTransaction.orderId > Order.id
 

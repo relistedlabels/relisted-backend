@@ -34,10 +34,12 @@ export class AdminWalletsController {
   async getAllWallets(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('search') search?: string,
   ) {
     return this.adminService.getAllWallets(
       page ? parseInt(page, 10) : 1,
-      limit ? parseInt(limit, 10) : 10,
+      limit ? parseInt(limit, 10) : 20,
+      search,
     );
   }
 
@@ -51,7 +53,7 @@ export class AdminWalletsController {
   ) {
     return this.adminService.getAllEscrows(
       page ? parseInt(page, 10) : 1,
-      limit ? parseInt(limit, 10) : 50,
+      limit ? parseInt(limit, 10) : 20,
       status,
       search,
     );
@@ -62,10 +64,12 @@ export class AdminWalletsController {
   async getAllTransactions(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('search') search?: string,
   ) {
     return this.adminService.getAllWalletTransactions(
       page ? parseInt(page, 10) : 1,
-      limit ? parseInt(limit, 10) : 10,
+      limit ? parseInt(limit, 10) : 20,
+      search,
     );
   }
 
@@ -94,7 +98,7 @@ export class AdminWalletsController {
   ) {
     return this.adminService.getAllWithdrawals(
       page ? parseInt(page, 10) : 1,
-      limit ? parseInt(limit, 10) : 10,
+      limit ? parseInt(limit, 10) : 20,
       status,
       search,
     );
@@ -109,7 +113,7 @@ export class AdminWalletsController {
   ) {
     return this.adminService.getPayouts(
       page ? parseInt(page, 10) : 1,
-      limit ? parseInt(limit, 10) : 10,
+      limit ? parseInt(limit, 10) : 20,
       search,
     );
   }

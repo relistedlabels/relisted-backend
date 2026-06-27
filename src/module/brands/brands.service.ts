@@ -28,6 +28,7 @@ export class BrandsService {
   async findAll() {
     return this.prisma.brand.findMany({
       include: { user: true },
+      orderBy: { name: 'asc' },
     });
   }
 

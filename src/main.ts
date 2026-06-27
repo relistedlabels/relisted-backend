@@ -212,10 +212,10 @@ function logShippingFulfillmentConfig() {
   const raw = process.env.SHIPPING_FULFILLMENT_PROVIDERS;
   const active = [...parseShippingFulfillmentProviders()].join(', ');
   console.log(
-    `[Shipping] SHIPPING_FULFILLMENT_PROVIDERS=${raw == null || raw === '' ? '(unset → topship default)' : JSON.stringify(raw)} → enabled: [${active}]`,
+    `[Shipping] SHIPPING_FULFILLMENT_PROVIDERS=${raw == null || raw === '' ? '(unset → default providers)' : JSON.stringify(raw)} → enabled: [${active}]`,
   );
   console.log(
-    `[Shipping] Checkout quotes: topship=${topshipFulfillmentEnabled()} chowdeck_relay=${chowdeckRelayQuotesAvailable()} shipbubble=${shipbubbleQuotesAvailable()}`,
+    `[Shipping] Checkout quotes: city_rates=${topshipFulfillmentEnabled()} chowdeck_relay=${chowdeckRelayQuotesAvailable()} shipbubble=${shipbubbleQuotesAvailable()}`,
   );
   if (shipbubbleQuotesAvailable() || process.env.SHIPBUBBLE_API_KEY?.trim()) {
     const baseUrl =

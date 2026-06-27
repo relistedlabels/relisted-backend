@@ -33,6 +33,7 @@ import {
   type ReturnRequestReminderType,
 } from 'src/module/shipment/return-request-reminder.util';
 import { formatDateTimeLagos } from 'src/module/shipment/dispatch-window-format';
+import { formatShopSaleNotifyEmailBodyHtml } from '../../module/shop-sale/shop-sale.util';
 
 @Injectable()
 export class MailService {
@@ -1533,11 +1534,12 @@ export class MailService {
   async sendShopSaleLiveMailBatch(
     emails: string[],
     shopUrl: string,
-    options: { headline: string; subject: string },
+    options: { headline: string; subject: string; body?: string | null },
   ): Promise<{ sent: number; failed: { email: string; error: string }[] }> {
     const context = {
       shopUrl,
       headline: options.headline,
+      emailBodyHtml: formatShopSaleNotifyEmailBodyHtml(options.body),
       currentYear: new Date().getFullYear(),
     };
     const failed: { email: string; error: string }[] = [];

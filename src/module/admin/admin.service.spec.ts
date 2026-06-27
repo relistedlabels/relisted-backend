@@ -25,6 +25,12 @@ const mockPrisma: any = {
   order: {
     update: jest.fn(),
   },
+  rental: {
+    updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+  },
+  product: {
+    update: jest.fn(),
+  },
   $transaction: jest.fn(),
 };
 
@@ -111,6 +117,7 @@ describe('AdminService', () => {
           data: expect.objectContaining({
             collateralBalance: { decrement: 1000 },
             availableBalance: { increment: 700 },
+            mainBalance: { decrement: 300 },
           }),
         }),
       );
@@ -123,6 +130,59 @@ describe('AdminService', () => {
       expect(mockNotificationService.createNotification).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'DISPUTE_STATUS' }),
       );
+      expect(mockPrisma.order.update).toHaveBeenCalledWith({
+        where: { id: 'order-db-1' },
+        data: { status: 'COMPLETED' },
+      });
+    });
+
+    it('clears IN_DISPUTE on order when return is not completed', async () => {
+      mockPrisma.dispute.findUnique.mockResolvedValue({
+        id: 'dispute-db-1',
+        disputeId: 'DQ-3809',
+        order: {
+          id: 'order-db-1',
+          orderId: 'ORD-1780589122009-645',
+          userId: 'renter-1',
+          status: 'IN_DISPUTE',
+          user: { id: 'renter-1', email: 'renter@test.com', name: 'Renter' },
+          escrows: [
+            {
+              id: 'escrow-1',
+              listerId: 'lister-1',
+              renterId: 'renter-1',
+              status: 'LOCKED',
+              collateralAmount: 5000,
+              rentalAmount: 0,
+              cleaningFee: 0,
+              resaleAmount: 0,
+            },
+          ],
+          returnRequests: [],
+        },
+      });
+
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'lister-1',
+        name: 'Lister',
+        email: 'lister@test.com',
+      });
+
+      mockPrisma.wallet.upsert.mockResolvedValue({
+        id: 'wallet-renter-1',
+        userId: 'renter-1',
+        collateralBalance: 5000,
+      });
+
+      await service.resolveDisputeAndSettle('dispute-db-1', {
+        resolutionDetails: 'Repair',
+        collateralWithheldToLister: 5000,
+      });
+
+      expect(mockPrisma.order.update).toHaveBeenCalledWith({
+        where: { id: 'order-db-1' },
+        data: { status: 'COMPLETED' },
+      });
     });
 
     it('throws if wallet collateral is insufficient', async () => {
