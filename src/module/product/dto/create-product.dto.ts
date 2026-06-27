@@ -220,6 +220,32 @@ export class ListProductQuery extends PaginationQuery {
   sale?: string;
 
   @ApiPropertyOptional({
+    description: 'Comma-separated listing types (RENTAL, RESALE, RENT_OR_RESALE)',
+  })
+  @IsOptional()
+  listingType?: string | string[];
+
+  @ApiPropertyOptional({
+    description: 'Comma-separated lister/curator user IDs',
+  })
+  @IsOptional()
+  curatorId?: string | string[];
+
+  @ApiPropertyOptional({
+    description: 'When true, only closet inventory; when false, exclude closet inventory',
+  })
+  @IsOptional()
+  @Transform(({ value }) =>
+    value === true || value === 'true'
+      ? true
+      : value === false || value === 'false'
+        ? false
+        : undefined,
+  )
+  @IsBoolean()
+  inCloset?: boolean;
+
+  @ApiPropertyOptional({
     description:
       'When true, omit listings from the internal staging curator (public storefront pagination).',
   })

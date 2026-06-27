@@ -16,6 +16,7 @@ import {
   serializeShopSalePublic,
   slugifySaleName,
 } from './shop-sale.util';
+import { applyProductListFilters } from '../product/product-list-filters.util';
 
 @Injectable()
 export class ShopSaleService {
@@ -317,6 +318,18 @@ export class ShopSaleService {
     page?: number;
     limit?: number;
     saleId?: string;
+    category?: string | string[];
+    brand?: string | string[];
+    tags?: string;
+    listingType?: string | string[];
+    curatorId?: string | string[];
+    color?: string;
+    size?: string;
+    condition?: string;
+    material?: string;
+    minPrice?: number;
+    maxPrice?: number;
+    inCloset?: boolean;
   }) {
     const pageSafe = Math.max(1, params.page ?? 1);
     const limitSafe = Math.min(50, Math.max(1, params.limit ?? 20));
@@ -333,15 +346,39 @@ export class ShopSaleService {
       isActive: true,
     };
 
+    applyProductListFilters(where, {
+      category: params.category,
+      brand: params.brand,
+      tags: params.tags,
+      listingType: params.listingType,
+      curatorId: params.curatorId,
+      color: params.color,
+      size: params.size,
+      condition: params.condition,
+      material: params.material,
+      minPrice: params.minPrice,
+      maxPrice: params.maxPrice,
+      inCloset: params.inCloset,
+    });
+
     const q = params.search?.trim();
     if (q) {
-      where.OR = [
-        { name: { contains: q, mode: 'insensitive' } },
-        { curator: { name: { contains: q, mode: 'insensitive' } } },
-        { curator: { email: { contains: q, mode: 'insensitive' } } },
-        { brand: { name: { contains: q, mode: 'insensitive' } } },
-        { category: { name: { contains: q, mode: 'insensitive' } } },
-      ];
+      const searchFilter: Prisma.ProductWhereInput = {
+        OR: [
+          { name: { contains: q, mode: 'insensitive' } },
+          { curator: { name: { contains: q, mode: 'insensitive' } } },
+          { curator: { email: { contains: q, mode: 'insensitive' } } },
+          { brand: { name: { contains: q, mode: 'insensitive' } } },
+          { category: { name: { contains: q, mode: 'insensitive' } } },
+          {
+            tags: {
+              some: { name: { contains: q, mode: 'insensitive' } },
+            },
+          },
+        ],
+      };
+      if (!where.AND) where.AND = [];
+      (where.AND as Prisma.ProductWhereInput[]).push(searchFilter);
     }
 
     const [total, products] = await this.prisma.$transaction([
@@ -358,10 +395,15 @@ export class ShopSaleService {
           listingType: true,
           dailyPrice: true,
           resalePrice: true,
+          color: true,
+          measurement: true,
+          condition: true,
+          material: true,
           closetId: true,
           curator: { select: { id: true, name: true, email: true } },
           brand: { select: { name: true } },
           category: { select: { name: true } },
+          tags: { select: { name: true } },
           attachments: {
             select: {
               uploads: {
@@ -388,6 +430,11 @@ export class ShopSaleService {
           listingType: p.listingType,
           dailyPrice: p.dailyPrice,
           resalePrice: p.resalePrice,
+          color: p.color,
+          size: p.measurement,
+          condition: p.condition,
+          material: p.material ?? null,
+          tagNames: p.tags.map((tag) => tag.name),
           inCloset: Boolean(p.closetId),
           listerName: p.curator.name,
           listerEmail: p.curator.email,

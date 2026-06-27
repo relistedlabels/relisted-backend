@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PrismaModule } from '../../services/prisma/prisma.module';
 import { MailModule } from '../../services/mail/mail.module';
+import { ProductModule } from '../product/product.module';
 import { ShopSaleService } from './shop-sale.service';
 import { ShopSaleAdminController } from './shop-sale.admin.controller';
 import { ShopSalePublicController } from './shop-sale.public.controller';
@@ -10,6 +11,7 @@ import { ShopSalePublicController } from './shop-sale.public.controller';
   imports: [
     PrismaModule,
     MailModule,
+    ProductModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET,
       signOptions: { expiresIn: '1d' },

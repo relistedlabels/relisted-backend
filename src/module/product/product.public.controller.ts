@@ -88,9 +88,32 @@ export class ProductPublicController {
       onlyWithCloset:
         query.onlyWithCloset === true || query.onlyWithCloset === 'true',
       sale: query.sale,
+      listingType: query.listingType,
+      curatorId: query.lister || query.curatorId,
       excludeStagingCurator: true,
     };
     return this.productService.list(listQuery);
+  }
+
+  @Get('filter-options')
+  @ApiOperation({
+    summary: 'Distinct filter values from visible shop products',
+  })
+  @ApiQuery({ name: 'sale', required: false })
+  @ApiQuery({ name: 'closetId', required: false })
+  @ApiQuery({ name: 'onlyWithCloset', required: false })
+  @ApiResponse({
+    status: 200,
+    description: 'Filter options retrieved successfully',
+  })
+  async filterOptions(@Query() query: any) {
+    return this.productService.getShopFilterOptions({
+      sale: query.sale,
+      closetId: query.closetId,
+      onlyWithCloset:
+        query.onlyWithCloset === true || query.onlyWithCloset === 'true',
+      excludeStagingCurator: true,
+    });
   }
 
   @Get(':id')
