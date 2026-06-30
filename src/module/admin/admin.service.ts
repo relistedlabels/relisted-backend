@@ -22,6 +22,7 @@ import {
   markRentalsReturnedForOrder,
   orderHasCompletedReturnRequest,
 } from '../order/mark-rentals-returned.util';
+import { LIVE_SHOP_STATUSES, ADMIN_ACTIVE_LISTING_STATUSES } from '../product/product-list-scope.util';
 import {
   MESSAGE_CHAT_UPLOADS_ORDER_BY,
   PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
@@ -324,13 +325,7 @@ export class AdminService {
         where: {
           isActive: true,
           productVerified: true,
-          status: {
-            in: [
-              ProductStatus.APPROVED,
-              ProductStatus.AVAILABLE,
-              ProductStatus.RENTED,
-            ],
-          },
+          status: { in: LIVE_SHOP_STATUSES },
         },
       }),
       this.prisma.dispute.count({
@@ -1526,13 +1521,23 @@ export class AdminService {
       await markRentalsReturnedForOrder(tx, order.id);
 
       const returnCompleted = orderHasCompletedReturnRequest(order);
-      if (returnCompleted) {
+      const returnShipmentDone =
+        returnCompleted ||
+        !!(await tx.shipment.findFirst({
+          where: {
+            orderId: order.id,
+            type: ShipmentType.RETURN,
+            status: 'COMPLETED',
+          },
+          select: { id: true },
+        }));
+      if (returnShipmentDone) {
         await markRentalProductsAvailableForOrder(tx, order.id);
       }
 
       if (
         order.status === OrderStatus.IN_DISPUTE ||
-        (returnCompleted && order.status !== OrderStatus.COMPLETED)
+        (returnShipmentDone && order.status !== OrderStatus.COMPLETED)
       ) {
         await tx.order.update({
           where: { id: order.id },
@@ -2310,10 +2315,21 @@ export class AdminService {
   /* PRODUCTS */
 
   async getProductStats() {
-    const [total, pending, approved, rejected] = await Promise.all([
+    const activeWhere: Prisma.ProductWhereInput = {
+      isActive: true,
+      productVerified: true,
+      status: { in: ADMIN_ACTIVE_LISTING_STATUSES },
+    };
+    const rentedWhere: Prisma.ProductWhereInput = {
+      isActive: true,
+      productVerified: true,
+      status: ProductStatus.RENTED,
+    };
+    const [total, pending, active, rented, rejected] = await Promise.all([
       this.prisma.product.count(),
       this.prisma.product.count({ where: { status: 'PENDING' } }),
-      this.prisma.product.count({ where: { status: 'APPROVED' } }),
+      this.prisma.product.count({ where: activeWhere }),
+      this.prisma.product.count({ where: rentedWhere }),
       this.prisma.product.count({ where: { status: 'REJECTED' } }),
     ]);
     return {
@@ -2321,9 +2337,10 @@ export class AdminService {
       data: {
         getTotalProducts: { count: total },
         getPendingProducts: { count: pending },
-        getApprovedProducts: { count: approved },
+        getApprovedProducts: { count: active },
         getRejectedProducts: { count: rejected },
-        getActiveProducts: { count: approved },
+        getActiveProducts: { count: active },
+        getRentedProducts: { count: rented },
       },
     };
   }
@@ -2580,13 +2597,26 @@ export class AdminService {
   }
 
   async getProductsByStatus(
-    status: 'PENDING' | 'REJECTED' | 'APPROVED',
+    status: 'PENDING' | 'REJECTED' | 'APPROVED' | 'ACTIVE' | 'RENTED',
     page: number,
     limit: number,
     search?: string,
   ) {
     const skip = (page - 1) * limit;
-    const where: Prisma.ProductWhereInput = { status: status as any };
+    const where: Prisma.ProductWhereInput =
+      status === 'ACTIVE'
+        ? {
+            isActive: true,
+            productVerified: true,
+            status: { in: ADMIN_ACTIVE_LISTING_STATUSES },
+          }
+        : status === 'RENTED'
+          ? {
+              isActive: true,
+              productVerified: true,
+              status: ProductStatus.RENTED,
+            }
+          : { status: status as any };
     const q = search?.trim();
     if (q) {
       where.OR = [
@@ -2769,9 +2799,14 @@ export class AdminService {
     const updated = await this.prisma.product.update({
       where: { id: productId },
       data: {
-        status: status as any,
+        status:
+          status === 'APPROVED'
+            ? ProductStatus.AVAILABLE
+            : (status as ProductStatus),
         ...(reason ? { rejectionComment: reason } : {}),
-        ...(status === 'APPROVED' ? { productVerified: true } : {}),
+        ...(status === 'APPROVED'
+          ? { productVerified: true, isActive: true, rejectionComment: null }
+          : {}),
       },
     });
 

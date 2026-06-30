@@ -8,10 +8,16 @@ export type ProductListScopeInput = {
   excludeStagingCurator?: boolean;
 };
 
-const LIVE_SHOP_STATUSES: ProductStatus[] = [
+export const LIVE_SHOP_STATUSES: ProductStatus[] = [
   ProductStatus.AVAILABLE,
   ProductStatus.APPROVED,
   ProductStatus.RENTED,
+];
+
+/** Admin Active tab: live listings not currently out on rental. */
+export const ADMIN_ACTIVE_LISTING_STATUSES: ProductStatus[] = [
+  ProductStatus.AVAILABLE,
+  ProductStatus.APPROVED,
 ];
 
 export function buildAdminPickerScopeWhere(): Prisma.ProductWhereInput {
