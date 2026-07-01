@@ -735,7 +735,7 @@ export class MailService {
       <div style="font-size:18px;font-weight:700;margin-top:6px;">Manual Relisted dispatch</div>
     </div>
     <div style="padding:20px;">
-      <p style="margin:0 0 16px;color:#374151;line-height:1.5;">This order uses <strong>Relisted dispatch</strong>. Topship is not booked automatically for these legs. Arrange pickup or delivery yourself, then open each shipment below and click <strong>Mark dispatched</strong> when it is on the way.</p>
+      <p style="margin:0 0 16px;color:#374151;line-height:1.5;">This order uses <strong>Relisted dispatch</strong>. No carrier is booked automatically for these legs. Arrange pickup or delivery yourself, then open each shipment below and click <strong>Mark dispatched</strong> when it is on the way.</p>
       <div style="border:1px solid #eef0f5;border-radius:10px;overflow:hidden;background:#fbfbfe;">
         <div style="padding:12px 16px;border-bottom:1px solid #eef0f5;background:#f3f4f6;">
           <div style="font-size:12px;color:#6b7280;">Order</div>
