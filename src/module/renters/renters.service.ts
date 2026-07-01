@@ -3582,7 +3582,7 @@ export class RentersService {
             milestone: 'in_transit',
             label: 'In transit',
             description:
-              'Carrier pickup is booked with Topship and your item is on the way.',
+              'Carrier pickup is booked and your item is on the way.',
             doneAtRank: 4,
             timestamp: order.dispatchedAt,
           },

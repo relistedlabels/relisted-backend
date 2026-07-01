@@ -23,6 +23,8 @@ export {
 } from './shipbubble-address-normalize';
 
 const DEFAULT_BASE = 'https://api.shipbubble.com/v1';
+const DEFAULT_QUOTE_MAX_ATTEMPTS = 5;
+const DEFAULT_QUOTE_RETRY_DELAY_MS = 500;
 
 export type ShipbubbleValidatedAddress = {
   addressCode: number;
@@ -140,6 +142,8 @@ export class ShipbubbleService {
   private readonly baseUrl: string;
   private readonly apiKey: string;
   private readonly httpTimeoutMs: number;
+  private readonly quoteMaxAttempts: number;
+  private readonly quoteRetryBaseDelayMs: number;
   private categoryIdCache: number | null = null;
   private readonly validateInFlight = new Map<
     string,
@@ -167,6 +171,14 @@ export class ShipbubbleService {
     this.httpTimeoutMs = Math.max(
       1000,
       Number(process.env.SHIPBUBBLE_HTTP_TIMEOUT_MS ?? 45_000),
+    );
+    this.quoteMaxAttempts = Math.max(
+      1,
+      Number(process.env.SHIPBUBBLE_QUOTE_MAX_ATTEMPTS ?? DEFAULT_QUOTE_MAX_ATTEMPTS),
+    );
+    this.quoteRetryBaseDelayMs = Math.max(
+      0,
+      Number(process.env.SHIPBUBBLE_QUOTE_RETRY_DELAY_MS ?? DEFAULT_QUOTE_RETRY_DELAY_MS),
     );
   }
 
@@ -481,6 +493,38 @@ export class ShipbubbleService {
     },
     options?: { sameDayOnly?: boolean },
   ): Promise<ShipbubbleCourierQuote[]> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= this.quoteMaxAttempts; attempt++) {
+      try {
+        return await this.fetchPickupQuotesOnce(input, options);
+      } catch (err) {
+        lastError = err;
+        const canRetry =
+          attempt < this.quoteMaxAttempts &&
+          this.isRetryableShipbubbleQuoteError(err);
+        if (!canRetry) {
+          throw err;
+        }
+        const delayMs = this.quoteRetryDelayMs(attempt);
+        this.logger.warn(
+          `Shipbubble quote attempt ${attempt}/${this.quoteMaxAttempts} failed (${this.formatQuoteAttemptError(err)}), retrying in ${delayMs}ms`,
+        );
+        await this.sleep(delayMs);
+      }
+    }
+    throw lastError;
+  }
+
+  private async fetchPickupQuotesOnce(
+    input: {
+      sender: ShipbubbleAddressContact;
+      receiver: ShipbubbleAddressContact;
+      packageItems: ShipbubblePackageItem[];
+      pickupDateYmd?: string;
+      scheduledWindowStart?: Date | null;
+    },
+    options?: { sameDayOnly?: boolean },
+  ): Promise<ShipbubbleCourierQuote[]> {
     const payload = await this.fetchRatesPayload(input);
     const data = payload.data;
     const requestToken = payload.requestToken;
@@ -758,5 +802,41 @@ export class ShipbubbleService {
       err?.message ||
       fallback;
     return String(msg);
+  }
+
+  private sleep(ms: number): Promise<void> {
+    if (ms <= 0) return Promise.resolve();
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private quoteRetryDelayMs(attempt: number): number {
+    return this.quoteRetryBaseDelayMs * 2 ** Math.max(0, attempt - 1);
+  }
+
+  private formatQuoteAttemptError(err: unknown): string {
+    if (err instanceof InternalServerErrorException) {
+      return String(err.message);
+    }
+    return this.formatApiError(err, 'Shipbubble quote request failed');
+  }
+
+  /**
+   * Retry when Shipbubble returns no qualifying couriers or the request fails
+   * (network/timeouts/5xx). Skip permanent config/validation preconditions.
+   */
+  private isRetryableShipbubbleQuoteError(err: unknown): boolean {
+    if (err instanceof InternalServerErrorException) {
+      const msg = String(err.message).toLowerCase();
+      if (msg.includes('shipbubble api key is not set')) return false;
+      if (msg.includes('requires a full address line')) return false;
+      return true;
+    }
+
+    const status = (err as { response?: { status?: number } })?.response?.status;
+    if (status != null && status >= 400 && status < 500 && status !== 429) {
+      return false;
+    }
+
+    return true;
   }
 }

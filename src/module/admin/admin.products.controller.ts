@@ -87,7 +87,28 @@ export class AdminProductsController {
         ? parseInt(count, 10)
         : 10;
     return this.adminService.getProductsByStatus(
-      'APPROVED',
+      'ACTIVE',
+      page ? parseInt(page, 10) : 1,
+      pageSize,
+      search,
+    );
+  }
+
+  @Get('rented')
+  @ApiOperation({ summary: 'Get rented-out products' })
+  async getRentedProducts(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('count') count?: string,
+    @Query('search') search?: string,
+  ) {
+    const pageSize = limit
+      ? parseInt(limit, 10)
+      : count
+        ? parseInt(count, 10)
+        : 10;
+    return this.adminService.getProductsByStatus(
+      'RENTED',
       page ? parseInt(page, 10) : 1,
       pageSize,
       search,
