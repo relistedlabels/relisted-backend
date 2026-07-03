@@ -81,6 +81,7 @@ import {
 } from 'src/constants/relisted-dispatch-shipping';
 import { fetchAdminAlertRecipients } from 'src/module/shipment/shipment-admin-alert-recipients';
 import { buildAdminShipmentsPageUrl } from 'src/module/shipment/build-admin-shipments-page-url';
+import { shipmentLegLabel } from 'src/module/shipment/shipment-leg-label.util';
 import { MailService } from 'src/services/mail/mail.service';
 import {
   PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
@@ -652,17 +653,6 @@ export class OrderService {
     return out;
   }
 
-  private manualShipmentLegLabel(type: 'OUTBOUND' | 'RETURN' | 'RESALE') {
-    switch (type) {
-      case 'OUTBOUND':
-        return 'Rental delivery (to renter)';
-      case 'RETURN':
-        return 'Return (to lister)';
-      case 'RESALE':
-        return 'Purchase delivery';
-    }
-  }
-
   /** In-app + email for admins when checkout used Relisted dispatch (no Topship auto-booking). */
   private async notifyAdminsManualFulfillmentCheckout(
     humanOrderId: string,
@@ -681,13 +671,11 @@ export class OrderService {
 
     const shipmentIds = manualShipments.map((s) => s.id);
     const count = manualShipments.length;
+    const legLabels = manualShipments.map((s) => shipmentLegLabel(s.type));
     const summary =
       count === 1
-        ? `Shipment ${manualShipments[0].id}`
-        : `${count} shipments (${manualShipments
-            .slice(0, 3)
-            .map((s) => s.id)
-            .join(', ')}${count > 3 ? ', ...' : ''})`;
+        ? legLabels[0]
+        : `${count} legs (${legLabels.slice(0, 3).join(', ')}${count > 3 ? ', ...' : ''})`;
 
     for (const admin of admins) {
       await this.notificationService.createNotification({
@@ -705,8 +693,7 @@ export class OrderService {
     for (const admin of admins) {
       if (!admin.email?.trim()) continue;
       const shipmentsPayload = manualShipments.map((s) => ({
-        shipmentId: s.id,
-        legLabel: this.manualShipmentLegLabel(s.type),
+        legLabel: shipmentLegLabel(s.type),
         adminShipmentUrl: buildAdminShipmentsPageUrl({ shipmentId: s.id }) || '',
       }));
       try {
