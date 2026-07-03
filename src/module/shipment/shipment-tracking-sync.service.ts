@@ -7,6 +7,7 @@ import { isShipbubblePricingTier } from 'src/services/shipbubble/shipbubble.serv
 import { syncOrderStatusFromShipments } from 'src/module/order/order-shipment-status.sync';
 import { fetchAdminAlertRecipients } from 'src/module/shipment/shipment-admin-alert-recipients';
 import { buildAdminShipmentsPageUrl } from 'src/module/shipment/build-admin-shipments-page-url';
+import { shipmentLegLabel } from 'src/module/shipment/shipment-leg-label.util';
 import { sendShipmentLegStatusNotification } from './shipment-status-notifications';
 import {
   buildShippingEmailTrackingFields,
@@ -355,6 +356,8 @@ export class ShipmentTrackingSyncService {
   ): Promise<void> {
     const providerStatus = tracking.status || 'Cancelled';
     const order = shipment.order;
+    const humanOrderId = order?.orderId ?? 'Unknown order';
+    const legLabel = shipmentLegLabel(shipment.type);
     const providerLabel = getShippingProviderDisplayName(
       resolveShipmentFulfillmentProvider(shipment.pricingTier),
     );
@@ -374,11 +377,11 @@ export class ShipmentTrackingSyncService {
       await this.notification.createNotification({
         userId: admin.id,
         title: `Shipment cancelled by ${providerLabel}`,
-        message: `Shipment ${shipment.id} (${shipment.type}) was cancelled by ${providerLabel} (status: ${providerStatus}).`,
+        message: `Order ${humanOrderId}: ${legLabel} was cancelled by ${providerLabel} (status: ${providerStatus}).`,
         type: 'SHIPMENT_PROVIDER_CANCELLED',
         metadata: {
           shipmentId: shipment.id,
-          orderId: order?.orderId ?? shipment.id,
+          orderId: humanOrderId,
           providerStatus,
           providerMessage: tracking.message ?? null,
         },
@@ -390,9 +393,8 @@ export class ShipmentTrackingSyncService {
       try {
         await this.mail.sendAdminShipmentCancelledAlert({
           to: admin.email.trim(),
-          shipmentId: shipment.id,
-          orderId: order?.orderId ?? shipment.id,
-          shipmentType: shipment.type,
+          humanOrderId,
+          legLabel,
           providerStatus,
           providerMessage: tracking.message,
           providerLabel,

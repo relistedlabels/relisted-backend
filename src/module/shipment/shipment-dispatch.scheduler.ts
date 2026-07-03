@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
-import { ListingType, ShipmentType } from '@prisma/client';
+import { ListingType } from '@prisma/client';
 import { PrismaService } from 'src/services/prisma/prisma.service';
 import { DeliveryProviderService } from 'src/services/delivery/delivery-provider.service';
 import { NotificationService } from 'src/services/notification/notification.service';
@@ -17,6 +17,7 @@ import {
 } from 'date-fns';
 import { fetchAdminAlertRecipients } from 'src/module/shipment/shipment-admin-alert-recipients';
 import { buildAdminShipmentsPageUrl } from 'src/module/shipment/build-admin-shipments-page-url';
+import { shipmentLegLabel } from 'src/module/shipment/shipment-leg-label.util';
 import { OrderService } from 'src/module/order/order.service';
 import {
   listerDisplayName,
@@ -835,7 +836,7 @@ export class ShipmentDispatchScheduler {
 
       const humanOrderId = s.order.orderId;
       const dueSummary = this.formatLagosPickupWindow(dueStart, pickupEnd);
-      const legLabel = this.manualLegLabel(s.type);
+      const legLabel = shipmentLegLabel(s.type);
 
       const pingAdmins = async (
         reminderKind: '24_hours' | 'morning_of',
@@ -861,7 +862,6 @@ export class ShipmentDispatchScheduler {
             await this.mail.sendAdminManualFulfillmentDueReminder({
               to: admin.email.trim(),
               humanOrderId,
-              shipmentId: s.id,
               legLabel,
               adminShipmentUrl:
                 buildAdminShipmentsPageUrl({ shipmentId: s.id }) || '',
@@ -937,19 +937,6 @@ export class ShipmentDispatchScheduler {
       hour12: true,
     });
     return `${startLabel} to ${endLabel} (WAT)`;
-  }
-
-  private manualLegLabel(type: ShipmentType): string {
-    switch (type) {
-      case 'OUTBOUND':
-        return 'Rental delivery (to renter)';
-      case 'RETURN':
-        return 'Return (to lister)';
-      case 'RESALE':
-        return 'Purchase delivery';
-      default:
-        return 'Shipment';
-    }
   }
 
   /**

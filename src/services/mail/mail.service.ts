@@ -615,23 +615,23 @@ export class MailService {
 
   async sendAdminDispatchFailureAlert(dto: {
     to: string;
-    shipmentId: string;
-    orderId: string;
-    shipmentType: string;
+    humanOrderId: string;
+    legLabel: string;
     scheduledDate: Date;
     errorMessage: string;
     redispatchUrl: string;
   }) {
     const {
       to,
-      shipmentId,
-      orderId,
-      shipmentType,
+      humanOrderId,
+      legLabel,
       scheduledDate,
       errorMessage,
       redispatchUrl,
     } = dto;
-    console.log(`[EMAIL] Sending admin dispatch failure alert to ${to}`);
+    console.log(
+      `[EMAIL] Sending admin dispatch failure alert to ${to} (order ${humanOrderId}, ${legLabel})`,
+    );
 
     const scheduledDateStr = new Date(scheduledDate).toLocaleDateString(
       'en-NG',
@@ -654,16 +654,12 @@ export class MailService {
       <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
         <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
           <div style="min-width:220px;">
-            <div style="font-size:12px;color:#6b7280;">Shipment ID</div>
-            <div style="font-weight:600;">${shipmentId}</div>
+            <div style="font-size:12px;color:#6b7280;">Order</div>
+            <div style="font-weight:600;">${humanOrderId}</div>
           </div>
           <div style="min-width:220px;">
-            <div style="font-size:12px;color:#6b7280;">Order ID</div>
-            <div style="font-weight:600;">${orderId}</div>
-          </div>
-          <div style="min-width:220px;">
-            <div style="font-size:12px;color:#6b7280;">Type</div>
-            <div style="font-weight:600;">${shipmentType}</div>
+            <div style="font-size:12px;color:#6b7280;">Leg</div>
+            <div style="font-weight:600;">${legLabel}</div>
           </div>
           <div style="min-width:220px;">
             <div style="font-size:12px;color:#6b7280;">Scheduled Date</div>
@@ -694,7 +690,7 @@ export class MailService {
 
     await this.deliverMail({
       to,
-      subject: `⚠️ Shipment Dispatch Failed - ${shipmentId}`,
+      subject: `⚠️ Shipment dispatch failed: order ${humanOrderId}`,
       html,
     });
   }
@@ -703,7 +699,6 @@ export class MailService {
     to: string;
     humanOrderId: string;
     shipments: Array<{
-      shipmentId: string;
       legLabel: string;
       adminShipmentUrl: string;
     }>;
@@ -720,8 +715,7 @@ export class MailService {
           : '';
         return `<tr>
           <td style="padding:10px 12px;border-bottom:1px solid #eef0f5;vertical-align:top;">
-            <div style="font-size:12px;color:#6b7280;">${s.legLabel}</div>
-            <div style="font-weight:600;color:#111827;font-family:ui-monospace,monospace;font-size:13px;margin-top:4px;">${s.shipmentId}</div>
+            <div style="font-weight:600;color:#111827;">${s.legLabel}</div>
           </td>
           <td style="padding:10px 12px;border-bottom:1px solid #eef0f5;text-align:right;vertical-align:middle;">${link}</td>
         </tr>`;
@@ -774,7 +768,6 @@ export class MailService {
   async sendAdminManualFulfillmentDueReminder(dto: {
     to: string;
     humanOrderId: string;
-    shipmentId: string;
     legLabel: string;
     adminShipmentUrl: string;
     reminderKind: '24_hours' | 'morning_of';
@@ -783,7 +776,6 @@ export class MailService {
     const {
       to,
       humanOrderId,
-      shipmentId,
       legLabel,
       adminShipmentUrl,
       reminderKind,
@@ -800,7 +792,7 @@ export class MailService {
         : `Reminder: manual dispatch due today (${humanOrderId})`;
 
     console.log(
-      `[EMAIL] Admin manual dispatch reminder (${reminderKind}) to ${to} shipment ${shipmentId}`,
+      `[EMAIL] Admin manual dispatch reminder (${reminderKind}) to ${to} for order ${humanOrderId} (${legLabel})`,
     );
 
     const linkBlock = adminShipmentUrl
@@ -834,10 +826,6 @@ export class MailService {
           </div>
         </div>
         <div style="margin-top:12px;">
-          <div style="font-size:12px;color:#6b7280;">Shipment ID</div>
-          <div style="font-weight:600;font-family:ui-monospace,monospace;font-size:13px;">${shipmentId}</div>
-        </div>
-        <div style="margin-top:12px;">
           <div style="font-size:12px;color:#6b7280;">Scheduled window</div>
           <div style="font-weight:600;">${dueSummary}</div>
         </div>
@@ -861,9 +849,8 @@ export class MailService {
 
   async sendAdminShipmentCancelledAlert(dto: {
     to: string;
-    shipmentId: string;
-    orderId: string;
-    shipmentType: string;
+    humanOrderId: string;
+    legLabel: string;
     providerStatus: string;
     providerMessage?: string;
     providerLabel?: string;
@@ -872,9 +859,8 @@ export class MailService {
   }) {
     const {
       to,
-      shipmentId,
-      orderId,
-      shipmentType,
+      humanOrderId,
+      legLabel,
       providerStatus,
       providerMessage,
       providerLabel = 'carrier',
@@ -883,7 +869,7 @@ export class MailService {
     } = dto;
 
     console.log(
-      `[EMAIL] Sending admin shipment cancellation alert to ${to} for shipment ${shipmentId}`,
+      `[EMAIL] Sending admin shipment cancellation alert to ${to} for order ${humanOrderId} (${legLabel})`,
     );
 
     const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f6f7fb;padding:24px;">
@@ -897,16 +883,12 @@ export class MailService {
       <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
         <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
           <div style="min-width:220px;">
-            <div style="font-size:12px;color:#6b7280;">Shipment ID</div>
-            <div style="font-weight:600;">${shipmentId}</div>
+            <div style="font-size:12px;color:#6b7280;">Order</div>
+            <div style="font-weight:600;">${humanOrderId}</div>
           </div>
           <div style="min-width:220px;">
-            <div style="font-size:12px;color:#6b7280;">Order ID</div>
-            <div style="font-weight:600;">${orderId}</div>
-          </div>
-          <div style="min-width:220px;">
-            <div style="font-size:12px;color:#6b7280;">Type</div>
-            <div style="font-weight:600;">${shipmentType}</div>
+            <div style="font-size:12px;color:#6b7280;">Leg</div>
+            <div style="font-weight:600;">${legLabel}</div>
           </div>
           <div style="min-width:220px;">
             <div style="font-size:12px;color:#6b7280;">Provider Status</div>
@@ -945,7 +927,7 @@ export class MailService {
 
     await this.deliverMail({
       to,
-      subject: `🚨 Shipment Cancelled - ${shipmentId}`,
+      subject: `🚨 Shipment cancelled: order ${humanOrderId}`,
       html,
     });
   }

@@ -12,6 +12,7 @@ import { fetchAdminAlertRecipients } from 'src/module/shipment/shipment-admin-al
 import { buildAdminShipmentsPageUrl } from 'src/module/shipment/build-admin-shipments-page-url';
 import { formatDispatchWindowLagos } from 'src/module/shipment/dispatch-window-format';
 import { buildShippingEmailTrackingFields } from 'src/module/shipment/shipment-tracking-url.util';
+import { shipmentLegLabel } from 'src/module/shipment/shipment-leg-label.util';
 
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAYS_MS = [
@@ -338,6 +339,8 @@ export class ShipmentDispatchProcessor {
   private async notifyAdminOfFailure(shipment: any, errorMessage: string) {
     const redispatchUrl =
       buildAdminShipmentsPageUrl({ shipmentId: shipment.id }) || '';
+    const humanOrderId = shipment.order?.orderId ?? 'Unknown order';
+    const legLabel = shipmentLegLabel(shipment.type);
 
     const admins = await fetchAdminAlertRecipients(this.prisma);
     if (admins.length === 0) {
@@ -351,11 +354,11 @@ export class ShipmentDispatchProcessor {
       await this.notification.createNotification({
         userId: admin.id,
         title: '⚠️ Shipment Dispatch Failed',
-        message: `Shipment ${shipment.id} (${shipment.type}) failed all ${MAX_ATTEMPTS} retries. Manual action required.`,
+        message: `Order ${humanOrderId}: ${legLabel} failed all ${MAX_ATTEMPTS} retries. Manual action required.`,
         type: 'DISPATCH_FAILED',
         metadata: {
           shipmentId: shipment.id,
-          orderId: shipment.orderId,
+          orderId: humanOrderId,
           shipmentType: shipment.type,
           error: errorMessage,
           redispatchUrl,
@@ -368,9 +371,8 @@ export class ShipmentDispatchProcessor {
       try {
         await this.mail.sendAdminDispatchFailureAlert?.({
           to: admin.email.trim(),
-          shipmentId: shipment.id,
-          orderId: shipment.orderId,
-          shipmentType: shipment.type,
+          humanOrderId,
+          legLabel,
           scheduledDate: shipment.scheduledDate,
           errorMessage,
           redispatchUrl,
