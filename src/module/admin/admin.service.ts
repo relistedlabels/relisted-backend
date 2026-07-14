@@ -3871,7 +3871,19 @@ export class AdminService {
     };
   }
 
+  private async expireStalePendingAvailabilityRequests() {
+    await this.prisma.availabilityRequest.updateMany({
+      where: {
+        status: AvailabilityStatus.PENDING,
+        expiresAt: { lte: new Date() },
+      },
+      data: { status: AvailabilityStatus.EXPIRED },
+    });
+  }
+
   async getAvailabilityRequestStats() {
+    await this.expireStalePendingAvailabilityRequests();
+
     const [
       total,
       pending,
@@ -3931,6 +3943,8 @@ export class AdminService {
     dateFrom?: string,
     dateTo?: string,
   ) {
+    await this.expireStalePendingAvailabilityRequests();
+
     const pageSafe = Math.max(1, page);
     const limitSafe = Math.min(Math.max(1, limit), 100);
     const skip = (pageSafe - 1) * limitSafe;
@@ -4007,6 +4021,8 @@ export class AdminService {
   }
 
   async getAvailabilityRequestDetails(requestId: string) {
+    await this.expireStalePendingAvailabilityRequests();
+
     const request = await this.prisma.availabilityRequest.findUnique({
       where: { id: requestId },
       include: {
