@@ -66,3 +66,5 @@ scripts/
 /.md
 /dev-emails
 /docs
+# Local agent instructions (do not commit)
+AGENTS.md
