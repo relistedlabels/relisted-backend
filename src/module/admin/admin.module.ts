@@ -8,6 +8,7 @@ import { AdminDisputesController } from './admin.disputes.controller';
 import { AdminWalletsController } from './admin.wallets.controller';
 import { AdminProductsController } from './admin.products.controller';
 import { AdminClosetsController } from './admin.closets.controller';
+import { AdminAvailabilityRequestsController } from './admin.availability-requests.controller';
 import { PrismaModule } from '../../services/prisma/prisma.module';
 
 @Module({
@@ -21,6 +22,7 @@ import { PrismaModule } from '../../services/prisma/prisma.module';
     AdminWalletsController,
     AdminProductsController,
     AdminClosetsController,
+    AdminAvailabilityRequestsController,
   ],
   providers: [AdminService],
   exports: [AdminService],

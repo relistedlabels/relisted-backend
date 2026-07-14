@@ -8,6 +8,7 @@ import { PrismaService } from '../../services/prisma/prisma.service';
 import { NotificationService } from 'src/services/notification/notification.service';
 import { MailService } from '../../services/mail/mail.service';
 import {
+  AvailabilityStatus,
   DisputeStatus,
   OrderStatus,
   Prisma,
@@ -16,12 +17,14 @@ import {
   ShipmentType,
   WalletTransactionStatus,
 } from '@prisma/client';
+import { addMinutes } from 'date-fns';
 import { incrementClosetRevenueForListerPayout } from '../closet/closet-revenue.util';
 import {
   markRentalProductsAvailableForOrder,
   markRentalsReturnedForOrder,
   orderHasCompletedReturnRequest,
 } from '../order/mark-rentals-returned.util';
+import { formatAdminReturnRequest } from '../order/admin-return-request.format';
 import { LIVE_SHOP_STATUSES, ADMIN_ACTIVE_LISTING_STATUSES } from '../product/product-list-scope.util';
 import {
   MESSAGE_CHAT_UPLOADS_ORDER_BY,
@@ -40,6 +43,11 @@ import {
   deleteProductCascade,
   deleteProfileCascade,
 } from 'src/utils/cascade-delete';
+import {
+  availabilityRequestWindowFieldMap,
+  extractRangeMapFromEntity,
+} from 'src/utils/dispatch-windows';
+import { formatRentalBoundaryDateLagos } from '../shipment/dispatch-window-format';
 
 @Injectable()
 export class AdminService {
@@ -3362,6 +3370,7 @@ export class AdminService {
               : 'Pending',
       },
       escrows: escrowRows,
+      returnRequest: formatAdminReturnRequest(order.returnRequests?.[0]),
     };
   }
 
@@ -3411,6 +3420,7 @@ export class AdminService {
         payments: { take: 1, orderBy: { createdAt: 'desc' } },
         escrows: true,
         shipments: { orderBy: { scheduledDate: 'asc' } },
+        returnRequests: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
     });
     if (!order) throw new NotFoundException('Order not found');
@@ -3739,6 +3749,510 @@ export class AdminService {
         failed,
         shopUrl,
         devEmailBypass: process.env.DEV_EMAIL_BYPASS === 'true',
+      },
+    };
+  }
+
+  private availabilityRequestPersonSelect() {
+    return {
+      id: true,
+      name: true,
+      email: true,
+      profile: {
+        select: {
+          avatar: true,
+          phoneNumber: true,
+          avatarUpload: { select: { url: true } },
+        },
+      },
+    };
+  }
+
+  private availabilityRequestProductInclude() {
+    return {
+      brand: { select: { id: true, name: true } },
+      attachments: {
+        include: {
+          uploads: {
+            take: 1,
+            orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+            select: { url: true, displayOrder: true },
+          },
+        },
+      },
+    };
+  }
+
+  private mapAvailabilityRequestPerson(user: {
+    id: string;
+    name: string | null;
+    email: string | null;
+    profile?: {
+      avatar?: string | null;
+      phoneNumber?: string | null;
+      avatarUpload?: { url?: string | null } | null;
+    } | null;
+  } | null) {
+    if (!user) return null;
+    return {
+      id: user.id,
+      name: user.name || 'Unknown',
+      email: user.email,
+      phone: user.profile?.phoneNumber ?? null,
+      avatar:
+        user.profile?.avatarUpload?.url ?? user.profile?.avatar ?? null,
+    };
+  }
+
+  private mapAvailabilityRequestRow(request: any) {
+    const rentalDays = request.rentalDays ?? 0;
+    const isPurchase = rentalDays === 0;
+    const windowMap = extractRangeMapFromEntity(
+      request,
+      availabilityRequestWindowFieldMap,
+    );
+
+    return {
+      id: request.id,
+      status: request.status,
+      requestType: isPurchase ? 'purchase' : 'rental',
+      rentalDays,
+      totalPrice: request.totalPrice ?? 0,
+      startDate: request.startDate,
+      endDate: request.endDate,
+      expiresAt: request.expiresAt,
+      createdAt: request.createdAt,
+      autoPay: request.autoPay ?? false,
+      rejectionReason: request.rejectionReason ?? null,
+      cartItemId: request.cartItemId,
+      productId: request.productId,
+      product: request.product
+        ? {
+            id: request.product.id,
+            name: request.product.name,
+            listingType: request.product.listingType,
+            brand: request.product.brand?.name ?? null,
+            image: request.product.attachments?.uploads?.[0]?.url ?? null,
+            dailyPrice: request.product.dailyPrice ?? null,
+            resalePrice: request.product.resalePrice ?? null,
+          }
+        : null,
+      requester: this.mapAvailabilityRequestPerson(request.requester),
+      lister: this.mapAvailabilityRequestPerson(request.lister),
+      windows: {
+        outbound: windowMap.OUTBOUND
+          ? {
+              start: windowMap.OUTBOUND.start.toISOString(),
+              end: windowMap.OUTBOUND.end.toISOString(),
+            }
+          : null,
+        return: windowMap.RETURN
+          ? {
+              start: windowMap.RETURN.start.toISOString(),
+              end: windowMap.RETURN.end.toISOString(),
+            }
+          : null,
+        resale: windowMap.RESALE
+          ? {
+              start: windowMap.RESALE.start.toISOString(),
+              end: windowMap.RESALE.end.toISOString(),
+            }
+          : null,
+      },
+      canNudgeRenter: request.status === AvailabilityStatus.EXPIRED,
+      canResendToLister: (
+        [
+          AvailabilityStatus.PENDING,
+          AvailabilityStatus.EXPIRED,
+          AvailabilityStatus.REJECTED,
+          AvailabilityStatus.CANCELLED_BY_RENTER,
+        ] as AvailabilityStatus[]
+      ).includes(request.status),
+    };
+  }
+
+  async getAvailabilityRequestStats() {
+    const [
+      total,
+      pending,
+      accepted,
+      expired,
+      rejected,
+      cancelled,
+      purchase,
+      rental,
+    ] = await Promise.all([
+      this.prisma.availabilityRequest.count(),
+      this.prisma.availabilityRequest.count({
+        where: { status: AvailabilityStatus.PENDING },
+      }),
+      this.prisma.availabilityRequest.count({
+        where: { status: AvailabilityStatus.ACCEPTED },
+      }),
+      this.prisma.availabilityRequest.count({
+        where: { status: AvailabilityStatus.EXPIRED },
+      }),
+      this.prisma.availabilityRequest.count({
+        where: { status: AvailabilityStatus.REJECTED },
+      }),
+      this.prisma.availabilityRequest.count({
+        where: { status: AvailabilityStatus.CANCELLED_BY_RENTER },
+      }),
+      this.prisma.availabilityRequest.count({
+        where: { OR: [{ rentalDays: 0 }, { rentalDays: null }] },
+      }),
+      this.prisma.availabilityRequest.count({
+        where: { rentalDays: { gt: 0 } },
+      }),
+    ]);
+
+    return {
+      success: true,
+      data: {
+        total,
+        pending,
+        accepted,
+        expired,
+        rejected,
+        cancelled,
+        purchase,
+        rental,
+        needingAttention: pending + expired,
+      },
+    };
+  }
+
+  async getAllAvailabilityRequests(
+    page: number,
+    limit: number,
+    status?: string,
+    type?: string,
+    search?: string,
+    dateFrom?: string,
+    dateTo?: string,
+  ) {
+    const pageSafe = Math.max(1, page);
+    const limitSafe = Math.min(Math.max(1, limit), 100);
+    const skip = (pageSafe - 1) * limitSafe;
+
+    const where: Prisma.AvailabilityRequestWhereInput = {};
+
+    if (dateFrom || dateTo) {
+      where.createdAt = {};
+      if (dateFrom) {
+        where.createdAt.gte = new Date(`${dateFrom}T00:00:00.000Z`);
+      }
+      if (dateTo) {
+        where.createdAt.lte = new Date(`${dateTo}T23:59:59.999Z`);
+      }
+    }
+
+    const statusNorm = status?.trim().toUpperCase();
+    if (
+      statusNorm &&
+      statusNorm !== 'ALL' &&
+      Object.values(AvailabilityStatus).includes(
+        statusNorm as AvailabilityStatus,
+      )
+    ) {
+      where.status = statusNorm as AvailabilityStatus;
+    }
+
+    const typeNorm = type?.trim().toLowerCase();
+    if (typeNorm === 'purchase') {
+      where.OR = [{ rentalDays: 0 }, { rentalDays: null }];
+    } else if (typeNorm === 'rental') {
+      where.rentalDays = { gt: 0 };
+    }
+
+    const q = search?.trim();
+    if (q) {
+      where.AND = [
+        ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+        {
+          OR: [
+            { id: { contains: q, mode: 'insensitive' } },
+            { product: { name: { contains: q, mode: 'insensitive' } } },
+            { requester: { name: { contains: q, mode: 'insensitive' } } },
+            { requester: { email: { contains: q, mode: 'insensitive' } } },
+            { lister: { name: { contains: q, mode: 'insensitive' } } },
+            { lister: { email: { contains: q, mode: 'insensitive' } } },
+          ],
+        },
+      ];
+    }
+
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.availabilityRequest.count({ where }),
+      this.prisma.availabilityRequest.findMany({
+        where,
+        skip,
+        take: limitSafe,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          product: { include: this.availabilityRequestProductInclude() },
+          requester: { select: this.availabilityRequestPersonSelect() },
+          lister: { select: this.availabilityRequestPersonSelect() },
+        },
+      }),
+    ]);
+
+    return {
+      success: true,
+      data: {
+        requests: rows.map((r) => this.mapAvailabilityRequestRow(r)),
+        pagination: this.buildListPagination(total, pageSafe, limitSafe),
+      },
+    };
+  }
+
+  async getAvailabilityRequestDetails(requestId: string) {
+    const request = await this.prisma.availabilityRequest.findUnique({
+      where: { id: requestId },
+      include: {
+        product: {
+          include: {
+            ...this.availabilityRequestProductInclude(),
+            curator: { select: this.availabilityRequestPersonSelect() },
+          },
+        },
+        requester: { select: this.availabilityRequestPersonSelect() },
+        lister: { select: this.availabilityRequestPersonSelect() },
+      },
+    });
+
+    if (!request) {
+      throw new NotFoundException('Availability request not found');
+    }
+
+    return {
+      success: true,
+      data: this.mapAvailabilityRequestRow(request),
+    };
+  }
+
+  async adminNudgeRenterForAvailabilityRequest(
+    requestId: string,
+    intent: 'rerequest' | 'now_available',
+  ) {
+    if (intent !== 'rerequest' && intent !== 'now_available') {
+      throw new BadRequestException(
+        'intent must be "rerequest" or "now_available"',
+      );
+    }
+
+    const request = await this.prisma.availabilityRequest.findUnique({
+      where: { id: requestId },
+      include: {
+        product: true,
+        requester: true,
+        lister: true,
+      },
+    });
+
+    if (!request) {
+      throw new NotFoundException('Request not found');
+    }
+    if (request.status !== AvailabilityStatus.EXPIRED) {
+      throw new BadRequestException(
+        'Reminders can only be sent for expired availability requests.',
+      );
+    }
+
+    const productName = request.product?.name ?? 'this item';
+    const isPurchaseRequest = (request.rentalDays ?? 0) === 0;
+    const listerName = request.lister?.name || 'The curator';
+    const renterEmail = request.requester?.email?.trim() || '';
+    const cartBase = (
+      process.env.CLIENT_URL ||
+      process.env.FRONTEND_URL ||
+      'http://localhost:3000'
+    ).replace(/\/$/, '');
+
+    const emailData = {
+      email: renterEmail,
+      userName: request.requester?.name || 'there',
+      listerName,
+      productName,
+      intent,
+      requestType: isPurchaseRequest ? 'purchase' : 'rental',
+      cartLink: `${cartBase}/shop/cart`,
+    };
+
+    const title =
+      intent === 'rerequest'
+        ? isPurchaseRequest
+          ? 'Send a new purchase request'
+          : 'Send a new rental request'
+        : isPurchaseRequest
+          ? 'A lister is ready for your purchase request'
+          : 'A lister is ready for your rental request';
+
+    const message =
+      intent === 'rerequest'
+        ? `The curator could not respond in time earlier. If you still want ${productName}, open your cart and tap Request approval again.`
+        : `${listerName} is ready when you are. If you still want ${productName}, open your cart and send a new availability request.`;
+
+    await this.notificationService.createNotification({
+      userId: request.requesterId,
+      title,
+      message,
+      type: 'AVAILABILITY_REQUEST_REMINDER',
+      metadata: {
+        requestId: request.id,
+        productId: request.productId,
+        intent,
+        triggeredBy: 'admin',
+      },
+      sendEmail: Boolean(renterEmail),
+      emailData,
+    });
+
+    return {
+      success: true,
+      message:
+        intent === 'now_available'
+          ? 'Renter notified that the lister is available'
+          : 'Renter asked to send a new request',
+      data: { requestId: request.id, intent },
+    };
+  }
+
+  async adminResendAvailabilityRequestToLister(requestId: string) {
+    const request = await this.prisma.availabilityRequest.findUnique({
+      where: { id: requestId },
+      include: {
+        product: {
+          include: {
+            curator: { select: { id: true, name: true, email: true } },
+          },
+        },
+        requester: true,
+        lister: true,
+      },
+    });
+
+    if (!request) {
+      throw new NotFoundException('Request not found');
+    }
+
+    const resendable: AvailabilityStatus[] = [
+      AvailabilityStatus.PENDING,
+      AvailabilityStatus.EXPIRED,
+      AvailabilityStatus.REJECTED,
+      AvailabilityStatus.CANCELLED_BY_RENTER,
+    ];
+    if (!resendable.includes(request.status)) {
+      throw new BadRequestException(
+        'Only pending, expired, rejected, or withdrawn requests can be resent to the lister.',
+      );
+    }
+
+    let active = request;
+    let reactivated = false;
+
+    if (request.status !== AvailabilityStatus.PENDING) {
+      const expiresAt = addMinutes(new Date(), 15);
+      active = await this.prisma.availabilityRequest.update({
+        where: { id: request.id },
+        data: {
+          status: AvailabilityStatus.PENDING,
+          expiresAt,
+          rejectionReason: null,
+        },
+        include: {
+          product: {
+            include: {
+              curator: { select: { id: true, name: true, email: true } },
+            },
+          },
+          requester: true,
+          lister: true,
+        },
+      });
+      reactivated = true;
+    }
+
+    const isPurchase =
+      (active.rentalDays ?? 0) === 0 ||
+      active.product?.listingType === 'RESALE' ||
+      (active.product?.listingType === 'RENT_OR_RESALE' &&
+        (active.rentalDays ?? 0) === 0);
+
+    const windowMap = extractRangeMapFromEntity(
+      active,
+      availabilityRequestWindowFieldMap,
+    );
+    const renterName = active.requester?.name || 'A user';
+    const productName = active.product?.name ?? 'an item';
+    const listerEmail =
+      active.product?.curator?.email?.trim() ||
+      active.lister?.email?.trim() ||
+      '';
+    const listerName =
+      active.product?.curator?.name || active.lister?.name || 'there';
+    const clientBase = (
+      process.env.CLIENT_URL ||
+      process.env.FRONTEND_URL ||
+      'http://localhost:3000'
+    ).replace(/\/$/, '');
+
+    await this.notificationService.createNotification({
+      userId: active.listerId,
+      title: reactivated
+        ? isPurchase
+          ? 'Purchase Request Reactivated'
+          : 'Rental Request Reactivated'
+        : isPurchase
+          ? 'Purchase Request Reminder'
+          : 'Rental Request Reminder',
+      message: reactivated
+        ? `A ${isPurchase ? 'purchase' : 'rental'} request for ${productName} was resent on behalf of ${renterName}.`
+        : `Reminder: you still have a ${isPurchase ? 'purchase' : 'rental'} request for ${productName} from ${renterName}.`,
+      type: isPurchase ? 'PURCHASE_REQUEST' : 'RENTAL_REQUEST',
+      metadata: {
+        requestId: active.id,
+        productId: active.productId,
+        triggeredBy: 'admin',
+        reactivated,
+      },
+      sendEmail: Boolean(listerEmail),
+      emailData: {
+        email: listerEmail,
+        listerName,
+        renterName,
+        productName,
+        requestId: active.id,
+        rentalDays: active.rentalDays || 0,
+        totalPrice: active.totalPrice || 0,
+        startDate: active.startDate
+          ? formatRentalBoundaryDateLagos(active.startDate)
+          : 'TBD',
+        endDate: active.endDate
+          ? formatRentalBoundaryDateLagos(active.endDate)
+          : 'TBD',
+        dispatchWindows: Object.entries(windowMap).map(([type, window]) => ({
+          type,
+          window: {
+            start: window.start.toISOString(),
+            end: window.end.toISOString(),
+          },
+        })),
+        viewLink: `${clientBase}/listers/orders/${active.id}`,
+        requestType: isPurchase ? 'purchase' : 'rental',
+      },
+    });
+
+    return {
+      success: true,
+      message: reactivated
+        ? 'Request reactivated and resent to the lister'
+        : 'Request resent to the lister',
+      data: {
+        requestId: active.id,
+        reactivated,
+        status: active.status,
+        expiresAt: active.expiresAt,
       },
     };
   }
