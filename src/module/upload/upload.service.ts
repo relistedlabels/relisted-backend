@@ -18,7 +18,11 @@ import { userEntity } from '../auth/auth.types';
 export class UploadService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private readonly MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
+  /** Images: 5MB. PDFs keep a higher cap for ID documents. */
+  private readonly MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
+  private readonly MAX_PDF_SIZE_BYTES = 10 * 1024 * 1024;
+  /** Matches frontend `thumb` ladder: f_webp,q_auto:eco,w_200,c_limit */
+  private readonly THUMB_TRANSFORM = 'f_webp,q_auto:eco,w_200,c_limit';
   private readonly ALLOWED_TYPES = [
     'image/jpeg',
     'image/jpg',
@@ -32,7 +36,11 @@ export class UploadService {
     if (!file) bad('file is required');
     if (!file.buffer || file.size <= 0) bad('invalid file');
 
-    if (file.size > this.MAX_IMAGE_SIZE_BYTES) {
+    const isPdf = file.mimetype === 'application/pdf';
+    const maxBytes = isPdf
+      ? this.MAX_PDF_SIZE_BYTES
+      : this.MAX_IMAGE_SIZE_BYTES;
+    if (file.size > maxBytes) {
       bad('File too large');
     }
 
@@ -41,11 +49,11 @@ export class UploadService {
     }
   }
 
-  private getThumbnailUrl(url: string, width = 400): string {
+  private getThumbnailUrl(url: string): string {
     if (!url || !url.includes('cloudinary')) return url;
     const parts = url.split('/upload/');
     if (parts.length !== 2) return url;
-    return `${parts[0]}/upload/w_${width},f_jpg,q_auto/${parts[1]}`;
+    return `${parts[0]}/upload/${this.THUMB_TRANSFORM}/${parts[1]}`;
   }
 
   async uploadFile(
@@ -73,7 +81,8 @@ export class UploadService {
       } else {
         let uploadResult: any;
         try {
-          uploadResult = await handleUpload(file.buffer);
+          const isImage = String(file.mimetype || '').startsWith('image/');
+          uploadResult = await handleUpload(file.buffer, { isImage });
         } catch (err: unknown) {
           const msg =
             err instanceof Error ? err.message : JSON.stringify(err);
