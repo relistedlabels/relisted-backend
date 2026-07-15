@@ -4175,6 +4175,8 @@ export class AdminService {
           status: AvailabilityStatus.PENDING,
           expiresAt,
           rejectionReason: null,
+          approvedAt: null,
+          reminderState: Prisma.DbNull,
         },
         include: {
           product: {

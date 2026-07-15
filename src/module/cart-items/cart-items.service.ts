@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { CreateCartItemDto } from './dto/create-cart-item.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
 import { RequestAvailabilityDto } from './dto/request-availability.dto';
@@ -311,6 +312,8 @@ export class CartService {
         data: {
           status: 'PENDING',
           expiresAt,
+          approvedAt: null,
+          reminderState: Prisma.DbNull,
           rentalDays: rentalContext.rentalDays,
           startDate: rentalContext.startDate,
           endDate: rentalContext.endDate,
@@ -488,7 +491,7 @@ export class CartService {
 
     return this.prisma.availabilityRequest.update({
       where: { id: requestId },
-      data: { status: 'ACCEPTED' },
+      data: { status: 'ACCEPTED', approvedAt: new Date() },
     });
   }
 

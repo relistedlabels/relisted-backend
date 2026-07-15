@@ -147,6 +147,54 @@ export class AvailabilityRequestReminderDto {
   cartLink: string;
 }
 
+export class AvailabilityCheckoutReminderDto {
+  @IsEmail()
+  email: string;
+
+  @IsString()
+  userName: string;
+
+  @IsString()
+  listerName: string;
+
+  @IsString()
+  productName: string;
+
+  @IsString()
+  requestType: string;
+
+  @IsString()
+  cartLink: string;
+
+  @IsString()
+  @IsOptional()
+  stage?: string;
+}
+
+export class AvailabilityExpiredListerReminderDto {
+  @IsEmail()
+  email: string;
+
+  @IsString()
+  listerName: string;
+
+  @IsString()
+  renterName: string;
+
+  @IsString()
+  productName: string;
+
+  @IsString()
+  requestType: string;
+
+  @IsString()
+  orderLink: string;
+
+  @IsString()
+  @IsOptional()
+  stage?: string;
+}
+
 export class RentalResponseDto {
   @IsEmail()
   email: string;

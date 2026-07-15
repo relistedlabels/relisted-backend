@@ -354,6 +354,8 @@ model AvailabilityRequest {
   status              AvailabilityStatus @default(PENDING)
   expiresAt           DateTime
   createdAt           DateTime           @default(now())
+  approvedAt          DateTime?
+  reminderState       Json?
   autoPay             Boolean            @default(false)
   rejectionReason     String?
   deliveryAddressId   String?

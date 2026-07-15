@@ -71,6 +71,14 @@ export class NotificationService {
         case 'AVAILABILITY_REQUEST_REMINDER':
           await this.mailService.sendAvailabilityRequestReminderMail(data);
           break;
+        case 'AVAILABILITY_CHECKOUT_REMINDER':
+          await this.mailService.sendAvailabilityCheckoutReminderMail(data);
+          break;
+        case 'AVAILABILITY_EXPIRED_LISTER_REMINDER':
+          await this.mailService.sendAvailabilityExpiredListerReminderMail(
+            data,
+          );
+          break;
         case 'ORDER_CONFIRMATION':
           await this.mailService.SendVerificationOrderMail(data);
           break;

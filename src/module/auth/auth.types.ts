@@ -17,6 +17,9 @@ export const Auth_Otp_Token_Subject = {
   PURCHASE_RESPONSE: 'Update on your Purchase Request',
   AVAILABILITY_REMINDER_REREQUEST: 'Reminder: send a new request on Relisted',
   AVAILABILITY_REMINDER_AVAILABLE: 'A lister is ready for your request',
+  AVAILABILITY_CHECKOUT_REMINDER: 'Complete your approved request on Relisted',
+  AVAILABILITY_EXPIRED_LISTER_REMINDER:
+    'You missed a request on Relisted',
   WITHDRAWAL_STATUS: 'Withdrawal Request Status',
   SHIPPING_UPDATE: 'Shipping Status Update',
 };

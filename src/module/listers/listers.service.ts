@@ -1393,6 +1393,7 @@ export class ListersService {
         where: { id: orderId },
         data: {
           status: 'ACCEPTED',
+          approvedAt: new Date(),
         },
       });
 
