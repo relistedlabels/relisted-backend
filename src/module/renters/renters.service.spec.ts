@@ -1,9 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { getQueueToken } from '@nestjs/bull';
 import { RentersService } from './renters.service';
 import { PrismaService } from 'src/services/prisma/prisma.service';
 import { UploadService } from '../upload/upload.service';
 import { WemaServiceService } from 'src/services/wema-service/wema-service.service';
 import { NotificationService } from 'src/services/notification/notification.service';
+import { MailService } from 'src/services/mail/mail.service';
 import { TopshipService } from 'src/services/topship/topship.service';
 import { ShipbubbleAddressCacheService } from 'src/services/shipbubble/shipbubble-address-cache.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
@@ -73,6 +75,7 @@ const mockPrisma = {
     findUnique: jest.fn(),
     count: jest.fn(),
     delete: jest.fn(),
+    deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     update: jest.fn(),
     updateMany: jest.fn(),
   },
@@ -110,6 +113,7 @@ const mockPrisma = {
     findUnique: jest.fn(),
     findFirst: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn().mockResolvedValue({ count: 0 }),
   },
   upload: {
     findUnique: jest.fn(),
@@ -126,6 +130,10 @@ const mockWemaService = {
 
 const mockNotificationService = {
   createNotification: jest.fn().mockResolvedValue({}),
+};
+
+const mockMailService = {
+  sendMail: jest.fn().mockResolvedValue(undefined),
 };
 
 const mockTopshipService = {};
@@ -150,7 +158,12 @@ describe('RentersService', () => {
         { provide: UploadService, useValue: mockUploadService },
         { provide: WemaServiceService, useValue: mockWemaService },
         { provide: NotificationService, useValue: mockNotificationService },
+        { provide: MailService, useValue: mockMailService },
         { provide: TopshipService, useValue: mockTopshipService },
+        {
+          provide: getQueueToken('shipment-dispatch'),
+          useValue: { add: jest.fn().mockResolvedValue(undefined) },
+        },
         {
           provide: ShipbubbleAddressCacheService,
           useValue: mockShipbubbleAddressCache,
@@ -611,7 +624,23 @@ describe('RentersService', () => {
         id: 'order-1',
         userId: mockUser.id,
         orderId: 'ORD-001',
+        status: 'DELIVERED',
+        listingType: 'RENTAL',
+        deliveredAt: new Date(),
+        orderItems: [
+          { days: 3, product: { listingType: 'RENTAL' } },
+        ],
+        shipments: [
+          {
+            type: 'OUTBOUND',
+            status: 'COMPLETED',
+            buyerConfirmedAt: null,
+            updatedAt: new Date(),
+          },
+        ],
+        disputes: [],
       });
+      mockPrisma.dispute.findFirst.mockResolvedValue(null);
       mockPrisma.user.findUnique.mockResolvedValue({
         name: mockUser.name,
         role: 'RENTER',

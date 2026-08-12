@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AdminService } from './admin.service';
 import { PrismaService } from '../../services/prisma/prisma.service';
 import { NotificationService } from 'src/services/notification/notification.service';
+import { MailService } from 'src/services/mail/mail.service';
 import { BadRequestException } from '@nestjs/common';
 
 const mockPrisma: any = {
@@ -25,6 +26,12 @@ const mockPrisma: any = {
   order: {
     update: jest.fn(),
   },
+  shipment: {
+    findFirst: jest.fn(),
+  },
+  orderItem: {
+    findMany: jest.fn().mockResolvedValue([]),
+  },
   rental: {
     updateMany: jest.fn().mockResolvedValue({ count: 1 }),
   },
@@ -36,6 +43,10 @@ const mockPrisma: any = {
 
 const mockNotificationService = {
   createNotification: jest.fn().mockResolvedValue({}),
+};
+
+const mockMailService = {
+  sendMail: jest.fn().mockResolvedValue(undefined),
 };
 
 describe('AdminService', () => {
@@ -52,6 +63,7 @@ describe('AdminService', () => {
         AdminService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: NotificationService, useValue: mockNotificationService },
+        { provide: MailService, useValue: mockMailService },
       ],
     }).compile();
 
@@ -130,6 +142,67 @@ describe('AdminService', () => {
       expect(mockNotificationService.createNotification).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'DISPUTE_STATUS' }),
       );
+      expect(mockPrisma.order.update).toHaveBeenCalledWith({
+        where: { id: 'order-db-1' },
+        data: { status: 'COMPLETED' },
+      });
+    });
+
+    it('releases rental products when return shipment is completed but return request is not', async () => {
+      mockPrisma.dispute.findUnique.mockResolvedValue({
+        id: 'dispute-db-1',
+        disputeId: 'DQ-9310',
+        order: {
+          id: 'order-db-1',
+          orderId: 'ORD-1782383745917-325',
+          userId: 'renter-1',
+          status: 'IN_DISPUTE',
+          user: { id: 'renter-1', email: 'renter@test.com', name: 'Renter' },
+          escrows: [
+            {
+              id: 'escrow-1',
+              listerId: 'lister-1',
+              renterId: 'renter-1',
+              status: 'LOCKED',
+              collateralAmount: 58056,
+              rentalAmount: 0,
+              cleaningFee: 0,
+              resaleAmount: 0,
+            },
+          ],
+          returnRequests: [{ status: 'PENDING_PICKUP' }],
+        },
+      });
+
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'lister-1',
+        name: 'Lister',
+        email: 'lister@test.com',
+      });
+
+      mockPrisma.wallet.upsert.mockResolvedValue({
+        id: 'wallet-renter-1',
+        userId: 'renter-1',
+        collateralBalance: 58056,
+      });
+
+      mockPrisma.shipment.findFirst.mockResolvedValue({ id: 'return-ship-1' });
+      mockPrisma.orderItem.findMany.mockResolvedValue([
+        {
+          productId: 'product-1',
+          product: { listingType: 'RENTAL' },
+        },
+      ]);
+
+      await service.resolveDisputeAndSettle('dispute-db-1', {
+        resolutionDetails: 'Tailor repair deducted from collateral',
+        collateralWithheldToLister: 6200,
+      });
+
+      expect(mockPrisma.product.update).toHaveBeenCalledWith({
+        where: { id: 'product-1' },
+        data: { status: 'AVAILABLE' },
+      });
       expect(mockPrisma.order.update).toHaveBeenCalledWith({
         where: { id: 'order-db-1' },
         data: { status: 'COMPLETED' },
