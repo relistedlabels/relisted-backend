@@ -181,7 +181,7 @@ export class ShopSaleService {
         isEnabled: dto.isEnabled ?? false,
         bannerEnabled: dto.bannerEnabled ?? true,
         waitlistEnabled: dto.waitlistEnabled ?? true,
-        shopAccessEnabled: dto.shopAccessEnabled ?? false,
+        shopAccessEnabled: dto.shopAccessEnabled ?? true,
         showCountdown: dto.showCountdown ?? true,
         notifyEmailSubject: dto.notifyEmailSubject?.trim() || null,
         notifyEmailBody: dto.notifyEmailBody?.trim() || null,
@@ -313,11 +313,8 @@ export class ShopSaleService {
     return this.getForAdmin(saleId);
   }
 
-  async searchProductsForPicker(params: {
+  private buildPickerWhere(params: {
     search?: string;
-    page?: number;
-    limit?: number;
-    saleId?: string;
     category?: string | string[];
     brand?: string | string[];
     tags?: string;
@@ -330,11 +327,7 @@ export class ShopSaleService {
     minPrice?: number;
     maxPrice?: number;
     inCloset?: boolean;
-  }) {
-    const pageSafe = Math.max(1, params.page ?? 1);
-    const limitSafe = Math.min(50, Math.max(1, params.limit ?? 20));
-    const skip = (pageSafe - 1) * limitSafe;
-
+  }): Prisma.ProductWhereInput {
     const where: Prisma.ProductWhereInput = {
       status: {
         in: [
@@ -381,72 +374,209 @@ export class ShopSaleService {
       (where.AND as Prisma.ProductWhereInput[]).push(searchFilter);
     }
 
-    const [total, products] = await this.prisma.$transaction([
-      this.prisma.product.count({ where }),
-      this.prisma.product.findMany({
-        where,
-        skip,
-        take: limitSafe,
-        orderBy: { updatedAt: 'desc' },
-        select: {
-          id: true,
-          name: true,
-          status: true,
-          listingType: true,
-          dailyPrice: true,
-          resalePrice: true,
-          color: true,
-          measurement: true,
-          condition: true,
-          material: true,
-          closetId: true,
-          curator: { select: { id: true, name: true, email: true } },
-          brand: { select: { name: true } },
-          category: { select: { name: true } },
-          tags: { select: { name: true } },
-          attachments: {
-            select: {
-              uploads: {
-                take: 1,
-                orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
-                select: { url: true },
-              },
-            },
-          },
-          shopSales: params.saleId
-            ? { where: { saleId: params.saleId }, select: { saleId: true } }
-            : false,
-        },
-      }),
-    ]);
+    return where;
+  }
+
+  async listProductIdsForPicker(params: {
+    search?: string;
+    category?: string | string[];
+    brand?: string | string[];
+    tags?: string;
+    listingType?: string | string[];
+    curatorId?: string | string[];
+    color?: string;
+    size?: string;
+    condition?: string;
+    material?: string;
+    minPrice?: number;
+    maxPrice?: number;
+    inCloset?: boolean;
+  }) {
+    const where = this.buildPickerWhere(params);
+    const total = await this.prisma.product.count({ where });
+    const maxIds = 5000;
+    if (total > maxIds) {
+      throw new BadRequestException(
+        `Too many matching listings (${total}). Narrow your filters to ${maxIds} or fewer.`,
+      );
+    }
+
+    const rows = await this.prisma.product.findMany({
+      where,
+      select: { id: true },
+      orderBy: { updatedAt: 'desc' },
+    });
 
     return {
       success: true as const,
       data: {
-        products: products.map((p) => ({
-          id: p.id,
-          name: p.name,
-          status: p.status,
-          listingType: p.listingType,
-          dailyPrice: p.dailyPrice,
-          resalePrice: p.resalePrice,
-          color: p.color,
-          size: p.measurement,
-          condition: p.condition,
-          material: p.material ?? null,
-          tagNames: p.tags.map((tag) => tag.name),
-          inCloset: Boolean(p.closetId),
-          listerName: p.curator.name,
-          listerEmail: p.curator.email,
-          brandName: p.brand?.name ?? null,
-          categoryName: p.category?.name ?? null,
-          imageUrl: p.attachments?.uploads?.[0]?.url ?? null,
-          inSale: Array.isArray(p.shopSales) ? p.shopSales.length > 0 : false,
-        })),
+        productIds: rows.map((row) => row.id),
+        total,
+      },
+    };
+  }
+
+  async searchProductsForPicker(params: {
+    search?: string;
+    page?: number;
+    limit?: number;
+    saleId?: string;
+    category?: string | string[];
+    brand?: string | string[];
+    tags?: string;
+    listingType?: string | string[];
+    curatorId?: string | string[];
+    color?: string;
+    size?: string;
+    condition?: string;
+    material?: string;
+    minPrice?: number;
+    maxPrice?: number;
+    inCloset?: boolean;
+    prioritizeIds?: string[];
+  }) {
+    const pageSafe = Math.max(1, params.page ?? 1);
+    const limitSafe = Math.min(50, Math.max(1, params.limit ?? 20));
+    const skip = (pageSafe - 1) * limitSafe;
+    const where = this.buildPickerWhere(params);
+    const prioritizeIds = [
+      ...new Set(
+        (params.prioritizeIds ?? []).filter((id) => typeof id === 'string'),
+      ),
+    ];
+    const prioritizeOrder = new Map(
+      prioritizeIds.map((id, index) => [id, index]),
+    );
+
+    const productSelect = {
+      id: true,
+      name: true,
+      status: true,
+      listingType: true,
+      dailyPrice: true,
+      resalePrice: true,
+      color: true,
+      measurement: true,
+      condition: true,
+      material: true,
+      closetId: true,
+      curator: { select: { id: true, name: true, email: true } },
+      brand: { select: { name: true } },
+      category: { select: { name: true } },
+      tags: { select: { name: true } },
+      attachments: {
+        select: {
+          uploads: {
+            take: 1,
+            orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+            select: { url: true },
+          },
+        },
+      },
+      shopSales: params.saleId
+        ? { where: { saleId: params.saleId }, select: { saleId: true } }
+        : false,
+    } as const;
+
+    let products: Array<
+      Awaited<
+        ReturnType<
+          typeof this.prisma.product.findMany<{ select: typeof productSelect }>
+        >
+      >[number]
+    >;
+
+    const total = await this.prisma.product.count({ where });
+
+    if (prioritizeIds.length > 0 && pageSafe === 1) {
+      const pinnedRows = await this.prisma.product.findMany({
+        where: {
+          AND: [where, { id: { in: prioritizeIds } }],
+        },
+        select: productSelect,
+      });
+      pinnedRows.sort(
+        (a, b) =>
+          (prioritizeOrder.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+          (prioritizeOrder.get(b.id) ?? Number.MAX_SAFE_INTEGER),
+      );
+
+      const pinnedIds = pinnedRows.map((row) => row.id);
+      const othersNeeded = Math.max(0, limitSafe - pinnedRows.length);
+      const othersRows =
+        othersNeeded > 0
+          ? await this.prisma.product.findMany({
+              where: {
+                AND: [where, { id: { notIn: pinnedIds } }],
+              },
+              take: othersNeeded,
+              orderBy: { updatedAt: 'desc' },
+              select: productSelect,
+            })
+          : [];
+
+      products = [...pinnedRows, ...othersRows];
+    } else {
+      products = await this.prisma.product.findMany({
+        where,
+        skip,
+        take: limitSafe,
+        orderBy: { updatedAt: 'desc' },
+        select: productSelect,
+      });
+    }
+
+    return {
+      success: true as const,
+      data: {
+        products: products.map((p) => this.mapPickerProductRow(p)),
         total,
         page: pageSafe,
         totalPages: Math.ceil(total / limitSafe) || 1,
       },
+    };
+  }
+
+  private mapPickerProductRow(
+    p: {
+      id: string;
+      name: string;
+      status: string;
+      listingType: string;
+      dailyPrice: number | null;
+      resalePrice: number | null;
+      color: string;
+      measurement: string;
+      condition: string;
+      material: string | null;
+      closetId: string | null;
+      curator: { name: string; email: string };
+      brand: { name: string } | null;
+      category: { name: string } | null;
+      tags: { name: string }[];
+      attachments: { uploads: { url: string }[] } | null;
+      shopSales?: { saleId: string }[] | false;
+    },
+  ) {
+    return {
+      id: p.id,
+      name: p.name,
+      status: p.status,
+      listingType: p.listingType,
+      dailyPrice: p.dailyPrice,
+      resalePrice: p.resalePrice,
+      color: p.color,
+      size: p.measurement,
+      condition: p.condition,
+      material: p.material ?? null,
+      tagNames: p.tags.map((tag) => tag.name),
+      inCloset: Boolean(p.closetId),
+      listerName: p.curator.name,
+      listerEmail: p.curator.email,
+      brandName: p.brand?.name ?? null,
+      categoryName: p.category?.name ?? null,
+      imageUrl: p.attachments?.uploads?.[0]?.url ?? null,
+      inSale: Array.isArray(p.shopSales) ? p.shopSales.length > 0 : false,
     };
   }
 
