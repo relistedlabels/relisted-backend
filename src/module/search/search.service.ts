@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
+import { buildProductKeywordSearchWhere } from '../product/product-keyword-search.util';
+import { LIVE_SHOP_STATUSES } from '../product/product-list-scope.util';
 import { PrismaService } from '../../services/prisma/prisma.service';
 import { PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY } from '../../utils/product-attachment-upload-order';
+
+const STAGING_CURATOR_ID =
+  process.env.STAGING_INTERNAL_CURATOR_ID ??
+  '7d172d18-daad-46cd-ab6d-8d8af28c0b16';
 
 @Injectable()
 export class SearchService {
@@ -15,47 +21,17 @@ export class SearchService {
 
     // Search Products
     if (type === 'all' || type === 'product') {
-      const products = await this.prisma.product.findMany({
+      const keywordWhere = buildProductKeywordSearchWhere(query);
+      const products = keywordWhere
+        ? await this.prisma.product.findMany({
         where: {
-          OR: [
-            { name: { contains: query, mode: 'insensitive' } },
-            { description: { contains: query, mode: 'insensitive' } },
-            { brand: { name: { contains: query, mode: 'insensitive' } } },
-            { category: { name: { contains: query, mode: 'insensitive' } } },
-            {
-              tags: {
-                some: { name: { contains: query, mode: 'insensitive' } },
-              },
-            },
-            { color: { in: [query], mode: 'insensitive' } },
-            { stylingTip: { in: [query], mode: 'insensitive' } },
-            { composition: { in: [query], mode: 'insensitive' } },
-            {
-              closet: {
-                is: {
-                  name: { contains: query, mode: 'insensitive' },
-                },
-              },
-            },
-            {
-              closet: {
-                is: {
-                  slug: { contains: query, mode: 'insensitive' },
-                },
-              },
-            },
-            {
-              closet: {
-                is: {
-                  description: {
-                    contains: query,
-                    mode: 'insensitive',
-                  },
-                },
-              },
-            },
+          AND: [
+            keywordWhere,
+            { closetId: null },
+            { isActive: true },
+            { status: { in: LIVE_SHOP_STATUSES } },
+            { NOT: { curatorId: STAGING_CURATOR_ID } },
           ],
-          status: { in: ['AVAILABLE', 'APPROVED'] },
         },
         take: limit,
         include: {
@@ -70,7 +46,8 @@ export class SearchService {
           },
           tags: true,
         },
-      });
+      })
+        : [];
 
       products.forEach((product) => {
         results.push({
