@@ -33,7 +33,7 @@ export class ShopSettingsAdminController {
   @ApiOperation({
     summary: 'Set brands prioritized on the main shop route',
     description:
-      'Selected brands appear first on /shop (by creation time). All other items follow.',
+      'brandIds order sets priority (first = highest). Selected brands appear first on /shop, then sorted by creation time within each brand.',
   })
   async putPrioritizedBrands(@Body() body: { brandIds?: string[] }) {
     if (!body || !Array.isArray(body.brandIds)) {

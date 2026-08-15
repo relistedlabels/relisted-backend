@@ -226,6 +226,7 @@ Table Brand {
   createdAt DateTime [default: `now()`, not null]
   userId String
   isShopPrioritized Boolean [not null, default: false]
+  shopPriorityOrder Int
   user User
   products Product [not null]
 }
@@ -335,6 +336,8 @@ Table AvailabilityRequest {
   status AvailabilityStatus [not null, default: 'PENDING']
   expiresAt DateTime [not null]
   createdAt DateTime [default: `now()`, not null]
+  approvedAt DateTime
+  reminderState Json
   autoPay Boolean [not null, default: false]
   rejectionReason String
   deliveryAddressId String

@@ -248,6 +248,7 @@ model Brand {
   createdAt         DateTime  @default(now())
   userId            String?
   isShopPrioritized Boolean   @default(false)
+  shopPriorityOrder Int?
   user              User?     @relation(fields: [userId], references: [id])
   products          Product[]
 }

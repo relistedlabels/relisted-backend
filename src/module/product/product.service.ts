@@ -409,10 +409,14 @@ export class ProductService {
       }
 
       const applyShopBrandPriority = !inClosetListContext;
+      const brandPriorityOrder = [
+        { brand: { isShopPrioritized: 'desc' as const } },
+        { brand: { shopPriorityOrder: 'asc' as const } },
+      ];
       const finalOrderBy = applyShopBrandPriority
         ? Array.isArray(orderBy)
-          ? [{ brand: { isShopPrioritized: 'desc' as const } }, ...orderBy]
-          : [{ brand: { isShopPrioritized: 'desc' as const } }, orderBy]
+          ? [...brandPriorityOrder, ...orderBy]
+          : [...brandPriorityOrder, orderBy]
         : orderBy;
 
       // Fetch products and total count in parallel
