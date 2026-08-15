@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { SentryModule } from '@sentry/nestjs/setup';
 import { BullModule } from '@nestjs/bull';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -59,6 +60,7 @@ function bullRedisConnection(): string | { host: string; port: number; password?
 
 @Module({
   imports: [
+    SentryModule.forRoot(),
     // Redis / Bull — global queue configuration
     BullModule.forRoot({
       redis: bullRedisConnection(),
