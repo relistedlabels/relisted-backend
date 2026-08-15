@@ -248,6 +248,7 @@ model Brand {
   createdAt         DateTime  @default(now())
   userId            String?
   isShopPrioritized Boolean   @default(false)
+  shopPriorityOrder Int?
   user              User?     @relation(fields: [userId], references: [id])
   products          Product[]
 }
@@ -354,6 +355,8 @@ model AvailabilityRequest {
   status              AvailabilityStatus @default(PENDING)
   expiresAt           DateTime
   createdAt           DateTime           @default(now())
+  approvedAt          DateTime?
+  reminderState       Json?
   autoPay             Boolean            @default(false)
   rejectionReason     String?
   deliveryAddressId   String?

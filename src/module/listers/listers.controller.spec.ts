@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ListersController } from './listers.controller';
 import { ListersService } from './listers.service';
+import { UploadService } from '../upload/upload.service';
 import { JwtAuthGuard } from '../auth/guard/authGuard';
 import { RoleGuard } from '../auth/guard/roleGuard';
 
@@ -50,6 +51,7 @@ describe('ListersController', () => {
           provide: ListersService,
           useValue: mockListersService,
         },
+        { provide: UploadService, useValue: {} },
       ],
     })
       .overrideGuard(JwtAuthGuard)

@@ -1,4 +1,5 @@
 import './load-env';
+import './instrument';
 import { mkdir } from 'fs/promises';
 import { join } from 'path';
 import { NestFactory } from '@nestjs/core';

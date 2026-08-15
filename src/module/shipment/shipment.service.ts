@@ -16,6 +16,7 @@ import { formatDispatchWindowLagos } from 'src/module/shipment/dispatch-window-f
 import { sendShipmentLegStatusNotification } from './shipment-status-notifications';
 import { buildShippingEmailTrackingFields } from './shipment-tracking-url.util';
 import { PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY } from 'src/utils/product-attachment-upload-order';
+import { formatAdminReturnRequest } from '../order/admin-return-request.format';
 
 const shipmentOrderItemProductInclude = {
   product: {
@@ -242,10 +243,12 @@ export class ShipmentService {
     const shipment = await this.prisma.shipment.findUnique({
       where: { id },
       include: {
+        returnRequests: { orderBy: { createdAt: 'desc' }, take: 1 },
         order: {
           include: {
             user: { select: { name: true, email: true } },
             orderItems: { include: shipmentOrderItemProductInclude },
+            returnRequests: { orderBy: { createdAt: 'desc' }, take: 1 },
           },
         },
         attemptLogs: { orderBy: { attemptedAt: 'asc' } },
@@ -254,7 +257,19 @@ export class ShipmentService {
 
     if (!shipment) throw new NotFoundException('Shipment not found');
 
-    return { success: true, data: this.withLegOrderItems(shipment) };
+    const withItems = this.withLegOrderItems(shipment);
+    const linkedReturnRequest =
+      shipment.returnRequests?.[0] ??
+      shipment.order?.returnRequests?.[0] ??
+      null;
+
+    return {
+      success: true,
+      data: {
+        ...withItems,
+        returnRequest: formatAdminReturnRequest(linkedReturnRequest),
+      },
+    };
   }
 
   private withLegOrderItems<

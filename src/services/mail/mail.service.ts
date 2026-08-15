@@ -6,6 +6,8 @@ import {
   ResetPasswordDto,
   RentalRequestDto,
   AvailabilityRequestReminderDto,
+  AvailabilityCheckoutReminderDto,
+  AvailabilityExpiredListerReminderDto,
   RentalResponseDto,
   WithdrawalDto,
   ShippingDto,
@@ -349,6 +351,58 @@ export class MailService {
       template: './availability-request-reminder',
       subject,
       context: { intent, requestType, ...rest },
+    });
+  }
+
+  async sendAvailabilityCheckoutReminderMail(
+    dto: AvailabilityCheckoutReminderDto,
+  ) {
+    const { email, ...rest } = dto;
+    const subject = Auth_Otp_Token_Subject.AVAILABILITY_CHECKOUT_REMINDER;
+    console.log(`[EMAIL] Sending availability-checkout-reminder to ${email}`);
+
+    if (this.devBypass) {
+      await this.handleDevBypass(
+        'availability-checkout-reminder',
+        subject,
+        rest,
+        email,
+      );
+      return;
+    }
+
+    await this.deliverMail({
+      to: email,
+      template: './availability-checkout-reminder',
+      subject,
+      context: rest,
+    });
+  }
+
+  async sendAvailabilityExpiredListerReminderMail(
+    dto: AvailabilityExpiredListerReminderDto,
+  ) {
+    const { email, ...rest } = dto;
+    const subject = Auth_Otp_Token_Subject.AVAILABILITY_EXPIRED_LISTER_REMINDER;
+    console.log(
+      `[EMAIL] Sending availability-expired-lister-reminder to ${email}`,
+    );
+
+    if (this.devBypass) {
+      await this.handleDevBypass(
+        'availability-expired-lister-reminder',
+        subject,
+        rest,
+        email,
+      );
+      return;
+    }
+
+    await this.deliverMail({
+      to: email,
+      template: './availability-expired-lister-reminder',
+      subject,
+      context: rest,
     });
   }
 

@@ -92,11 +92,15 @@ export const returnRequestWindowFieldMap: DispatchWindowFieldMap = {
 };
 
 export function getDailyWindowBounds(date: Date) {
-  // Get the date in Lagos timezone to determine the day
-  const lagosDay = new Date(date.toLocaleString('en-US', { timeZone: 'Africa/Lagos' }));
-  const dayStart = startOfDay(lagosDay);
-  const start = addHours(dayStart, DISPATCH_WINDOW_START_HOUR);
-  const end = addHours(dayStart, DISPATCH_WINDOW_END_HOUR);
+  const dayKey = getLagosCalendarDateKey(date);
+  const start = buildLagosDateFromCalendarKey(
+    dayKey,
+    DISPATCH_WINDOW_START_HOUR * 60,
+  );
+  const end = buildLagosDateFromCalendarKey(
+    dayKey,
+    DISPATCH_WINDOW_END_HOUR * 60,
+  );
 
   if (!isAfter(end, start)) {
     throw new InternalServerErrorException(
@@ -129,10 +133,15 @@ function buildLagosDateFromCalendarKey(
 }
 
 function getReturnDailyWindowBounds(date: Date) {
-  const lagosDay = new Date(date.toLocaleString('en-US', { timeZone: LAGOS_TZ }));
-  const dayStart = startOfDay(lagosDay);
-  const start = addHours(dayStart, RETURN_DISPATCH_WINDOW_START_HOUR);
-  const end = addHours(dayStart, RETURN_DISPATCH_WINDOW_END_HOUR);
+  const dayKey = getLagosCalendarDateKey(date);
+  const start = buildLagosDateFromCalendarKey(
+    dayKey,
+    RETURN_DISPATCH_WINDOW_START_HOUR * 60,
+  );
+  const end = buildLagosDateFromCalendarKey(
+    dayKey,
+    RETURN_DISPATCH_WINDOW_END_HOUR * 60,
+  );
 
   if (!isAfter(end, start)) {
     throw new InternalServerErrorException(

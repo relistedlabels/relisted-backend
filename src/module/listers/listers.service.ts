@@ -1393,6 +1393,7 @@ export class ListersService {
         where: { id: orderId },
         data: {
           status: 'ACCEPTED',
+          approvedAt: new Date(),
         },
       });
 
@@ -4679,9 +4680,50 @@ export class ListersService {
       where: { userId: user.id },
       include: { businessInfo: true, address: true },
     });
-    if (!profile || !profile.businessInfo) {
-      throw new NotFoundException('Business profile not found');
+    if (!profile) {
+      throw new NotFoundException('Profile not found');
     }
+
+    if (!profile.businessInfo) {
+      return {
+        success: true,
+        data: {
+          businessProfile: {
+            businessId: '',
+            businessName: '',
+            businessCategory: 'Fashion & Accessories',
+            businessDescription: '',
+            businessEmail: '',
+            businessPhone: null,
+            businessAddress: '',
+            businessCity: '',
+            businessState: '',
+            website: null,
+            taxId: null,
+            address: profile.address
+              ? {
+                  addressId: profile.address.id,
+                  street: profile.address.street,
+                  city: profile.address.city,
+                  state: profile.address.state,
+                  postalCode: profile.address.zipCode,
+                  country: profile.address.country,
+                  isDefault: profile.address.isDefault,
+                }
+              : null,
+            businessRegistration: '',
+            verificationStatus: profile.isApproved ? 'verified' : 'pending',
+            verificationBadge: profile.isApproved ? 'blue' : 'yellow',
+            averageResponseTime: '2 hours',
+            totalRentals: 0,
+            averageRating: 0,
+            createdAt: profile.createdAt.toISOString(),
+            updatedAt: profile.updatedAt.toISOString(),
+          },
+        },
+      };
+    }
+
     const b = profile.businessInfo;
 
     // Simple metrics placeholders
@@ -4750,27 +4792,101 @@ export class ListersService {
       where: { userId: user.id },
       include: { businessInfo: true },
     });
-    if (!profile || !profile.businessInfo) {
-      throw new NotFoundException('Business profile not found');
+    if (!profile) {
+      throw new NotFoundException('Profile not found');
+    }
+
+    const updateData: Record<string, string | null> = {};
+    if (body.businessName !== undefined && body.businessName.trim() !== '') {
+      updateData.businessName = body.businessName.trim();
+    }
+    if (
+      body.businessCategory !== undefined &&
+      body.businessCategory.trim() !== ''
+    ) {
+      updateData.businessCategory = body.businessCategory.trim();
+    }
+    if (body.businessDescription !== undefined) {
+      updateData.businessDescription = body.businessDescription.trim();
+    }
+    if (body.businessEmail !== undefined && body.businessEmail.trim() !== '') {
+      updateData.businessEmail = body.businessEmail.trim();
+    }
+    if (body.businessPhone !== undefined) {
+      updateData.businessPhone = body.businessPhone.trim() || null;
+    }
+    if (
+      body.businessAddress !== undefined &&
+      body.businessAddress.trim() !== ''
+    ) {
+      updateData.businessAddress = body.businessAddress.trim();
+    }
+    if (body.website !== undefined) {
+      updateData.website = body.website.trim() || null;
+    }
+
+    if (!profile.businessInfo) {
+      const businessName =
+        body.businessName?.trim() || updateData.businessName || '';
+      if (!businessName) {
+        throw new BadRequestException('Business name is required');
+      }
+
+      const userRecord = await this.prisma.user.findUnique({
+        where: { id: user.id },
+        select: { email: true },
+      });
+
+      const created = await this.prisma.businessInfo.create({
+        data: {
+          profileId: profile.id,
+          businessName,
+          businessEmail:
+            updateData.businessEmail ||
+            userRecord?.email ||
+            'pending@relisted.local',
+          businessRegistrationNumber: 'PENDING',
+          businessAddress: updateData.businessAddress || 'Not provided',
+          businessCity: '',
+          businessState: '',
+          businessPhone:
+            typeof updateData.businessPhone === 'string'
+              ? updateData.businessPhone
+              : null,
+          businessDescription: updateData.businessDescription || null,
+          businessCategory:
+            updateData.businessCategory || 'Fashion & Accessories',
+          website:
+            typeof updateData.website === 'string' ? updateData.website : null,
+        },
+      });
+
+      return {
+        success: true,
+        message: 'Business details updated successfully',
+        data: {
+          businessProfile: {
+            businessId: created.id,
+            businessName: created.businessName,
+            businessCategory: created.businessCategory,
+            businessDescription: created.businessDescription,
+            businessEmail: created.businessEmail,
+            businessPhone: created.businessPhone,
+            businessAddress: created.businessAddress,
+            website: created.website,
+            updatedAt: new Date().toISOString(),
+          },
+        },
+      };
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      throw new BadRequestException('No business fields to update');
     }
 
     const updated = await this.prisma.businessInfo.update({
       where: { id: profile.businessInfo.id },
-      data: {
-        ...(body.businessName && { businessName: body.businessName }),
-        ...(body.businessCategory && {
-          businessCategory: body.businessCategory,
-        }),
-        ...(body.businessDescription && {
-          businessDescription: body.businessDescription,
-        }),
-        ...(body.businessEmail && { businessEmail: body.businessEmail }),
-        ...(body.businessPhone && { businessPhone: body.businessPhone }),
-        ...(body.businessAddress && {
-          businessAddress: body.businessAddress,
-        }),
-        ...(body.website && { website: body.website }),
-      },
+      data: updateData,
     });
 
     return {

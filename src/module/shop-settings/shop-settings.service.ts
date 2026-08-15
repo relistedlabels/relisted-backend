@@ -11,8 +11,13 @@ export class ShopSettingsService {
   async getPrioritizedBrands() {
     const brands = await this.prisma.brand.findMany({
       where: { isShopPrioritized: true },
-      orderBy: { name: 'asc' },
-      select: { id: true, name: true, isShopPrioritized: true },
+      orderBy: [{ shopPriorityOrder: 'asc' }, { name: 'asc' }],
+      select: {
+        id: true,
+        name: true,
+        isShopPrioritized: true,
+        shopPriorityOrder: true,
+      },
     });
 
     return {
@@ -40,11 +45,13 @@ export class ShopSettingsService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.brand.updateMany({ data: { isShopPrioritized: false } });
-      if (uniqueIds.length > 0) {
-        await tx.brand.updateMany({
-          where: { id: { in: uniqueIds } },
-          data: { isShopPrioritized: true },
+      await tx.brand.updateMany({
+        data: { isShopPrioritized: false, shopPriorityOrder: null },
+      });
+      for (let i = 0; i < uniqueIds.length; i++) {
+        await tx.brand.update({
+          where: { id: uniqueIds[i] },
+          data: { isShopPrioritized: true, shopPriorityOrder: i },
         });
       }
     });

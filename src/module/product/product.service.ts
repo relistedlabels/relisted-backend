@@ -33,6 +33,7 @@ import { fetchAdminAlertRecipients } from '../shipment/shipment-admin-alert-reci
 import { assertProductAttachmentUploads } from 'src/utils/validate-product-attachment-uploads';
 import { getShopSalePhase } from '../shop-sale/shop-sale.util';
 import { applyProductListFilters } from './product-list-filters.util';
+import { buildProductKeywordSearchWhere } from './product-keyword-search.util';
 import {
   buildAdminPickerScopeWhere,
   buildProductListScopeWhere,
@@ -311,58 +312,14 @@ export class ProductService {
       });
 
       if (query.search) {
-        const searchOr: Record<string, unknown>[] = [
-          { name: { contains: query.search, mode: 'insensitive' } },
-          { description: { contains: query.search, mode: 'insensitive' } },
-          { subText: { contains: query.search, mode: 'insensitive' } },
-          {
-            brand: { name: { contains: query.search, mode: 'insensitive' } },
-          },
-          {
-            category: {
-              name: { contains: query.search, mode: 'insensitive' },
-            },
-          },
-          {
-            tags: {
-              some: { name: { contains: query.search, mode: 'insensitive' } },
-            },
-          },
-          { color: { contains: query.search, mode: 'insensitive' } },
-          { composition: { contains: query.search, mode: 'insensitive' } },
-        ];
+        const searchFilter = buildProductKeywordSearchWhere(query.search, {
+          includeClosetFields: inClosetListContext,
+        });
 
-        if (inClosetListContext) {
-          searchOr.push({
-            closet: {
-              is: {
-                name: { contains: query.search, mode: 'insensitive' },
-              },
-            },
-          });
-          searchOr.push({
-            closet: {
-              is: {
-                slug: { contains: query.search, mode: 'insensitive' },
-              },
-            },
-          });
-          searchOr.push({
-            closet: {
-              is: {
-                description: {
-                  contains: query.search,
-                  mode: 'insensitive',
-                },
-              },
-            },
-          });
+        if (searchFilter) {
+          if (!where.AND) where.AND = [];
+          where.AND.push(searchFilter);
         }
-
-        const searchFilter = { OR: searchOr };
-
-        if (!where.AND) where.AND = [];
-        where.AND.push(searchFilter);
       }
 
       if (query.excludeStagingCurator === true) {
@@ -409,10 +366,14 @@ export class ProductService {
       }
 
       const applyShopBrandPriority = !inClosetListContext;
+      const brandPriorityOrder = [
+        { brand: { isShopPrioritized: 'desc' as const } },
+        { brand: { shopPriorityOrder: 'asc' as const } },
+      ];
       const finalOrderBy = applyShopBrandPriority
         ? Array.isArray(orderBy)
-          ? [{ brand: { isShopPrioritized: 'desc' as const } }, ...orderBy]
-          : [{ brand: { isShopPrioritized: 'desc' as const } }, orderBy]
+          ? [...brandPriorityOrder, ...orderBy]
+          : [...brandPriorityOrder, orderBy]
         : orderBy;
 
       // Fetch products and total count in parallel

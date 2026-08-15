@@ -20,7 +20,7 @@ import { CreateShopSaleDto } from './dto/create-shop-sale.dto';
 import { UpdateShopSaleDto } from './dto/update-shop-sale.dto';
 import { SetShopSaleProductsDto } from './dto/set-shop-sale-products.dto';
 
-@ApiTags('Admin - Sales')
+@ApiTags('Admin - Campaigns')
 @ApiBearerAuth('bearer')
 @UseGuards(JwtAuthGuard, RoleGuard)
 @Roles(Role.ADMIN)
@@ -49,8 +49,45 @@ export class ShopSaleAdminController {
     return this.productService.getAdminPickerFilterOptions();
   }
 
+  @Get('picker/product-ids')
+  @ApiOperation({
+    summary: 'All listing IDs matching picker filters (for bulk select)',
+  })
+  listPickerProductIds(
+    @Query('search') search?: string,
+    @Query('category') category?: string | string[],
+    @Query('brand') brand?: string | string[],
+    @Query('tags') tags?: string,
+    @Query('listingType') listingType?: string | string[],
+    @Query('lister') lister?: string | string[],
+    @Query('color') color?: string,
+    @Query('size') size?: string,
+    @Query('condition') condition?: string,
+    @Query('material') material?: string,
+    @Query('minPrice') minPrice?: string,
+    @Query('maxPrice') maxPrice?: string,
+    @Query('inCloset') inCloset?: string,
+  ) {
+    return this.shopSales.listProductIdsForPicker({
+      search,
+      category,
+      brand,
+      tags,
+      listingType,
+      curatorId: lister,
+      color,
+      size,
+      condition,
+      material,
+      minPrice: minPrice ? parseInt(minPrice, 10) : undefined,
+      maxPrice: maxPrice ? parseInt(maxPrice, 10) : undefined,
+      inCloset:
+        inCloset === 'true' ? true : inCloset === 'false' ? false : undefined,
+    });
+  }
+
   @Get('picker/products')
-  @ApiOperation({ summary: 'Search listings to add to a sale' })
+  @ApiOperation({ summary: 'Search listings to add to a campaign' })
   searchProducts(
     @Query('search') search?: string,
     @Query('page') page?: string,
@@ -68,7 +105,13 @@ export class ShopSaleAdminController {
     @Query('minPrice') minPrice?: string,
     @Query('maxPrice') maxPrice?: string,
     @Query('inCloset') inCloset?: string,
+    @Query('prioritizeIds') prioritizeIds?: string | string[],
   ) {
+    const ids = Array.isArray(prioritizeIds)
+      ? prioritizeIds
+      : prioritizeIds
+        ? [prioritizeIds]
+        : undefined;
     return this.shopSales.searchProductsForPicker({
       search,
       page: page ? parseInt(page, 10) || 1 : 1,
@@ -87,6 +130,7 @@ export class ShopSaleAdminController {
       maxPrice: maxPrice ? parseInt(maxPrice, 10) : undefined,
       inCloset:
         inCloset === 'true' ? true : inCloset === 'false' ? false : undefined,
+      prioritizeIds: ids,
     });
   }
 

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { CreateCartItemDto } from './dto/create-cart-item.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
 import { RequestAvailabilityDto } from './dto/request-availability.dto';
@@ -8,6 +9,7 @@ import { userEntity } from '../auth/auth.types';
 import { addDays, addMinutes, differenceInMinutes, isAfter } from 'date-fns';
 
 import { NotificationService } from 'src/services/notification/notification.service';
+import { resolveRequiredDispatchWindowTypes } from './cart-item-dispatch-windows.util';
 import { withdrawAvailabilityRequestsForCartItem } from './withdraw-availability-for-cart-item';
 import { assertNoOpenAvailabilityRequestForProduct } from 'src/utils/assert-no-open-availability-for-product';
 import {
@@ -60,26 +62,6 @@ export class CartService {
     return this.prisma.cartItem.create({
       data: { cartId: cart.id, productId: dto.productId, days: dto.days },
     });
-  }
-
-  private resolveRequiredDispatchWindowTypes(cartItem: any) {
-    const listingType = cartItem.product?.listingType;
-    const isRentalItem =
-      cartItem.days > 0 &&
-      (listingType === 'RENTAL' || listingType === 'RENT_OR_RESALE');
-    const isResaleItem =
-      cartItem.days === 0 &&
-      (listingType === 'RESALE' || listingType === 'RENT_OR_RESALE');
-
-    const required: DispatchWindowType[] = [];
-    if (isRentalItem) {
-      required.push('OUTBOUND', 'RETURN');
-    }
-    if (isResaleItem) {
-      required.push('RESALE');
-    }
-
-    return required;
   }
 
   /** Rental dates for cart availability: reuse request row or default to today in Lagos. */
@@ -252,7 +234,7 @@ export class CartService {
     await this.assertProductEligibleForAvailabilityRequest(cartItem);
 
     const requiredWindowTypes =
-      this.resolveRequiredDispatchWindowTypes(cartItem);
+      resolveRequiredDispatchWindowTypes(cartItem);
 
     // Check for an existing EXPIRED request that can be re-requested
     const existingExpired = await this.prisma.availabilityRequest.findFirst({
@@ -311,6 +293,8 @@ export class CartService {
         data: {
           status: 'PENDING',
           expiresAt,
+          approvedAt: null,
+          reminderState: Prisma.DbNull,
           rentalDays: rentalContext.rentalDays,
           startDate: rentalContext.startDate,
           endDate: rentalContext.endDate,
@@ -488,7 +472,7 @@ export class CartService {
 
     return this.prisma.availabilityRequest.update({
       where: { id: requestId },
-      data: { status: 'ACCEPTED' },
+      data: { status: 'ACCEPTED', approvedAt: new Date() },
     });
   }
 

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+        }
+
+        .container {
+            width: 80%;
+            margin: 20px auto;
+            border: 1px solid #eee;
+            padding: 20px;
+            border-radius: 10px;
+        }
+
+        .header {
+            background: #f8f9fa;
+            padding: 10px;
+            text-align: center;
+            border-bottom: 2px solid #555;
+        }
+
+        .content {
+            padding: 20px;
+        }
+
+        .footer {
+            font-size: 12px;
+            color: #777;
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        .button {
+            background: #000;
+            color: #fff;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 5px;
+            display: inline-block;
+        }
+
+        .steps {
+            background: #f8f9fa;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin: 16px 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>{{#if (eq requestType 'purchase')}}Complete your purchase{{else}}Complete your rental{{/if}}</h2>
+        </div>
+        <div class="content">
+            <p>Hello {{userName}},</p>
+            <p>{{listerName}} already approved your {{#if (eq requestType 'purchase')}}purchase{{else}}rental{{/if}} request for <strong>{{productName}}</strong>.</p>
+            {{#if (eq stage "15m")}}
+            <p>Open your cart and check out to lock it in before it slips away.</p>
+            {{else if (eq stage "1h")}}
+            <p>Reminder: your approved request is still waiting in your cart.</p>
+            {{else}}
+            <p>Last reminder: check out now so you do not lose this item.</p>
+            {{/if}}
+            <p><a href="{{cartLink}}" class="button">Open cart &amp; check out</a></p>
+        </div>
+        <div class="footer">
+            <p>&copy; {{currentYear}} Relisted. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+
+</html>
