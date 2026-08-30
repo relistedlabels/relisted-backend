@@ -206,5 +206,86 @@ describe('ProductService revenue guards', () => {
         }),
       );
     });
+
+    it('allows admin to deactivate another lister product', async () => {
+      mockPrisma.product.findUnique.mockResolvedValue({
+        id: 'prod-1',
+        curatorId: 'other-lister',
+        status: ProductStatus.AVAILABLE,
+      });
+      mockPrisma.user.findUnique.mockResolvedValue({ role: 'ADMIN' });
+      mockPrisma.product.update.mockResolvedValue({
+        id: 'prod-1',
+        status: ProductStatus.UNAVAILABLE,
+        isActive: false,
+      });
+
+      const result = await service.toggleAvailability(
+        'prod-1',
+        false,
+        admin as never,
+      );
+
+      expect(result.success).toBe(true);
+      expect(mockPrisma.product.update).toHaveBeenCalledWith({
+        where: { id: 'prod-1' },
+        data: {
+          status: ProductStatus.UNAVAILABLE,
+          isActive: false,
+        },
+      });
+    });
+
+    it('allows admin to reactivate an unavailable product', async () => {
+      mockPrisma.product.findUnique.mockResolvedValue({
+        id: 'prod-1',
+        curatorId: 'other-lister',
+        status: ProductStatus.UNAVAILABLE,
+      });
+      mockPrisma.user.findUnique.mockResolvedValue({ role: 'ADMIN' });
+      mockPrisma.product.update.mockResolvedValue({
+        id: 'prod-1',
+        status: ProductStatus.AVAILABLE,
+        isActive: true,
+      });
+
+      const result = await service.toggleAvailability(
+        'prod-1',
+        true,
+        admin as never,
+      );
+
+      expect(result.success).toBe(true);
+      expect(mockPrisma.product.update).toHaveBeenCalledWith({
+        where: { id: 'prod-1' },
+        data: {
+          status: ProductStatus.AVAILABLE,
+          isActive: true,
+        },
+      });
+    });
+
+    it('rejects admin deactivation when product is rented', async () => {
+      mockPrisma.product.findUnique.mockResolvedValue({
+        id: 'prod-1',
+        curatorId: 'other-lister',
+        status: ProductStatus.RENTED,
+      });
+      mockPrisma.user.findUnique.mockResolvedValue({ role: 'ADMIN' });
+
+      await expect(
+        service.toggleAvailability('prod-1', false, admin as never),
+      ).rejects.toThrow('Only approved products');
+      expect(mockPrisma.product.update).not.toHaveBeenCalled();
+    });
+
+    it('throws when product does not exist', async () => {
+      mockPrisma.product.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.toggleAvailability('missing', false, admin as never),
+      ).rejects.toThrow(NotFoundException);
+      expect(mockPrisma.product.update).not.toHaveBeenCalled();
+    });
   });
 });
