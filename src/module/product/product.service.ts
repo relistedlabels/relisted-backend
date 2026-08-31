@@ -27,6 +27,7 @@ import {
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductStatus } from '@prisma/client';
 import { ClosetService } from '../closet/closet.service';
+import { isAvailabilityToggleStatus } from './product-list-scope.util';
 import { deleteProductCascade } from 'src/utils/cascade-delete';
 import { MailService } from 'src/services/mail/mail.service';
 import { fetchAdminAlertRecipients } from '../shipment/shipment-admin-alert-recipients';
@@ -1071,14 +1072,9 @@ export class ProductService {
         );
       }
 
-      // Only AVAILABLE/UNAVAILABLE products can have availability toggled
-      // (These are products that have been approved)
-      if (
-        product.status !== ProductStatus.AVAILABLE &&
-        product.status !== ProductStatus.UNAVAILABLE
-      ) {
+      if (!isAvailabilityToggleStatus(product.status)) {
         throw new BadRequestException(
-          'Only approved products can have their availability toggled. Current status: ' +
+          'Only live listings can have their availability toggled. Current status: ' +
             product.status,
         );
       }

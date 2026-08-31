@@ -20,6 +20,26 @@ export const ADMIN_ACTIVE_LISTING_STATUSES: ProductStatus[] = [
   ProductStatus.APPROVED,
 ];
 
+/** Statuses allowed through availability toggle (includes UNAVAILABLE for reactivation). */
+export const AVAILABILITY_TOGGLE_STATUSES: ProductStatus[] = [
+  ...ADMIN_ACTIVE_LISTING_STATUSES,
+  ProductStatus.UNAVAILABLE,
+];
+
+export function isLiveAdminListingStatus(
+  status: ProductStatus | string | null | undefined,
+): boolean {
+  if (!status) return false;
+  return ADMIN_ACTIVE_LISTING_STATUSES.includes(status as ProductStatus);
+}
+
+export function isAvailabilityToggleStatus(
+  status: ProductStatus | string | null | undefined,
+): boolean {
+  if (!status) return false;
+  return AVAILABILITY_TOGGLE_STATUSES.includes(status as ProductStatus);
+}
+
 export function buildAdminPickerScopeWhere(): Prisma.ProductWhereInput {
   return {
     status: { in: LIVE_SHOP_STATUSES },
