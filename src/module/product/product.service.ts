@@ -27,6 +27,7 @@ import {
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductStatus } from '@prisma/client';
 import { ClosetService } from '../closet/closet.service';
+import { isAvailabilityToggleStatus } from './product-list-scope.util';
 import { deleteProductCascade } from 'src/utils/cascade-delete';
 import { MailService } from 'src/services/mail/mail.service';
 import { fetchAdminAlertRecipients } from '../shipment/shipment-admin-alert-recipients';
@@ -1071,13 +1072,7 @@ export class ProductService {
         );
       }
 
-      // Live listings can be toggled; APPROVED is legacy but still in admin Active tab.
-      const toggleableStatuses: ProductStatus[] = [
-        ProductStatus.AVAILABLE,
-        ProductStatus.UNAVAILABLE,
-        ProductStatus.APPROVED,
-      ];
-      if (!toggleableStatuses.includes(product.status)) {
+      if (!isAvailabilityToggleStatus(product.status)) {
         throw new BadRequestException(
           'Only live listings can have their availability toggled. Current status: ' +
             product.status,
