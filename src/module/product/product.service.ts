@@ -1071,14 +1071,15 @@ export class ProductService {
         );
       }
 
-      // Only AVAILABLE/UNAVAILABLE products can have availability toggled
-      // (These are products that have been approved)
-      if (
-        product.status !== ProductStatus.AVAILABLE &&
-        product.status !== ProductStatus.UNAVAILABLE
-      ) {
+      // Live listings can be toggled; APPROVED is legacy but still in admin Active tab.
+      const toggleableStatuses: ProductStatus[] = [
+        ProductStatus.AVAILABLE,
+        ProductStatus.UNAVAILABLE,
+        ProductStatus.APPROVED,
+      ];
+      if (!toggleableStatuses.includes(product.status)) {
         throw new BadRequestException(
-          'Only approved products can have their availability toggled. Current status: ' +
+          'Only live listings can have their availability toggled. Current status: ' +
             product.status,
         );
       }

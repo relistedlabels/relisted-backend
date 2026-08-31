@@ -174,7 +174,7 @@ describe('ProductService revenue guards', () => {
 
       await expect(
         service.toggleAvailability('prod-1', false, lister as never),
-      ).rejects.toThrow('Only approved products');
+      ).rejects.toThrow('Only live listings');
     });
 
     it('allows owner to mark approved product unavailable', async () => {
@@ -205,6 +205,35 @@ describe('ProductService revenue guards', () => {
           }),
         }),
       );
+    });
+
+    it('allows admin to deactivate an APPROVED product', async () => {
+      mockPrisma.product.findUnique.mockResolvedValue({
+        id: 'prod-1',
+        curatorId: 'other-lister',
+        status: ProductStatus.APPROVED,
+      });
+      mockPrisma.user.findUnique.mockResolvedValue({ role: 'ADMIN' });
+      mockPrisma.product.update.mockResolvedValue({
+        id: 'prod-1',
+        status: ProductStatus.UNAVAILABLE,
+        isActive: false,
+      });
+
+      const result = await service.toggleAvailability(
+        'prod-1',
+        false,
+        admin as never,
+      );
+
+      expect(result.success).toBe(true);
+      expect(mockPrisma.product.update).toHaveBeenCalledWith({
+        where: { id: 'prod-1' },
+        data: {
+          status: ProductStatus.UNAVAILABLE,
+          isActive: false,
+        },
+      });
     });
 
     it('allows admin to deactivate another lister product', async () => {
@@ -275,7 +304,7 @@ describe('ProductService revenue guards', () => {
 
       await expect(
         service.toggleAvailability('prod-1', false, admin as never),
-      ).rejects.toThrow('Only approved products');
+      ).rejects.toThrow('Only live listings');
       expect(mockPrisma.product.update).not.toHaveBeenCalled();
     });
 
