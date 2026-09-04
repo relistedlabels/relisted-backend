@@ -28,9 +28,13 @@ import { HandlebarsAdapter } from '@nestjs-modules/mailer/adapters/handlebars.ad
         dir: join(process.cwd(), './src/services/mail/templates'),
         adapter: new HandlebarsAdapter({
           eq: (v1, v2) => v1 === v2,
+          gt: (a: unknown, b: unknown) => Number(a) > Number(b),
         }),
         options: {
           strict: true,
+          partials: {
+            dir: join(process.cwd(), './src/services/mail/templates/partials'),
+          },
         },
       },
     }),

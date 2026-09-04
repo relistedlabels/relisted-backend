@@ -27,7 +27,7 @@ import {
 import { Auth_Otp_Token_Subject } from '../../module/auth/auth.types';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import * as Handlebars from 'handlebars';
 import { ResendService } from './resend.service';
 import {
@@ -60,6 +60,17 @@ export class MailService {
     Handlebars.registerHelper('currentYear', () =>
       String(new Date().getFullYear()),
     );
+
+    const orderLineItemsPartial = join(
+      process.cwd(),
+      'src/services/mail/templates/partials/order-line-items.hbs',
+    );
+    if (existsSync(orderLineItemsPartial)) {
+      Handlebars.registerPartial(
+        'order-line-items',
+        readFileSync(orderLineItemsPartial, 'utf8'),
+      );
+    }
   }
 
   private async renderTemplateToHtml(
