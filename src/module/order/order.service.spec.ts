@@ -842,7 +842,25 @@ describe('OrderService', () => {
       expect(tx.wallet.update).toHaveBeenCalled();
       expect(tx.shipment.create).toHaveBeenCalledTimes(2);
       expect(mockPrisma.cartItem.deleteMany).toHaveBeenCalled();
-      expect(mockNotificationService.createNotification).toHaveBeenCalled();
+      expect(mockNotificationService.createNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: user.id,
+          type: 'ORDER_CONFIRMATION',
+          sendEmail: true,
+          emailData: expect.objectContaining({
+            email: user.email,
+            customerName: user.name,
+            orderId: 'ORD-E2E-TEST',
+            orderLink: 'https://app.relisted.test/renters/orders/ORD-E2E-TEST',
+          }),
+        }),
+      );
+      expect(mockNotificationService.createNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'ORDER_CONFIRMED',
+          sendEmail: true,
+        }),
+      );
     });
 
     it('rejects checkout when wallet balance is insufficient', async () => {

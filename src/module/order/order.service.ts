@@ -3088,8 +3088,27 @@ export class OrderService {
           });
         }
       }
+
+      if (user.email?.trim()) {
+        await this.notificationService.createNotification({
+          userId: user.id,
+          title: 'Order Confirmed',
+          message: `Your order ${order.orderId} is confirmed. ${eligibleItems.length} item(s). Your tracking link will be sent on your rental start date.`,
+          type: 'ORDER_CONFIRMATION',
+          metadata: { orderId: order.id, orderNumber: order.orderId },
+          sendEmail: true,
+          emailData: {
+            email: user.email.trim(),
+            customerName: user.name || 'Customer',
+            orderId: order.orderId,
+            totalAmount: grandTotal,
+            platformName: 'Relisted',
+            orderLink: `${process.env.CLIENT_URL}/renters/orders/${order.orderId}`,
+          },
+        });
+      }
     } catch (notifyErr) {
-      console.error('[Checkout] Error sending lister notifications:', notifyErr);
+      console.error('[Checkout] Error sending checkout notifications:', notifyErr);
     }
 
     return {
