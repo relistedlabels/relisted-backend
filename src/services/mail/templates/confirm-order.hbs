@@ -126,9 +126,13 @@
     <p><strong>Total Amount:</strong> ₦{{totalAmount}}</p>
 
     <div class="info-box">
-      <p><strong>📦 Shipping Information</strong></p>
-      <p>Your tracking link will be sent to you on your rental start date. You'll be able to track your shipment in real-time once it's dispatched.</p>
+      <p><strong>Shipping information</strong></p>
+      <p>Your tracking link will be sent to you on your rental start date. You will be able to track your shipment in real time once it is dispatched.</p>
     </div>
+
+    {{#if orderLink}}
+    <p><a href="{{orderLink}}" class="button">View order</a></p>
+    {{/if}}
 
     <p>You can view your order details and track its status in your account dashboard.</p>
     {{/if}}

@@ -1333,7 +1333,7 @@ export class RentersService {
       message: `Your ${requestTypeLower} for ${request.product?.name} has been sent to the lister.`,
       type: isResaleRequest ? 'PURCHASE_REQUEST_SENT' : 'RENTAL_REQUEST_SENT',
       metadata: { requestId: request.id, productId: request.productId },
-      sendEmail: true,
+      sendEmail: false,
     });
 
     // build response similar to spec sample

@@ -67,6 +67,15 @@ export class VerifyOrderDto {
   @IsOptional()
   @IsBoolean()
   listerNewOrderConfirmed?: boolean;
+
+  /** Renter checkout confirmation */
+  @IsString()
+  @IsOptional()
+  customerName?: string;
+
+  @IsString()
+  @IsOptional()
+  orderLink?: string;
 }
 
 export class ResetPasswordDto {
