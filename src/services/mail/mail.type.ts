@@ -76,6 +76,22 @@ export class VerifyOrderDto {
   @IsString()
   @IsOptional()
   orderLink?: string;
+
+  @IsOptional()
+  orderLines?: Array<{
+    productName: string;
+    imageUrl?: string | null;
+    lineType: 'rental' | 'purchase';
+    days?: number;
+    rentalPeriodText?: string | null;
+    rentalDeliveryWindowText?: string | null;
+    returnPickupWindowText?: string | null;
+    purchaseDeliveryWindowText?: string | null;
+  }>;
+
+  @IsOptional()
+  @IsBoolean()
+  hasOrderLines?: boolean;
 }
 
 export class ResetPasswordDto {

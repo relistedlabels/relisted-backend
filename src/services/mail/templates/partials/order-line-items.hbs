@@ -1,0 +1,43 @@
+{{#each orderLines}}
+<div class="info-box">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+    <tr>
+      {{#if this.imageUrl}}
+      <td valign="top" width="84" style="padding-right: 12px;">
+        <img src="{{this.imageUrl}}" alt="{{this.productName}}" class="item-image" width="72" height="72" />
+      </td>
+      {{/if}}
+      <td valign="top" class="item-detail-row">
+        <p><strong>{{this.productName}}</strong></p>
+        {{#if (eq this.lineType 'rental')}}
+        {{#if this.rentalPeriodText}}
+        <p>{{this.rentalPeriodText}}{{#if this.days}} · {{this.days}} {{#if (eq this.days 1)}}day{{else}}days{{/if}}{{/if}}</p>
+        {{/if}}
+        {{else}}
+        {{#unless this.purchaseDeliveryWindowText}}
+        <p>Purchase</p>
+        {{/unless}}
+        {{/if}}
+      </td>
+    </tr>
+  </table>
+  {{#if (eq this.lineType 'rental')}}
+  {{#if this.rentalDeliveryWindowText}}
+  <div class="item-window-row">
+    <p><strong>Delivery window:</strong> {{this.rentalDeliveryWindowText}}</p>
+  </div>
+  {{/if}}
+  {{#if this.returnPickupWindowText}}
+  <div class="item-window-row">
+    <p><strong>Return window:</strong> {{this.returnPickupWindowText}}</p>
+  </div>
+  {{/if}}
+  {{else}}
+  {{#if this.purchaseDeliveryWindowText}}
+  <div class="item-window-row">
+    <p><strong>Delivery window:</strong> {{this.purchaseDeliveryWindowText}}</p>
+  </div>
+  {{/if}}
+  {{/if}}
+</div>
+{{/each}}

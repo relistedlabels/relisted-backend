@@ -27,6 +27,7 @@ import { userEntity } from '../auth/auth.types';
 import { addDays, addMinutes, startOfDay } from 'date-fns';
 import { NotificationService } from 'src/services/notification/notification.service';
 import { DEFAULT_CLEANING_FEE_NGN } from 'src/constants/rental-pricing';
+import { buildRenterCheckoutEmailLinesFromCheckout } from './renter-checkout-confirmation-email.util';
 import {
   closetSplitKindForResaleOrderConfirm,
   incrementClosetRevenueForListerPayout,
@@ -285,48 +286,6 @@ export class OrderService {
         );
       }
     }
-  }
-
-  /** Lagos-formatted range for lister order confirmation emails (matches checkout copy style). */
-  private formatDispatchWindowRangeForEmailLagos(start: Date, end: Date): string {
-    const tz = 'Africa/Lagos';
-    const sameCalendarDay =
-      start.toLocaleDateString('en-CA', { timeZone: tz }) ===
-      end.toLocaleDateString('en-CA', { timeZone: tz });
-    if (sameCalendarDay) {
-      const dateLine = start.toLocaleDateString('en-NG', {
-        timeZone: tz,
-        weekday: 'short',
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      });
-      const startTime = start.toLocaleTimeString('en-NG', {
-        timeZone: tz,
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
-      });
-      const endTime = end.toLocaleTimeString('en-NG', {
-        timeZone: tz,
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
-      });
-      return `${dateLine}, ${startTime} to ${endTime}`;
-    }
-    const fmtFull = (d: Date) =>
-      d.toLocaleString('en-NG', {
-        timeZone: tz,
-        weekday: 'short',
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
-      });
-    return `${fmtFull(start)} to ${fmtFull(end)}`;
   }
 
   private resolveDispatchWindow(
@@ -2974,68 +2933,9 @@ export class OrderService {
             listerCleaningFeesTotal +
             listerResaleSubtotal;
 
-          const listerIdForNotify = String(lister.id);
-          const dispatchItemWindowsAccum: Array<{
-            productName: string;
-            rentalDeliveryWindowText: string | null;
-            returnPickupWindowText: string | null;
-            purchaseDeliveryWindowText: string | null;
-            sortKey: number;
-          }> = [];
-          for (const ld of listerOrdersData) {
-            if (String(ld.listerId) !== listerIdForNotify) continue;
-            if (ld.bucketMode === 'RENTAL') {
-              const ob = ld.outboundWindow;
-              const rw = ld.returnWindow;
-              const rentalDeliveryWindowText =
-                ob?.start && ob?.end
-                  ? this.formatDispatchWindowRangeForEmailLagos(
-                      ob.start,
-                      ob.end,
-                    )
-                  : null;
-              const returnPickupWindowText =
-                rw?.start && rw?.end
-                  ? this.formatDispatchWindowRangeForEmailLagos(
-                      rw.start,
-                      rw.end,
-                    )
-                  : null;
-              for (const bucketItem of ld.items ?? []) {
-                dispatchItemWindowsAccum.push({
-                  productName: bucketItem.product?.name || 'Item',
-                  rentalDeliveryWindowText,
-                  returnPickupWindowText,
-                  purchaseDeliveryWindowText: null,
-                  sortKey:
-                    ob?.start?.getTime?.() ??
-                    rw?.start?.getTime?.() ??
-                    Date.now(),
-                });
-              }
-            } else if (ld.bucketMode === 'RESALE') {
-              const sw = ld.resaleWindow;
-              const purchaseDeliveryWindowText =
-                sw?.start && sw?.end
-                  ? this.formatDispatchWindowRangeForEmailLagos(
-                      sw.start,
-                      sw.end,
-                    )
-                  : null;
-              for (const bucketItem of ld.items ?? []) {
-                dispatchItemWindowsAccum.push({
-                  productName: bucketItem.product?.name || 'Item',
-                  rentalDeliveryWindowText: null,
-                  returnPickupWindowText: null,
-                  purchaseDeliveryWindowText,
-                  sortKey: sw?.start?.getTime?.() ?? Date.now(),
-                });
-              }
-            }
-          }
-          dispatchItemWindowsAccum.sort((a, b) => a.sortKey - b.sortKey);
-          const dispatchItemWindows = dispatchItemWindowsAccum.map(
-            ({ sortKey: _sortKey, ...row }) => row,
+          const orderLines = buildRenterCheckoutEmailLinesFromCheckout(
+            mergedItems,
+            listerOrdersData,
           );
 
           await this.notificationService.createNotification({
@@ -3058,38 +2958,18 @@ export class OrderService {
               listerCleaningFeesTotal,
               listerResaleSubtotal,
               listerMerchandiseTotal,
-              dispatchItemWindows,
-              hasDispatchItemWindows: dispatchItemWindows.length > 0,
-              items: mergedItems.map((item: any) => {
-                const daily = item.product?.dailyPrice || 0;
-                const resale = item.product?.resalePrice || 0;
-                const isRental =
-                  item.days > 0 &&
-                  (item.product.listingType === 'RENTAL' ||
-                    item.product.listingType === 'RENT_OR_RESALE');
-                const isResaleOnly =
-                  item.product.listingType === 'RESALE' ||
-                  (item.product.listingType === 'RENT_OR_RESALE' &&
-                    item.days === 0);
-                const rentLine = isRental ? daily * item.days : 0;
-                const cleaningLine = isRental ? DEFAULT_CLEANING_FEE_NGN : 0;
-                return {
-                  productName: item.product?.name || 'Item',
-                  days: item.days,
-                  dailyPrice: daily,
-                  isRental,
-                  isResaleOnly,
-                  rentLine,
-                  cleaningLine,
-                  price: isRental ? rentLine : resale,
-                };
-              }),
+              orderLines,
+              hasOrderLines: orderLines.length > 0,
             },
           });
         }
       }
 
       if (user.email?.trim()) {
+        const orderLines = buildRenterCheckoutEmailLinesFromCheckout(
+          eligibleItems,
+          listerOrdersData,
+        );
         await this.notificationService.createNotification({
           userId: user.id,
           title: 'Order Confirmed',
@@ -3104,6 +2984,8 @@ export class OrderService {
             totalAmount: grandTotal,
             platformName: 'Relisted',
             orderLink: `${process.env.CLIENT_URL}/renters/orders/${order.orderId}`,
+            orderLines,
+            hasOrderLines: orderLines.length > 0,
           },
         });
       }
