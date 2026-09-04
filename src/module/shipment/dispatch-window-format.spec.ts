@@ -1,7 +1,10 @@
 import {
   formatDateTimeLagos,
+  formatDispatchWindowCompact,
   formatDispatchWindowLagos,
   formatRentalBoundaryDateLagos,
+  formatRentalPeriodCompact,
+  formatOrdinalDay,
 } from './dispatch-window-format';
 
 describe('dispatch-window-format', () => {
@@ -41,5 +44,27 @@ describe('dispatch-window-format', () => {
 
   it('formatRentalBoundaryDateLagos treats YYYY-MM-DD as a Lagos calendar day', () => {
     expect(formatRentalBoundaryDateLagos('2026-06-25')).toMatch(/25 Jun 2026/);
+  });
+
+  it('formatRentalPeriodCompact uses ordinals and full month without year', () => {
+    expect(
+      formatRentalPeriodCompact('2026-06-10', '2026-06-13'),
+    ).toBe('10th–13th June');
+  });
+
+  it('formatDispatchWindowCompact uses ordinals and full month', () => {
+    expect(
+      formatDispatchWindowCompact(
+        new Date('2026-06-09T09:00:00+01:00'),
+        new Date('2026-06-09T14:00:00+01:00'),
+      ),
+    ).toBe('9th June, 9am–2pm WAT');
+  });
+
+  it('formatOrdinalDay handles teens and regular ordinals', () => {
+    expect(formatOrdinalDay(1)).toBe('1st');
+    expect(formatOrdinalDay(2)).toBe('2nd');
+    expect(formatOrdinalDay(3)).toBe('3rd');
+    expect(formatOrdinalDay(11)).toBe('11th');
   });
 });

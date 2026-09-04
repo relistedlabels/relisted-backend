@@ -27,6 +27,7 @@ import { userEntity } from '../auth/auth.types';
 import { addDays, addMinutes, startOfDay } from 'date-fns';
 import { NotificationService } from 'src/services/notification/notification.service';
 import { DEFAULT_CLEANING_FEE_NGN } from 'src/constants/rental-pricing';
+import { buildRenterCheckoutEmailLinesFromCheckout } from './renter-checkout-confirmation-email.util';
 import {
   closetSplitKindForResaleOrderConfirm,
   incrementClosetRevenueForListerPayout,
@@ -3090,6 +3091,10 @@ export class OrderService {
       }
 
       if (user.email?.trim()) {
+        const orderLines = buildRenterCheckoutEmailLinesFromCheckout(
+          eligibleItems,
+          listerOrdersData,
+        );
         await this.notificationService.createNotification({
           userId: user.id,
           title: 'Order Confirmed',
@@ -3104,6 +3109,8 @@ export class OrderService {
             totalAmount: grandTotal,
             platformName: 'Relisted',
             orderLink: `${process.env.CLIENT_URL}/renters/orders/${order.orderId}`,
+            orderLines,
+            hasOrderLines: orderLines.length > 0,
           },
         });
       }

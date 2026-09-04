@@ -1,14 +1,20 @@
 /**
- * Minimal memory resend script (~few MB). Use this on small prod instances.
+ * Minimal memory resend script (~few MB). Run on your laptop with prod env vars.
+ *
+ * Email HTML is rendered from src/services/mail/templates/confirm-order.hbs
+ * (same template production uses). Only order line data is built in this script.
  *
  *   node resend-renter-order-confirmation.mjs ORD-1788244993106-497 --dry-run
- *   node resend-renter-order-confirmation.mjs ORD-1788244993106-497
+ *   RESEND_TO_OVERRIDE=you@gmail.com node resend-renter-order-confirmation.mjs ORD-xxx
  *
  * Requires: DATABASE_URL, RESEND_API_KEY (and optionally MAIL_DEFAULT, CLIENT_URL)
  */
 import pg from 'pg';
-import { readFileSync, existsSync } from 'fs';
+import Handlebars from 'handlebars';
+import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
+
+const LAGOS = 'Africa/Lagos';
 
 function loadEnvFile() {
   const envPath = join(process.cwd(), '.env');
@@ -30,38 +36,143 @@ function loadEnvFile() {
   }
 }
 
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+
+function formatEmailTimeCompact(input) {
+  if (!input) return '';
+  const d = input instanceof Date ? input : new Date(input);
+  if (Number.isNaN(d.getTime())) return '';
+  return d
+    .toLocaleTimeString('en-GB', {
+      timeZone: LAGOS,
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    })
+    .replace(':00', '')
+    .replace(/\s/g, '')
+    .toLowerCase();
 }
 
-function buildConfirmOrderHtml({ customerName, orderId, totalAmount, orderLink }) {
-  const name = escapeHtml(customerName);
-  const id = escapeHtml(orderId);
-  const total = escapeHtml(Number(totalAmount).toLocaleString('en-NG'));
-  const link = escapeHtml(orderLink);
-  return `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><title>Order Confirmed</title></head>
-<body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;">
-  <div style="max-width:600px;margin:0 auto;padding:20px;border:1px solid #ddd;border-radius:8px;">
-    <h2>Hello ${name},</h2>
-    <p>Your order has been confirmed successfully!</p>
-    <p><strong>Order ID:</strong> ${id}</p>
-    <p><strong>Total Amount:</strong> ₦${total}</p>
-    <div style="background:#f8f9fa;padding:15px;border-radius:5px;margin:15px 0;border-left:4px solid #1d72b8;">
-      <p><strong>Shipping information</strong></p>
-      <p>Your tracking link will be sent to you on your rental start date. You will be able to track your shipment in real time once it is dispatched.</p>
-    </div>
-    <p><a href="${link}" style="display:inline-block;padding:10px 20px;background:#1d72b8;color:#fff;text-decoration:none;border-radius:5px;">View order</a></p>
-    <p>You can view your order details and track its status in your account dashboard.</p>
-    <p>Thanks,<br>The Relisted Team</p>
-  </div>
-</body>
-</html>`;
+function lagosCalendarKey(d) {
+  return d.toLocaleDateString('en-CA', { timeZone: LAGOS });
+}
+
+function formatOrdinalDay(day) {
+  const n = Math.abs(Math.trunc(day));
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${n}th`;
+  switch (n % 10) {
+    case 1:
+      return `${n}st`;
+    case 2:
+      return `${n}nd`;
+    case 3:
+      return `${n}rd`;
+    default:
+      return `${n}th`;
+  }
+}
+
+function lagosDayMonth(d) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: LAGOS,
+    day: 'numeric',
+    month: 'long',
+  }).formatToParts(d);
+  const day = Number(parts.find((p) => p.type === 'day')?.value ?? 0);
+  const month = parts.find((p) => p.type === 'month')?.value ?? '';
+  return { day, month, dayLabel: formatOrdinalDay(day) };
+}
+
+function formatRentalPeriodCompact(start, end) {
+  if (!start || !end) return '';
+  const s = new Date(start);
+  const e = new Date(end);
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return '';
+  if (lagosCalendarKey(s) === lagosCalendarKey(e)) {
+    const one = lagosDayMonth(s);
+    return `${one.dayLabel} ${one.month}`;
+  }
+  const sp = lagosDayMonth(s);
+  const ep = lagosDayMonth(e);
+  if (sp.month === ep.month) {
+    return `${sp.dayLabel}–${ep.dayLabel} ${sp.month}`;
+  }
+  return `${sp.dayLabel} ${sp.month} – ${ep.dayLabel} ${ep.month}`;
+}
+
+function formatWindow(start, end) {
+  if (!start || !end) return null;
+  const s = new Date(start);
+  const e = new Date(end);
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return null;
+  const startTime = formatEmailTimeCompact(s);
+  const endTime = formatEmailTimeCompact(e);
+  if (lagosCalendarKey(s) === lagosCalendarKey(e)) {
+    const { dayLabel, month } = lagosDayMonth(s);
+    return `${dayLabel} ${month}, ${startTime}–${endTime} WAT`;
+  }
+  const sp = lagosDayMonth(s);
+  const ep = lagosDayMonth(e);
+  return `${sp.dayLabel} ${sp.month} ${startTime} – ${ep.dayLabel} ${ep.month} ${endTime} WAT`;
+}
+
+function buildOrderLines(rows) {
+  return rows.map((row) => {
+    const productName = row.product_name || 'Item';
+    const listingType = row.listing_type;
+    const days = row.days ?? 0;
+    const isRental =
+      days > 0 &&
+      (listingType === 'RENTAL' || listingType === 'RENT_OR_RESALE');
+    const isPurchase =
+      listingType === 'RESALE' ||
+      (listingType === 'RENT_OR_RESALE' && days === 0);
+
+    if (isRental) {
+      const rentalPeriodText =
+        row.rental_start && row.rental_end
+          ? formatRentalPeriodCompact(row.rental_start, row.rental_end)
+          : null;
+      return {
+        productName,
+        imageUrl: row.image_url || null,
+        lineType: 'rental',
+        days: row.rental_days ?? days,
+        rentalPeriodText,
+        rentalDeliveryWindowText: formatWindow(
+          row.outbound_start,
+          row.outbound_end,
+        ),
+        returnPickupWindowText: formatWindow(row.return_start, row.return_end),
+      };
+    }
+
+    if (isPurchase) {
+      return {
+        productName,
+        imageUrl: row.image_url || null,
+        lineType: 'purchase',
+        purchaseDeliveryWindowText: formatWindow(
+          row.resale_start,
+          row.resale_end,
+        ),
+      };
+    }
+
+    return { productName, imageUrl: row.image_url || null, lineType: 'purchase' };
+  });
+}
+
+function renderConfirmOrderHtml(context) {
+  const templatePath = join(
+    process.cwd(),
+    'src/services/mail/templates/confirm-order.hbs',
+  );
+  const templateSource = readFileSync(templatePath, 'utf8');
+  Handlebars.registerHelper('eq', (a, b) => a === b);
+  Handlebars.registerHelper('gt', (a, b) => Number(a) > Number(b));
+  return Handlebars.compile(templateSource)(context);
 }
 
 async function sendViaResend(to, subject, html) {
@@ -107,7 +218,7 @@ async function main() {
   });
 
   try {
-    const { rows } = await pool.query(
+    const orderRes = await pool.query(
       `SELECT o."orderId", o."totalAmountPaid", u.email, u.name
        FROM "Order" o
        JOIN "User" u ON u.id = o."userId"
@@ -116,7 +227,7 @@ async function main() {
       [orderIdArg.trim()],
     );
 
-    const row = rows[0];
+    const row = orderRes.rows[0];
     if (!row) {
       console.error(`Order not found: ${orderIdArg}`);
       process.exit(1);
@@ -126,33 +237,91 @@ async function main() {
       process.exit(1);
     }
 
+    const linesRes = await pool.query(
+      `SELECT
+         p.name AS product_name,
+         p."listingType" AS listing_type,
+         oi.days,
+         oi."imageUrl" AS image_url,
+         r.days AS rental_days,
+         r."startDate" AS rental_start,
+         r."endDate" AS rental_end,
+         ob."scheduledWindowStart" AS outbound_start,
+         ob."scheduledWindowEnd" AS outbound_end,
+         ret."scheduledWindowStart" AS return_start,
+         ret."scheduledWindowEnd" AS return_end,
+         rs."scheduledWindowStart" AS resale_start,
+         rs."scheduledWindowEnd" AS resale_end
+       FROM "OrderItem" oi
+       JOIN "Order" o ON o.id = oi."orderId"
+       JOIN "Product" p ON p.id = oi."productId"
+       LEFT JOIN "Rental" r ON r."orderId" = o.id AND r."productId" = oi."productId"
+       LEFT JOIN "Shipment" ob ON ob.id = oi."outboundShipmentId"
+       LEFT JOIN "Shipment" ret ON ret.id = oi."returnShipmentId"
+       LEFT JOIN "Shipment" rs ON rs.id = oi."resaleShipmentId"
+       WHERE o."orderId" = $1
+       ORDER BY oi."id"`,
+      [orderIdArg.trim()],
+    );
+
     const clientBase = (process.env.CLIENT_URL || 'https://relisted.com').replace(
       /\/$/,
       '',
     );
+    const orderLines = buildOrderLines(linesRes.rows);
+    const recipient =
+      process.env.RESEND_TO_OVERRIDE?.trim() || row.email.trim();
     const payload = {
-      email: row.email.trim(),
+      email: recipient,
+      renterEmail: row.email.trim(),
       customerName: row.name || 'Customer',
       orderId: row.orderId,
       totalAmount: row.totalAmountPaid,
       orderLink: `${clientBase}/renters/orders/${row.orderId}`,
+      orderLines,
     };
 
     console.log(
-      dryRun ? '[dry-run] Would send to:' : 'Sending to:',
-      payload.email,
+      dryRun ? '[dry-run] Would send confirm-order to:' : 'Sending confirm-order to:',
+      recipient,
     );
+    if (recipient !== row.email.trim()) {
+      console.log(`(renter on order: ${row.email.trim()})`);
+    }
     console.log(JSON.stringify(payload, null, 2));
 
-    if (dryRun) return;
+    const html = renderConfirmOrderHtml({
+      customerName: payload.customerName,
+      orderId: payload.orderId,
+      totalAmount: Number(payload.totalAmount).toLocaleString('en-NG'),
+      orderLink: payload.orderLink,
+      orderLines: payload.orderLines,
+      hasOrderLines: payload.orderLines.length > 0,
+    });
 
-    const html = buildConfirmOrderHtml(payload);
+    if (dryRun) {
+      const previewDir = join(process.cwd(), 'dev-emails');
+      if (!existsSync(previewDir)) mkdirSync(previewDir, { recursive: true });
+      const previewPath = join(
+        previewDir,
+        `renter-confirm-${payload.orderId}-preview.html`,
+      );
+      writeFileSync(previewPath, html);
+      console.log(`[dry-run] Preview saved to ${previewPath}`);
+      console.log(
+        html.includes('Thanks')
+          ? '[dry-run] Sign-off present in rendered template.'
+          : '[dry-run] WARNING: sign-off missing from rendered template.',
+      );
+      return;
+    }
+
     await sendViaResend(
-      payload.email,
+      recipient,
       'Your Relisted order confirmation',
       html,
     );
-    console.log(`Done. Confirmation email sent to ${payload.email}.`);
+    console.log(`Done. Confirmation email sent to ${recipient}.`);
   } finally {
     await pool.end();
   }

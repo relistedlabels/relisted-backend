@@ -48,6 +48,7 @@ import {
   extractRangeMapFromEntity,
 } from 'src/utils/dispatch-windows';
 import { formatRentalBoundaryDateLagos } from '../shipment/dispatch-window-format';
+import { buildRenterCheckoutEmailLinesFromOrder } from '../order/renter-checkout-confirmation-email.util';
 
 @Injectable()
 export class AdminService {
@@ -3456,6 +3457,37 @@ export class AdminService {
       where: { orderId },
       include: {
         user: { select: { id: true, email: true, name: true } },
+        orderItems: {
+          include: {
+            product: { select: { name: true, listingType: true } },
+            outboundShipment: {
+              select: {
+                scheduledWindowStart: true,
+                scheduledWindowEnd: true,
+              },
+            },
+            returnShipment: {
+              select: {
+                scheduledWindowStart: true,
+                scheduledWindowEnd: true,
+              },
+            },
+            resaleShipment: {
+              select: {
+                scheduledWindowStart: true,
+                scheduledWindowEnd: true,
+              },
+            },
+          },
+        },
+        rentals: {
+          select: {
+            productId: true,
+            startDate: true,
+            endDate: true,
+            days: true,
+          },
+        },
       },
     });
     if (!order) {
@@ -3469,6 +3501,10 @@ export class AdminService {
     const clientBase = (
       process.env.CLIENT_URL || 'https://relisted.com'
     ).replace(/\/$/, '');
+    const orderLines = buildRenterCheckoutEmailLinesFromOrder(
+      order.orderItems,
+      order.rentals,
+    );
     const emailData = {
       email,
       customerName: order.user?.name || 'Customer',
@@ -3476,6 +3512,8 @@ export class AdminService {
       totalAmount: order.totalAmountPaid,
       platformName: 'Relisted',
       orderLink: `${clientBase}/renters/orders/${order.orderId}`,
+      orderLines,
+      hasOrderLines: orderLines.length > 0,
     };
 
     if (dryRun) {

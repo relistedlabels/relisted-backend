@@ -17,14 +17,29 @@
       border: 1px solid #ddd;
       border-radius: 8px;
     }
-    .button {
+    .button,
+    a.button,
+    a.button:link,
+    a.button:visited,
+    a.button:hover,
+    a.button:active {
       display: inline-block;
       padding: 10px 20px;
-      margin: 15px 0;
       background-color: #1d72b8;
-      color: white;
-      text-decoration: none;
+      color: #ffffff !important;
+      text-decoration: none !important;
       border-radius: 5px;
+    }
+    .email-footer {
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid #ddd;
+    }
+    .email-footer p {
+      margin: 0 0 12px;
+    }
+    .email-footer p:last-child {
+      margin-bottom: 0;
     }
     .order-summary {
       border-top: 1px solid #ddd;
@@ -37,6 +52,22 @@
       border-radius: 5px;
       margin: 15px 0;
       border-left: 4px solid #1d72b8;
+    }
+    .item-image {
+      width: 72px;
+      height: 72px;
+      object-fit: cover;
+      border-radius: 6px;
+      display: block;
+    }
+    .item-detail-row p {
+      margin: 0 0 8px;
+    }
+    .item-window-row {
+      margin-top: 10px;
+    }
+    .item-window-row p {
+      margin: 0 0 8px;
     }
   </style>
 </head>
@@ -85,7 +116,8 @@
     </div>
     {{/if}}
 
-    <p><a href="{{approvalLink}}" class="button">View order in dashboard</a></p>
+    <p><a href="{{approvalLink}}" class="button" style="display:inline-block;padding:10px 20px;background-color:#1d72b8;color:#ffffff !important;text-decoration:none !important;border-radius:5px;">View order in dashboard</a></p>
+    <p>Thanks,<br>The Relisted Team</p>
     {{else}}
     {{#if curatorName}}
     <!-- Lister: legacy flow when order still requires lister approval (e.g. availability not yet paid) -->
@@ -114,31 +146,76 @@
     </div>
 
     <p>Please review the product and click the button below to approve the {{#if (eq requestType 'purchase')}}purchase{{else}}order{{/if}}:</p>
-    <a href="{{approvalLink}}" class="button">{{#if (eq requestType 'purchase')}}Accept Purchase{{else}}Accept Order{{/if}}</a>
+    <a href="{{approvalLink}}" class="button" style="display:inline-block;padding:10px 20px;background-color:#1d72b8;color:#ffffff !important;text-decoration:none !important;border-radius:5px;">{{#if (eq requestType 'purchase')}}Accept Purchase{{else}}Accept Order{{/if}}</a>
 
     <p>If you do not approve this {{#if (eq requestType 'purchase')}}purchase{{else}}order{{/if}} within 30 minutes, it will expire automatically.</p>
+    <p>Thanks,<br>The Relisted Team</p>
     {{else}}
     <!-- Customer order confirmation email -->
     <h2>Hello {{customerName}},</h2>
     <p>Your order has been confirmed successfully!</p>
 
-    <p><strong>Order ID:</strong> {{orderId}}</p>
+    <p><strong>Order ID:</strong> {{#if orderLink}}<a href="{{orderLink}}">{{orderId}}</a>{{else}}{{orderId}}{{/if}}</p>
     <p><strong>Total Amount:</strong> ₦{{totalAmount}}</p>
 
-    <div class="info-box">
-      <p><strong>Shipping information</strong></p>
-      <p>Your tracking link will be sent to you on your rental start date. You will be able to track your shipment in real time once it is dispatched.</p>
+    {{#if hasOrderLines}}
+    <div class="order-summary">
+      <p><strong>Your items</strong></p>
+      {{#each orderLines}}
+      <div class="info-box">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            {{#if this.imageUrl}}
+            <td valign="top" width="84" style="padding-right: 12px;">
+              <img src="{{this.imageUrl}}" alt="{{this.productName}}" class="item-image" width="72" height="72" />
+            </td>
+            {{/if}}
+            <td valign="top" class="item-detail-row">
+              <p><strong>{{this.productName}}</strong></p>
+              {{#if (eq this.lineType 'rental')}}
+              {{#if this.rentalPeriodText}}
+              <p>{{this.rentalPeriodText}}{{#if this.days}} · {{this.days}} {{#if (eq this.days 1)}}day{{else}}days{{/if}}{{/if}}</p>
+              {{/if}}
+              {{else}}
+              {{#unless this.purchaseDeliveryWindowText}}
+              <p>Purchase</p>
+              {{/unless}}
+              {{/if}}
+            </td>
+          </tr>
+        </table>
+        {{#if (eq this.lineType 'rental')}}
+        {{#if this.rentalDeliveryWindowText}}
+        <div class="item-window-row">
+          <p><strong>Delivery window:</strong> {{this.rentalDeliveryWindowText}}</p>
+        </div>
+        {{/if}}
+        {{#if this.returnPickupWindowText}}
+        <div class="item-window-row">
+          <p><strong>Return window:</strong> {{this.returnPickupWindowText}}</p>
+        </div>
+        {{/if}}
+        {{else}}
+        {{#if this.purchaseDeliveryWindowText}}
+        <div class="item-window-row">
+          <p><strong>Delivery window:</strong> {{this.purchaseDeliveryWindowText}}</p>
+        </div>
+        {{/if}}
+        {{/if}}
+      </div>
+      {{/each}}
     </div>
-
-    {{#if orderLink}}
-    <p><a href="{{orderLink}}" class="button">View order</a></p>
     {{/if}}
 
-    <p>You can view your order details and track its status in your account dashboard.</p>
+    <div class="email-footer">
+      {{#if orderLink}}
+      <p><a href="{{orderLink}}" class="button" style="display:inline-block;padding:10px 20px;background-color:#1d72b8;color:#ffffff !important;text-decoration:none !important;border-radius:5px;">View order</a></p>
+      {{/if}}
+      <p>You will receive a tracking link for your order once it is dispatched.</p>
+      <p>Thanks,<br />The Relisted Team</p>
+    </div>
     {{/if}}
     {{/if}}
-
-    <p>Thanks,<br>The Relisted Team</p>
   </div>
 </body>
 </html>
