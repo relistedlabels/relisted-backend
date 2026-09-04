@@ -1,15 +1,71 @@
 /**
- * One-off: resend renter checkout confirmation email for an order that predates
- * ORDER_CONFIRMATION notifications at checkout.
+ * Lightweight one-off: resend renter checkout confirmation (no Nest bootstrap).
+ *
+ * Do NOT use NestFactory here — booting AppModule OOMs small prod instances (~512MB).
  *
  * Usage:
  *   npx ts-node -r tsconfig-paths/register resend-renter-order-confirmation.ts ORD-1788244993106-497
  *   npx ts-node -r tsconfig-paths/register resend-renter-order-confirmation.ts ORD-1788244993106-497 --dry-run
  */
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from './src/app.module';
-import { PrismaService } from './src/services/prisma/prisma.service';
-import { MailService } from './src/services/mail/mail.service';
+import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { Pool } from 'pg';
+import * as dotenv from 'dotenv';
+import { join } from 'path';
+import { readFile, mkdir, writeFile } from 'fs/promises';
+import { existsSync } from 'fs';
+import Handlebars from 'handlebars';
+import { Resend } from 'resend';
+
+dotenv.config({ path: join(process.cwd(), '.env') });
+
+Handlebars.registerHelper('eq', (v1, v2) => v1 === v2);
+Handlebars.registerHelper('gt', (a: unknown, b: unknown) => Number(a) > Number(b));
+
+const CONFIRM_ORDER_SUBJECT = 'Your Relisted order confirmation';
+
+async function renderConfirmOrder(
+  context: Record<string, unknown>,
+): Promise<string> {
+  const templatePath = join(
+    process.cwd(),
+    'src/services/mail/templates/confirm-order.hbs',
+  );
+  const content = await readFile(templatePath, 'utf-8');
+  return Handlebars.compile(content)(context);
+}
+
+async function sendConfirmOrderEmail(
+  to: string,
+  html: string,
+): Promise<void> {
+  const devBypass = process.env.DEV_EMAIL_BYPASS === 'true';
+  if (devBypass) {
+    const dir = join(process.cwd(), 'dev-emails');
+    if (!existsSync(dir)) await mkdir(dir, { recursive: true });
+    const filepath = join(dir, `confirm-order-${Date.now()}.html`);
+    await writeFile(filepath, html);
+    console.log(`[DEV EMAIL BYPASS] Saved to ${filepath}`);
+    return;
+  }
+
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error('RESEND_API_KEY is not set.');
+  }
+  const from =
+    process.env.MAIL_DEFAULT?.trim() || 'Relisted <onboarding@resend.dev>';
+  const resend = new Resend(apiKey);
+  const { error } = await resend.emails.send({
+    from,
+    to,
+    subject: CONFIRM_ORDER_SUBJECT,
+    html,
+  });
+  if (error) {
+    throw new Error(error.message);
+  }
+}
 
 async function main() {
   const args = process.argv.slice(2).filter((a) => a !== '--');
@@ -23,18 +79,14 @@ async function main() {
     process.exit(1);
   }
 
-  const app = await NestFactory.createApplicationContext(AppModule, {
-    logger: ['error', 'warn', 'log'],
-  });
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
 
   try {
-    const prisma = app.get(PrismaService);
-    const mail = app.get(MailService);
-
     const order = await prisma.order.findFirst({
       where: { orderId: orderIdArg.trim() },
       include: {
-        user: { select: { id: true, email: true, name: true } },
+        user: { select: { email: true, name: true } },
       },
     });
 
@@ -71,10 +123,12 @@ async function main() {
       return;
     }
 
-    await mail.SendVerificationOrderMail(payload as never);
+    const html = await renderConfirmOrder(payload);
+    await sendConfirmOrderEmail(payload.email, html);
     console.log(`Done. Confirmation email sent to ${payload.email}.`);
   } finally {
-    await app.close();
+    await prisma.$disconnect();
+    await pool.end();
   }
 }
 

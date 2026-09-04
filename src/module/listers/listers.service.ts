@@ -43,6 +43,12 @@ import {
   closetCreditForReturnReceiptEscrow,
   incrementClosetRevenueForListerPayout,
 } from '../closet/closet-revenue.util';
+import {
+  groupListerEarningsByMonth,
+  listListerEarningsWalletCredits,
+  sumListerEarningsWalletCredits,
+  sumListerPendingEscrow,
+} from './lister-earnings.util';
 import { ProductAvailabilityNotifyService } from 'src/services/product-availability-notify/product-availability-notify.service';
 import { guessExternalTrackingUrlFromReference } from '../shipment/shipment-tracking-url.util';
 import { findReturnRequestForLister } from '../order/return-request-leg.util';
@@ -5582,52 +5588,37 @@ export class ListersService {
       }
 
       const getStatsForPeriod = async (start: Date, end: Date) => {
-        const [earnings, ordersCount, activeRentals, pendingPayouts] =
-          await Promise.all([
-            // Total Earnings from rentals in period
-            this.prisma.rental.aggregate({
-              where: {
-                curatorId: user.id,
-                startDate: { gte: start, lte: end },
-              },
-              _sum: { totalAmount: true },
-            }),
-            // Total Orders count
-            this.prisma.order.count({
-              where: {
-                orderItems: { some: { product: { curatorId: user.id } } },
-                createdAt: { gte: start, lte: end },
-              },
-            }),
-            // Active Rentals
-            this.prisma.rental.count({
-              where: {
-                curatorId: user.id,
-                isReturned: false,
-                createdAt: { lte: end },
-              },
-            }),
-            // Pending Payouts (Escrow LOCKED)
-            this.prisma.escrow.aggregate({
-              where: {
-                listerId: user.id,
-                status: 'LOCKED',
-                createdAt: { lte: end },
-              },
-              _sum: { rentalAmount: true },
-            }),
-          ]);
+        const [periodEarnings, ordersCount, activeRentals] = await Promise.all([
+          sumListerEarningsWalletCredits(this.prisma, user.id, { start, end }),
+          this.prisma.order.count({
+            where: {
+              orderItems: { some: { product: { curatorId: user.id } } },
+              createdAt: { gte: start, lte: end },
+            },
+          }),
+          this.prisma.rental.count({
+            where: {
+              curatorId: user.id,
+              isReturned: false,
+              createdAt: { lte: end },
+            },
+          }),
+        ]);
 
         return {
-          earnings: earnings._sum.totalAmount || 0,
+          periodEarnings,
           orders: ordersCount || 0,
           activeRentals: activeRentals || 0,
-          pendingPayouts: pendingPayouts._sum?.rentalAmount || 0,
         };
       };
 
-      const currentStats = await getStatsForPeriod(currentStart, currentEnd);
-      const prevStats = await getStatsForPeriod(prevStart, prevEnd);
+      const [lifetimeEarnings, pendingPayouts, currentStats, prevStats] =
+        await Promise.all([
+          sumListerEarningsWalletCredits(this.prisma, user.id),
+          sumListerPendingEscrow(this.prisma, user.id),
+          getStatsForPeriod(currentStart, currentEnd),
+          getStatsForPeriod(prevStart, prevEnd),
+        ]);
 
       const calculateChange = (current: number, previous: number) => {
         if (previous === 0)
@@ -5641,8 +5632,8 @@ export class ListersService {
       };
 
       const earningsChange = calculateChange(
-        currentStats.earnings,
-        prevStats.earnings,
+        currentStats.periodEarnings,
+        prevStats.periodEarnings,
       );
       const ordersChange = calculateChange(
         currentStats.orders,
@@ -5652,16 +5643,13 @@ export class ListersService {
         currentStats.activeRentals,
         prevStats.activeRentals,
       );
-      const payoutsChange = calculateChange(
-        currentStats.pendingPayouts,
-        prevStats.pendingPayouts,
-      );
+      const payoutsChange = { percent: 0, direction: 'up' as const };
 
       return {
         success: true,
         data: {
           totalEarnings: {
-            amount: currentStats.earnings,
+            amount: lifetimeEarnings,
             currency: CURRENCY,
             changePercent: earningsChange.percent,
             changeDirection: earningsChange.direction,
@@ -5677,7 +5665,7 @@ export class ListersService {
             changeDirection: activeChange.direction,
           },
           pendingPayouts: {
-            amount: currentStats.pendingPayouts,
+            amount: pendingPayouts,
             currency: CURRENCY,
             changePercent: payoutsChange.percent,
             changeDirection: payoutsChange.direction,
@@ -5703,59 +5691,18 @@ export class ListersService {
       const startOfYear = new Date(year, 0, 1);
       const endOfYear = new Date(year, 11, 31, 23, 59, 59);
 
-      const rentals = await this.prisma.rental.findMany({
-        where: {
-          curatorId: user.id,
-          startDate: {
-            gte: startOfYear,
-            lte: endOfYear,
-          },
-        },
-        select: {
-          totalAmount: true,
-          startDate: true,
-        },
-      });
+      const earningsRows = await listListerEarningsWalletCredits(
+        this.prisma,
+        user.id,
+        { start: startOfYear, end: endOfYear },
+      );
 
-      const months = [
-        'January',
-        'February',
-        'March',
-        'April',
-        'May',
-        'June',
-        'July',
-        'August',
-        'September',
-        'October',
-        'November',
-        'December',
-      ];
-
-      const monthlyData = months.map((month, index) => {
-        const monthRentals = rentals.filter(
-          (r) => r.startDate.getMonth() === index,
-        );
-        const revenue = monthRentals.reduce((sum, r) => sum + r.totalAmount, 0);
-        const orders = monthRentals.length;
-
-        // Use the last day of the month for the timestamp as a placeholder
-        const timestamp = new Date(
-          year,
-          index + 1,
-          0,
-          23,
-          59,
-          59,
-        ).toISOString();
-
-        return {
-          month,
-          revenue,
-          orders,
-          timestamp,
-        };
-      });
+      const monthlyData = groupListerEarningsByMonth(earningsRows, year).map(
+        (row, index) => ({
+          ...row,
+          timestamp: new Date(year, index + 1, 0, 23, 59, 59).toISOString(),
+        }),
+      );
 
       const totalRevenue = monthlyData.reduce((sum, m) => sum + m.revenue, 0);
       const totalOrders = monthlyData.reduce((sum, m) => sum + m.orders, 0);
