@@ -58,7 +58,7 @@ describe('dispatch-window-format', () => {
         new Date('2026-06-09T09:00:00+01:00'),
         new Date('2026-06-09T14:00:00+01:00'),
       ),
-    ).toBe('9th June, 9am–2pm WAT');
+    ).toBe('9th June, 9 am – 2 pm WAT');
   });
 
   it('formatOrdinalDay handles teens and regular ordinals', () => {

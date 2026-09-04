@@ -96,7 +96,7 @@ function lagosDayMonth(d: Date): { day: number; month: string; dayLabel: string 
 }
 
 
-/** Compact time for emails, e.g. 10am or 2:30pm */
+/** Compact time for emails, e.g. 10 am or 2:30 pm */
 export function formatEmailTimeCompact(input: string | Date): string {
   const date = coerceLagosDate(input);
   if (!date) return '';
@@ -106,10 +106,7 @@ export function formatEmailTimeCompact(input: string | Date): string {
     minute: '2-digit',
     hour12: true,
   });
-  return raw
-    .replace(':00', '')
-    .replace(/\s/g, '')
-    .toLowerCase();
+  return raw.replace(':00', '').trim().toLowerCase();
 }
 
 /** Compact rental range for emails, e.g. 10th–13th June */
@@ -132,7 +129,7 @@ export function formatRentalPeriodCompact(
   return `${sp.dayLabel} ${sp.month} – ${ep.dayLabel} ${ep.month}`;
 }
 
-/** Compact dispatch window for emails, e.g. 10th June, 10am–2pm WAT */
+/** Compact dispatch window for emails, e.g. 10th June, 10 am – 2 pm WAT */
 export function formatDispatchWindowCompact(
   start: string | Date,
   end: string | Date,
@@ -144,7 +141,7 @@ export function formatDispatchWindowCompact(
   const endTime = formatEmailTimeCompact(e);
   if (lagosCalendarKey(s) === lagosCalendarKey(e)) {
     const { dayLabel, month } = lagosDayMonth(s);
-    return `${dayLabel} ${month}, ${startTime}–${endTime} WAT`;
+    return `${dayLabel} ${month}, ${startTime} – ${endTime} WAT`;
   }
   const sp = lagosDayMonth(s);
   const ep = lagosDayMonth(e);

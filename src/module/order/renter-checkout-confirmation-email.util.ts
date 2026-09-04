@@ -56,10 +56,18 @@ function isPurchaseCartLine(item: {
   );
 }
 
+type ListerOrderBucket = {
+  bucketMode?: string;
+  outboundWindow?: { start: Date; end: Date } | null;
+  returnWindow?: { start: Date; end: Date } | null;
+  resaleWindow?: { start: Date; end: Date } | null;
+  items?: Array<{ id?: string }>;
+};
+
 function findListerBucketForCartItem(
-  listerOrdersData: Array<{ items?: Array<{ id?: string }> }>,
+  listerOrdersData: ListerOrderBucket[],
   cartItemId: string,
-) {
+): ListerOrderBucket | undefined {
   return listerOrdersData.find((ld) =>
     ld.items?.some((row) => row.id === cartItemId),
   );
@@ -84,13 +92,7 @@ export function buildRenterCheckoutEmailLinesFromCheckout(
       } | null;
     };
   }>,
-  listerOrdersData: Array<{
-    bucketMode?: string;
-    outboundWindow?: { start: Date; end: Date } | null;
-    returnWindow?: { start: Date; end: Date } | null;
-    resaleWindow?: { start: Date; end: Date } | null;
-    items?: Array<{ id?: string }>;
-  }>,
+  listerOrdersData: ListerOrderBucket[],
 ): RenterCheckoutEmailLine[] {
   const lines: RenterCheckoutEmailLine[] = [];
 

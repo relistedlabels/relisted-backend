@@ -65,6 +65,9 @@ scripts/
 /scripts/fix-product-statuses.ts
 /.md
 /dev-emails
+# Local-only resend scripts (run on laptop, not deployed)
+resend-renter-order-confirmation.mjs
+resend-renter-order-confirmation.ts
 /docs
 # Local agent instructions (do not commit)
 AGENTS.md
