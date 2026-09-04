@@ -3446,6 +3446,55 @@ export class AdminService {
     });
     return { success: true, data: order };
   }
+
+  /** Resend renter checkout confirmation email (email only, no in-app notification). */
+  async resendRenterCheckoutConfirmation(
+    orderId: string,
+    dryRun = false,
+  ) {
+    const order = await this.prisma.order.findFirst({
+      where: { orderId },
+      include: {
+        user: { select: { id: true, email: true, name: true } },
+      },
+    });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+    const email = order.user?.email?.trim();
+    if (!email) {
+      throw new BadRequestException('Order has no renter email');
+    }
+
+    const clientBase = (
+      process.env.CLIENT_URL || 'https://relisted.com'
+    ).replace(/\/$/, '');
+    const emailData = {
+      email,
+      customerName: order.user?.name || 'Customer',
+      orderId: order.orderId,
+      totalAmount: order.totalAmountPaid,
+      platformName: 'Relisted',
+      orderLink: `${clientBase}/renters/orders/${order.orderId}`,
+    };
+
+    if (dryRun) {
+      return {
+        success: true,
+        dryRun: true,
+        message: 'Dry run only. No email sent.',
+        data: emailData,
+      };
+    }
+
+    await this.mailService.SendVerificationOrderMail(emailData as never);
+    return {
+      success: true,
+      message: `Confirmation email sent to ${email}`,
+      data: { orderId: order.orderId, email },
+    };
+  }
+
   async getOrderActivity(orderId: string) {
     return { success: true, data: [] };
   }

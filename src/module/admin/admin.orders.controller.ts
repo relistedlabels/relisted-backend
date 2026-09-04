@@ -108,6 +108,20 @@ export class AdminOrdersController {
     return this.adminService.cancelOrder(orderId, data);
   }
 
+  @Post(':orderId/resend-renter-confirmation')
+  @ApiOperation({
+    summary: 'Resend renter checkout confirmation email for an order',
+  })
+  async resendRenterCheckoutConfirmation(
+    @Param('orderId') orderId: string,
+    @Query('dryRun') dryRun?: string,
+  ) {
+    return this.adminService.resendRenterCheckoutConfirmation(
+      orderId,
+      dryRun === 'true',
+    );
+  }
+
   @Get(':orderId/activity')
   @ApiOperation({ summary: 'Get order activity timeline' })
   async getOrderActivity(@Param('orderId') orderId: string) {
