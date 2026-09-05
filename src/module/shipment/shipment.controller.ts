@@ -3,6 +3,8 @@ import { Role } from '@prisma/client';
 import { ShipmentService } from './shipment.service';
 import { ListShipmentsDto } from './dto/list-shipments.dto';
 import { ManualCompleteShipmentDto } from './dto/manual-complete-shipment.dto';
+import { ReconcileManualShipmentDto } from './dto/reconcile-manual-shipment.dto';
+import { DispatchNowShipmentDto } from './dto/dispatch-now-shipment.dto';
 import { Auth } from '../auth/decorator/auth.decorator';
 
 @Controller()
@@ -58,12 +60,39 @@ export class ShipmentController {
   }
 
   @Auth([Role.ADMIN])
+  @Get('shipments/:id/rate-preview')
+  getRatePreview(
+    @Param('id') id: string,
+    @Query('forImmediate') forImmediate?: string,
+  ) {
+    return this.shipmentService.getRatePreview(
+      id,
+      forImmediate === 'true' || forImmediate === '1',
+    );
+  }
+
+  @Auth([Role.ADMIN])
+  @Post('shipments/:id/dispatch-now')
+  dispatchNow(@Param('id') id: string, @Body() dto: DispatchNowShipmentDto) {
+    return this.shipmentService.dispatchNow(id, dto);
+  }
+
+  @Auth([Role.ADMIN])
   @Post('shipments/:id/manual-complete')
   completeManualFulfillment(
     @Param('id') id: string,
     @Body() dto: ManualCompleteShipmentDto,
   ) {
     return this.shipmentService.completeManualFulfillment(id, dto);
+  }
+
+  @Auth([Role.ADMIN])
+  @Post('shipments/:id/reconcile-manual')
+  reconcileManualFulfillment(
+    @Param('id') id: string,
+    @Body() dto: ReconcileManualShipmentDto,
+  ) {
+    return this.shipmentService.reconcileManualFulfillment(id, dto);
   }
 
   @Auth([Role.ADMIN])
