@@ -18,8 +18,8 @@ import { userEntity } from '../auth/auth.types';
 export class UploadService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Images: 5MB. PDFs keep a higher cap for ID documents. */
-  private readonly MAX_IMAGE_SIZE_BYTES = 12 * 1024 * 1024;
+  /** Images: Cloudinary upload API hard cap. Client compresses before send. */
+  private readonly MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
   private readonly MAX_PDF_SIZE_BYTES = 10 * 1024 * 1024;
   /** Matches frontend `thumb` ladder: f_webp,q_auto:eco,w_200,c_limit */
   private readonly THUMB_TRANSFORM = 'f_webp,q_auto:eco,w_200,c_limit';
@@ -41,7 +41,8 @@ export class UploadService {
       ? this.MAX_PDF_SIZE_BYTES
       : this.MAX_IMAGE_SIZE_BYTES;
     if (file.size > maxBytes) {
-      bad('File too large');
+      const maxMb = Math.round(maxBytes / (1024 * 1024));
+      bad(`File too large (max ${maxMb}MB)`);
     }
 
     if (!this.ALLOWED_TYPES.includes(file.mimetype)) {
