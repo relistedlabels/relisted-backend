@@ -988,6 +988,12 @@ model Shipment {
   deliveryLocation     String?
   /// Relisted dispatch fallback: skip automated Topship booking until an admin marks dispatched.
   manualFulfillment    Boolean              @default(false)
+  /// Set when a courier-tier leg was fulfilled manually by ops (reconciliation).
+  reconciledAsManualAt DateTime?
+  /// What Relisted actually paid to fulfill (kobo), if recorded during reconciliation.
+  actualFulfillmentCostKobo Int?
+  /// Internal ops note when reconciling manual fulfillment on a courier-tier leg.
+  adminReconcileNote   String?
   /// Admin due reminder dedupe: Relisted dispatch leg starts within 24h (not same calendar day in Lagos).
   manualDueReminder24hSentAt     DateTime?
   /// Admin due reminder dedupe: Relisted dispatch leg due today (morning ping, Lagos).
