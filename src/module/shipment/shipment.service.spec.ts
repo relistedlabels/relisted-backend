@@ -560,3 +560,105 @@ describe('ShipmentService.reconcileManualFulfillment', () => {
     expect(payload.emailData?.emailHeading).toBe('Return booked with courier');
   });
 });
+
+describe('ShipmentService.switchToManualFulfillment', () => {
+  function buildService(deps: {
+    shipment?: Record<string, unknown> | null;
+  }) {
+    const prisma = {
+      shipment: {
+        findUnique: jest.fn().mockResolvedValue(deps.shipment ?? null),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    };
+    const shipmentQuoteService = {} as ShipmentQuoteService;
+    const notificationService = {
+      createNotification: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new ShipmentService(
+      prisma as any,
+      { add: jest.fn() } as any,
+      notificationService as any,
+      shipmentQuoteService,
+    );
+    return { service, prisma, notificationService };
+  }
+
+  it('rejects already manual fulfillment shipments', async () => {
+    const { service } = buildService({
+      shipment: {
+        id: 's1',
+        status: 'PENDING',
+        manualFulfillment: true,
+        reconciledAsManualAt: null,
+        orderId: 'o1',
+        type: 'OUTBOUND',
+        order: { orderId: 'ORD-1', user: { id: 'u1', email: 'a@b.com', name: 'A' } },
+      },
+    });
+
+    await expect(service.switchToManualFulfillment('s1', {})).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it('throws NotFoundException for unknown shipment', async () => {
+    const { service } = buildService({ shipment: null });
+
+    await expect(service.switchToManualFulfillment('missing', {})).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('rejects switching terminal shipment statuses', async () => {
+    const { service } = buildService({
+      shipment: {
+        id: 's1',
+        status: 'DISPATCHED',
+        manualFulfillment: false,
+        reconciledAsManualAt: null,
+        orderId: 'o1',
+        type: 'OUTBOUND',
+        order: { orderId: 'ORD-1', user: { id: 'u1', email: 'a@b.com', name: 'A' } },
+      },
+    });
+
+    await expect(service.switchToManualFulfillment('s1', {})).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it('switches courier-tier pending shipment to Relisted dispatch without dispatching', async () => {
+    const { service, prisma, notificationService } = buildService({
+      shipment: {
+        id: 's1',
+        status: 'DISPATCH_FAILED',
+        manualFulfillment: false,
+        reconciledAsManualAt: null,
+        orderId: 'o1',
+        type: 'OUTBOUND',
+        providerShipmentId: 'stale-id',
+        trackingId: 'TRK-1',
+        order: { orderId: 'ORD-1', user: { id: 'u1', email: 'a@b.com', name: 'A' } },
+      },
+    });
+
+    const result = await service.switchToManualFulfillment('s1', {
+      adminReconcileNote: '  Ops rider  ',
+    });
+
+    expect(result.message).toBe('Switched to Relisted dispatch');
+    expect(prisma.shipment.update).toHaveBeenCalledWith({
+      where: { id: 's1' },
+      data: {
+        status: 'PENDING',
+        manualFulfillment: true,
+        providerShipmentId: null,
+        providerTrackingUrl: null,
+        trackingId: null,
+        adminReconcileNote: 'Ops rider',
+      },
+    });
+    expect(notificationService.createNotification).not.toHaveBeenCalled();
+  });
+});

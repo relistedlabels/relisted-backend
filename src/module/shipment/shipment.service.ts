@@ -12,6 +12,7 @@ import { syncOrderStatusFromShipments } from 'src/module/order/order-shipment-st
 import { ListShipmentsDto } from './dto/list-shipments.dto';
 import { ManualCompleteShipmentDto } from './dto/manual-complete-shipment.dto';
 import { ReconcileManualShipmentDto } from './dto/reconcile-manual-shipment.dto';
+import { SwitchToManualShipmentDto } from './dto/switch-to-manual-shipment.dto';
 import { DispatchNowShipmentDto } from './dto/dispatch-now-shipment.dto';
 import { ShipmentQuoteService } from './shipment-quote.service';
 import { selectOrderItemsForShipmentLeg } from './order-items-for-shipment-leg';
@@ -31,6 +32,14 @@ const shipmentOrderItemProductInclude = {
   product: {
     select: {
       name: true,
+      color: true,
+      condition: true,
+      measurement: true,
+      material: true,
+      composition: true,
+      listingType: true,
+      brand: { select: { name: true } },
+      category: { select: { name: true } },
       attachments: {
         include: {
           uploads: {
@@ -560,6 +569,52 @@ export class ShipmentService {
     return {
       success: true,
       message: 'Shipment marked as dispatched',
+    };
+  }
+
+  // ─── Switch courier-tier leg to Relisted dispatch (before marking sent) ───
+
+  async switchToManualFulfillment(id: string, dto: SwitchToManualShipmentDto = {}) {
+    const shipment = await this.loadShipmentForManualOps(id);
+
+    if (shipment.manualFulfillment) {
+      throw new BadRequestException(
+        'This shipment is already Relisted dispatch. Use mark dispatched when the item is on the way.',
+      );
+    }
+
+    if (shipment.reconciledAsManualAt) {
+      throw new BadRequestException(
+        'This shipment was already reconciled as in-house dispatch.',
+      );
+    }
+
+    if (!['PENDING', 'DISPATCHING', 'DISPATCH_FAILED'].includes(shipment.status)) {
+      throw new BadRequestException(
+        `Only PENDING, DISPATCHING, or DISPATCH_FAILED shipments can switch to Relisted dispatch. Current status: ${shipment.status}`,
+      );
+    }
+
+    const note =
+      dto.adminReconcileNote !== undefined
+        ? dto.adminReconcileNote.trim() || null
+        : undefined;
+
+    await this.prisma.shipment.update({
+      where: { id },
+      data: {
+        status: 'PENDING',
+        manualFulfillment: true,
+        providerShipmentId: null,
+        providerTrackingUrl: null,
+        trackingId: null,
+        ...(note !== undefined ? { adminReconcileNote: note } : {}),
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Switched to Relisted dispatch',
     };
   }
 
