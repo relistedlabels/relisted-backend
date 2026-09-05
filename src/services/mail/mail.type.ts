@@ -302,6 +302,13 @@ export class ShippingDto {
   @IsString()
   @IsOptional()
   extraNote?: string;
+  /** Renter order page (confirm delivery, report issues). */
+  @IsString()
+  @IsOptional()
+  orderPageUrl?: string;
+  @IsString()
+  @IsOptional()
+  ctaLabel?: string;
 }
 
 /** Lister: return picked up and moving toward lister */
