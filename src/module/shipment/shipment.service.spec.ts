@@ -662,3 +662,118 @@ describe('ShipmentService.switchToManualFulfillment', () => {
     expect(notificationService.createNotification).not.toHaveBeenCalled();
   });
 });
+
+describe('ShipmentService.markManualDelivered', () => {
+  function buildService(deps: {
+    shipment?: Record<string, unknown> | null;
+  }) {
+    const prisma = {
+      shipment: {
+        findUnique: jest.fn().mockResolvedValue(deps.shipment ?? null),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    };
+    const notificationService = {
+      createNotification: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new ShipmentService(
+      prisma as any,
+      { add: jest.fn() } as any,
+      notificationService as any,
+      {} as ShipmentQuoteService,
+    );
+    return { service, prisma, notificationService };
+  }
+
+  it('throws NotFoundException for unknown shipment', async () => {
+    const { service } = buildService({ shipment: null });
+    await expect(service.markManualDelivered('missing')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('rejects terminal shipment statuses', async () => {
+    const { service } = buildService({
+      shipment: {
+        id: 's1',
+        status: 'COMPLETED',
+        manualFulfillment: false,
+        orderId: 'o1',
+        type: 'OUTBOUND',
+        order: { orderId: 'ORD-1', user: { id: 'u1', email: 'a@b.com', name: 'A' } },
+      },
+    });
+
+    await expect(service.markManualDelivered('s1')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it('marks carrier-tier DISPATCHED shipment as COMPLETED', async () => {
+    const { service, prisma } = buildService({
+      shipment: {
+        id: 's1',
+        status: 'DISPATCHED',
+        manualFulfillment: false,
+        providerShipmentId: 'SB-123',
+        orderId: 'o1',
+        type: 'OUTBOUND',
+        order: { orderId: 'ORD-1', user: { id: 'u1', email: 'a@b.com', name: 'A' } },
+      },
+    });
+
+    const result = await service.markManualDelivered('s1');
+
+    expect(result.message).toBe(
+      'Shipment marked as completed; order status updated',
+    );
+    expect(prisma.shipment.update).toHaveBeenCalledWith({
+      where: { id: 's1' },
+      data: expect.objectContaining({ status: 'COMPLETED' }),
+    });
+  });
+
+  it('marks Relisted dispatch IN_TRANSIT shipment as COMPLETED', async () => {
+    const { service, prisma } = buildService({
+      shipment: {
+        id: 's1',
+        status: 'IN_TRANSIT',
+        manualFulfillment: true,
+        orderId: 'o1',
+        type: 'RETURN',
+        order: { orderId: 'ORD-1', user: { id: 'u1', email: 'a@b.com', name: 'A' } },
+      },
+    });
+
+    await service.markManualDelivered('s1');
+
+    expect(prisma.shipment.update).toHaveBeenCalledWith({
+      where: { id: 's1' },
+      data: expect.objectContaining({ status: 'COMPLETED' }),
+    });
+  });
+
+  it('marks DISPATCH_FAILED shipment as COMPLETED and sets dispatchedAt', async () => {
+    const { service, prisma } = buildService({
+      shipment: {
+        id: 's1',
+        status: 'DISPATCH_FAILED',
+        manualFulfillment: false,
+        dispatchedAt: null,
+        orderId: 'o1',
+        type: 'OUTBOUND',
+        order: { orderId: 'ORD-1', user: { id: 'u1', email: 'a@b.com', name: 'A' } },
+      },
+    });
+
+    await service.markManualDelivered('s1');
+
+    expect(prisma.shipment.update).toHaveBeenCalledWith({
+      where: { id: 's1' },
+      data: expect.objectContaining({
+        status: 'COMPLETED',
+        dispatchedAt: expect.any(Date),
+      }),
+    });
+  });
+});
