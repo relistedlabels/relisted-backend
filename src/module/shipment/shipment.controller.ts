@@ -4,6 +4,7 @@ import { ShipmentService } from './shipment.service';
 import { ListShipmentsDto } from './dto/list-shipments.dto';
 import { ManualCompleteShipmentDto } from './dto/manual-complete-shipment.dto';
 import { ReconcileManualShipmentDto } from './dto/reconcile-manual-shipment.dto';
+import { SwitchToManualShipmentDto } from './dto/switch-to-manual-shipment.dto';
 import { DispatchNowShipmentDto } from './dto/dispatch-now-shipment.dto';
 import { Auth } from '../auth/decorator/auth.decorator';
 
@@ -93,6 +94,15 @@ export class ShipmentController {
     @Body() dto: ReconcileManualShipmentDto,
   ) {
     return this.shipmentService.reconcileManualFulfillment(id, dto);
+  }
+
+  @Auth([Role.ADMIN])
+  @Post('shipments/:id/switch-to-manual')
+  switchToManualFulfillment(
+    @Param('id') id: string,
+    @Body() dto: SwitchToManualShipmentDto,
+  ) {
+    return this.shipmentService.switchToManualFulfillment(id, dto);
   }
 
   @Auth([Role.ADMIN])
