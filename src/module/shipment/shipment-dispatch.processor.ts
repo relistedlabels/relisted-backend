@@ -127,6 +127,31 @@ export class ShipmentDispatchProcessor {
         `[Worker] ✅ Carrier booking SUCCESS for shipment ${shipmentId}: providerShipmentId=${result.providerShipmentId}, trackingId=${result.trackingId}, trackingUrl=${result.providerTrackingUrl}`,
       );
 
+      const fresh = await this.prisma.shipment.findUnique({
+        where: { id: shipmentId },
+        select: { manualFulfillment: true, status: true },
+      });
+      if (fresh?.manualFulfillment) {
+        this.logger.warn(
+          `[Worker] Shipment ${shipmentId} switched to Relisted dispatch during carrier booking — skipping dispatch update`,
+        );
+        if (fresh.status === 'DISPATCHING') {
+          await this.prisma.shipment.update({
+            where: { id: shipmentId },
+            data: { status: 'PENDING' },
+          });
+        }
+        await this.prisma.dispatchAttemptLog.create({
+          data: {
+            shipmentId,
+            attemptNumber,
+            success: true,
+            durationMs,
+          },
+        });
+        return;
+      }
+
       await this.prisma.$transaction([
         this.prisma.shipment.update({
           where: { id: shipmentId },

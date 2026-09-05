@@ -11,7 +11,17 @@ import { NotificationService } from 'src/services/notification/notification.serv
 import { syncOrderStatusFromShipments } from 'src/module/order/order-shipment-status.sync';
 import { ListShipmentsDto } from './dto/list-shipments.dto';
 import { ManualCompleteShipmentDto } from './dto/manual-complete-shipment.dto';
+import { ReconcileManualShipmentDto } from './dto/reconcile-manual-shipment.dto';
+import { SwitchToManualShipmentDto } from './dto/switch-to-manual-shipment.dto';
+import { DispatchNowShipmentDto } from './dto/dispatch-now-shipment.dto';
+import { ShipmentQuoteService } from './shipment-quote.service';
 import { selectOrderItemsForShipmentLeg } from './order-items-for-shipment-leg';
+import { isRelistedDispatchShippingTier } from 'src/constants/relisted-dispatch-shipping';
+import {
+  buildDefaultDispatchWindow,
+  buildDefaultReturnDispatchWindow,
+} from 'src/utils/dispatch-windows';
+import { startOfDay } from 'date-fns';
 import { formatDispatchWindowLagos } from 'src/module/shipment/dispatch-window-format';
 import { sendShipmentLegStatusNotification } from './shipment-status-notifications';
 import { buildShippingEmailTrackingFields } from './shipment-tracking-url.util';
@@ -22,6 +32,14 @@ const shipmentOrderItemProductInclude = {
   product: {
     select: {
       name: true,
+      color: true,
+      condition: true,
+      measurement: true,
+      material: true,
+      composition: true,
+      listingType: true,
+      brand: { select: { name: true } },
+      category: { select: { name: true } },
       attachments: {
         include: {
           uploads: {
@@ -40,6 +58,7 @@ export class ShipmentService {
     private readonly prisma: PrismaService,
     @InjectQueue('shipment-dispatch') private readonly dispatchQueue: Queue,
     private readonly notificationService: NotificationService,
+    private readonly shipmentQuoteService: ShipmentQuoteService,
   ) {}
 
   // ─── List ──────────────────────────────────────────────────────────────────
@@ -161,11 +180,14 @@ export class ShipmentService {
         shipmentCharge: true,
         pickupCharge: true,
         vatCharge: true,
+        actualFulfillmentCostKobo: true,
       },
     });
 
     const costKobo = (r: (typeof rows)[0]) =>
-      (r.shipmentCharge ?? 0) + (r.pickupCharge ?? 0) + (r.vatCharge ?? 0);
+      r.actualFulfillmentCostKobo != null
+        ? r.actualFulfillmentCostKobo
+        : (r.shipmentCharge ?? 0) + (r.pickupCharge ?? 0) + (r.vatCharge ?? 0);
     const providerOf = (r: (typeof rows)[0]) => {
       if (r.manualFulfillment) return 'manual';
       const t = String(r.pricingTier ?? '').toLowerCase();
@@ -334,6 +356,136 @@ export class ShipmentService {
     return { success: true, message: 'Shipment cancelled' };
   }
 
+  // ─── Rate preview (admin) ──────────────────────────────────────────────────
+
+  async getRatePreview(id: string, forImmediate = false) {
+    const shipment = await this.prisma.shipment.findUnique({ where: { id } });
+    if (!shipment) throw new NotFoundException('Shipment not found');
+
+    if (!['PENDING', 'DISPATCH_FAILED'].includes(shipment.status)) {
+      throw new BadRequestException(
+        `Rate preview is only available for PENDING or DISPATCH_FAILED shipments. Current status: ${shipment.status}`,
+      );
+    }
+
+    const data = await this.shipmentQuoteService.previewRates(id, forImmediate);
+    return { success: true, data };
+  }
+
+  // ─── Dispatch now / book carrier (admin) ───────────────────────────────────
+
+  async dispatchNow(id: string, dto: DispatchNowShipmentDto = {}) {
+    const shipment = await this.prisma.shipment.findUnique({ where: { id } });
+    if (!shipment) throw new NotFoundException('Shipment not found');
+
+    if (!['PENDING', 'DISPATCH_FAILED'].includes(shipment.status)) {
+      throw new BadRequestException(
+        `Only PENDING or DISPATCH_FAILED shipments can be dispatched now. Current status: ${shipment.status}`,
+      );
+    }
+
+    if (shipment.manualFulfillment) {
+      const tier = String(dto.pricingTier ?? '').trim();
+      if (!tier || isRelistedDispatchShippingTier(tier)) {
+        throw new BadRequestException(
+          'Select a carrier pricing tier to book this Relisted dispatch shipment.',
+        );
+      }
+    }
+
+    if (shipment.type === 'RETURN') {
+      const returnRequest = await this.prisma.returnRequest.findFirst({
+        where: { orderId: shipment.orderId, shipmentId: id },
+      });
+      if (!returnRequest) {
+        throw new BadRequestException(
+          'Return shipments require a renter return request before carrier booking.',
+        );
+      }
+    }
+
+    const updateWindow = dto.updateWindow !== false;
+    const forImmediate =
+      updateWindow && this.isScheduledInFuture(shipment);
+    const updateData: Record<string, unknown> = {};
+
+    if (shipment.status === 'DISPATCH_FAILED') {
+      updateData.dispatchAttempts = 0;
+    }
+
+    if (updateWindow && forImmediate) {
+      const now = new Date();
+      const window =
+        shipment.type === 'RETURN'
+          ? buildDefaultReturnDispatchWindow(now)
+          : buildDefaultDispatchWindow(now);
+      updateData.scheduledWindowStart = window.start;
+      updateData.scheduledWindowEnd = window.end;
+      updateData.scheduledDate = startOfDay(window.start);
+    }
+
+    const tierInput = String(dto.pricingTier ?? '').trim();
+    if (tierInput) {
+      const preview = await this.shipmentQuoteService.previewRates(
+        id,
+        forImmediate || updateWindow,
+      );
+      const matched = this.shipmentQuoteService.findTierInPreview(
+        preview.tiers,
+        tierInput,
+      );
+      if (!matched) {
+        throw new BadRequestException(
+          `Selected pricing tier "${tierInput}" is not available for this shipment.`,
+        );
+      }
+      if (isRelistedDispatchShippingTier(matched.pricingTier)) {
+        throw new BadRequestException(
+          'Cannot book Relisted dispatch through carrier dispatch. Use manual complete instead.',
+        );
+      }
+      const charges = this.shipmentQuoteService.tierToShipmentCharges(matched);
+      const tierChanged =
+        String(shipment.pricingTier ?? '').trim().toLowerCase() !==
+        charges.pricingTier.trim().toLowerCase();
+      updateData.pricingTier = charges.pricingTier;
+      updateData.shipmentCharge = charges.shipmentCharge;
+      updateData.pickupCharge = charges.pickupCharge;
+      updateData.vatCharge = charges.vatCharge;
+      updateData.pickupId = charges.pickupId;
+      updateData.pickupPartner = charges.pickupPartner;
+      updateData.manualFulfillment = false;
+      if (tierChanged) {
+        updateData.providerShipmentId = null;
+      }
+    } else if (shipment.manualFulfillment) {
+      throw new BadRequestException(
+        'Relisted dispatch shipments require a carrier pricing tier.',
+      );
+    }
+
+    if (Object.keys(updateData).length > 0) {
+      await this.prisma.shipment.update({
+        where: { id },
+        data: updateData,
+      });
+    }
+
+    if (shipment.status === 'DISPATCH_FAILED') {
+      await this.prisma.shipment.update({
+        where: { id },
+        data: { status: 'PENDING' },
+      });
+    }
+
+    await this.enqueueDispatchJob(id);
+
+    return {
+      success: true,
+      message: 'Dispatch enqueued successfully',
+    };
+  }
+
   // ─── Manual redispatch (admin) ─────────────────────────────────────────────
 
   async redispatch(id: string) {
@@ -342,7 +494,7 @@ export class ShipmentService {
 
     if (shipment.manualFulfillment) {
       throw new BadRequestException(
-        'This shipment uses Relisted dispatch. Mark it dispatched from the admin shipment detail instead of redispatch.',
+        'This shipment uses Relisted dispatch. Book a carrier from the admin shipment detail instead of redispatch.',
       );
     }
 
@@ -352,13 +504,30 @@ export class ShipmentService {
       );
     }
 
-    // Reset attempt counter so the processor treats this as a fresh 3-attempt cycle
     await this.prisma.shipment.update({
       where: { id },
       data: { status: 'PENDING', dispatchAttempts: 0 },
     });
 
-    // Atomically lock
+    await this.enqueueDispatchJob(id);
+
+    return { success: true, message: 'Redispatch enqueued successfully' };
+  }
+
+  private isScheduledInFuture(
+    shipment: Pick<
+      import('@prisma/client').Shipment,
+      'scheduledWindowStart' | 'scheduledDate'
+    >,
+  ): boolean {
+    const now = Date.now();
+    const start = shipment.scheduledWindowStart
+      ? new Date(shipment.scheduledWindowStart).getTime()
+      : new Date(shipment.scheduledDate).getTime();
+    return start > now;
+  }
+
+  private async enqueueDispatchJob(id: string) {
     const locked = await this.prisma.shipment.updateMany({
       where: { id, status: 'PENDING' },
       data: { status: 'DISPATCHING' },
@@ -374,13 +543,134 @@ export class ShipmentService {
       { shipmentId: id },
       { attempts: 1 },
     );
-
-    return { success: true, message: 'Redispatch enqueued successfully' };
   }
 
   // ─── Manual Relisted dispatch: mark booked / sent (no Topship) ─────────────
 
   async completeManualFulfillment(id: string, dto: ManualCompleteShipmentDto) {
+    const shipment = await this.loadShipmentForManualOps(id);
+
+    if (!shipment.manualFulfillment) {
+      throw new BadRequestException(
+        'Only Relisted dispatch (manual fulfillment) shipments can be completed this way. Use reconcile manual for courier-tier legs handled outside the carrier.',
+      );
+    }
+
+    if (!['PENDING', 'DISPATCHING'].includes(shipment.status)) {
+      throw new BadRequestException(
+        `Shipment must be PENDING or DISPATCHING. Current status: ${shipment.status}`,
+      );
+    }
+
+    await this.applyManualDispatched(id, dto);
+    await this.syncOrderAfterManualDispatch(shipment.orderId);
+    await this.notifyManualDispatched(shipment, dto);
+
+    return {
+      success: true,
+      message: 'Shipment marked as dispatched',
+    };
+  }
+
+  // ─── Switch courier-tier leg to Relisted dispatch (before marking sent) ───
+
+  async switchToManualFulfillment(id: string, dto: SwitchToManualShipmentDto = {}) {
+    const shipment = await this.loadShipmentForManualOps(id);
+
+    if (shipment.manualFulfillment) {
+      throw new BadRequestException(
+        'This shipment is already Relisted dispatch. Use mark dispatched when the item is on the way.',
+      );
+    }
+
+    if (shipment.reconciledAsManualAt) {
+      throw new BadRequestException(
+        'This shipment was already reconciled as in-house dispatch.',
+      );
+    }
+
+    if (!['PENDING', 'DISPATCHING', 'DISPATCH_FAILED'].includes(shipment.status)) {
+      throw new BadRequestException(
+        `Only PENDING, DISPATCHING, or DISPATCH_FAILED shipments can switch to Relisted dispatch. Current status: ${shipment.status}`,
+      );
+    }
+
+    const note =
+      dto.adminReconcileNote !== undefined
+        ? dto.adminReconcileNote.trim() || null
+        : undefined;
+
+    await this.prisma.shipment.update({
+      where: { id },
+      data: {
+        status: 'PENDING',
+        manualFulfillment: true,
+        providerShipmentId: null,
+        providerTrackingUrl: null,
+        trackingId: null,
+        ...(note !== undefined ? { adminReconcileNote: note } : {}),
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Switched to Relisted dispatch',
+    };
+  }
+
+  // ─── Reconcile courier-tier leg handled outside automated booking ──────────
+
+  async reconcileManualFulfillment(id: string, dto: ReconcileManualShipmentDto) {
+    const shipment = await this.loadShipmentForManualOps(id);
+
+    if (shipment.manualFulfillment) {
+      throw new BadRequestException(
+        'This shipment is already manual fulfillment. Use mark dispatched instead.',
+      );
+    }
+
+    if (!['PENDING', 'DISPATCHING', 'DISPATCH_FAILED'].includes(shipment.status)) {
+      throw new BadRequestException(
+        `Only PENDING, DISPATCHING, or DISPATCH_FAILED shipments can be reconciled. Current status: ${shipment.status}`,
+      );
+    }
+
+    const trackingId =
+      dto.trackingId !== undefined ? dto.trackingId.trim() || null : undefined;
+    const trackingUrl =
+      dto.trackingUrl !== undefined ? dto.trackingUrl.trim() || null : undefined;
+    const note =
+      dto.adminReconcileNote !== undefined
+        ? dto.adminReconcileNote.trim() || null
+        : undefined;
+
+    await this.prisma.shipment.update({
+      where: { id },
+      data: {
+        status: 'DISPATCHED',
+        dispatchedAt: new Date(),
+        manualFulfillment: true,
+        reconciledAsManualAt: new Date(),
+        providerShipmentId: null,
+        ...(trackingId !== undefined ? { trackingId } : {}),
+        ...(trackingUrl !== undefined ? { providerTrackingUrl: trackingUrl } : {}),
+        ...(dto.actualFulfillmentCostKobo !== undefined
+          ? { actualFulfillmentCostKobo: dto.actualFulfillmentCostKobo }
+          : {}),
+        ...(note !== undefined ? { adminReconcileNote: note } : {}),
+      },
+    });
+
+    await this.syncOrderAfterManualDispatch(shipment.orderId);
+    await this.notifyManualDispatched(shipment, dto, { reconciled: true });
+
+    return {
+      success: true,
+      message: 'Shipment marked as dispatched',
+    };
+  }
+
+  private async loadShipmentForManualOps(id: string) {
     const shipment = await this.prisma.shipment.findUnique({
       where: { id },
       include: {
@@ -392,19 +682,13 @@ export class ShipmentService {
       },
     });
     if (!shipment) throw new NotFoundException('Shipment not found');
+    return shipment;
+  }
 
-    if (!shipment.manualFulfillment) {
-      throw new BadRequestException(
-        'Only Relisted dispatch (manual fulfillment) shipments can be completed this way.',
-      );
-    }
-
-    if (!['PENDING', 'DISPATCHING'].includes(shipment.status)) {
-      throw new BadRequestException(
-        `Shipment must be PENDING or DISPATCHING. Current status: ${shipment.status}`,
-      );
-    }
-
+  private async applyManualDispatched(
+    id: string,
+    dto: Pick<ManualCompleteShipmentDto, 'trackingId' | 'trackingUrl'>,
+  ) {
     const data: {
       status: 'DISPATCHED';
       dispatchedAt: Date;
@@ -425,15 +709,23 @@ export class ShipmentService {
       where: { id },
       data,
     });
+  }
 
+  private async syncOrderAfterManualDispatch(orderId: string) {
     try {
-      await syncOrderStatusFromShipments(this.prisma, shipment.orderId);
+      await syncOrderStatusFromShipments(this.prisma, orderId);
     } catch (syncErr: any) {
       console.warn(
-        `[ShipmentService] Order status sync after manual complete failed for ${shipment.orderId}: ${syncErr?.message ?? syncErr}`,
+        `[ShipmentService] Order status sync after manual dispatch failed for ${orderId}: ${syncErr?.message ?? syncErr}`,
       );
     }
+  }
 
+  private async notifyManualDispatched(
+    shipment: Awaited<ReturnType<typeof this.loadShipmentForManualOps>>,
+    dto: Pick<ManualCompleteShipmentDto, 'trackingId' | 'trackingUrl'>,
+    options?: { reconciled?: boolean },
+  ) {
     const customer = shipment.order?.user;
     const humanOrderId = shipment.order?.orderId;
     const tid =
@@ -454,113 +746,109 @@ export class ShipmentService {
       { trackingNumber: tid ?? undefined, trackingUrl: turl ?? undefined },
     );
 
-    if (customer?.id && humanOrderId) {
-      const isOutbound = shipment.type === 'OUTBOUND';
-      const isReturn = shipment.type === 'RETURN';
-      const isResale = shipment.type === 'RESALE';
+    if (!customer?.id || !humanOrderId) return;
 
-      type NotifyPayload = {
-        title: string;
-        message: string;
-        notificationType: string;
-        emailData: Record<string, unknown>;
+    const isOutbound = shipment.type === 'OUTBOUND';
+    const isReturn = shipment.type === 'RETURN';
+    const isResale = shipment.type === 'RESALE';
+
+    type NotifyPayload = {
+      title: string;
+      message: string;
+      notificationType: string;
+      emailData: Record<string, unknown>;
+    };
+
+    let notify: NotifyPayload | null = null;
+
+    if (isResale) {
+      notify = {
+        title: '🚚 Your purchase is on its way!',
+        message: `Your item is being dispatched. Track here: ${trackingFields.trackingUrl ?? turl ?? 'Tracking link coming soon'}`,
+        notificationType: 'SHIPMENT_DISPATCHED',
+        emailData: {
+          email: customer.email,
+          userName: customer.name,
+          orderId: humanOrderId,
+          status: 'Dispatched',
+          ...trackingFields,
+          estimatedDelivery: undefined,
+        },
       };
-
-      let notify: NotifyPayload | null = null;
-
-      if (isResale) {
-        notify = {
-          title: '🚚 Your purchase is on its way!',
-          message: `Your item is being dispatched. Track here: ${trackingFields.trackingUrl ?? turl ?? 'Tracking link coming soon'}`,
-          notificationType: 'SHIPMENT_DISPATCHED',
-          emailData: {
-            email: customer.email,
-            userName: customer.name,
-            orderId: humanOrderId,
-            status: 'Dispatched',
-            ...trackingFields,
-            estimatedDelivery: undefined,
-          },
-        };
-      } else if (isOutbound) {
-        notify = {
-          title: '🚚 Your rental is on its way!',
-          message: `Your item is being dispatched. Track here: ${trackingFields.trackingUrl ?? turl ?? 'Tracking link coming soon'}`,
-          notificationType: 'SHIPMENT_DISPATCHED',
-          emailData: {
-            email: customer.email,
-            userName: customer.name,
-            orderId: humanOrderId,
-            status: 'Dispatched',
-            ...trackingFields,
-            estimatedDelivery: undefined,
-          },
-        };
-      } else if (isReturn) {
-        const wStart = shipment.scheduledWindowStart
-          ? new Date(shipment.scheduledWindowStart)
-          : null;
-        const wEnd = shipment.scheduledWindowEnd
-          ? new Date(shipment.scheduledWindowEnd)
-          : null;
-        const windowLine =
-          wStart && wEnd
-            ? ` Pickup window: ${formatDispatchWindowLagos(wStart, wEnd)}.`
-            : '';
-        notify = {
-          title: '📦 Return booked. Get your item ready.',
-          message: `Your return is booked with the carrier.${windowLine} Have the package ready during your pickup window. You will get another update when the rider collects it or when it is on the way to the lister.`,
-          notificationType: 'RETURN_DISPATCHED',
-          emailData: {
-            email: customer.email,
-            userName: customer.name,
-            orderId: humanOrderId,
-            status: 'Scheduled for dispatch (pickup not started yet)',
-            ...trackingFields,
-            estimatedDelivery: undefined,
-            ...(wStart && wEnd
-              ? {
-                  emailSubject: 'Your return is booked. Have your item ready.',
-                  emailHeading: 'Return booked with courier',
-                  pickupWindowSummary: formatDispatchWindowLagos(wStart, wEnd),
-                  extraNote:
-                    'Relisted arranged this leg manually. Have your item ready for this window. Watch for an in-transit update next.',
-                }
-              : {
-                  emailSubject: 'Your return is booked. Have your item ready.',
-                  emailHeading: 'Return booked with courier',
-                  extraNote:
-                    'Have your item ready for pickup. You will get another update when collection starts or when the parcel is in transit.',
-                }),
-          },
-        };
-      }
-
-      if (notify) {
-        await this.notificationService.createNotification({
-          userId: customer.id,
-          title: notify.title,
-          message: notify.message,
-          type: notify.notificationType,
-          metadata: {
-            shipmentId: shipment.id,
-            orderId: humanOrderId,
-            trackingUrl: turl,
-            manualFulfillment: true,
-          },
-          sendEmail: true,
-          emailData: notify.emailData,
-        });
-      }
+    } else if (isOutbound) {
+      notify = {
+        title: '🚚 Your rental is on its way!',
+        message: `Your item is being dispatched. Track here: ${trackingFields.trackingUrl ?? turl ?? 'Tracking link coming soon'}`,
+        notificationType: 'SHIPMENT_DISPATCHED',
+        emailData: {
+          email: customer.email,
+          userName: customer.name,
+          orderId: humanOrderId,
+          status: 'Dispatched',
+          ...trackingFields,
+          estimatedDelivery: undefined,
+        },
+      };
+    } else if (isReturn) {
+      const wStart = shipment.scheduledWindowStart
+        ? new Date(shipment.scheduledWindowStart)
+        : null;
+      const wEnd = shipment.scheduledWindowEnd
+        ? new Date(shipment.scheduledWindowEnd)
+        : null;
+      const windowLine =
+        wStart && wEnd
+          ? ` Pickup window: ${formatDispatchWindowLagos(wStart, wEnd)}.`
+          : '';
+      notify = {
+        title: '📦 Return booked. Get your item ready.',
+        message: `Your return is booked with the carrier.${windowLine} Have the package ready during your pickup window. You will get another update when the rider collects it or when it is on the way to the lister.`,
+        notificationType: 'RETURN_DISPATCHED',
+        emailData: {
+          email: customer.email,
+          userName: customer.name,
+          orderId: humanOrderId,
+          status: 'Scheduled for dispatch (pickup not started yet)',
+          ...trackingFields,
+          estimatedDelivery: undefined,
+          ...(wStart && wEnd
+            ? {
+                emailSubject: 'Your return is booked. Have your item ready.',
+                emailHeading: 'Return booked with courier',
+                pickupWindowSummary: formatDispatchWindowLagos(wStart, wEnd),
+                extraNote:
+                  'The carrier is booked for this window. The rider may not have picked up yet. Watch for an in-transit update next.',
+              }
+            : {
+                emailSubject: 'Your return is booked. Have your item ready.',
+                emailHeading: 'Return booked with courier',
+                extraNote:
+                  'Have your item ready for pickup. You will get another update when collection starts or when the parcel is in transit.',
+              }),
+        },
+      };
     }
 
-    return {
-      success: true,
-      message: 'Shipment marked as dispatched',
-    };
+    if (notify) {
+      await this.notificationService.createNotification({
+        userId: customer.id,
+        title: notify.title,
+        message: notify.message,
+        type: notify.notificationType,
+        metadata: {
+          shipmentId: shipment.id,
+          orderId: humanOrderId,
+          trackingUrl: turl,
+          manualFulfillment: true,
+          reconciledAsManual: options?.reconciled ?? false,
+        },
+        sendEmail: true,
+        emailData: notify.emailData,
+      });
+    }
   }
 
-  // ─── Manual Relisted dispatch: mark delivered (no carrier COMPLETED event) ─
+  // ─── Admin: mark leg completed (Relisted dispatch or carrier that will not sync) ─
 
   async markManualDelivered(id: string) {
     const shipment = await this.prisma.shipment.findUnique({
@@ -575,21 +863,25 @@ export class ShipmentService {
     });
     if (!shipment) throw new NotFoundException('Shipment not found');
 
-    if (!shipment.manualFulfillment) {
+    if (['COMPLETED', 'CANCELLED'].includes(shipment.status)) {
       throw new BadRequestException(
-        'Only Relisted dispatch (manual fulfillment) shipments can be marked delivered this way.',
+        `Shipment cannot be marked completed from status ${shipment.status}.`,
       );
     }
 
-    if (!['DISPATCHED', 'IN_TRANSIT'].includes(shipment.status)) {
+    if (!['PENDING', 'DISPATCH_FAILED', 'DISPATCHED', 'IN_TRANSIT'].includes(shipment.status)) {
       throw new BadRequestException(
-        `Shipment must be DISPATCHED or IN_TRANSIT. Current status: ${shipment.status}`,
+        `Shipment must be PENDING, DISPATCH_FAILED, DISPATCHED, or IN_TRANSIT. Current status: ${shipment.status}`,
       );
     }
 
+    const now = new Date();
     await this.prisma.shipment.update({
       where: { id },
-      data: { status: 'COMPLETED' },
+      data: {
+        status: 'COMPLETED',
+        ...(!shipment.dispatchedAt ? { dispatchedAt: now } : {}),
+      },
     });
 
     try {
@@ -627,7 +919,7 @@ export class ShipmentService {
 
     return {
       success: true,
-      message: 'Shipment marked as delivered; order status updated',
+      message: 'Shipment marked as completed; order status updated',
     };
   }
 
