@@ -848,7 +848,7 @@ export class ShipmentService {
     }
   }
 
-  // ─── Manual Relisted dispatch: mark delivered (no carrier COMPLETED event) ─
+  // ─── Admin: mark leg completed (Relisted dispatch or carrier that will not sync) ─
 
   async markManualDelivered(id: string) {
     const shipment = await this.prisma.shipment.findUnique({
@@ -863,21 +863,25 @@ export class ShipmentService {
     });
     if (!shipment) throw new NotFoundException('Shipment not found');
 
-    if (!shipment.manualFulfillment) {
+    if (['COMPLETED', 'CANCELLED'].includes(shipment.status)) {
       throw new BadRequestException(
-        'Only Relisted dispatch (manual fulfillment) shipments can be marked delivered this way.',
+        `Shipment cannot be marked completed from status ${shipment.status}.`,
       );
     }
 
-    if (!['DISPATCHED', 'IN_TRANSIT'].includes(shipment.status)) {
+    if (!['PENDING', 'DISPATCH_FAILED', 'DISPATCHED', 'IN_TRANSIT'].includes(shipment.status)) {
       throw new BadRequestException(
-        `Shipment must be DISPATCHED or IN_TRANSIT. Current status: ${shipment.status}`,
+        `Shipment must be PENDING, DISPATCH_FAILED, DISPATCHED, or IN_TRANSIT. Current status: ${shipment.status}`,
       );
     }
 
+    const now = new Date();
     await this.prisma.shipment.update({
       where: { id },
-      data: { status: 'COMPLETED' },
+      data: {
+        status: 'COMPLETED',
+        ...(!shipment.dispatchedAt ? { dispatchedAt: now } : {}),
+      },
     });
 
     try {
@@ -915,7 +919,7 @@ export class ShipmentService {
 
     return {
       success: true,
-      message: 'Shipment marked as delivered; order status updated',
+      message: 'Shipment marked as completed; order status updated',
     };
   }
 
