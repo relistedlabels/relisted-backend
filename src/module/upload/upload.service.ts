@@ -19,7 +19,7 @@ export class UploadService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** Images: 5MB. PDFs keep a higher cap for ID documents. */
-  private readonly MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
+  private readonly MAX_IMAGE_SIZE_BYTES = 12 * 1024 * 1024;
   private readonly MAX_PDF_SIZE_BYTES = 10 * 1024 * 1024;
   /** Matches frontend `thumb` ladder: f_webp,q_auto:eco,w_200,c_limit */
   private readonly THUMB_TRANSFORM = 'f_webp,q_auto:eco,w_200,c_limit';
