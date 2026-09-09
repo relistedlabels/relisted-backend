@@ -379,7 +379,7 @@ export class ShipmentDispatchProcessor {
       await this.notification.createNotification({
         userId: admin.id,
         title: '⚠️ Shipment Dispatch Failed',
-        message: `Order ${humanOrderId}: ${legLabel} failed all ${MAX_ATTEMPTS} retries. Manual action required.`,
+        message: `Order ${humanOrderId}: ${legLabel} carrier booking failed after several tries. Review this shipment in admin.`,
         type: 'DISPATCH_FAILED',
         metadata: {
           shipmentId: shipment.id,
