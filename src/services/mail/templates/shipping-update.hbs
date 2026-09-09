@@ -42,6 +42,17 @@
             margin-top: 20px;
             text-align: center;
         }
+
+        .cta {
+            display: inline-block;
+            margin-top: 16px;
+            padding: 12px 20px;
+            background: #111;
+            color: #fff !important;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+        }
     </style>
 </head>
 
@@ -87,6 +98,12 @@
 
             {{#if estimatedDelivery}}
             <p><strong>Estimated Delivery:</strong> {{estimatedDelivery}}</p>
+            {{/if}}
+
+            {{#if orderPageUrl}}
+            <p style="margin:24px 0 8px;">
+                <a href="{{orderPageUrl}}" class="cta" target="_blank" rel="noopener noreferrer">{{#if ctaLabel}}{{ctaLabel}}{{else}}View order{{/if}}</a>
+            </p>
             {{/if}}
 
             <p>Thank you for choosing Relisted!</p>
