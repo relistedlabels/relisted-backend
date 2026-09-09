@@ -25,6 +25,56 @@ export {
 const DEFAULT_BASE = 'https://api.shipbubble.com/v1';
 const DEFAULT_QUOTE_MAX_ATTEMPTS = 5;
 const DEFAULT_QUOTE_RETRY_DELAY_MS = 500;
+const SHIPBUBBLE_LOG_MAX_CHARS = 8_000;
+
+/** Keys redacted from Shipbubble request/response logs (API keys, auth headers, etc.). */
+const SHIPBUBBLE_LOG_REDACT_KEYS = new Set([
+  'authorization',
+  'api_key',
+  'apikey',
+  'access_key',
+  'accesskey',
+  'password',
+  'secret',
+  'bearer',
+]);
+
+export function redactShipbubbleLogPayload(
+  value: unknown,
+  options?: { apiKey?: string; depth?: number },
+): unknown {
+  const depth = options?.depth ?? 0;
+  const apiKey = options?.apiKey?.trim() || '';
+
+  if (depth > 8) return '[truncated]';
+
+  if (value == null || typeof value !== 'object') {
+    if (typeof value === 'string') {
+      if (value.startsWith('Bearer ')) return 'Bearer [REDACTED]';
+      if (apiKey && value.includes(apiKey)) {
+        return value.split(apiKey).join('[REDACTED]');
+      }
+    }
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) =>
+      redactShipbubbleLogPayload(item, { ...options, depth: depth + 1 }),
+    );
+  }
+
+  const out: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+    const norm = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (SHIPBUBBLE_LOG_REDACT_KEYS.has(norm)) {
+      out[key] = '[REDACTED]';
+      continue;
+    }
+    out[key] = redactShipbubbleLogPayload(val, { ...options, depth: depth + 1 });
+  }
+  return out;
+}
 
 export type ShipbubbleValidatedAddress = {
   addressCode: number;
@@ -200,6 +250,25 @@ export class ShipbubbleService {
       httpAgent: this.httpAgent,
       httpsAgent: this.httpsAgent,
     };
+  }
+
+  private logShipbubblePayload(
+    operation: string,
+    phase: 'request' | 'response' | 'error',
+    payload: unknown,
+  ): void {
+    const safe = redactShipbubbleLogPayload(payload, { apiKey: this.apiKey });
+    let serialized: string;
+    try {
+      serialized = JSON.stringify(safe);
+    } catch {
+      serialized = String(safe);
+    }
+    const body =
+      serialized.length > SHIPBUBBLE_LOG_MAX_CHARS
+        ? `${serialized.slice(0, SHIPBUBBLE_LOG_MAX_CHARS)}...[truncated ${serialized.length - SHIPBUBBLE_LOG_MAX_CHARS} chars]`
+        : serialized;
+    this.logger.log(`Shipbubble ${operation} ${phase}: ${body}`);
   }
 
   private formatYmdInLagos(date: Date): string {
@@ -629,11 +698,13 @@ export class ShipbubbleService {
         service_type: 'pickup',
       };
 
+      this.logShipbubblePayload('fetch_rates', 'request', body);
       const res = await axios.post(
         `${this.baseUrl}/shipping/fetch_rates`,
         body,
         { headers: this.authHeaders(), ...this.axiosOpts() },
       );
+      this.logShipbubblePayload('fetch_rates', 'response', res.data);
       const payload = res.data;
       const data = (payload?.data ?? payload) as Record<string, unknown>;
       const requestToken = String(data?.request_token ?? '').trim();
@@ -679,6 +750,9 @@ export class ShipbubbleService {
       return await postFetchRates(senderValidated, receiverValidated);
     } catch (err: any) {
       if (err instanceof InternalServerErrorException) throw err;
+      if (err?.response?.data != null) {
+        this.logShipbubblePayload('fetch_rates', 'error', err.response.data);
+      }
       const msg = this.formatApiError(err, 'Shipbubble fetch_rates failed');
       if (this.isInvalidShipbubbleAddressCodeError(msg)) {
         this.logger.warn(
@@ -694,6 +768,13 @@ export class ShipbubbleService {
         } catch (retryErr: any) {
           if (retryErr instanceof InternalServerErrorException) {
             throw retryErr;
+          }
+          if (retryErr?.response?.data != null) {
+            this.logShipbubblePayload(
+              'fetch_rates',
+              'error',
+              retryErr.response.data,
+            );
           }
           const retryMsg = this.formatApiError(
             retryErr,
@@ -720,18 +801,24 @@ export class ShipbubbleService {
     if (!this.apiKey) {
       throw new InternalServerErrorException('Shipbubble API key is not set');
     }
+    const body = {
+      request_token: input.requestToken,
+      service_code: input.serviceCode,
+      courier_id: input.courierId,
+    };
     try {
+      this.logShipbubblePayload('create_label', 'request', body);
       const res = await axios.post(
         `${this.baseUrl}/shipping/labels`,
-        {
-          request_token: input.requestToken,
-          service_code: input.serviceCode,
-          courier_id: input.courierId,
-        },
+        body,
         { headers: this.authHeaders(), ...this.axiosOpts() },
       );
+      this.logShipbubblePayload('create_label', 'response', res.data);
       return res.data;
     } catch (err: any) {
+      if (err?.response?.data != null) {
+        this.logShipbubblePayload('create_label', 'error', err.response.data);
+      }
       const msg = this.formatApiError(err, 'Shipbubble create label failed');
       throw new InternalServerErrorException(msg);
     }
