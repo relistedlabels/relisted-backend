@@ -1,9 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Shipment, ShipmentType } from '@prisma/client';
 import {
   chowdeckRelayQuotesAvailable,
   shipbubbleQuotesAvailable,
-  topshipFulfillmentEnabled,
+  topshipAdminQuotesAvailable,
 } from 'src/constants/shipping-fulfillment-providers';
 import {
   RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO,
@@ -54,6 +54,8 @@ type AddressSnapshot = Record<string, unknown>;
 
 @Injectable()
 export class ShipmentQuoteService {
+  private readonly logger = new Logger(ShipmentQuoteService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly topshipService: TopshipService,
@@ -235,9 +237,12 @@ export class ShipmentQuoteService {
     const packageValueNgn = Math.round(this.estimateOrderValueKobo(shipment) / 100);
 
     let rateData: any[] = [];
-    if (topshipFulfillmentEnabled()) {
+    if (topshipAdminQuotesAvailable()) {
       const senderCity = String(pickup.city ?? 'Lagos').trim() || 'Lagos';
       const receiverCity = String(delivery.city ?? 'Lagos').trim() || 'Lagos';
+      this.logger.log(
+        `Admin rate preview: fetching Topship (${senderCity} → ${receiverCity}, leg=${leg})`,
+      );
       try {
         const rows = await this.topshipService.getShipmentRate({
           senderDetails: { cityName: senderCity, countryCode: 'NG' },
@@ -245,6 +250,14 @@ export class ShipmentQuoteService {
           totalWeight: 1,
         });
         rateData = Array.isArray(rows) ? rows : [];
+        if (rateData.length === 0) {
+          warnings.push({
+            provider: 'topship',
+            message:
+              'No Chowdeck or Glovo rates from Topship for this route.',
+            leg,
+          });
+        }
       } catch (err: any) {
         warnings.push({
           provider: 'topship',
@@ -252,6 +265,10 @@ export class ShipmentQuoteService {
           leg,
         });
       }
+    } else {
+      this.logger.log(
+        'Admin rate preview: skipping Topship (TOPSHIP_API_KEY unset)',
+      );
     }
 
     const sourceLine = this.formatAddressLine(pickup);
@@ -437,7 +454,11 @@ export class ShipmentQuoteService {
           totalCostKobo,
           deltaKobo: totalCostKobo - renterChargedKobo,
           description:
-            rate.description != null ? String(rate.description).trim() : undefined,
+            rate.description != null
+              ? String(rate.description).trim()
+              : slug === 'chowdeck' || slug === 'glovo'
+                ? 'Topship partner rate'
+                : undefined,
           shipbubbleRequestToken: rate.shipbubbleRequestToken,
           shipbubbleCourierId: rate.shipbubbleCourierId,
         });

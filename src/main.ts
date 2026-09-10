@@ -17,6 +17,7 @@ import {
   chowdeckRelayQuotesAvailable,
   parseShippingFulfillmentProviders,
   shipbubbleQuotesAvailable,
+  topshipAdminQuotesAvailable,
   topshipFulfillmentEnabled,
 } from './constants/shipping-fulfillment-providers';
 
@@ -217,6 +218,9 @@ function logShippingFulfillmentConfig() {
   );
   console.log(
     `[Shipping] Checkout quotes: city_rates=${topshipFulfillmentEnabled()} chowdeck_relay=${chowdeckRelayQuotesAvailable()} shipbubble=${shipbubbleQuotesAvailable()}`,
+  );
+  console.log(
+    `[Shipping] Admin rate preview Topship: ${topshipAdminQuotesAvailable() ? 'enabled (TOPSHIP_API_KEY set)' : 'disabled (TOPSHIP_API_KEY unset)'}`,
   );
   if (shipbubbleQuotesAvailable() || process.env.SHIPBUBBLE_API_KEY?.trim()) {
     const baseUrl =

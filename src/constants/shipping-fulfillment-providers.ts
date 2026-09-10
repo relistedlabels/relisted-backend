@@ -27,6 +27,15 @@ export function topshipFulfillmentEnabled(): boolean {
   return parseShippingFulfillmentProviders().has(FULFILLMENT_TOPSHIP);
 }
 
+export function topshipApiConfigured(): boolean {
+  return Boolean(process.env.TOPSHIP_API_KEY?.trim());
+}
+
+/** Admin shipment rate preview (rebook / dispatch validation). */
+export function topshipAdminQuotesAvailable(): boolean {
+  return topshipApiConfigured();
+}
+
 export function chowdeckRelayFulfillmentEnabled(): boolean {
   return parseShippingFulfillmentProviders().has(FULFILLMENT_CHOWDECK_RELAY);
 }

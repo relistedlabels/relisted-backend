@@ -1,6 +1,7 @@
 import {
   Injectable,
   InternalServerErrorException,
+  Logger,
 } from '@nestjs/common';
 import axios from 'axios';
 import http from 'http';
@@ -9,6 +10,7 @@ import { topshipSanitizeDescription } from './topship-description';
 
 @Injectable()
 export class TopshipService {
+  private readonly logger = new Logger(TopshipService.name);
   private readonly baseUrl: string;
   private readonly apiKey: string;
   /** Hard cap per HTTP call so checkout summary cannot hang on a stalled upstream (axios default is no timeout). */
@@ -200,7 +202,35 @@ export class TopshipService {
       });
   }
 
+  private summarizeShipmentRateRequest(data: unknown): Record<string, unknown> {
+    if (!data || typeof data !== 'object') {
+      return { payload: typeof data };
+    }
+    const d = data as Record<string, unknown>;
+    const sender = d.senderDetails as Record<string, unknown> | undefined;
+    const receiver = d.receiverDetails as Record<string, unknown> | undefined;
+    return {
+      senderCity: sender?.cityName ?? null,
+      receiverCity: receiver?.cityName ?? null,
+      totalWeight: d.totalWeight ?? null,
+    };
+  }
+
+  private summarizeShipmentRateRows(rows: any[]): string {
+    return rows
+      .map((r) => {
+        const tier = String(r?.pricingTier ?? r?.name ?? '?').trim();
+        const cost = r?.cost != null ? Number(r.cost) : null;
+        return cost != null ? `${tier}:${cost}` : tier;
+      })
+      .join(', ');
+  }
+
   async getShipmentRate(data: any): Promise<any[]> {
+    const requestSummary = this.summarizeShipmentRateRequest(data);
+    this.logger.log(
+      `Topship get-shipment-rate request: ${JSON.stringify(requestSummary)}`,
+    );
     try {
       const rows = await this.wrapQuotedRates('ship', data, async () => {
         const response = await axios.get(`${this.baseUrl}/get-shipment-rate`, {
@@ -211,12 +241,24 @@ export class TopshipService {
               typeof data === 'string' ? data : JSON.stringify(data),
           },
         });
-        return this.filterShipmentRates(response.data);
+        const rawList = Array.isArray(response.data) ? response.data : [];
+        const filtered = this.filterShipmentRates(response.data);
+        this.logger.log(
+          `Topship get-shipment-rate response: raw=${rawList.length} filtered=${filtered.length}${filtered.length ? ` [${this.summarizeShipmentRateRows(filtered)}]` : ''}`,
+        );
+        if (rawList.length > 0 && filtered.length === 0) {
+          this.logger.warn(
+            `Topship get-shipment-rate returned ${rawList.length} row(s) but none matched chowdeck/glovo after filter`,
+          );
+        }
+        return filtered;
       });
       return rows;
     } catch (error: any) {
+      this.logger.warn(
+        `Topship get-shipment-rate failed: ${error?.message ?? error}`,
+      );
       this.handleError(error);
-      return [];
     }
   }
 
