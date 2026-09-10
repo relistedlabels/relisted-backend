@@ -236,19 +236,19 @@ export function returnRequestReminderNotificationCopy(
   const copies: Record<ReturnRequestReminderType, { title: string; message: string }> = {
     '24_hours_before': {
       title: 'Complete your return request',
-      message: `Pickup for order ${item} is within 24 hours, but no rider will be sent until you complete your return request in the app.`,
+      message: `Pickup for order ${item} is within 24 hours. Complete your return request in the app or pickup will not happen.`,
     },
     morning_of: {
       title: 'Complete your return request today',
-      message: `Pickup for order ${item} is scheduled for today. Complete your return request now or the carrier cannot be booked.`,
+      message: `Pickup for order ${item} is scheduled for today. Complete your return request now or pickup will not happen.`,
     },
     hourly: {
       title: 'Complete your return request soon',
-      message: `Pickup for order ${item} is approaching. Submit your return request in the app now so we can book the rider.`,
+      message: `Pickup for order ${item} is approaching. Submit your return request in the app now so pickup can go ahead.`,
     },
     '30_minutes': {
       title: 'Urgent: complete your return request',
-      message: `Pickup for order ${item} is in about 30 minutes. Complete your return request immediately or pickup will not be booked.`,
+      message: `Pickup for order ${item} is in about 30 minutes. Complete your return request immediately or pickup will not happen.`,
     },
     '15_minutes': {
       title: 'Urgent: complete your return request now',
@@ -289,7 +289,7 @@ export function returnRequestReminderEmailCopy(
       ? ` Late returns may incur a ${penaltyPercent}% daily collateral penalty.`
       : '';
   const noPickup =
-    'No rider will be sent and pickup cannot be booked until you submit your return request in the app.';
+    'Pickup will not happen until you submit your return request in the app.';
 
   const copies: Record<
     ReturnRequestReminderType,
@@ -302,7 +302,7 @@ export function returnRequestReminderEmailCopy(
       footer: '',
     },
     morning_of: {
-      subject: 'Today: complete your return request to book pickup',
+      subject: 'Today: complete your return request for pickup',
       heading: 'Complete your return request today',
       body: `Pickup for <strong>${productName}</strong> is scheduled for today.${w} ${noPickup}`,
       footer: '',

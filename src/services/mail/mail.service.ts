@@ -1200,7 +1200,7 @@ export class MailService {
       <div style="background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:12px;margin:16px 0;">
         <p style="margin:0;color:#9a3412;font-weight:600;">Important:</p>
         <p style="margin:8px 0 0;color:#7c2d12;">
-          You must complete your return request in the app first. If the return request is not completed, your return pickup cannot be booked.
+          You must complete your return request in the app first. If the return request is not completed, your return pickup will not happen.
         </p>
       </div>
       <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;margin:16px 0;">
