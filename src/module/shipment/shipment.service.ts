@@ -21,12 +21,16 @@ import {
   buildDefaultDispatchWindow,
   buildDefaultReturnDispatchWindow,
 } from 'src/utils/dispatch-windows';
-import { startOfDay } from 'date-fns';
+import { addMinutes, startOfDay } from 'date-fns';
 import { formatDispatchWindowLagos } from 'src/module/shipment/dispatch-window-format';
 import { sendShipmentLegStatusNotification } from './shipment-status-notifications';
 import { buildShippingEmailTrackingFields } from './shipment-tracking-url.util';
 import { PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY } from 'src/utils/product-attachment-upload-order';
 import { formatAdminReturnRequest } from '../order/admin-return-request.format';
+
+const IMMEDIATE_DISPATCH_THRESHOLD_MINUTES = Number(
+  process.env.IMMEDIATE_DISPATCH_THRESHOLD_MINUTES ?? 60,
+);
 
 const shipmentOrderItemProductInclude = {
   product: {
@@ -344,7 +348,7 @@ export class ShipmentService {
 
     if (shipment.status !== 'PENDING') {
       throw new BadRequestException(
-        `Only PENDING shipments can be cancelled. Current status: ${shipment.status}`,
+        'This shipment can no longer be cancelled.',
       );
     }
 
@@ -364,7 +368,7 @@ export class ShipmentService {
 
     if (!['PENDING', 'DISPATCH_FAILED'].includes(shipment.status)) {
       throw new BadRequestException(
-        `Rate preview is only available for PENDING or DISPATCH_FAILED shipments. Current status: ${shipment.status}`,
+        'Carrier rates are not available for this shipment right now.',
       );
     }
 
@@ -380,7 +384,7 @@ export class ShipmentService {
 
     if (!['PENDING', 'DISPATCH_FAILED'].includes(shipment.status)) {
       throw new BadRequestException(
-        `Only PENDING or DISPATCH_FAILED shipments can be dispatched now. Current status: ${shipment.status}`,
+        'This shipment cannot be booked from here right now.',
       );
     }
 
@@ -388,7 +392,7 @@ export class ShipmentService {
       const tier = String(dto.pricingTier ?? '').trim();
       if (!tier || isRelistedDispatchShippingTier(tier)) {
         throw new BadRequestException(
-          'Select a carrier pricing tier to book this Relisted dispatch shipment.',
+          'Select a carrier rate to book this shipment.',
         );
       }
     }
@@ -399,7 +403,7 @@ export class ShipmentService {
       });
       if (!returnRequest) {
         throw new BadRequestException(
-          'Return shipments require a renter return request before carrier booking.',
+          'The renter must submit a return request before you can book pickup.',
         );
       }
     }
@@ -436,12 +440,12 @@ export class ShipmentService {
       );
       if (!matched) {
         throw new BadRequestException(
-          `Selected pricing tier "${tierInput}" is not available for this shipment.`,
+          'Selected carrier rate is not available for this shipment.',
         );
       }
       if (isRelistedDispatchShippingTier(matched.pricingTier)) {
         throw new BadRequestException(
-          'Cannot book Relisted dispatch through carrier dispatch. Use manual complete instead.',
+          'Use Relisted dispatch actions instead of carrier booking for this shipment.',
         );
       }
       const charges = this.shipmentQuoteService.tierToShipmentCharges(matched);
@@ -460,7 +464,7 @@ export class ShipmentService {
       }
     } else if (shipment.manualFulfillment) {
       throw new BadRequestException(
-        'Relisted dispatch shipments require a carrier pricing tier.',
+        'Select a carrier rate to book this shipment.',
       );
     }
 
@@ -478,11 +482,25 @@ export class ShipmentService {
       });
     }
 
-    await this.enqueueDispatchJob(id);
+    const effectiveWindowStart =
+      (updateData.scheduledWindowStart as Date | undefined) ??
+      shipment.scheduledWindowStart ??
+      shipment.scheduledDate;
+
+    const enqueueNow =
+      forImmediate || this.shouldDispatchImmediately(effectiveWindowStart);
+
+    if (enqueueNow) {
+      await this.enqueueDispatchJob(id);
+      return {
+        success: true,
+        message: 'Carrier booking started',
+      };
+    }
 
     return {
       success: true,
-      message: 'Dispatch enqueued successfully',
+      message: 'Booked for the scheduled window',
     };
   }
 
@@ -494,13 +512,13 @@ export class ShipmentService {
 
     if (shipment.manualFulfillment) {
       throw new BadRequestException(
-        'This shipment uses Relisted dispatch. Book a carrier from the admin shipment detail instead of redispatch.',
+        'Book a carrier from the shipment detail instead of retry.',
       );
     }
 
     if (shipment.status !== 'DISPATCH_FAILED') {
       throw new BadRequestException(
-        `Only DISPATCH_FAILED shipments can be redispatched. Current status: ${shipment.status}`,
+        'Retry is only available after carrier booking fails.',
       );
     }
 
@@ -511,7 +529,7 @@ export class ShipmentService {
 
     await this.enqueueDispatchJob(id);
 
-    return { success: true, message: 'Redispatch enqueued successfully' };
+    return { success: true, message: 'Carrier booking restarted' };
   }
 
   private isScheduledInFuture(
@@ -527,6 +545,16 @@ export class ShipmentService {
     return start > now;
   }
 
+  /** Matches checkout: only call the carrier when the window start is due (within threshold). */
+  private shouldDispatchImmediately(
+    windowStart: Date | null | undefined,
+    now = new Date(),
+  ): boolean {
+    if (!windowStart) return false;
+    const threshold = addMinutes(now, IMMEDIATE_DISPATCH_THRESHOLD_MINUTES);
+    return windowStart.getTime() <= threshold.getTime();
+  }
+
   private async enqueueDispatchJob(id: string) {
     const locked = await this.prisma.shipment.updateMany({
       where: { id, status: 'PENDING' },
@@ -534,7 +562,7 @@ export class ShipmentService {
     });
     if (locked.count === 0) {
       throw new ConflictException(
-        'Shipment was already picked up by another process',
+        'This shipment is already being processed. Try again in a moment.',
       );
     }
 
@@ -552,13 +580,13 @@ export class ShipmentService {
 
     if (!shipment.manualFulfillment) {
       throw new BadRequestException(
-        'Only Relisted dispatch (manual fulfillment) shipments can be completed this way. Use reconcile manual for courier-tier legs handled outside the carrier.',
+        'Mark dispatched here applies to Relisted dispatch shipments. For carrier legs sent in-house, use Mark dispatched in-house.',
       );
     }
 
     if (!['PENDING', 'DISPATCHING'].includes(shipment.status)) {
       throw new BadRequestException(
-        `Shipment must be PENDING or DISPATCHING. Current status: ${shipment.status}`,
+        'This shipment cannot be marked dispatched in its current state.',
       );
     }
 
@@ -585,13 +613,13 @@ export class ShipmentService {
 
     if (shipment.reconciledAsManualAt) {
       throw new BadRequestException(
-        'This shipment was already reconciled as in-house dispatch.',
+        'This shipment was already marked as sent in-house.',
       );
     }
 
     if (!['PENDING', 'DISPATCHING', 'DISPATCH_FAILED'].includes(shipment.status)) {
       throw new BadRequestException(
-        `Only PENDING, DISPATCHING, or DISPATCH_FAILED shipments can switch to Relisted dispatch. Current status: ${shipment.status}`,
+        'This shipment cannot be switched to Relisted dispatch right now.',
       );
     }
 
@@ -625,13 +653,13 @@ export class ShipmentService {
 
     if (shipment.manualFulfillment) {
       throw new BadRequestException(
-        'This shipment is already manual fulfillment. Use mark dispatched instead.',
+        'This shipment is already Relisted dispatch. Mark dispatched when the item is on the way.',
       );
     }
 
     if (!['PENDING', 'DISPATCHING', 'DISPATCH_FAILED'].includes(shipment.status)) {
       throw new BadRequestException(
-        `Only PENDING, DISPATCHING, or DISPATCH_FAILED shipments can be reconciled. Current status: ${shipment.status}`,
+        'This shipment cannot be updated this way in its current state.',
       );
     }
 
@@ -865,13 +893,13 @@ export class ShipmentService {
 
     if (['COMPLETED', 'CANCELLED'].includes(shipment.status)) {
       throw new BadRequestException(
-        `Shipment cannot be marked completed from status ${shipment.status}.`,
+        'This shipment is already finished.',
       );
     }
 
     if (!['PENDING', 'DISPATCH_FAILED', 'DISPATCHED', 'IN_TRANSIT'].includes(shipment.status)) {
       throw new BadRequestException(
-        `Shipment must be PENDING, DISPATCH_FAILED, DISPATCHED, or IN_TRANSIT. Current status: ${shipment.status}`,
+        'This shipment cannot be marked completed in its current state.',
       );
     }
 

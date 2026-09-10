@@ -313,7 +313,7 @@ describe('ShipmentService.dispatchNow', () => {
       updateWindow: true,
     });
 
-    expect(result.message).toBe('Dispatch enqueued successfully');
+    expect(result.message).toBe('Carrier booking started');
     expect(shipmentQuoteService.previewRates).toHaveBeenCalledWith('s1', true);
     expect(prisma.shipment.update).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -346,10 +346,47 @@ describe('ShipmentService.dispatchNow', () => {
       },
     });
 
-    await service.dispatchNow('s1', { updateWindow: false });
+    const result = await service.dispatchNow('s1', { updateWindow: false });
 
+    expect(result.message).toBe('Booked for the scheduled window');
     expect(shipmentQuoteService.previewRates).not.toHaveBeenCalled();
     expect(prisma.shipment.update).not.toHaveBeenCalled();
+    expect(mockQueue.add).not.toHaveBeenCalled();
+  });
+
+  it('schedules manual carrier booking for a future window without calling the carrier', async () => {
+    const futureStart = new Date(Date.now() + 86400000);
+    const { service, prisma, shipmentQuoteService } = buildService({
+      shipment: {
+        id: 's1',
+        status: 'PENDING',
+        manualFulfillment: true,
+        type: 'OUTBOUND',
+        orderId: 'o1',
+        pricingTier: RELISTED_DISPATCH_SHIPPING_LABEL,
+        scheduledWindowStart: futureStart,
+        scheduledWindowEnd: new Date(futureStart.getTime() + 3_600_000),
+        scheduledDate: new Date(),
+      },
+    });
+
+    const result = await service.dispatchNow('s1', {
+      pricingTier: 'chowdeck',
+      updateWindow: false,
+    });
+
+    expect(result.message).toBe('Booked for the scheduled window');
+    expect(shipmentQuoteService.previewRates).toHaveBeenCalledWith('s1', false);
+    expect(prisma.shipment.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 's1' },
+        data: expect.objectContaining({
+          manualFulfillment: false,
+          pricingTier: 'chowdeck',
+        }),
+      }),
+    );
+    expect(mockQueue.add).not.toHaveBeenCalled();
   });
 
   it('throws ConflictException when another process already locked the shipment', async () => {
