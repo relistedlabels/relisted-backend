@@ -398,7 +398,7 @@ export class ProductService {
               include: {
                 uploads: {
                   orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
-                  select: { id: true, url: true },
+                  select: { id: true, url: true, displayOrder: true },
                 },
               },
             },
@@ -511,7 +511,7 @@ export class ProductService {
               include: {
                 uploads: {
                   orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
-                  select: { id: true, url: true },
+                  select: { id: true, url: true, displayOrder: true },
                 },
               },
             },
@@ -606,7 +606,7 @@ export class ProductService {
             include: {
               uploads: {
                 orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
-                select: { id: true, url: true },
+                select: { id: true, url: true, displayOrder: true },
               },
             },
           },
@@ -688,7 +688,7 @@ export class ProductService {
           include: {
             uploads: {
               orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
-              select: { id: true, url: true },
+              select: { id: true, url: true, displayOrder: true },
             },
           },
         },
