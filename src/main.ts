@@ -17,6 +17,8 @@ import {
   chowdeckRelayQuotesAvailable,
   parseShippingFulfillmentProviders,
   shipbubbleQuotesAvailable,
+  tshipQuotesAvailable,
+  topshipAdminQuotesAvailable,
   topshipFulfillmentEnabled,
 } from './constants/shipping-fulfillment-providers';
 
@@ -216,7 +218,10 @@ function logShippingFulfillmentConfig() {
     `[Shipping] SHIPPING_FULFILLMENT_PROVIDERS=${raw == null || raw === '' ? '(unset → default providers)' : JSON.stringify(raw)} → enabled: [${active}]`,
   );
   console.log(
-    `[Shipping] Checkout quotes: city_rates=${topshipFulfillmentEnabled()} chowdeck_relay=${chowdeckRelayQuotesAvailable()} shipbubble=${shipbubbleQuotesAvailable()}`,
+    `[Shipping] Checkout quotes: city_rates=${topshipFulfillmentEnabled()} chowdeck_relay=${chowdeckRelayQuotesAvailable()} shipbubble=${shipbubbleQuotesAvailable()} tship=${tshipQuotesAvailable()}`,
+  );
+  console.log(
+    `[Shipping] Admin rate preview Topship: ${topshipAdminQuotesAvailable() ? 'enabled' : 'disabled (need topship in SHIPPING_FULFILLMENT_PROVIDERS and TOPSHIP_API_KEY)'}`,
   );
   if (shipbubbleQuotesAvailable() || process.env.SHIPBUBBLE_API_KEY?.trim()) {
     const baseUrl =

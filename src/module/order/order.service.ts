@@ -9,6 +9,7 @@ import {
   chowdeckRelayQuotesAvailable,
   shipbubbleQuotesAvailable,
   topshipFulfillmentEnabled,
+  tshipQuotesAvailable,
 } from 'src/constants/shipping-fulfillment-providers';
 import { ChowdeckRelayService } from 'src/services/chowdeck-relay/chowdeck-relay.service';
 import { formatShipbubbleAddressLine } from 'src/services/shipbubble/shipbubble-address-normalize';
@@ -20,6 +21,12 @@ import {
   shipbubblePricingTierSlug,
   ShipbubbleService,
 } from 'src/services/shipbubble/shipbubble.service';
+import {
+  formatTshipCheckoutTierName,
+  isTshipPricingTier,
+  TshipService,
+  tshipPricingTierSlug,
+} from 'src/services/tship/tship.service';
 import { ShippingQuoteWarning } from 'src/constants/shipping-quote-warnings';
 import { TopshipService } from 'src/services/topship/topship.service';
 import { bad } from 'src/utils/error';
@@ -172,6 +179,7 @@ export class OrderService {
     private topshipService: TopshipService,
     private readonly chowdeckRelayService: ChowdeckRelayService,
     private readonly shipbubbleService: ShipbubbleService,
+    private readonly tshipService: TshipService,
     private notificationService: NotificationService,
     private readonly mailService: MailService,
     @InjectQueue('shipment-dispatch')
@@ -324,6 +332,7 @@ export class OrderService {
     if (t === 'chowdeck_relay') return 'chowdeck_relay';
     if (t.startsWith('shipbubble:')) return t;
     if (t === 'shipbubble') return 'shipbubble';
+    if (isTshipPricingTier(t)) return t;
     if (t === RELISTED_DISPATCH_SHIPPING_LABEL.toLowerCase())
       return 'relisted dispatch';
     if (t === 'glovo') return 'glovo';
@@ -741,6 +750,148 @@ export class OrderService {
     }
   }
 
+  private async maybeAppendTshipOutboundRate(
+    rateData: any[],
+    sender: {
+      name?: string;
+      email?: string;
+      phone?: string;
+      street?: string;
+      city?: string;
+      state?: string;
+      country?: string;
+      zip?: string;
+    },
+    receiver: {
+      name?: string;
+      email?: string;
+      phone?: string;
+      street?: string;
+      city?: string;
+      state?: string;
+      country?: string;
+      zip?: string;
+    },
+    packageValueNgn: number,
+    warnings: ShippingQuoteWarning[],
+    ctx: {
+      bucketIndex: number;
+      listerName?: string;
+      leg?: ShippingQuoteWarning['leg'];
+    },
+  ): Promise<any[]> {
+    if (!tshipQuotesAvailable()) return rateData;
+    const leg = ctx.leg ?? 'outbound';
+
+    const senderLine = this.formatShipbubbleAddressLine({
+      street: sender.street,
+      city: sender.city,
+      state: sender.state,
+      country: sender.country,
+    });
+    const receiverLine = this.formatShipbubbleAddressLine({
+      street: receiver.street,
+      city: receiver.city,
+      state: receiver.state,
+      country: receiver.country,
+    });
+    if (!senderLine || !receiverLine) return rateData;
+
+    try {
+      const quotes = await this.tshipService.fetchShipmentQuotes(
+        {
+          pickup: {
+            name: sanitizeShipbubbleContactName(
+              sender.name,
+              leg === 'return' ? 'Relisted Renter' : 'Relisted Lister',
+            ),
+            email: sender.email ?? 'noreply@relisted.com',
+            phone: sanitizeShipbubblePhone(sender.phone),
+            line1: senderLine,
+            street: sender.street != null ? String(sender.street) : undefined,
+            city: String(sender.city ?? 'Lagos'),
+            state: String(sender.state ?? 'Lagos'),
+            country: String(sender.country ?? 'NG'),
+            zip: sender.zip != null ? String(sender.zip) : undefined,
+          },
+          delivery: {
+            name: sanitizeShipbubbleContactName(
+              receiver.name,
+              leg === 'return' ? 'Relisted Lister' : 'Relisted Renter',
+            ),
+            email: receiver.email ?? 'noreply@relisted.com',
+            phone: sanitizeShipbubblePhone(receiver.phone),
+            line1: receiverLine,
+            street:
+              receiver.street != null ? String(receiver.street) : undefined,
+            city: String(receiver.city ?? 'Lagos'),
+            state: String(receiver.state ?? 'Lagos'),
+            country: String(receiver.country ?? 'NG'),
+            zip: receiver.zip != null ? String(receiver.zip) : undefined,
+          },
+          parcel: {
+            description: 'Relisted order',
+            valueNgn: Math.max(1, Math.round(packageValueNgn)),
+            itemName: 'Relisted order',
+          },
+        },
+        { sameDayOnly: leg !== 'return' },
+      );
+
+      const byCarrier = new Map<string, (typeof quotes)[number]>();
+      for (const q of quotes) {
+        const tier = tshipPricingTierSlug(q.carrierSlug);
+        const existing = byCarrier.get(tier);
+        if (!existing || q.totalNgn < existing.totalNgn) {
+          byCarrier.set(tier, q);
+        }
+      }
+
+      const rows = [...byCarrier.entries()].map(([pricingTier, q]) => ({
+        pricingTier,
+        name: formatTshipCheckoutTierName(q.carrierName, q.carrierSlug),
+        cost: Math.round(q.totalNgn * 100),
+        tshipRateId: q.rateId,
+        description:
+          leg === 'return'
+            ? 'Return pickup via TShip (priced for your return window)'
+            : q.deliveryTime
+              ? `Same-day delivery: ${q.deliveryTime}`
+              : 'Same-day courier via TShip',
+      }));
+
+      if (!rows.length) {
+        this.pushShippingQuoteWarning(warnings, {
+          provider: 'tship',
+          message:
+            leg === 'return'
+              ? 'No eligible return courier options are available on TShip for your return date.'
+              : 'No eligible same-day courier options are available for this route on TShip.',
+          leg,
+          bucketIndex: ctx.bucketIndex,
+          listerName: ctx.listerName,
+        });
+      }
+      return [...(Array.isArray(rateData) ? rateData : []), ...rows];
+    } catch (err: unknown) {
+      const message = String(
+        (err as { message?: string })?.message ?? 'Terminal quote unavailable',
+      );
+      console.warn(
+        `[Checkout] Terminal T-Ship quote failed (${leg} ${senderLine} → ${receiverLine}):`,
+        message,
+      );
+      this.pushShippingQuoteWarning(warnings, {
+        provider: 'tship',
+        message,
+        leg,
+        bucketIndex: ctx.bucketIndex,
+        listerName: ctx.listerName,
+      });
+      return rateData;
+    }
+  }
+
   private async maybeAppendShipbubbleOutboundRate(
     rateData: any[],
     sender: {
@@ -950,6 +1101,8 @@ export class OrderService {
     if (t === 'chowdeck_relay') return 'chowdeck_relay';
     if (t.startsWith('shipbubble:')) return t;
     if (t === 'shipbubble') return 'shipbubble';
+    if (t.startsWith('tship:')) return t;
+    if (t === 'tship') return 'tship';
     if (t === RELISTED_DISPATCH_SHIPPING_LABEL.toLowerCase())
       return 'relisted_dispatch';
     return null;
@@ -1030,6 +1183,11 @@ export class OrderService {
       const raw = String(tier ?? '').trim();
       if (raw.toLowerCase().startsWith('shipbubble:')) return raw.toLowerCase();
       return 'shipbubble';
+    }
+    if (slug?.startsWith('tship:') || slug === 'tship') {
+      const raw = String(tier ?? '').trim();
+      if (raw.toLowerCase().startsWith('tship:')) return raw.toLowerCase();
+      return 'tship';
     }
     return 'Chowdeck';
   }
@@ -1461,6 +1619,22 @@ export class OrderService {
           shippingQuoteWarnings,
           { bucketIndex, listerName: ctx.listerName },
         );
+        rateData = await this.maybeAppendTshipOutboundRate(
+          rateData,
+          {
+            name: ctx.listerName,
+            email: listerCurator?.email,
+            phone: listerCurator?.profile?.phoneNumber,
+            street: ctx.curatorAddress?.street,
+            city: ctx.curatorAddress?.city,
+            state: ctx.curatorAddress?.state,
+            country: ctx.curatorAddress?.country,
+          },
+          renterDeliveryAddressSnapshot,
+          Math.round(this.estimateBucketOrderValueKobo(ctx.items) / 100),
+          shippingQuoteWarnings,
+          { bucketIndex, listerName: ctx.listerName },
+        );
 
         rateData = this.ensureRatesIncludeAllowedCheckoutTier(rateData);
 
@@ -1512,6 +1686,34 @@ export class OrderService {
             },
             Math.round(this.estimateBucketOrderValueKobo(ctx.items) / 100),
             ctx.returnWindow?.start ?? null,
+            shippingQuoteWarnings,
+            {
+              bucketIndex,
+              listerName: ctx.listerName,
+              leg: 'return',
+            },
+          );
+          returnRateData = await this.maybeAppendTshipOutboundRate(
+            returnRateData,
+            {
+              name: returnPickupAddressSnapshot.name,
+              email: renterDeliveryAddressSnapshot.email,
+              phone: returnPickupAddressSnapshot.phone,
+              street: returnPickupAddressSnapshot.street,
+              city: returnPickupAddressSnapshot.city,
+              state: returnPickupAddressSnapshot.state,
+              country: returnPickupAddressSnapshot.country,
+            },
+            {
+              name: ctx.listerName,
+              email: listerCurator?.email,
+              phone: listerCurator?.profile?.phoneNumber,
+              street: ctx.curatorAddress?.street,
+              city: ctx.curatorAddress?.city,
+              state: ctx.curatorAddress?.state,
+              country: ctx.curatorAddress?.country,
+            },
+            Math.round(this.estimateBucketOrderValueKobo(ctx.items) / 100),
             shippingQuoteWarnings,
             {
               bucketIndex,
@@ -2164,6 +2366,25 @@ export class OrderService {
             listerName: bucketCurator?.name ?? 'Lister',
           },
         );
+        rateData = await this.maybeAppendTshipOutboundRate(
+          rateData,
+          {
+            name: bucketCurator?.name ?? 'Lister',
+            email: bucketCurator?.email,
+            phone: bucketCurator?.profile?.phoneNumber,
+            street: curatorAddress?.street,
+            city: curatorAddress?.city,
+            state: curatorAddress?.state,
+            country: curatorAddress?.country,
+          },
+          renterDeliveryAddressSnapshot,
+          Math.round(this.estimateBucketOrderValueKobo(bucketItems) / 100),
+          checkoutQuoteWarnings,
+          {
+            bucketIndex: checkoutBucketIndex,
+            listerName: bucketCurator?.name ?? 'Lister',
+          },
+        );
         rateData = this.ensureRatesIncludeAllowedCheckoutTier(rateData);
 
         let matchedRate = this.matchRateForLeg(
@@ -2178,14 +2399,19 @@ export class OrderService {
             .toLowerCase();
           effectiveOutboundForBucket =
             this.coerceLegPricingTierSelection(tierSlug);
-          // Topship VAT is 7.5% of shipment charge; Relay/Shipbubble quotes are all-in.
+          // Topship VAT is 7.5% of shipment charge; Relay/Shipbubble/T-Ship quotes are all-in.
           shipmentVatChargeRaw =
-            tierSlug === 'chowdeck_relay' || isShipbubblePricingTier(tierSlug)
+            tierSlug === 'chowdeck_relay' ||
+            isShipbubblePricingTier(tierSlug) ||
+            isTshipPricingTier(tierSlug)
               ? 0
               : Math.ceil(shipmentChargeRaw * 0.075);
           if (isShipbubblePricingTier(tierSlug)) {
             pickupId = String(matchedRate.shipbubbleRequestToken ?? '').trim();
             pickupPartner = String(matchedRate.shipbubbleCourierId ?? '').trim();
+          } else if (isTshipPricingTier(tierSlug)) {
+            pickupId = String(matchedRate.tshipRateId ?? '').trim();
+            pickupPartner = tierSlug.slice('tship:'.length).trim();
           } else if (tierSlug) {
             pickupPartner = this.normalizeTopshipTier(tierSlug);
           }
@@ -2254,6 +2480,34 @@ export class OrderService {
               leg: 'return',
             },
           );
+          returnRateData = await this.maybeAppendTshipOutboundRate(
+            returnRateData,
+            {
+              name: returnPickupAddressSnapshot.name,
+              email: renterDeliveryAddressSnapshot.email,
+              phone: returnPickupAddressSnapshot.phone,
+              street: returnPickupAddressSnapshot.street,
+              city: returnPickupAddressSnapshot.city,
+              state: returnPickupAddressSnapshot.state,
+              country: returnPickupAddressSnapshot.country,
+            },
+            {
+              name: bucketCuratorForReturn?.name ?? 'Lister',
+              email: bucketCuratorForReturn?.email,
+              phone: bucketCuratorForReturn?.profile?.phoneNumber,
+              street: curatorAddress?.street,
+              city: curatorAddress?.city,
+              state: curatorAddress?.state,
+              country: curatorAddress?.country,
+            },
+            Math.round(this.estimateBucketOrderValueKobo(bucketItems) / 100),
+            checkoutQuoteWarnings,
+            {
+              bucketIndex: checkoutBucketIndex,
+              listerName: bucketCuratorForReturn?.name ?? 'Lister',
+              leg: 'return',
+            },
+          );
 
           returnRateData =
             this.ensureRatesIncludeAllowedCheckoutTier(returnRateData);
@@ -2271,7 +2525,8 @@ export class OrderService {
               this.coerceLegPricingTierSelection(returnTierSlug);
             returnShipmentVatChargeRaw =
               returnTierSlug === 'chowdeck_relay' ||
-              isShipbubblePricingTier(returnTierSlug)
+              isShipbubblePricingTier(returnTierSlug) ||
+              isTshipPricingTier(returnTierSlug)
                 ? 0
                 : Math.ceil(returnShipmentChargeRaw * 0.075);
             if (isShipbubblePricingTier(returnTierSlug)) {
@@ -2281,6 +2536,11 @@ export class OrderService {
               returnPickupPartner = String(
                 matchedReturnRate.shipbubbleCourierId ?? '',
               ).trim();
+            } else if (isTshipPricingTier(returnTierSlug)) {
+              returnPickupId = String(
+                matchedReturnRate.tshipRateId ?? '',
+              ).trim();
+              returnPickupPartner = returnTierSlug.slice('tship:'.length).trim();
             } else if (returnTierSlug) {
               returnPickupPartner = this.normalizeTopshipTier(returnTierSlug);
             }

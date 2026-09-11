@@ -61,14 +61,22 @@ export class ShipmentController {
   }
 
   @Auth([Role.ADMIN])
+  @Get('shipments/rate-preview/sources')
+  getRatePreviewSources() {
+    return this.shipmentService.getRatePreviewSources();
+  }
+
+  @Auth([Role.ADMIN])
   @Get('shipments/:id/rate-preview')
   getRatePreview(
     @Param('id') id: string,
     @Query('forImmediate') forImmediate?: string,
+    @Query('provider') provider?: string,
   ) {
     return this.shipmentService.getRatePreview(
       id,
       forImmediate === 'true' || forImmediate === '1',
+      provider,
     );
   }
 

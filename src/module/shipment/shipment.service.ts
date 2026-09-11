@@ -16,6 +16,7 @@ import { SwitchToManualShipmentDto } from './dto/switch-to-manual-shipment.dto';
 import { DispatchNowShipmentDto } from './dto/dispatch-now-shipment.dto';
 import { ShipmentQuoteService } from './shipment-quote.service';
 import { selectOrderItemsForShipmentLeg } from './order-items-for-shipment-leg';
+import { isAdminRatePreviewProvider } from 'src/constants/admin-rate-preview-providers';
 import { isRelistedDispatchShippingTier } from 'src/constants/relisted-dispatch-shipping';
 import {
   buildDefaultDispatchWindow,
@@ -362,7 +363,11 @@ export class ShipmentService {
 
   // ─── Rate preview (admin) ──────────────────────────────────────────────────
 
-  async getRatePreview(id: string, forImmediate = false) {
+  async getRatePreview(
+    id: string,
+    forImmediate = false,
+    provider?: string,
+  ) {
     const shipment = await this.prisma.shipment.findUnique({ where: { id } });
     if (!shipment) throw new NotFoundException('Shipment not found');
 
@@ -372,8 +377,26 @@ export class ShipmentService {
       );
     }
 
+    if (provider?.trim()) {
+      const slug = provider.trim().toLowerCase();
+      if (!isAdminRatePreviewProvider(slug)) {
+        throw new BadRequestException('Unknown rate preview provider.');
+      }
+      const data = await this.shipmentQuoteService.previewRatesForProvider(
+        id,
+        slug,
+        forImmediate,
+      );
+      return { success: true, data };
+    }
+
     const data = await this.shipmentQuoteService.previewRates(id, forImmediate);
     return { success: true, data };
+  }
+
+  async getRatePreviewSources() {
+    const providers = this.shipmentQuoteService.listAdminRatePreviewProviders();
+    return { success: true, data: { providers } };
   }
 
   // ─── Dispatch now / book carrier (admin) ───────────────────────────────────

@@ -9,6 +9,7 @@ describe('AvailabilityRequestReminderScheduler.sendAvailabilityRequestReminders'
     updateMany: jest.Mock;
     findMany: jest.Mock;
     update: jest.Mock;
+    orderFindMany?: jest.Mock;
   }) {
     return new AvailabilityRequestReminderScheduler(
       {
@@ -16,6 +17,9 @@ describe('AvailabilityRequestReminderScheduler.sendAvailabilityRequestReminders'
           updateMany: prisma.updateMany,
           findMany: prisma.findMany,
           update: prisma.update,
+        },
+        order: {
+          findMany: prisma.orderFindMany ?? jest.fn().mockResolvedValue([]),
         },
       } as never,
       mockNotification as never,

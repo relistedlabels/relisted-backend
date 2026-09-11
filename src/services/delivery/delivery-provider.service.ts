@@ -3,12 +3,15 @@ import { Shipment } from '@prisma/client';
 import {
   chowdeckRelayQuotesAvailable,
   shipbubbleQuotesAvailable,
+  tshipQuotesAvailable,
 } from 'src/constants/shipping-fulfillment-providers';
 import { isShipbubblePricingTier } from 'src/services/shipbubble/shipbubble.service';
+import { isTshipPricingTier } from 'src/services/tship/tship.service';
 import { DeliveryProvider } from './delivery-provider.interface';
 import { TopshipProvider } from './providers/topship.provider';
 import { ChowdeckRelayProvider } from './providers/chowdeck-relay.provider';
 import { ShipbubbleProvider } from './providers/shipbubble.provider';
+import { TshipProvider } from './providers/tship.provider';
 
 @Injectable()
 export class DeliveryProviderService {
@@ -16,11 +19,12 @@ export class DeliveryProviderService {
     private readonly topshipProvider: TopshipProvider,
     private readonly chowdeckRelayProvider: ChowdeckRelayProvider,
     private readonly shipbubbleProvider: ShipbubbleProvider,
+    private readonly tshipProvider: TshipProvider,
   ) {}
 
   /**
-   * Routes by persisted `Shipment.pricingTier`: `chowdeck_relay` and `shipbubble`
-   * when enabled and configured; everything else uses Topship.
+   * Routes by persisted `Shipment.pricingTier`: `chowdeck_relay`, `shipbubble`,
+   * and `tship:*` when enabled and configured; everything else uses Topship.
    */
   forShipment(shipment: Shipment): DeliveryProvider {
     const tier = String(shipment.pricingTier ?? '').trim().toLowerCase();
@@ -29,6 +33,9 @@ export class DeliveryProviderService {
     }
     if (isShipbubblePricingTier(tier) && shipbubbleQuotesAvailable()) {
       return this.shipbubbleProvider;
+    }
+    if (isTshipPricingTier(tier) && tshipQuotesAvailable()) {
+      return this.tshipProvider;
     }
     return this.topshipProvider;
   }
