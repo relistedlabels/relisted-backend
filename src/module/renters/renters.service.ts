@@ -268,7 +268,7 @@ function returnLegStatusLabel(status: string): string {
     case 'IN_TRANSIT':
       return 'On the way back to the lister';
     case 'COMPLETED':
-      return 'Delivered to lister';
+      return 'Completed';
     case 'DISPATCH_FAILED':
       return 'Dispatch failed. Support will retry.';
     case 'CANCELLED':
