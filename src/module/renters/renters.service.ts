@@ -4440,13 +4440,16 @@ export class RentersService {
       order,
     );
 
-    const today = new Date();
-    const pickupDate = new Date(pickupWindow.start);
-    const isSameDay = today.toDateString() === pickupDate.toDateString();
-    const shouldBookImmediately = isSameDay;
+    const dispatchLookaheadMinutes = Number(
+      process.env.DISPATCH_CRON_LOOKAHEAD_MINUTES ?? 59,
+    );
+    const now = new Date();
+    const shouldBookImmediately =
+      pickupWindow.start.getTime() <=
+      addMinutes(now, dispatchLookaheadMinutes).getTime();
 
     console.log(
-      `[RentersService] Pickup window date: ${pickupDate.toDateString()}, today: ${today.toDateString()}, dispatch after submit: ${shouldBookImmediately}`,
+      `[RentersService] Return pickup window start=${pickupWindow.start.toISOString()}, lookahead=${dispatchLookaheadMinutes}m, dispatch after submit: ${shouldBookImmediately}`,
     );
 
     const pickupScheduledAt: Date | null = pickupWindow.start;
