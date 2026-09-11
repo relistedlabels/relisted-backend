@@ -7,6 +7,11 @@ import axios from 'axios';
 import http from 'http';
 import https from 'https';
 import { topshipSanitizeDescription } from './topship-description';
+import {
+  normalizeTopshipBookingDetail,
+  normalizeTopshipPickupRatePayload,
+  normalizeTopshipShipmentRatePayload,
+} from './topship-city';
 
 @Injectable()
 export class TopshipService {
@@ -15,6 +20,8 @@ export class TopshipService {
   private readonly apiKey: string;
   /** Hard cap per HTTP call so checkout summary cannot hang on a stalled upstream (axios default is no timeout). */
   private readonly httpTimeoutMs: number;
+  /** Shorter cap for get-pickup-rates / get-shipment-rate quote GETs (admin + checkout). */
+  private readonly quoteHttpTimeoutMs: number;
   /**
    * Reuse TCP/TLS across concurrent quote GETs and repeat checkout summaries.
    * Set TOPSHIP_QUOTE_CACHE_TTL_MS>0 to cache pickup/shipment rate arrays briefly across requests (same payload key).
@@ -44,22 +51,34 @@ export class TopshipService {
       1000,
       Number(process.env.TOPSHIP_HTTP_TIMEOUT_MS ?? 45_000),
     );
+    this.quoteHttpTimeoutMs = Math.max(
+      1000,
+      Number(
+        process.env.TOPSHIP_QUOTE_HTTP_TIMEOUT_MS ??
+          process.env.TOPSHIP_HTTP_TIMEOUT_MS ??
+          20_000,
+      ),
+    );
     this.quoteCacheTtlMs = Math.max(
       0,
       Number(process.env.TOPSHIP_QUOTE_CACHE_TTL_MS ?? 0),
     );
   }
 
+  quoteHttpTimeout(): number {
+    return this.quoteHttpTimeoutMs;
+  }
+
   private quoteAxiosOpts() {
     return {
-      timeout: this.httpTimeoutMs,
+      timeout: this.quoteHttpTimeoutMs,
       httpAgent: this.httpAgent,
       httpsAgent: this.httpsAgent,
     };
   }
 
   private wrapQuotedRates(
-    kind: 'pickup' | 'ship',
+    kind: 'pickup' | 'ship' | 'ship-linehaul',
     payload: unknown,
     compute: () => Promise<any[]>,
   ): Promise<any[]> {
@@ -128,6 +147,8 @@ export class TopshipService {
       ...data,
       shipment: data.shipment.map((row: any) => ({
         ...row,
+        senderDetail: normalizeTopshipBookingDetail(row?.senderDetail),
+        receiverDetail: normalizeTopshipBookingDetail(row?.receiverDetail),
         pricingTier: this.toGraphqlPricingTierType(row?.pricingTier),
         pickupPartner: this.toGraphqlPricingTierType(
           row?.pickupPartner ?? row?.pricingTier,
@@ -227,18 +248,21 @@ export class TopshipService {
   }
 
   async getShipmentRate(data: any): Promise<any[]> {
-    const requestSummary = this.summarizeShipmentRateRequest(data);
+    const normalized = normalizeTopshipShipmentRatePayload(data);
+    const requestSummary = this.summarizeShipmentRateRequest(normalized);
     this.logger.log(
       `Topship get-shipment-rate request: ${JSON.stringify(requestSummary)}`,
     );
     try {
-      const rows = await this.wrapQuotedRates('ship', data, async () => {
+      const rows = await this.wrapQuotedRates('ship', normalized, async () => {
         const response = await axios.get(`${this.baseUrl}/get-shipment-rate`, {
           headers: this.headers,
           ...this.quoteAxiosOpts(),
           params: {
             shipmentDetail:
-              typeof data === 'string' ? data : JSON.stringify(data),
+              typeof normalized === 'string'
+                ? normalized
+                : JSON.stringify(normalized),
           },
         });
         const rawList = Array.isArray(response.data) ? response.data : [];
@@ -258,7 +282,7 @@ export class TopshipService {
       this.logger.warn(
         `Topship get-shipment-rate failed: ${error?.message ?? error}`,
       );
-      this.handleError(error);
+      this.handleError(error, { quote: true });
     }
   }
 
@@ -277,21 +301,109 @@ export class TopshipService {
     }
   }
 
-  async getPickupRates(data: any) {
+  private summarizePickupRateRequest(data: unknown): Record<string, unknown> {
+    if (!data || typeof data !== 'object') {
+      return { payload: typeof data };
+    }
+    const d = data as Record<string, unknown>;
+    const sender = d.senderDetail as Record<string, unknown> | undefined;
+    return {
+      city: sender?.city ?? null,
+      state: sender?.state ?? null,
+      pickupDate: d.pickupDate ?? null,
+    };
+  }
+
+  private summarizePickupRateRows(rows: any[]): string {
+    return rows
+      .map((r) => {
+        const partner = String(r?.partner ?? '?').trim();
+        const charge = r?.pickupCharge != null ? Number(r.pickupCharge) : null;
+        return charge != null ? `${partner}:${charge}` : partner;
+      })
+      .join(', ');
+  }
+
+  /**
+   * City-to-city line-haul options (Dellyman, Fez, Budget, etc.).
+   * Used with {@link getPickupRates} when quoting Chowdeck/Glovo pickup partners.
+   */
+  async getLinehaulShipmentRates(data: any): Promise<any[]> {
+    const normalized = normalizeTopshipShipmentRatePayload(data);
+    const requestSummary = this.summarizeShipmentRateRequest(normalized);
+    this.logger.log(
+      `Topship get-shipment-rate (linehaul) request: ${JSON.stringify(requestSummary)}`,
+    );
     try {
-      const rows = await this.wrapQuotedRates('pickup', data, async () => {
+      const rows = await this.wrapQuotedRates(
+        'ship-linehaul',
+        normalized,
+        async () => {
+        const response = await axios.get(`${this.baseUrl}/get-shipment-rate`, {
+          headers: this.headers,
+          ...this.quoteAxiosOpts(),
+          params: {
+            shipmentDetail:
+              typeof normalized === 'string'
+                ? normalized
+                : JSON.stringify(normalized),
+          },
+        });
+        const rawList = Array.isArray(response.data) ? response.data : [];
+        const sorted = [...rawList].sort(
+          (a, b) => Number(a?.cost ?? Infinity) - Number(b?.cost ?? Infinity),
+        );
+        this.logger.log(
+          `Topship get-shipment-rate (linehaul) response: raw=${rawList.length}${sorted.length ? ` [${this.summarizeShipmentRateRows(sorted)}]` : ''}`,
+        );
+        return sorted;
+      },
+      );
+      return rows;
+    } catch (error: any) {
+      this.logger.warn(
+        `Topship get-shipment-rate (linehaul) failed: ${error?.message ?? error}`,
+      );
+      this.handleError(error, { quote: true });
+    }
+  }
+
+  async getPickupRates(data: any) {
+    const normalized = normalizeTopshipPickupRatePayload(data);
+    const requestSummary = this.summarizePickupRateRequest(normalized);
+    this.logger.log(
+      `Topship get-pickup-rates request: ${JSON.stringify(requestSummary)}`,
+    );
+    try {
+      const rows = await this.wrapQuotedRates('pickup', normalized, async () => {
         const response = await axios.get(`${this.baseUrl}/get-pickup-rates`, {
           headers: this.headers,
           ...this.quoteAxiosOpts(),
           params: {
-            input: typeof data === 'string' ? data : JSON.stringify(data),
+            input:
+              typeof normalized === 'string'
+                ? normalized
+                : JSON.stringify(normalized),
           },
         });
-        return this.filterPickupRates(response.data);
+        const rawList = Array.isArray(response.data) ? response.data : [];
+        const filtered = this.filterPickupRates(response.data);
+        this.logger.log(
+          `Topship get-pickup-rates response: raw=${rawList.length} filtered=${filtered.length}${filtered.length ? ` [${this.summarizePickupRateRows(filtered)}]` : ''}`,
+        );
+        if (rawList.length > 0 && filtered.length === 0) {
+          this.logger.warn(
+            `Topship get-pickup-rates returned ${rawList.length} row(s) but none matched chowdeck/glovo same-day after filter`,
+          );
+        }
+        return filtered;
       });
       return rows;
     } catch (error: any) {
-      this.handleError(error);
+      this.logger.warn(
+        `Topship get-pickup-rates failed: ${error?.message ?? error}`,
+      );
+      this.handleError(error, { quote: true });
     }
   }
 
@@ -432,14 +544,15 @@ export class TopshipService {
     }
   }
 
-  private handleError(error: any) {
+  private handleError(error: any, opts?: { quote?: boolean }): never {
+    const timeoutMs = opts?.quote ? this.quoteHttpTimeoutMs : this.httpTimeoutMs;
     const hint =
       error?.code === 'ECONNABORTED'
-        ? ` (timeout after ${this.httpTimeoutMs}ms, set TOPSHIP_HTTP_TIMEOUT_MS if needed)`
+        ? ` (timeout after ${timeoutMs}ms${opts?.quote ? ', set TOPSHIP_QUOTE_HTTP_TIMEOUT_MS if needed' : ', set TOPSHIP_HTTP_TIMEOUT_MS if needed'})`
         : '';
     const data = error.response?.data;
     console.error(
-      'Carrier API error:',
+      'Topship API error:',
       data || error.message,
       hint,
     );

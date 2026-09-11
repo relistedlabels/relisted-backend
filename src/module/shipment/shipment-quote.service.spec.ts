@@ -7,6 +7,7 @@ describe('ShipmentQuoteService.findTierInPreview', () => {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
   );
 
   const tiers = [
@@ -56,7 +57,30 @@ describe('ShipmentQuoteService.tierToShipmentCharges', () => {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
   );
+
+  it('maps tship tiers to rate id and carrier slug', () => {
+    const charges = service.tierToShipmentCharges({
+      pricingTier: 'tship:kwik',
+      name: 'Kwik (via TShip)',
+      shipmentChargeKobo: 350000,
+      pickupChargeKobo: 0,
+      vatChargeKobo: 0,
+      totalCostKobo: 350000,
+      deltaKobo: 0,
+      tshipRateId: ' RT-ABC123 ',
+    });
+
+    expect(charges).toEqual({
+      pricingTier: 'tship:kwik',
+      shipmentCharge: 350000,
+      pickupCharge: 0,
+      vatCharge: 0,
+      pickupId: 'RT-ABC123',
+      pickupPartner: 'kwik',
+    });
+  });
 
   it('maps shipbubble tiers to pickup token and courier id', () => {
     const charges = service.tierToShipmentCharges({
@@ -86,14 +110,16 @@ describe('ShipmentQuoteService.tierToShipmentCharges', () => {
       pricingTier: 'chowdeck',
       name: 'Chowdeck',
       shipmentChargeKobo: 300000,
-      pickupChargeKobo: 0,
-      vatChargeKobo: 22500,
-      totalCostKobo: 322500,
+      pickupChargeKobo: 50000,
+      vatChargeKobo: 26250,
+      totalCostKobo: 376250,
       deltaKobo: 0,
+      topshipPickupId: 'pickup-abc',
     });
 
-    expect(charges.pickupId).toBeNull();
+    expect(charges.pickupId).toBe('pickup-abc');
     expect(charges.pickupPartner).toBe('chowdeck');
+    expect(charges.pickupCharge).toBe(50000);
   });
 
   it('leaves pickup fields null for Relisted dispatch fallback tier', () => {

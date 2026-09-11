@@ -7,6 +7,9 @@ export const FULFILLMENT_CHOWDECK_RELAY = 'chowdeck_relay';
 /** Shipbubble: verified addresses, fetch_rates, and label booking. */
 export const FULFILLMENT_SHIPBUBBLE = 'shipbubble';
 
+/** Terminal Africa T-Ship: multi-carrier quotes and pickup booking. */
+export const FULFILLMENT_TSHIP = 'tship';
+
 /**
  * Comma-separated env `SHIPPING_FULFILLMENT_PROVIDERS` (case-insensitive).
  * Examples: `topship` (default), `chowdeck_relay`, `shipbubble`, `topship,chowdeck_relay,shipbubble`.
@@ -33,7 +36,7 @@ export function topshipApiConfigured(): boolean {
 
 /** Admin shipment rate preview (rebook / dispatch validation). */
 export function topshipAdminQuotesAvailable(): boolean {
-  return topshipApiConfigured();
+  return topshipFulfillmentEnabled() && topshipApiConfigured();
 }
 
 export function chowdeckRelayFulfillmentEnabled(): boolean {
@@ -59,4 +62,16 @@ export function shipbubbleApiConfigured(): boolean {
 
 export function shipbubbleQuotesAvailable(): boolean {
   return shipbubbleFulfillmentEnabled() && shipbubbleApiConfigured();
+}
+
+export function tshipFulfillmentEnabled(): boolean {
+  return parseShippingFulfillmentProviders().has(FULFILLMENT_TSHIP);
+}
+
+export function tshipApiConfigured(): boolean {
+  return Boolean(process.env.TERMINAL_API_KEY?.trim());
+}
+
+export function tshipQuotesAvailable(): boolean {
+  return tshipFulfillmentEnabled() && tshipApiConfigured();
 }
