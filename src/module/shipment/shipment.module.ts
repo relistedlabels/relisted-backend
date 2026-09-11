@@ -13,6 +13,7 @@ import { MailModule } from 'src/services/mail/mail.module';
 import { TopshipModule } from 'src/services/topship/topship.module';
 import { ChowdeckRelayModule } from 'src/services/chowdeck-relay/chowdeck-relay.module';
 import { ShipbubbleModule } from 'src/services/shipbubble/shipbubble.module';
+import { TshipModule } from 'src/services/tship/tship.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { ShipbubbleModule } from 'src/services/shipbubble/shipbubble.module';
     TopshipModule,
     ChowdeckRelayModule,
     ShipbubbleModule,
+    TshipModule,
   ],
   controllers: [ShipmentController],
   providers: [
