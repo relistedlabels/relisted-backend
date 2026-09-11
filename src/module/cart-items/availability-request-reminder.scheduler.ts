@@ -11,6 +11,10 @@ import {
   expiredListerReminderCopy,
   type AvailabilityReminderAction,
 } from './availability-request-reminder.util';
+import {
+  findActiveOrderProductRequesterPairs,
+  isAvailabilityRequestSupersededByActiveOrder,
+} from './fulfill-availability-for-checkout';
 
 const AVAILABILITY_REMINDER_CRON =
   process.env.AVAILABILITY_REQUEST_REMINDER_CRON?.trim() || '*/5 * * * *';
@@ -103,14 +107,31 @@ export class AvailabilityRequestReminderScheduler {
       },
       include: {
         product: { select: { name: true } },
-        requester: { select: { name: true } },
+        requester: { select: { id: true, name: true } },
         lister: { select: { id: true, name: true, email: true } },
       },
       take: 200,
       orderBy: { expiresAt: 'asc' },
     });
 
+    const activeOrderPairs = await findActiveOrderProductRequesterPairs(
+      this.prisma,
+      expired.map((request) => ({
+        productId: request.productId,
+        requesterId: request.requester?.id ?? '',
+      })),
+    );
+
     for (const request of expired) {
+      if (
+        isAvailabilityRequestSupersededByActiveOrder(activeOrderPairs, {
+          productId: request.productId,
+          requesterId: request.requester?.id ?? '',
+        })
+      ) {
+        continue;
+      }
+
       const actions = computeExpiredListerReminderActions(
         now,
         request.expiresAt,
