@@ -8,6 +8,7 @@ import { ChowdeckRelayService } from 'src/services/chowdeck-relay/chowdeck-relay
 import { NotificationService } from 'src/services/notification/notification.service';
 import { MailService } from 'src/services/mail/mail.service';
 import { ShipbubbleService } from 'src/services/shipbubble/shipbubble.service';
+import { TshipService } from 'src/services/tship/tship.service';
 import { OrderService } from './order.service';
 import { DEFAULT_CLEANING_FEE_NGN } from 'src/constants/rental-pricing';
 
@@ -577,6 +578,7 @@ describe('OrderService', () => {
         { provide: TopshipService, useValue: {} },
         { provide: ChowdeckRelayService, useValue: {} },
         { provide: ShipbubbleService, useValue: {} },
+        { provide: TshipService, useValue: {} },
         { provide: NotificationService, useValue: mockNotificationService },
         { provide: MailService, useValue: {} },
         {
