@@ -27,6 +27,10 @@ import {
 import { formatAdminReturnRequest } from '../order/admin-return-request.format';
 import { LIVE_SHOP_STATUSES, ADMIN_ACTIVE_LISTING_STATUSES } from '../product/product-list-scope.util';
 import {
+  applyProductListFilters,
+  type ProductListFilterInput,
+} from '../product/product-list-filters.util';
+import {
   MESSAGE_CHAT_UPLOADS_ORDER_BY,
   PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
 } from 'src/utils/product-attachment-upload-order';
@@ -2334,13 +2338,18 @@ export class AdminService {
       productVerified: true,
       status: ProductStatus.RENTED,
     };
-    const [total, pending, active, rented, rejected] = await Promise.all([
-      this.prisma.product.count(),
-      this.prisma.product.count({ where: { status: 'PENDING' } }),
-      this.prisma.product.count({ where: activeWhere }),
-      this.prisma.product.count({ where: rentedWhere }),
-      this.prisma.product.count({ where: { status: 'REJECTED' } }),
-    ]);
+    const inactiveWhere: Prisma.ProductWhereInput = {
+      status: ProductStatus.UNAVAILABLE,
+    };
+    const [total, pending, active, rented, rejected, inactive] =
+      await Promise.all([
+        this.prisma.product.count(),
+        this.prisma.product.count({ where: { status: 'PENDING' } }),
+        this.prisma.product.count({ where: activeWhere }),
+        this.prisma.product.count({ where: rentedWhere }),
+        this.prisma.product.count({ where: { status: 'REJECTED' } }),
+        this.prisma.product.count({ where: inactiveWhere }),
+      ]);
     return {
       success: true,
       data: {
@@ -2350,6 +2359,7 @@ export class AdminService {
         getRejectedProducts: { count: rejected },
         getActiveProducts: { count: active },
         getRentedProducts: { count: rented },
+        getInactiveProducts: { count: inactive },
       },
     };
   }
@@ -2606,10 +2616,17 @@ export class AdminService {
   }
 
   async getProductsByStatus(
-    status: 'PENDING' | 'REJECTED' | 'APPROVED' | 'ACTIVE' | 'RENTED',
+    status:
+      | 'PENDING'
+      | 'REJECTED'
+      | 'APPROVED'
+      | 'ACTIVE'
+      | 'RENTED'
+      | 'UNAVAILABLE',
     page: number,
     limit: number,
     search?: string,
+    filters?: ProductListFilterInput,
   ) {
     const skip = (page - 1) * limit;
     const where: Prisma.ProductWhereInput =
@@ -2626,15 +2643,26 @@ export class AdminService {
               status: ProductStatus.RENTED,
             }
           : { status: status as any };
+    applyProductListFilters(where, filters ?? {});
+
     const q = search?.trim();
     if (q) {
-      where.OR = [
-        { name: { contains: q, mode: 'insensitive' } },
-        { curator: { name: { contains: q, mode: 'insensitive' } } },
-        { curator: { email: { contains: q, mode: 'insensitive' } } },
-        { brand: { name: { contains: q, mode: 'insensitive' } } },
-        { category: { name: { contains: q, mode: 'insensitive' } } },
-      ];
+      const searchFilter: Prisma.ProductWhereInput = {
+        OR: [
+          { name: { contains: q, mode: 'insensitive' } },
+          { curator: { name: { contains: q, mode: 'insensitive' } } },
+          { curator: { email: { contains: q, mode: 'insensitive' } } },
+          { brand: { name: { contains: q, mode: 'insensitive' } } },
+          { category: { name: { contains: q, mode: 'insensitive' } } },
+        ],
+      };
+      if (!where.AND) {
+        where.AND = [searchFilter];
+      } else {
+        where.AND = Array.isArray(where.AND)
+          ? [...where.AND, searchFilter]
+          : [where.AND, searchFilter];
+      }
     }
     const [total, products] = await this.prisma.$transaction([
       this.prisma.product.count({ where }),
@@ -2868,6 +2896,40 @@ export class AdminService {
     return {
       success: true,
       message: 'Product deleted successfully',
+    };
+  }
+
+  async bulkUpdateProductAvailability(
+    productIds: string[],
+    isAvailable: boolean,
+  ) {
+    if (!productIds || productIds.length === 0) {
+      throw new BadRequestException('No product IDs provided');
+    }
+
+    const targetStatus = isAvailable
+      ? ProductStatus.AVAILABLE
+      : ProductStatus.UNAVAILABLE;
+
+    const allowedStatuses = isAvailable
+      ? [...ADMIN_ACTIVE_LISTING_STATUSES, ProductStatus.UNAVAILABLE, ProductStatus.REJECTED]
+      : ADMIN_ACTIVE_LISTING_STATUSES;
+
+    const result = await this.prisma.product.updateMany({
+      where: {
+        id: { in: productIds },
+        status: { in: allowedStatuses },
+      },
+      data: {
+        status: targetStatus,
+        isActive: isAvailable,
+      },
+    });
+
+    return {
+      success: true,
+      message: `${result.count} product${result.count !== 1 ? 's' : ''} ${isAvailable ? 'reactivated' : 'deactivated'} successfully`,
+      count: result.count,
     };
   }
 
