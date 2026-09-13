@@ -113,7 +113,7 @@ export function buildShippingEmailTrackingFields(
   return {
     trackingNumber:
       overrides?.trackingNumber ?? source.trackingId?.trim() ?? undefined,
-    trackingUrl: overrides?.trackingUrl ?? resolved.trackingUrl,
+    trackingUrl: overrides?.trackingUrl ?? source.providerTrackingUrl?.trim() ?? resolved.trackingUrl,
     trackingProviderLabel: resolved.trackingProviderLabel,
   };
 }
