@@ -2,6 +2,7 @@ import {
   resolveShipmentFulfillmentProvider,
   resolveShipmentTrackingForEmail,
   guessExternalTrackingUrlFromReference,
+  buildShippingEmailTrackingFields,
 } from './shipment-tracking-url.util';
 
 describe('shipment-tracking-url.util', () => {
@@ -52,5 +53,31 @@ describe('shipment-tracking-url.util', () => {
     expect(guessExternalTrackingUrlFromReference('TS-1')).toContain(
       'ship.topship.africa',
     );
+  });
+
+  it('prioritizes admin-provided tracking URL over default Topship', () => {
+    const result = buildShippingEmailTrackingFields(
+      {
+        pricingTier: 'glovo',
+        trackingId: 'RIDER-123',
+        providerTrackingUrl: null,
+      },
+      { trackingUrl: 'https://custom-tracker.com/ride/123' },
+    );
+    expect(result.trackingUrl).toBe('https://custom-tracker.com/ride/123');
+    expect(result.trackingNumber).toBe('RIDER-123');
+  });
+
+  it('prioritizes stored providerTrackingUrl over default Topship', () => {
+    const result = buildShippingEmailTrackingFields(
+      {
+        pricingTier: 'glovo',
+        trackingId: 'RIDER-123',
+        providerTrackingUrl: 'https://stored-custom.com/track/abc',
+      },
+      {},
+    );
+    expect(result.trackingUrl).toBe('https://stored-custom.com/track/abc');
+    expect(result.trackingNumber).toBe('RIDER-123');
   });
 });
