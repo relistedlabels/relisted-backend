@@ -85,6 +85,9 @@ export class NotificationService {
         case 'ORDER_CONFIRMED':
           await this.mailService.SendVerificationOrderMail(data);
           break;
+        case 'ORDER_CANCELLED':
+          await this.mailService.sendOrderCancelledMail(data);
+          break;
         case 'WITHDRAWAL_REQUEST':
         case 'WITHDRAWAL_APPROVED':
         case 'WITHDRAWAL_REJECTED':

@@ -103,7 +103,7 @@ export class AdminOrdersController {
   @ApiOperation({ summary: 'Cancel an order' })
   async cancelOrder(
     @Param('orderId') orderId: string,
-    @Body() data: { reason: string },
+    @Body() data: { reason: string; notifyParties?: boolean },
   ) {
     return this.adminService.cancelOrder(orderId, data);
   }

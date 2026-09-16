@@ -53,6 +53,9 @@ import {
 } from 'src/utils/dispatch-windows';
 import { formatRentalBoundaryDateLagos } from '../shipment/dispatch-window-format';
 import { buildRenterCheckoutEmailLinesFromOrder } from '../order/renter-checkout-confirmation-email.util';
+import { cancelConfirmedOrderInTransaction } from '../order/cancel-confirmed-order.util';
+import { notifyAdminsOrderCancelled } from '../order/order-cancel-admin-notify.util';
+import { ProductAvailabilityNotifyService } from 'src/services/product-availability-notify/product-availability-notify.service';
 
 @Injectable()
 export class AdminService {
@@ -60,6 +63,7 @@ export class AdminService {
     private prisma: PrismaService,
     private notificationService: NotificationService,
     private mailService: MailService,
+    private productAvailabilityNotifyService: ProductAvailabilityNotifyService,
   ) {}
 
   private getDisputeUniqueWhere(disputeId: string) {
@@ -3502,12 +3506,160 @@ export class AdminService {
     });
     return { success: true, data: order };
   }
-  async cancelOrder(orderId: string, data: { reason: string }) {
-    const order = await this.prisma.order.update({
+  async cancelOrder(
+    orderId: string,
+    data: { reason: string; notifyParties?: boolean },
+  ) {
+    const reason = data.reason?.trim();
+    if (!reason) {
+      throw new BadRequestException('A cancellation reason is required.');
+    }
+
+    const order = await this.prisma.order.findFirst({
       where: { orderId },
-      data: { status: 'CANCELLED' as any },
+      include: {
+        user: { select: { id: true, email: true, name: true } },
+        escrows: {
+          select: {
+            id: true,
+            status: true,
+            collateralAmount: true,
+            resaleReleasedAmount: true,
+            listerId: true,
+          },
+        },
+        shipments: {
+          select: { id: true, type: true, status: true },
+        },
+        orderListers: {
+          include: {
+            lister: { select: { id: true, email: true, name: true } },
+          },
+        },
+      },
     });
-    return { success: true, data: order };
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    const cancelledAt = new Date();
+    const result = await this.prisma.$transaction(async (tx) =>
+      cancelConfirmedOrderInTransaction(tx, order),
+    );
+
+    for (const productId of result.productIds) {
+      await this.productAvailabilityNotifyService
+        .notifyWatchersProductAvailable(productId)
+        .catch(() => undefined);
+    }
+
+    const notifyParties = data.notifyParties !== false;
+    const clientUrl = process.env.CLIENT_URL || '';
+    const refundFormatted = new Intl.NumberFormat('en-NG', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(result.refundAmount);
+
+    let renterNotified = false;
+    let listerNotified = false;
+    let adminNotified = 0;
+
+    if (notifyParties) {
+      if (order.user?.email?.trim()) {
+        await this.notificationService.createNotification({
+          userId: order.user.id,
+          title: 'Order cancelled',
+          message: `Order ${order.orderId} was cancelled. NGN ${refundFormatted} was returned to your wallet.`,
+          type: 'ORDER_CANCELLED',
+          metadata: {
+            orderId: order.id,
+            orderNumber: order.orderId,
+            reason,
+            refundAmount: result.refundAmount,
+          },
+          sendEmail: true,
+          emailData: {
+            email: order.user.email.trim(),
+            recipientName: order.user.name || 'Customer',
+            orderId: order.orderId,
+            reason,
+            orderLink: `${clientUrl}/renters/orders/${order.orderId}`,
+            refundAmountFormatted: refundFormatted,
+            isRenter: true,
+          },
+        });
+        renterNotified = true;
+      }
+
+      const listerIdsSeen = new Set<string>();
+      for (const ol of order.orderListers ?? []) {
+        const lister = ol.lister;
+        if (!lister?.id || listerIdsSeen.has(lister.id)) continue;
+        listerIdsSeen.add(lister.id);
+        if (!lister.email?.trim()) continue;
+
+        await this.notificationService.createNotification({
+          userId: lister.id,
+          title: 'Order cancelled',
+          message: `Order ${order.orderId} was cancelled by Relisted.`,
+          type: 'ORDER_CANCELLED',
+          metadata: {
+            orderId: order.id,
+            orderNumber: order.orderId,
+            reason,
+          },
+          sendEmail: true,
+          emailData: {
+            email: lister.email.trim(),
+            recipientName: lister.name || 'Lister',
+            orderId: order.orderId,
+            renterName: order.user?.name || 'Customer',
+            reason,
+            orderLink: `${clientUrl}/listers/orders/${order.id}`,
+            isRenter: false,
+          },
+        });
+        listerNotified = true;
+      }
+
+      const listerNames = (order.orderListers ?? [])
+        .map((ol) => ol.lister?.name?.trim())
+        .filter((name): name is string => !!name);
+
+      adminNotified = await notifyAdminsOrderCancelled(
+        this.prisma,
+        this.notificationService,
+        this.mailService,
+        {
+          orderId: order.id,
+          humanOrderId: order.orderId,
+          renterName: order.user?.name || 'Customer',
+          renterEmail: order.user?.email?.trim() || 'unknown',
+          listerNames,
+          refundAmount: result.refundAmount,
+          reason,
+          cancelledAt,
+        },
+      );
+    }
+
+    return {
+      success: true,
+      message: 'Order cancelled successfully',
+      data: {
+        orderId: order.orderId,
+        status: 'CANCELLED',
+        refundAmount: result.refundAmount,
+        refundStatus: 'Processed',
+        notificationsSent: {
+          renter: renterNotified,
+          lister: listerNotified,
+          admin: adminNotified > 0,
+          adminCount: adminNotified,
+        },
+        cancelledAt: cancelledAt.toISOString(),
+      },
+    };
   }
 
   /** Resend renter checkout confirmation email (email only, no in-app notification). */
