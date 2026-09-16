@@ -22,6 +22,8 @@ export const Auth_Otp_Token_Subject = {
     'You missed a request on Relisted',
   WITHDRAWAL_STATUS: 'Withdrawal Request Status',
   SHIPPING_UPDATE: 'Shipping Status Update',
+  ORDER_CANCELLED: 'Your order was cancelled',
+  ORDER_CANCELLED_LISTER: 'An order was cancelled',
 };
 
 export class registerDto {

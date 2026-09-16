@@ -3,6 +3,7 @@ import { AdminService } from './admin.service';
 import { PrismaService } from '../../services/prisma/prisma.service';
 import { NotificationService } from 'src/services/notification/notification.service';
 import { MailService } from 'src/services/mail/mail.service';
+import { ProductAvailabilityNotifyService } from 'src/services/product-availability-notify/product-availability-notify.service';
 import { BadRequestException } from '@nestjs/common';
 
 const mockPrisma: any = {
@@ -49,6 +50,10 @@ const mockMailService = {
   sendMail: jest.fn().mockResolvedValue(undefined),
 };
 
+const mockProductAvailabilityNotifyService = {
+  notifyWatchersProductAvailable: jest.fn().mockResolvedValue(undefined),
+};
+
 describe('AdminService', () => {
   let service: AdminService;
 
@@ -64,6 +69,10 @@ describe('AdminService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: NotificationService, useValue: mockNotificationService },
         { provide: MailService, useValue: mockMailService },
+        {
+          provide: ProductAvailabilityNotifyService,
+          useValue: mockProductAvailabilityNotifyService,
+        },
       ],
     }).compile();
 

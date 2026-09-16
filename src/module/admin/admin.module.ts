@@ -10,9 +10,10 @@ import { AdminProductsController } from './admin.products.controller';
 import { AdminClosetsController } from './admin.closets.controller';
 import { AdminAvailabilityRequestsController } from './admin.availability-requests.controller';
 import { PrismaModule } from '../../services/prisma/prisma.module';
+import { ProductAvailabilityNotifyModule } from '../../services/product-availability-notify/product-availability-notify.module';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, ProductAvailabilityNotifyModule],
   controllers: [
     AdminAnalyticsController,
     AdminUsersController,

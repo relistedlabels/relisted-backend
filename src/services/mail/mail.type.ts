@@ -693,3 +693,34 @@ export class AdminWithdrawalRequestAlertDto {
   @IsString()
   adminLink: string;
 }
+
+export class OrderCancelledDto {
+  @IsEmail()
+  email: string;
+
+  @IsString()
+  recipientName: string;
+
+  @IsString()
+  orderId: string;
+
+  @IsString()
+  @IsOptional()
+  renterName?: string;
+
+  @IsString()
+  @IsOptional()
+  reason?: string;
+
+  @IsString()
+  @IsOptional()
+  orderLink?: string;
+
+  @IsString()
+  @IsOptional()
+  refundAmountFormatted?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isRenter?: boolean;
+}

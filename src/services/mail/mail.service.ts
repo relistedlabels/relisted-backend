@@ -23,6 +23,7 @@ import {
   ListerReturnInTransitDto,
   ListerReturnDeliveredConfirmDto,
   ListerReturnWindowPassedDto,
+  OrderCancelledDto,
 } from './mail.type';
 import { Auth_Otp_Token_Subject } from '../../module/auth/auth.types';
 import { writeFile, mkdir } from 'fs/promises';
@@ -565,6 +566,26 @@ export class MailService {
     });
   }
 
+  async sendOrderCancelledMail(dto: OrderCancelledDto) {
+    const { email, isRenter, ...rest } = dto;
+    const subject = isRenter
+      ? Auth_Otp_Token_Subject.ORDER_CANCELLED
+      : Auth_Otp_Token_Subject.ORDER_CANCELLED_LISTER;
+    console.log(`[EMAIL] Sending order-cancelled to ${email}`);
+
+    if (this.devBypass) {
+      await this.handleDevBypass('order-cancelled', subject, rest, email);
+      return;
+    }
+
+    await this.deliverMail({
+      to: email,
+      template: './order-cancelled',
+      subject,
+      context: { ...rest, isRenter },
+    });
+  }
+
   async SendDisputeCreatedMail(dto: DisputeCreatedDto) {
     const { email, ...rest } = dto;
     console.log(`[EMAIL] Sending dispute-created to ${email}`);
@@ -993,6 +1014,97 @@ export class MailService {
     await this.deliverMail({
       to,
       subject: `🚨 Shipment cancelled: order ${humanOrderId}`,
+      html,
+    });
+  }
+
+  async sendAdminOrderCancelledAlert(dto: {
+    email: string;
+    adminName: string;
+    humanOrderId: string;
+    renterName: string;
+    renterEmail: string;
+    listerSummary: string;
+    refundAmountFormatted: string;
+    reason: string;
+    cancelledAt: string;
+    adminLink?: string;
+  }) {
+    const {
+      email,
+      adminName,
+      humanOrderId,
+      renterName,
+      renterEmail,
+      listerSummary,
+      refundAmountFormatted,
+      reason,
+      cancelledAt,
+      adminLink,
+    } = dto;
+
+    const safe = (s: string) => s.replace(/</g, '');
+    const cancelledLabel = formatDateTimeLagos(cancelledAt);
+
+    console.log(
+      `[EMAIL] Sending admin order cancelled alert to ${email} for order ${humanOrderId}`,
+    );
+
+    const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f6f7fb;padding:24px;">
+  <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
+    <div style="padding:18px 20px;background:#111827;color:#ffffff;">
+      <div style="font-size:14px;opacity:0.9;">Relisted Admin</div>
+      <div style="font-size:18px;font-weight:700;margin-top:6px;">Order cancelled</div>
+    </div>
+    <div style="padding:20px;">
+      <p style="margin:0 0 12px;color:#374151;">Hello ${safe(adminName || 'Admin')},</p>
+      <p style="margin:0 0 16px;color:#374151;line-height:1.5;">An order was cancelled from the admin panel. The renter was refunded to their wallet and both parties were notified.</p>
+      <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Order</div>
+            <div style="font-weight:600;">${safe(humanOrderId)}</div>
+          </div>
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Refund</div>
+            <div style="font-weight:600;">NGN ${safe(refundAmountFormatted)}</div>
+          </div>
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Renter</div>
+            <div style="font-weight:600;">${safe(renterName)}</div>
+            <div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(renterEmail)}</div>
+          </div>
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Lister(s)</div>
+            <div style="font-weight:600;">${safe(listerSummary)}</div>
+          </div>
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Cancelled at</div>
+            <div style="font-weight:600;">${safe(cancelledLabel)}</div>
+          </div>
+        </div>
+        <div style="margin-top:12px;">
+          <div style="font-size:12px;color:#6b7280;">Reason</div>
+          <div style="margin-top:6px;color:#111827;line-height:1.45;white-space:pre-wrap;">${safe(reason)}</div>
+        </div>
+      </div>
+      ${
+        adminLink
+          ? `<div style="margin-top:18px;"><a href="${adminLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">View orders in admin</a></div>`
+          : ''
+      }
+    </div>
+  </div>
+</div>`;
+
+    if (this.devBypass) {
+      await this.handleDevBypassHtml('Admin Order Cancelled Alert', html, email);
+      return;
+    }
+
+    await this.deliverMail({
+      to: email,
+      subject: `Order cancelled: ${humanOrderId}`,
       html,
     });
   }

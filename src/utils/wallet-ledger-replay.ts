@@ -63,6 +63,23 @@ export function applyWalletLedgerRow(
     return;
   }
 
+  if (note.includes('refund for cancelled order')) {
+    const grandTotal = Math.max(0, amt);
+    const collateralMatch = (row.note ?? '').match(
+      /Collateral released:\s*(\d+)/i,
+    );
+    const collateral = collateralMatch
+      ? parseInt(collateralMatch[1], 10)
+      : 0;
+    balances.availableBalance += grandTotal;
+    balances.mainBalance += grandTotal - collateral;
+    balances.collateralBalance = Math.max(
+      0,
+      balances.collateralBalance - collateral,
+    );
+    return;
+  }
+
   if (note.includes('collateral withheld after dispute resolution')) {
     const debit = Math.abs(amt);
     balances.mainBalance -= debit;
