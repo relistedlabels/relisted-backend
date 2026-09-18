@@ -8,6 +8,8 @@ import { NotificationService } from 'src/services/notification/notification.serv
 import { MailService } from 'src/services/mail/mail.service';
 import { TopshipService } from 'src/services/topship/topship.service';
 import { ShipbubbleAddressCacheService } from 'src/services/shipbubble/shipbubble-address-cache.service';
+import { CartService } from '../cart-items/cart-items.service';
+import { AuthOtpTokenService } from 'src/services/auth-otp-token/auth-otp-token.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { DisputeStatus, ItemCondition } from '@prisma/client';
 
@@ -143,6 +145,12 @@ const mockTopshipService = {};
 
 const mockShipbubbleAddressCache = {};
 
+const mockAuthOtpTokenService = {
+  createOtp: jest.fn().mockResolvedValue({ code: 'test-otp-token' }),
+  verifyOtp: jest.fn().mockResolvedValue(true),
+  findCode: jest.fn().mockResolvedValue({ email: 'req-1' }),
+};
+
 const mockUser = {
   id: 'renter-uuid',
   email: 'renter@test.com',
@@ -171,6 +179,8 @@ describe('RentersService', () => {
           provide: ShipbubbleAddressCacheService,
           useValue: mockShipbubbleAddressCache,
         },
+        { provide: CartService, useValue: {} },
+        { provide: AuthOtpTokenService, useValue: mockAuthOtpTokenService },
       ],
     }).compile();
     service = module.get<RentersService>(RentersService);
@@ -390,7 +400,7 @@ describe('RentersService', () => {
       });
 
       expect(result.success).toBe(true);
-      expect(result.data.status).toBe('pending_lister_approval');
+      expect(result.data.status).toBe('checking_availability');
     });
   });
 
