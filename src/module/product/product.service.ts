@@ -40,6 +40,7 @@ import {
   buildProductListScopeWhere,
   collectProductFilterOptions,
 } from './product-list-scope.util';
+import { ShopSettingsService } from '../shop-settings/shop-settings.service';
 
 @Injectable()
 export class ProductService {
@@ -48,6 +49,7 @@ export class ProductService {
     @Inject(forwardRef(() => ClosetService))
     private readonly closetService: ClosetService,
     private readonly mailService: MailService,
+    private readonly shopSettings: ShopSettingsService,
   ) {}
 
   async create(dto: CreateProductDto, user: userEntity) {
@@ -156,14 +158,22 @@ export class ProductService {
         }
       }
       if (brandId) {
-        const brandExists = await this.prisma.brand.findUnique({
-          where: { id: brandId },
-          select: { id: true },
+        const userRecord = await this.prisma.user.findUnique({
+          where: { id: user.id },
+          select: { role: true },
         });
-        if (!brandExists) {
-          throw new BadRequestException(
-            'Invalid brand selected. Please choose a brand from the list.',
-          );
+        if (userRecord?.role !== 'ADMIN') {
+          await this.shopSettings.assertBrandIsVisible(brandId);
+        } else {
+          const brandExists = await this.prisma.brand.findUnique({
+            where: { id: brandId },
+            select: { id: true },
+          });
+          if (!brandExists) {
+            throw new BadRequestException(
+              'Invalid brand selected. Please choose a brand from the list.',
+            );
+          }
         }
       }
 
@@ -1176,8 +1186,22 @@ export class ProductService {
         if (dto.brandId === null || dto.brandId === '') {
           updateData.brand = { disconnect: true };
         } else {
+          const nextBrandId = String(dto.brandId).trim();
+          if (!isAdmin) {
+            await this.shopSettings.assertBrandIsVisible(nextBrandId);
+          } else {
+            const brandExists = await this.prisma.brand.findUnique({
+              where: { id: nextBrandId },
+              select: { id: true },
+            });
+            if (!brandExists) {
+              throw new BadRequestException(
+                'Invalid brand selected. Please choose a brand from the list.',
+              );
+            }
+          }
           updateData.brand = {
-            connect: { id: String(dto.brandId).trim() },
+            connect: { id: nextBrandId },
           };
         }
       } else {

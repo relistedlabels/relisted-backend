@@ -20,6 +20,8 @@ import {
   userEntity,
   verifyEmailDto,
   verifyAdminMfaDto,
+  requestMagicLinkDto,
+  consumeMagicLinkDto,
 } from './auth.types';
 import { Auth, AuthUser } from './decorator/auth.decorator';
 
@@ -202,6 +204,18 @@ export class AuthController {
   })
   async resendOtp(@Body() dto: ResendVerificationEmail) {
     return await this.authService.resendOtpCode(dto);
+  }
+
+  @Post('magic-link/request')
+  @ApiOperation({ summary: 'Email a one-tap login link' })
+  requestMagicLink(@Body() dto: requestMagicLinkDto) {
+    return this.authService.requestMagicLink(dto.email, dto.redirect);
+  }
+
+  @Post('magic-link/consume')
+  @ApiOperation({ summary: 'Exchange magic link token for session JWT' })
+  consumeMagicLink(@Body() dto: consumeMagicLinkDto) {
+    return this.authService.consumeMagicLink(dto.code);
   }
 
   @Auth()

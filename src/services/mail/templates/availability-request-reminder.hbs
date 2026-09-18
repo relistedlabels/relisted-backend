@@ -55,12 +55,12 @@
             <p>Hello {{userName}},</p>
             {{#if (eq intent "rerequest")}}
             <p>{{listerName}} could not respond to your earlier {{#if (eq requestType 'purchase')}}purchase{{else}}rental{{/if}} request in time for <strong>{{productName}}</strong>.</p>
-            <p>If you still want this item, open your cart and tap <strong>Request approval</strong> again.</p>
+            <p>If you still want this item, open the listing and check availability again.</p>
             {{else}}
-            <p>{{listerName}} says <strong>{{productName}}</strong> may still be available for {{#if (eq requestType 'purchase')}}purchase{{else}}rental{{/if}}.</p>
-            <p>When you are ready, open your cart and send a new availability request.</p>
+            <p>{{listerName}} says <strong>{{productName}}</strong> may still be available.</p>
+            <p>Open the listing to pick a new delivery time and check availability.</p>
             {{/if}}
-            <p><a href="{{cartLink}}" class="button">Open cart</a></p>
+            <p><a href="{{listingLink}}" class="button">View listing</a></p>
         </div>
         <div class="footer">
             <p>&copy; {{currentYear}} Relisted. All rights reserved.</p>

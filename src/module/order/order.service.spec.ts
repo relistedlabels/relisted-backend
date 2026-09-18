@@ -656,8 +656,12 @@ describe('OrderService', () => {
         {
           id: 'req-1',
           cartItemId: 'ci-1',
+          rentalDays: 3,
+          totalPrice: 15000,
           startDate: new Date('2026-05-10T00:00:00.000Z'),
           endDate: new Date('2026-05-12T00:00:00.000Z'),
+          resaleWindowEnd: null,
+          createdAt: new Date(),
           outboundWindowStart: futureStart,
           outboundWindowEnd: futureEnd,
           returnWindowStart: returnStart,
@@ -678,7 +682,7 @@ describe('OrderService', () => {
       expect(mockPrisma.availabilityRequest.update).not.toHaveBeenCalled();
     });
 
-    it('expires request and rejects when dispatch window is stale', async () => {
+    it('refreshes stale dispatch windows instead of expiring the request', async () => {
       const pastStart = new Date(Date.now() - 2 * 86400000);
       const pastEnd = new Date(Date.now() - 86400000);
 
@@ -686,22 +690,43 @@ describe('OrderService', () => {
         {
           id: 'req-expired',
           cartItemId: 'ci-1',
+          rentalDays: 3,
+          totalPrice: 15000,
+          startDate: new Date('2026-05-10T00:00:00.000Z'),
+          endDate: new Date('2026-05-12T00:00:00.000Z'),
+          resaleWindowEnd: null,
+          createdAt: new Date(),
           outboundWindowStart: pastStart,
           outboundWindowEnd: pastEnd,
           returnWindowStart: pastStart,
           returnWindowEnd: pastEnd,
+          resaleWindowStart: null,
+          resaleWindowEnd: null,
         },
       ]);
-      mockPrisma.availabilityRequest.update.mockResolvedValue({});
-
-      await expect(
-        (service as any).cartItemsApprovedForCheckout(user.id, [cartItem]),
-      ).rejects.toThrow(BadRequestException);
-
-      expect(mockPrisma.availabilityRequest.update).toHaveBeenCalledWith({
-        where: { id: 'req-expired' },
-        data: { status: 'EXPIRED' },
+      mockPrisma.availabilityRequest.update.mockResolvedValue({
+        id: 'req-expired',
+        startDate: new Date(),
+        endDate: new Date(),
+        totalPrice: 15000,
       });
+
+      const result = await (service as any).cartItemsApprovedForCheckout(
+        user.id,
+        [cartItem],
+      );
+
+      expect(result).toHaveLength(1);
+      expect(result[0].dispatchRescheduled).toBe(true);
+      expect(mockPrisma.availabilityRequest.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'req-expired' },
+          data: expect.objectContaining({
+            outboundWindowStart: expect.any(Date),
+            outboundWindowEnd: expect.any(Date),
+          }),
+        }),
+      );
     });
 
     it('skips cart lines without an accepted availability request', async () => {

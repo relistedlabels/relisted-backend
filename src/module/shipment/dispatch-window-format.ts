@@ -129,7 +129,7 @@ export function formatRentalPeriodCompact(
   return `${sp.dayLabel} ${sp.month} – ${ep.dayLabel} ${ep.month}`;
 }
 
-/** Compact dispatch window for emails, e.g. 10th June, 10 am – 2 pm WAT */
+/** Compact dispatch window for emails, e.g. 10th June, 10 am – 2 pm */
 export function formatDispatchWindowCompact(
   start: string | Date,
   end: string | Date,
@@ -141,9 +141,9 @@ export function formatDispatchWindowCompact(
   const endTime = formatEmailTimeCompact(e);
   if (lagosCalendarKey(s) === lagosCalendarKey(e)) {
     const { dayLabel, month } = lagosDayMonth(s);
-    return `${dayLabel} ${month}, ${startTime} – ${endTime} WAT`;
+    return `${dayLabel} ${month}, ${startTime} – ${endTime}`;
   }
   const sp = lagosDayMonth(s);
   const ep = lagosDayMonth(e);
-  return `${sp.dayLabel} ${sp.month} ${startTime} – ${ep.dayLabel} ${ep.month} ${endTime} WAT`;
+  return `${sp.dayLabel} ${sp.month} ${startTime} – ${ep.dayLabel} ${ep.month} ${endTime}`;
 }

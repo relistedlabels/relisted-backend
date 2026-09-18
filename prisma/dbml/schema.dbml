@@ -6,6 +6,7 @@ Table User {
   id String [pk]
   email String [unique, not null]
   password String [not null]
+  passwordSetAt DateTime
   name String [not null]
   provider String
   isVerified Boolean [not null, default: false]
@@ -201,6 +202,7 @@ Table Product {
   productVerified Boolean [not null, default: false]
   quantity Int
   status ProductStatus [not null, default: 'PENDING']
+  deactivatedByBrandRemoval Boolean [not null, default: false]
   rejectionComment String
   material String
   collateralPrice Int
@@ -225,6 +227,7 @@ Table Brand {
   name String [not null]
   createdAt DateTime [default: `now()`, not null]
   userId String
+  isShopVisible Boolean [not null, default: false]
   isShopPrioritized Boolean [not null, default: false]
   shopPriorityOrder Int
   user User

@@ -929,14 +929,14 @@ export class ShipmentDispatchScheduler {
       minute: '2-digit',
       hour12: true,
     });
-    if (!end) return `${startLabel} (WAT)`;
+    if (!end) return startLabel;
     const endLabel = end.toLocaleString('en-NG', {
       timeZone: tz,
       hour: 'numeric',
       minute: '2-digit',
       hour12: true,
     });
-    return `${startLabel} to ${endLabel} (WAT)`;
+    return `${startLabel} to ${endLabel}`;
   }
 
   /**

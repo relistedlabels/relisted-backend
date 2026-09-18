@@ -15,6 +15,10 @@ import {
   findActiveOrderProductRequesterPairs,
   isAvailabilityRequestSupersededByActiveOrder,
 } from './fulfill-availability-for-checkout';
+import {
+  canListerActOnAvailabilityRequest,
+  isBusinessExpired,
+} from 'src/utils/availability-request-expiry.util';
 
 const AVAILABILITY_REMINDER_CRON =
   process.env.AVAILABILITY_REQUEST_REMINDER_CRON?.trim() || '*/5 * * * *';
@@ -128,6 +132,12 @@ export class AvailabilityRequestReminderScheduler {
           productId: request.productId,
           requesterId: request.requester?.id ?? '',
         })
+      ) {
+        continue;
+      }
+      if (
+        isBusinessExpired(request, now) ||
+        !canListerActOnAvailabilityRequest(request, now)
       ) {
         continue;
       }

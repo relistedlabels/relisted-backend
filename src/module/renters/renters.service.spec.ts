@@ -46,6 +46,9 @@ const mockPrisma = {
   virtualAccounts: {
     findMany: jest.fn(),
   },
+  virtualAccount: {
+    findFirst: jest.fn(),
+  },
   bankAccount: {
     findMany: jest.fn(),
     findFirst: jest.fn(),
@@ -270,18 +273,23 @@ describe('RentersService', () => {
       expect(result.success).toBe(true);
     });
 
-    it('should create virtual account when BVN is provided', async () => {
+    it('should create virtual account when user has none', async () => {
       mockPrisma.user.update.mockResolvedValue({
         id: mockUser.id,
         name: 'Test',
         virtualAccounts: [],
-        profile: { bvn: '12345678901' },
+        profile: {},
+      });
+      mockPrisma.virtualAccount.findFirst.mockResolvedValue(null);
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: mockUser.id,
+        profile: {},
       });
       mockWemaService.createAccount.mockResolvedValue({
         vaNumber: '6980000000',
       });
 
-      await service.updateProfile(mockUser.id, { bvn: '12345678901' });
+      await service.updateProfile(mockUser.id, { fullName: 'Test' });
 
       expect(mockWemaService.createAccount).toHaveBeenCalled();
     });
@@ -1160,14 +1168,12 @@ describe('RentersService', () => {
 
       expect(result.success).toBe(true);
       expect(result.data.verifications.validId.status).toBe('verified');
-      expect(result.data.verifications.bvn.status).toBe('verified');
     });
 
     it('should return not_verified when no id document uploaded', async () => {
       mockPrisma.profile.findUnique.mockResolvedValue({
         userId: mockUser.id,
         idDocumentUpload: null,
-        bvn: null,
         idDocumentStatus: 'NOT_UPLOADED',
       });
 
@@ -1175,7 +1181,6 @@ describe('RentersService', () => {
 
       expect(result.success).toBe(true);
       expect(result.data.verifications.validId.status).toBe('not_verified');
-      expect(result.data.verifications.bvn.status).toBe('not_verified');
     });
   });
 });

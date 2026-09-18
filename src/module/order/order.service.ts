@@ -72,6 +72,8 @@ import {
   ReturnPickupAddressDto,
 } from './dto/create-order.dto';
 import {
+  applyRangeMapToData,
+  availabilityRequestWindowFieldMap,
   DispatchWindowRange,
   DispatchWindowRangeMap,
   DispatchWindowType,
@@ -82,6 +84,9 @@ import {
   mergeDispatchWindowRanges,
   parseDispatchWindowFromInput,
 } from 'src/utils/dispatch-windows';
+import {
+  refreshAvailabilityDispatchForCheckout,
+} from 'src/utils/availability-request-expiry.util';
 import {
   isRelistedDispatchShippingTier,
   RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO,
@@ -201,8 +206,11 @@ export class OrderService {
       select: {
         id: true,
         cartItemId: true,
+        rentalDays: true,
+        totalPrice: true,
         startDate: true,
         endDate: true,
+        createdAt: true,
         outboundWindowStart: true,
         outboundWindowEnd: true,
         returnWindowStart: true,
@@ -218,18 +226,49 @@ export class OrderService {
     for (const item of items) {
       const request = acceptedMap.get(item.id);
       if (!request) continue;
-      const dispatchWindows = this.buildDispatchWindowRangeMap(request);
-      await this.ensureAvailabilityRequestWindowActive(
-        item,
-        request,
-        dispatchWindows,
+
+      const listingType = item.product?.listingType;
+      const isResaleItem =
+        item.days === 0 &&
+        (listingType === 'RESALE' || listingType === 'RENT_OR_RESALE');
+      const unitPrice = isResaleItem
+        ? Number(item.product?.resalePrice ?? request.totalPrice ?? 0)
+        : Number(item.product?.dailyPrice ?? 0);
+
+      const refresh = refreshAvailabilityDispatchForCheckout(
+        {
+          ...(request as any),
+          rentalDays: request.rentalDays ?? item.days ?? 0,
+        },
+        unitPrice,
         now,
       );
+
+      let activeRequest = request;
+      if (refresh.rescheduled) {
+        const windowData = applyRangeMapToData(
+          refresh.map,
+          availabilityRequestWindowFieldMap,
+        );
+        activeRequest = await this.prisma.availabilityRequest.update({
+          where: { id: request.id },
+          data: {
+            startDate: refresh.startDate,
+            endDate: refresh.endDate,
+            totalPrice: refresh.totalPrice,
+            ...windowData,
+          },
+        });
+      }
+
       enriched.push({
         ...item,
-        startDate: request.startDate,
-        endDate: request.endDate,
-        dispatchWindows,
+        startDate: activeRequest.startDate,
+        endDate: activeRequest.endDate,
+        totalPrice: activeRequest.totalPrice,
+        dispatchWindows: refresh.map,
+        dispatchRescheduled: refresh.rescheduled,
+        dispatchRescheduleSummary: refresh.rescheduledOutboundSummary,
       });
     }
 
@@ -256,44 +295,6 @@ export class OrderService {
     assign('RESALE', request.resaleWindowStart, request.resaleWindowEnd);
 
     return map;
-  }
-
-  private async ensureAvailabilityRequestWindowActive(
-    item: any,
-    request: any,
-    dispatchWindows: DispatchWindowRangeMap,
-    now: Date,
-  ) {
-    const listingType = item.product?.listingType;
-    const isRentalItem =
-      item.days > 0 &&
-      (listingType === 'RENTAL' || listingType === 'RENT_OR_RESALE');
-    const isResaleItem =
-      item.days === 0 &&
-      (listingType === 'RESALE' || listingType === 'RENT_OR_RESALE');
-
-    const required: DispatchWindowType[] = [];
-    if (isRentalItem) {
-      required.push('OUTBOUND', 'RETURN');
-    }
-    if (isResaleItem) {
-      required.push('RESALE');
-    }
-
-    for (const type of required) {
-      const window = dispatchWindows[type];
-      if (!window || isWindowExpired(window, now)) {
-        await this.prisma.availabilityRequest.update({
-          where: { id: request.id },
-          data: { status: 'EXPIRED' },
-        });
-        bad(
-          `The approved ${type.toLowerCase()} dispatch window for ${
-            item.product?.name || 'this item'
-          } has expired. Please submit a new availability request.`,
-        );
-      }
-    }
   }
 
   private resolveDispatchWindow(
@@ -1981,10 +1982,20 @@ export class OrderService {
     const baselineGrandTotal =
       itemTotalsBase + baselineShippingTotal + globalServiceChargeTotal + globalVatTotal;
 
+    const dispatchReschedules = eligibleItems
+      .filter((item) => item.dispatchRescheduled)
+      .map((item) => ({
+        cartItemId: item.id,
+        productName: item.product?.name,
+        outboundSummary: item.dispatchRescheduleSummary,
+        priceUnchanged: true,
+      }));
+
     return {
       success: true,
       message: 'Checkout summary calculated successfully',
       data: {
+        dispatchReschedules,
         summary: {
           rentalTotal: globalRentalTotal,
           collateralTotal: globalCollateralTotal,

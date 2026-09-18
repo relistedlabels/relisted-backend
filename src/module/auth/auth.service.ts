@@ -34,26 +34,60 @@ export class AuthService {
 
   async register(dto: registerDto) {
     const { name, email, password } = dto;
+    const normalizedEmail = email.trim().toLowerCase();
     const role =
       dto.role === Role.RENTER || dto.role === Role.LISTER
         ? dto.role
         : Role.RENTER;
 
+    const hashedPassword = await argon2.hash(password);
+    const existing = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
     let newUser;
-    try {
-      newUser = await this.prisma.user.create({
+    if (existing) {
+      if (existing.provider !== 'guest') {
+        bad('email already exists');
+      }
+      newUser = await this.prisma.user.update({
+        where: { id: existing.id },
         data: {
           name,
-          email,
-          password: await argon2.hash(password),
+          password: hashedPassword,
+          passwordSetAt: new Date(),
           role,
+          provider: null,
+          isVerified: false,
         },
       });
-    } catch (error) {
-      if (error.code === 'P2002') bad('email already exists');
-      throw error;
+    } else {
+      try {
+        newUser = await this.prisma.user.create({
+          data: {
+            name,
+            email: normalizedEmail,
+            password: hashedPassword,
+            passwordSetAt: new Date(),
+            role,
+          },
+        });
+      } catch (error) {
+        if (error.code === 'P2002') bad('email already exists');
+        throw error;
+      }
     }
 
+    await this.sendVerificationEmail(normalizedEmail, name, newUser.id);
+
+    return { message: 'User successfully registered' };
+  }
+
+  private async sendVerificationEmail(
+    email: string,
+    name: string,
+    userId: string,
+  ) {
     const expiryMinutes = 60;
     const expiry = addMinutes(Date.now(), expiryMinutes);
 
@@ -67,7 +101,7 @@ export class AuthService {
     const tokenRecord = await this.authOtpTokenService.createOtp({
       email,
       subject: Auth_Otp_Token_Subject.Verify_Email,
-      userId: newUser.id,
+      userId,
       expiry,
       type: 'TOKEN',
     });
@@ -75,17 +109,14 @@ export class AuthService {
     const frontendUrl = process.env.CLIENT_URL || 'http://localhost:3000';
     const verificationLink = `${frontendUrl}/auth/verify-email?token=${tokenRecord.code}`;
 
-    const mailPayload = {
+    this.eventEmitter.emit('verification_mail', {
       email,
       code: tokenRecord.code,
       name,
       year: new Date().getFullYear(),
       verificationLink,
       expiryMinutes,
-    };
-    this.eventEmitter.emit('verification_mail', mailPayload);
-
-    return { message: 'User successfully registered' };
+    });
   }
 
   // login in user
@@ -99,8 +130,22 @@ export class AuthService {
     });
     mustHave(user, 'invalid credentials', 401);
 
+    if (user.provider === 'guest' && !user.passwordSetAt) {
+      bad(
+        'This account uses email login links. Use “Email me a login link” on the sign-in page.',
+        401,
+      );
+    }
+
     const matched = await argon2.verify(user.password, password);
     if (!matched) bad('invalid credential');
+
+    if (!user.passwordSetAt && user.provider !== 'guest') {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { passwordSetAt: user.createdAt ?? new Date() },
+      });
+    }
 
     if (!user.isVerified) {
       const existingToken = await this.prisma.authOtpToken.findFirst({
@@ -327,6 +372,142 @@ export class AuthService {
     };
   }
 
+  /** One-tap login URL (token in query string; redirect path validated on the client). */
+  async buildMagicLoginUrl(
+    userId: string,
+    email: string,
+    redirectPath: string,
+    expiryMinutes = 60,
+  ): Promise<string> {
+    await this.prisma.authOtpToken.deleteMany({
+      where: {
+        userId,
+        subject: Auth_Otp_Token_Subject.MAGIC_LINK_LOGIN,
+      },
+    });
+
+    const expiry = addMinutes(new Date(), expiryMinutes);
+    const tokenRecord = await this.authOtpTokenService.createOtp({
+      userId,
+      email,
+      subject: Auth_Otp_Token_Subject.MAGIC_LINK_LOGIN,
+      expiry,
+      type: 'TOKEN',
+    });
+
+    const frontendUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+    const redirect = redirectPath.startsWith('/')
+      ? redirectPath
+      : `/${redirectPath}`;
+
+    return `${frontendUrl}/auth/magic-link?token=${tokenRecord.code}&redirect=${encodeURIComponent(redirect)}`;
+  }
+
+  async requestMagicLink(email: string, redirect?: string) {
+    const normalized = email.trim().toLowerCase();
+    const user = await this.prisma.user.findUnique({
+      where: { email: normalized },
+    });
+
+    if (!user) {
+      return {
+        success: true,
+        message:
+          'If an account with that email exists, a login link has been sent.',
+      };
+    }
+
+    const recent = await this.prisma.authOtpToken.findFirst({
+      where: {
+        userId: user.id,
+        subject: Auth_Otp_Token_Subject.MAGIC_LINK_LOGIN,
+        createdAt: { gte: subMinutes(new Date(), 1) },
+      },
+    });
+    if (recent) {
+      return {
+        success: true,
+        message:
+          'If an account with that email exists, a login link has been sent.',
+      };
+    }
+
+    const safeRedirect =
+      redirect && redirect.startsWith('/') && !redirect.startsWith('//')
+        ? redirect
+        : '/shop';
+
+    const magicLink = await this.buildMagicLoginUrl(
+      user.id,
+      user.email,
+      safeRedirect,
+      60,
+    );
+
+    this.eventEmitter.emit('magic_link_mail', {
+      email: user.email,
+      name: user.name,
+      year: new Date().getFullYear(),
+      magicLink,
+      expiryMinutes: 60,
+    });
+
+    return {
+      success: true,
+      message:
+        'If an account with that email exists, a login link has been sent.',
+    };
+  }
+
+  async consumeMagicLink(code: string) {
+    const otp = await this.authOtpTokenService.findCode(code.trim());
+    if (!otp) bad('This link is invalid or has expired');
+
+    const valid = await this.authOtpTokenService.verifyOtp(
+      {
+        code: otp.code,
+        subject: Auth_Otp_Token_Subject.MAGIC_LINK_LOGIN,
+      },
+      true,
+    );
+    if (!valid) bad('This link is invalid or has expired');
+
+    let user = await this.prisma.user.findUnique({
+      where: { id: otp.userId },
+    });
+    if (!user) bad('This link is invalid or has expired');
+
+    if (!user.isVerified) {
+      user = await this.prisma.user.update({
+        where: { id: user.id },
+        data: { isVerified: true },
+      });
+    }
+
+    const tokenVersion = user.tokenVersion ?? 0;
+    const token = await this.jwtService.signAsync({
+      sub: user.id,
+      email: user.email,
+      v: tokenVersion,
+      role: user.role,
+    });
+    await this.userActivity.recordLogin(user.id);
+
+    return {
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        isVerified: user.isVerified,
+        passwordSetAt: user.passwordSetAt,
+      },
+      requiresMfa: false,
+      passwordNotSet: user.passwordSetAt == null,
+    };
+  }
+
   // forget password - send password reset OTP via email
   async forgotPassword(dto: forgotPasswordDto) {
     const { email } = dto;
@@ -488,6 +669,7 @@ export class AuthService {
       },
       data: {
         password: await argon2.hash(password),
+        passwordSetAt: new Date(),
       },
     });
     // delete the token

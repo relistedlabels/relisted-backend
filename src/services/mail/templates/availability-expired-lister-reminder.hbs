@@ -61,18 +61,18 @@
 <body>
     <div class="container">
         <div class="header">
-            <h2>{{#if (eq requestType 'purchase')}}You missed a purchase request{{else}}You missed a rental request{{/if}}</h2>
+            <h2>{{#if (eq requestType 'purchase')}}Purchase request waiting on you{{else}}Rental request waiting on you{{/if}}</h2>
         </div>
         <div class="content">
             <p>Hello {{listerName}},</p>
-            <p><strong>{{renterName}}</strong> wanted to {{#if (eq requestType 'purchase')}}buy{{else}}rent{{/if}} <strong>{{productName}}</strong>, but the request expired before you responded.</p>
-            <p>If you still want to {{#if (eq requestType 'purchase')}}sell{{else}}rent out{{/if}} this item, open the request and tell them you are available.</p>
+            <p><strong>{{renterName}}</strong> is still waiting to {{#if (eq requestType 'purchase')}}buy{{else}}rent{{/if}} <strong>{{productName}}</strong>.</p>
+            <p>You can still approve the request from your dashboard while their dates are valid.</p>
             <div class="steps">
-                <strong>How to notify them</strong>
+                <strong>What to do</strong>
                 <ol>
                     <li>Open the request using the button below.</li>
-                    <li>Use <strong>Notify renter item is available</strong> on the request.</li>
-                    <li>They can then send a new request and you can approve.</li>
+                    <li>Review the dates and tap <strong>Approve</strong> if the item is available.</li>
+                    <li>The renter will get a link to complete checkout.</li>
                 </ol>
             </div>
             <p><a href="{{orderLink}}" class="button">View request</a></p>

@@ -6,5 +6,6 @@ import { AvailabilityRequestReminderScheduler } from './availability-request-rem
 @Module({
   controllers: [CartItemsController],
   providers: [CartService, AvailabilityRequestReminderScheduler],
+  exports: [CartService],
 })
 export class CartItemsModule {}

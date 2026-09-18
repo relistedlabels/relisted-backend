@@ -13,6 +13,10 @@ import { resolveRequiredDispatchWindowTypes } from './cart-item-dispatch-windows
 import { withdrawAvailabilityRequestsForCartItem } from './withdraw-availability-for-cart-item';
 import { assertNoOpenAvailabilityRequestForProduct } from 'src/utils/assert-no-open-availability-for-product';
 import {
+  AVAILABILITY_RESPONSE_SLA_MINUTES,
+  isBusinessExpired,
+} from 'src/utils/availability-request-expiry.util';
+import {
   DispatchWindowRangeMap,
   DispatchWindowType,
   DispatchWindowsInput,
@@ -247,9 +251,15 @@ export class CartService {
     });
 
     if (existingExpired) {
-      // Reactivate expired request - reset to PENDING with new timer
+      if (isBusinessExpired(existingExpired)) {
+        bad(
+          'These dates have passed. Update your dates and request availability again.',
+        );
+      }
+
+      // Reactivate expired request - reset to PENDING with new response SLA
       const now = new Date();
-      const expiresAt = addMinutes(now, 15);
+      const expiresAt = addMinutes(now, AVAILABILITY_RESPONSE_SLA_MINUTES);
 
       const hasManualDispatchWindows = Boolean(
         dispatchWindowsInput &&
@@ -366,7 +376,7 @@ export class CartService {
 
     // start 15 minutes countdown NOW
     const now = new Date();
-    const expiresAt = addMinutes(now, 15);
+    const expiresAt = addMinutes(now, AVAILABILITY_RESPONSE_SLA_MINUTES);
 
     const rentalContext = this.rentalContextForCartAvailability(
       cartItem,
