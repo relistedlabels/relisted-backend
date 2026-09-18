@@ -24,6 +24,9 @@ export const Auth_Otp_Token_Subject = {
   SHIPPING_UPDATE: 'Shipping Status Update',
   ORDER_CANCELLED: 'Your order was cancelled',
   ORDER_CANCELLED_LISTER: 'An order was cancelled',
+  AVAILABILITY_STATUS: 'Availability request status',
+  LISTER_AVAILABILITY_RESPONSE: 'Lister availability response',
+  MAGIC_LINK_LOGIN: 'Sign in to Relisted',
 };
 
 export class registerDto {
@@ -91,6 +94,23 @@ export class ResendVerificationEmail {
   @ApiProperty()
   @IsEmail()
   email: string;
+}
+
+export class requestMagicLinkDto {
+  @ApiProperty()
+  @IsEmail()
+  email: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  redirect?: string;
+}
+
+export class consumeMagicLinkDto {
+  @ApiProperty()
+  @IsString()
+  code: string;
 }
 
 export class verifyAdminMfaDto {

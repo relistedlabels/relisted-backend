@@ -39,16 +39,18 @@ export const DISPATCH_WINDOW_START_HOUR = Number(
   process.env.DISPATCH_WINDOW_START_HOUR ?? 8,
 );
 export const DISPATCH_WINDOW_END_HOUR = Number(
-  process.env.DISPATCH_WINDOW_END_HOUR ?? 14,
+  process.env.DISPATCH_WINDOW_END_HOUR ?? 18,
 );
-/** Renter return pickup slots (UI + booking); defaults to 8am–5pm Lagos. */
+/** Renter return pickup slots (UI + booking); defaults to 8am–6pm Lagos. */
 export const RETURN_DISPATCH_WINDOW_START_HOUR = Number(
   process.env.RETURN_DISPATCH_WINDOW_START_HOUR ??
     process.env.DISPATCH_WINDOW_START_HOUR ??
     8,
 );
 export const RETURN_DISPATCH_WINDOW_END_HOUR = Number(
-  process.env.RETURN_DISPATCH_WINDOW_END_HOUR ?? 17,
+  process.env.RETURN_DISPATCH_WINDOW_END_HOUR ??
+    process.env.DISPATCH_WINDOW_END_HOUR ??
+    18,
 );
 
 const LAGOS_TZ = 'Africa/Lagos';
@@ -389,7 +391,7 @@ function returnWindowOptionFromRange(range: DispatchWindowRange): ReturnPickupWi
   };
 }
 
-/** Hourly return pickup slots on one Lagos calendar day (8am–5pm, 60-minute windows). */
+/** Hourly return pickup slots on one Lagos calendar day (60-minute windows). */
 export function listReturnPickupSlotsForDay(
   scheduledDay: string,
   now = new Date(),
@@ -460,7 +462,7 @@ export function buildReturnPickupWindowOptions(
   };
 }
 
-/** Validate renter-selected return window: same scheduled day, 8am–5pm, future, known slot. */
+/** Validate renter-selected return window: same scheduled day, within dispatch hours, future, known slot. */
 export function parseReturnPickupWindowChoice(
   choice: DispatchWindowInput,
   scheduledDay: string,

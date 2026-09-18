@@ -5,6 +5,7 @@ import { RoleGuard } from '../auth/guard/roleGuard';
 import { Roles } from '../auth/decorator/roles.decorator';
 import { Role } from '@prisma/client';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { CreateRentalRequestDto } from './dto/create-rental-request.dto';
 
 @ApiTags('Renters Rental Requests')
 @ApiBearerAuth('bearer')
@@ -16,8 +17,11 @@ export class RentersRentalRequestsController {
 
   @Post()
   @ApiOperation({ summary: 'Create rental request' })
-  async createRentalRequest(@Request() req, @Body() data: any) {
-      return this.rentersService.createRentalRequest(req.user.id, data);
+  async createRentalRequest(
+    @Request() req,
+    @Body() data: CreateRentalRequestDto,
+  ) {
+    return this.rentersService.createRentalRequest(req.user.id, data);
   }
 
   @Get()

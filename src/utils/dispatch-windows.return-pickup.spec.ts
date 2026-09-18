@@ -87,12 +87,14 @@ describe('return pickup window selection', () => {
   });
 
   describe('listReturnPickupSlotsForDay', () => {
-    it('returns nine hourly slots (8am–5pm) on a future Lagos day', () => {
+    it('returns hourly slots through the Lagos dispatch cutoff on a future day', () => {
       const slots = listReturnPickupSlotsForDay(
         '2026-08-10',
         new Date('2026-08-01T10:00:00+01:00'),
       );
-      expect(slots).toHaveLength(9);
+      expect(slots).toHaveLength(
+        RETURN_DISPATCH_WINDOW_END_HOUR - RETURN_DISPATCH_WINDOW_START_HOUR,
+      );
       expect(differenceInMinutes(slots[0].end, slots[0].start)).toBe(
         MIN_DISPATCH_WINDOW_MINUTES,
       );
@@ -104,7 +106,7 @@ describe('return pickup window selection', () => {
       expect(Number.parseInt(firstHour, 10)).toBe(
         RETURN_DISPATCH_WINDOW_START_HOUR,
       );
-      const lastEndHour = slots[8].end.toLocaleString('en-US', {
+      const lastEndHour = slots[slots.length - 1].end.toLocaleString('en-US', {
         timeZone: 'Africa/Lagos',
         hour: 'numeric',
         hour12: false,
@@ -134,12 +136,12 @@ describe('return pickup window selection', () => {
       expect(startHours).not.toContain(9);
       expect(startHours).not.toContain(10);
       expect(startHours).toContain(11);
-      expect(startHours).toEqual([11, 12, 13, 14, 15, 16]);
+      expect(startHours).toEqual([11, 12, 13, 14, 15, 16, 17]);
     });
 
     it('returns only the in-progress last slot when near end of day', () => {
       jest.useFakeTimers();
-      jest.setSystemTime(new Date('2026-06-15T16:30:00+01:00'));
+      jest.setSystemTime(new Date('2026-06-15T17:30:00+01:00'));
 
       const slots = listReturnPickupSlotsForDay('2026-06-15');
       expect(slots).toHaveLength(1);
@@ -151,12 +153,12 @@ describe('return pickup window selection', () => {
         }),
         10,
       );
-      expect(startHour).toBe(16);
+      expect(startHour).toBe(17);
     });
 
     it('returns no slots after the last window has ended', () => {
       jest.useFakeTimers();
-      jest.setSystemTime(new Date('2026-06-15T17:30:00+01:00'));
+      jest.setSystemTime(new Date('2026-06-15T18:30:00+01:00'));
 
       const slots = listReturnPickupSlotsForDay('2026-06-15');
       expect(slots).toHaveLength(0);
@@ -182,9 +184,9 @@ describe('return pickup window selection', () => {
       expect(differenceInMinutes(end, start)).toBe(MIN_DISPATCH_WINDOW_MINUTES);
     });
 
-    it('rolls to the next day at 8am when called after 5pm', () => {
+    it('rolls to the next day at 8am when called after the dispatch cutoff', () => {
       jest.useFakeTimers();
-      jest.setSystemTime(new Date('2026-06-15T18:00:00+01:00'));
+      jest.setSystemTime(new Date('2026-06-15T19:00:00+01:00'));
 
       const { start, end } = buildDefaultReturnDispatchWindow(new Date());
       expect(getLagosCalendarDateKey(start)).toBe('2026-06-16');

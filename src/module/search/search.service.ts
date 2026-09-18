@@ -68,6 +68,7 @@ export class SearchService {
       const brands = await this.prisma.brand.findMany({
         where: {
           name: { contains: query, mode: 'insensitive' },
+          isShopVisible: true,
         },
         take: limit,
       });

@@ -65,6 +65,7 @@ describe('AuthService', () => {
   describe('register', () => {
     it('creates user, sends verification email, and returns success message', async () => {
       (argon2.hash as jest.Mock).mockResolvedValue('hashed-password');
+      mockPrisma.user.findUnique.mockResolvedValue(null);
       mockPrisma.user.create.mockResolvedValue({
         id: 'user-1',
         email: 'renter@test.com',
@@ -108,6 +109,66 @@ describe('AuthService', () => {
         }),
       ).rejects.toThrow('email already exists');
     });
+
+    it('upgrades an existing guest account instead of rejecting duplicate email', async () => {
+      (argon2.hash as jest.Mock).mockResolvedValue('hashed-password');
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'guest-1',
+        email: 'guest@test.com',
+        provider: 'guest',
+      });
+      mockPrisma.user.update.mockResolvedValue({
+        id: 'guest-1',
+        email: 'guest@test.com',
+        name: 'Guest Upgraded',
+        role: Role.RENTER,
+      });
+      mockAuthOtpTokenService.createOtp.mockResolvedValue({
+        id: 'otp-1',
+        code: 'verify-token',
+      });
+
+      const result = await service.register({
+        name: 'Guest Upgraded',
+        email: 'guest@test.com',
+        password: 'Password123!',
+        role: Role.RENTER,
+      });
+
+      expect(result).toEqual({ message: 'User successfully registered' });
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'guest-1' },
+        data: expect.objectContaining({
+          name: 'Guest Upgraded',
+          password: 'hashed-password',
+          provider: null,
+          isVerified: false,
+          role: Role.RENTER,
+        }),
+      });
+      expect(mockPrisma.user.create).not.toHaveBeenCalled();
+      expect(mockEventEmitter.emit).toHaveBeenCalledWith(
+        'verification_mail',
+        expect.objectContaining({ email: 'guest@test.com' }),
+      );
+    });
+
+    it('rejects duplicate email when an existing account is not a guest', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        email: 'exists@test.com',
+        provider: null,
+      });
+
+      await expect(
+        service.register({
+          name: 'Renter',
+          email: 'exists@test.com',
+          password: 'Password123!',
+          role: Role.RENTER,
+        }),
+      ).rejects.toThrow('email already exists');
+    });
   });
 
   describe('login', () => {
@@ -118,6 +179,7 @@ describe('AuthService', () => {
       password: 'hashed',
       role: Role.RENTER,
       isVerified: true,
+      passwordSetAt: new Date(),
       tokenVersion: 0,
     };
 
@@ -142,6 +204,45 @@ describe('AuthService', () => {
           {},
         ),
       ).rejects.toThrow('invalid credential');
+    });
+
+    it('rejects guest accounts without a chosen password', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        ...verifiedRenter,
+        provider: 'guest',
+        passwordSetAt: null,
+      });
+
+      await expect(
+        service.login(
+          { email: verifiedRenter.email, password: 'Password123!' },
+          {},
+        ),
+      ).rejects.toThrow('email login links');
+      expect(argon2.verify).not.toHaveBeenCalled();
+    });
+
+    it('allows legacy password accounts with null passwordSetAt', async () => {
+      const legacyUser = {
+        ...verifiedRenter,
+        provider: null,
+        passwordSetAt: null,
+        createdAt: new Date('2026-05-05T12:48:05.175Z'),
+      };
+      mockPrisma.user.findUnique.mockResolvedValue(legacyUser);
+      (argon2.verify as jest.Mock).mockResolvedValue(true);
+      mockJwtService.signAsync.mockResolvedValue('jwt-token');
+
+      const result = await service.login(
+        { email: legacyUser.email, password: 'Password123!' },
+        {},
+      );
+
+      expect(result.token).toBe('jwt-token');
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: legacyUser.id },
+        data: { passwordSetAt: legacyUser.createdAt },
+      });
     });
 
     it('returns JWT for verified renter login', async () => {

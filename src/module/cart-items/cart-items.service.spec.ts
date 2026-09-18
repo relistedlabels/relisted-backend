@@ -144,13 +144,19 @@ describe('CartService.requestAvailability', () => {
   it('reactivates an expired request instead of creating a new one', async () => {
     mockPrisma.cartItem.findUnique.mockResolvedValue(baseCartItem);
 
+    const futureStart = new Date();
+    futureStart.setUTCDate(futureStart.getUTCDate() + 30);
+    const futureEnd = new Date(futureStart);
+    futureEnd.setUTCDate(futureEnd.getUTCDate() + 2);
+
     const expired = {
       id: 'req-expired',
       status: 'EXPIRED',
       rentalDays: 3,
       totalPrice: 15000,
-      startDate: new Date('2026-05-10T00:00:00.000Z'),
-      endDate: new Date('2026-05-12T00:00:00.000Z'),
+      startDate: futureStart,
+      endDate: futureEnd,
+      createdAt: new Date(),
       outboundWindowStart: new Date(Date.now() + 86400000),
       outboundWindowEnd: new Date(Date.now() + 90000000),
       returnWindowStart: new Date(Date.now() + 3 * 86400000),

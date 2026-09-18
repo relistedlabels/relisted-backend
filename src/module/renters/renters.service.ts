@@ -75,6 +75,12 @@ import {
   applyRangeMapToData,
 } from '../../utils/dispatch-windows';
 import {
+  AVAILABILITY_RESPONSE_SLA_MINUTES,
+  canListerActOnAvailabilityRequest,
+  computeBusinessExpiresAt,
+  isBusinessExpired,
+} from '../../utils/availability-request-expiry.util';
+import {
   buildListerWithdrawRentalRequestEmailContext,
   type ListerWithdrawNotify,
 } from '../cart-items/withdraw-availability-for-cart-item';
@@ -82,6 +88,11 @@ import { formatRentalBoundaryDateLagos } from '../shipment/dispatch-window-forma
 import { syncOrderStatusFromShipments } from '../order/order-shipment-status.sync';
 import { resolveRenterStartReturn } from '../order/renter-start-return.util';
 import { ShipbubbleAddressCacheService } from '../../services/shipbubble/shipbubble-address-cache.service';
+import { CartService } from '../cart-items/cart-items.service';
+import { AuthOtpTokenService } from '../../services/auth-otp-token/auth-otp-token.service';
+import { Auth_Otp_Token_Subject } from '../auth/auth.types';
+import * as argon2 from 'argon2';
+import type { GuestAvailabilityRequestDto } from './dto/guest-availability-request.dto';
 
 /** Renter progress ordering (subset of shipment-driven flow; excludes terminal edge cases). */
 const RENTER_PROGRESS_RANK: OrderStatus[] = [
@@ -289,6 +300,8 @@ export class RentersService {
     @InjectQueue('shipment-dispatch')
     private readonly dispatchQueue: Queue,
     private readonly shipbubbleAddressCache: ShipbubbleAddressCacheService,
+    private readonly cartService: CartService,
+    private readonly authOtpTokenService: AuthOtpTokenService,
   ) {}
 
   /** Accepts ISO strings, timestamps, or Date; rejects invalid / missing values. */
@@ -311,7 +324,7 @@ export class RentersService {
     return d;
   }
 
-  /** PENDING/ACCEPTED requests whose timers or dispatch windows elapsed are marked as EXPIRED. */
+  /** Response SLA and approved checkout windows; business expiry is evaluated at read time. */
   private async expireStalePendingAvailabilityRequestsForRequester(
     requesterId: string,
   ) {
@@ -322,27 +335,25 @@ export class RentersService {
       [end]: { not: null, lte: now },
     }));
 
-    const orClauses: any[] = [
-      {
-        status: 'PENDING',
-        expiresAt: { lte: now },
-      },
-    ];
-
-    if (windowExpiryFilters.length > 0) {
-      orClauses.push({
-        status: { in: ['PENDING', 'ACCEPTED'] },
-        OR: windowExpiryFilters,
-      });
-    }
-
     await this.prisma.availabilityRequest.updateMany({
       where: {
         requesterId,
-        OR: orClauses,
+        status: 'PENDING',
+        expiresAt: { lte: now },
       },
       data: { status: 'EXPIRED' },
     });
+
+    if (windowExpiryFilters.length > 0) {
+      await this.prisma.availabilityRequest.updateMany({
+        where: {
+          requesterId,
+          status: 'ACCEPTED',
+          OR: windowExpiryFilters,
+        },
+        data: { status: 'EXPIRED' },
+      });
+    }
   }
 
   private mapAvailabilityStatusForRenterList(dbStatus: string): string {
@@ -546,7 +557,31 @@ export class RentersService {
     };
   }
 
+  private async ensureVirtualAccount(userId: string): Promise<void> {
+    const existing = await this.prisma.virtualAccount.findFirst({
+      where: { userId },
+    });
+    if (existing) return;
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { profile: true },
+    });
+    if (!user) return;
+
+    try {
+      await this.wemaService.createAccount(user as any, 0);
+    } catch (err: any) {
+      console.warn(
+        `Failed to generate Virtual Account for ${userId}:`,
+        err.message,
+      );
+    }
+  }
+
   async getProfile(userId: string) {
+    await this.ensureVirtualAccount(userId);
+
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: {
@@ -691,18 +726,8 @@ export class RentersService {
       },
     });
 
-    if (
-      (updateData.bvn || updateData.nin) &&
-      user.virtualAccounts?.length === 0
-    ) {
-      try {
-        await this.wemaService.createAccount(user as any, 0);
-      } catch (err: any) {
-        console.warn(
-          `Failed to generate Virtual Account for ${userId}:`,
-          err.message,
-        );
-      }
+    if (user.virtualAccounts?.length === 0) {
+      await this.ensureVirtualAccount(userId);
     }
 
     const bankInfo = updateData.bankAccountInfo || updateData.bankAccounts;
@@ -1195,7 +1220,7 @@ export class RentersService {
       }
     }
 
-    const expiresAt = addMinutes(new Date(), 15);
+    const expiresAt = addMinutes(new Date(), AVAILABILITY_RESPONSE_SLA_MINUTES);
 
     const dispatchWindowsInput = data.dispatchWindows as
       | DispatchWindowsInput
@@ -1292,18 +1317,33 @@ export class RentersService {
       ? 'purchase request'
       : 'rental request';
 
+    const businessExpiresAt = computeBusinessExpiresAt(request);
+    const listerResponseToken = await this.createListerResponseToken(
+      request.id,
+      request.listerId,
+      businessExpiresAt,
+    );
+    const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+    const apiPublicUrl =
+      process.env.API_PUBLIC_URL ||
+      `http://localhost:${process.env.PORT ?? '4000'}`;
+    const acceptLink = `${apiPublicUrl}/api/public/lister-response/${listerResponseToken}?action=accept`;
+    const rejectLink = `${apiPublicUrl}/api/public/lister-response/${listerResponseToken}?action=reject`;
+
     // Notify Lister
     await this.notificationService.createNotification({
       userId: request.listerId,
-      title: `New ${requestType}`,
-      message: `You have a new ${requestTypeLower} for ${request.product?.name} from ${userObj?.name || 'a user'}.`,
+      title: isResaleRequest ? 'New purchase enquiry' : 'New rental enquiry',
+      message: isResaleRequest
+        ? `Is ${request.product?.name} available to buy?`
+        : `Is ${request.product?.name} available for these dates?`,
       type: isResaleRequest ? 'PURCHASE_REQUEST' : 'RENTAL_REQUEST',
       metadata: { requestId: request.id, productId: request.productId },
       sendEmail: true,
       emailData: {
         email: request.product?.curator?.email,
         listerName: request.product?.curator?.name,
-        renterName: userObj?.name || 'A user',
+        renterName: userObj?.name || 'A customer',
         productName: request.product?.name,
         requestId: request.id,
         rentalDays: request.rentalDays,
@@ -1314,7 +1354,9 @@ export class RentersService {
         endDate: request.endDate
           ? formatRentalBoundaryDateLagos(request.endDate)
           : 'N/A',
-        viewLink: `${process.env.CLIENT_URL}/listers/orders/${request.id}`,
+        viewLink: `${clientUrl}/listers/orders/${request.id}`,
+        acceptLink,
+        rejectLink,
         requestType: isResaleRequest ? 'purchase' : 'rental',
         dispatchWindows: Object.entries(windowMap).map(([type, window]) => ({
           type,
@@ -1329,8 +1371,8 @@ export class RentersService {
     // Notify Renter
     await this.notificationService.createNotification({
       userId: userId,
-      title: `${requestType} Sent`,
-      message: `Your ${requestTypeLower} for ${request.product?.name} has been sent to the lister.`,
+      title: 'Checking availability',
+      message: `We asked the lister to confirm ${request.product?.name} for your dates. No payment has been taken.`,
       type: isResaleRequest ? 'PURCHASE_REQUEST_SENT' : 'RENTAL_REQUEST_SENT',
       metadata: { requestId: request.id, productId: request.productId },
       sendEmail: false,
@@ -1339,7 +1381,7 @@ export class RentersService {
     // build response similar to spec sample
     return {
       success: true,
-      message: 'Availability request submitted successfully',
+      message: 'We are checking availability with the lister.',
       data: {
         requestId: request.id,
         productId: request.productId,
@@ -1360,11 +1402,228 @@ export class RentersService {
         deductionExplanation:
           'At order confirmation, rental fee will be deducted from your wallet.',
         autoPay: request.autoPay,
-        status: 'pending_lister_approval',
+        status: 'checking_availability',
         requestCreatedAt: request.createdAt,
         expiresAt: request.expiresAt,
-        timerMinutes: 15,
+        timerMinutes: AVAILABILITY_RESPONSE_SLA_MINUTES,
+        businessExpiresAt,
         cartItemId: request.cartItemId,
+      },
+    };
+  }
+
+  private async createListerResponseToken(
+    requestId: string,
+    listerId: string,
+    expiry: Date,
+  ): Promise<string> {
+    const token = await this.authOtpTokenService.createOtp({
+      subject: Auth_Otp_Token_Subject.LISTER_AVAILABILITY_RESPONSE,
+      email: requestId,
+      userId: listerId,
+      expiry,
+      type: 'TOKEN',
+    });
+    return token.code;
+  }
+
+  private async createRenterStatusToken(
+    requestId: string,
+    requesterId: string,
+    expiry: Date,
+  ): Promise<string> {
+    const token = await this.authOtpTokenService.createOtp({
+      subject: Auth_Otp_Token_Subject.AVAILABILITY_STATUS,
+      email: requestId,
+      userId: requesterId,
+      expiry,
+      type: 'TOKEN',
+    });
+    return token.code;
+  }
+
+  private async findOrCreateGuestRenter(firstName: string, email: string) {
+    const normalizedEmail = email.trim().toLowerCase();
+    let user = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (!user) {
+      user = await this.prisma.user.create({
+        data: {
+          name: firstName.trim(),
+          email: normalizedEmail,
+          password: await argon2.hash(randomUUID()),
+          role: Role.RENTER,
+          provider: 'guest',
+          isVerified: false,
+          passwordSetAt: null,
+          profile: {
+            create: {
+              fullName: firstName.trim(),
+              phoneNumber: '',
+            },
+          },
+        },
+      });
+      return user;
+    }
+
+    const trimmedName = firstName.trim();
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: user.id },
+        data: { name: trimmedName },
+      }),
+      this.prisma.profile.upsert({
+        where: { userId: user.id },
+        update: { fullName: trimmedName },
+        create: {
+          userId: user.id,
+          fullName: trimmedName,
+          phoneNumber: '',
+        },
+      }),
+    ]);
+
+    return { ...user, name: trimmedName };
+  }
+
+  async createGuestAvailabilityRequest(dto: GuestAvailabilityRequestDto) {
+    const user = await this.findOrCreateGuestRenter(dto.firstName, dto.email);
+
+    let cartItemId: string | undefined;
+    try {
+      const line = await this.cartService.addCartItem(
+        { productId: dto.productId, days: dto.rentalDays },
+        { id: user.id, email: user.email, role: user.role } as any,
+      );
+      cartItemId = line.id;
+    } catch (err: any) {
+      const msg = String(err?.message ?? '');
+      if (/already in cart/i.test(msg)) {
+        const cart = await this.prisma.cart.findUnique({
+          where: { userId: user.id },
+          include: {
+            items: { where: { productId: dto.productId }, take: 1 },
+          },
+        });
+        cartItemId = cart?.items?.[0]?.id;
+      } else {
+        throw err;
+      }
+    }
+
+    const isPurchase = dto.rentalDays === 0;
+    const result = await this.createRentalRequest(user.id, {
+      productId: dto.productId,
+      listerId: dto.listerId,
+      rentalStartDate: isPurchase ? null : dto.rentalStartDate,
+      rentalEndDate: isPurchase ? null : dto.rentalEndDate,
+      rentalDays: dto.rentalDays,
+      estimatedRentalPrice: dto.estimatedRentalPrice,
+      currency: dto.currency ?? 'NGN',
+      cartItemId,
+      autoPay: false,
+      dispatchWindows: dto.dispatchWindows,
+    });
+
+    const requestId = result.data?.requestId;
+    const businessExpiresAt = result.data?.businessExpiresAt
+      ? new Date(result.data.businessExpiresAt)
+      : addMinutes(new Date(), AVAILABILITY_RESPONSE_SLA_MINUTES);
+
+    const accessToken = requestId
+      ? await this.createRenterStatusToken(
+          requestId,
+          user.id,
+          businessExpiresAt,
+        )
+      : null;
+
+    return {
+      ...result,
+      data: {
+        ...result.data,
+        accessToken,
+        checkingUrl: requestId
+          ? `${process.env.CLIENT_URL || 'http://localhost:3000'}/shop/availability/checking?requestId=${requestId}&token=${accessToken}`
+          : null,
+      },
+    };
+  }
+
+  async getPublicAvailabilityStatus(requestId: string, token: string) {
+    if (!token?.trim()) {
+      throw new BadRequestException('Access token is required');
+    }
+
+    const valid = await this.authOtpTokenService.verifyOtp(
+      {
+        code: token.trim(),
+        subject: Auth_Otp_Token_Subject.AVAILABILITY_STATUS,
+      },
+      false,
+    );
+    if (!valid) {
+      throw new BadRequestException('Invalid or expired access token');
+    }
+
+    const tokenRow = await this.authOtpTokenService.findCode(token.trim());
+    if (!tokenRow || tokenRow.email !== requestId) {
+      throw new BadRequestException('Token does not match this request');
+    }
+
+    const request = await this.prisma.availabilityRequest.findUnique({
+      where: { id: requestId },
+      include: {
+        product: { include: { curator: true } },
+        requester: { select: { email: true, name: true } },
+      },
+    });
+
+    if (!request) {
+      throw new NotFoundException('Availability request not found');
+    }
+
+    await this.expireStalePendingAvailabilityRequestsForRequester(
+      request.requesterId,
+    );
+
+    const refreshed = await this.prisma.availabilityRequest.findUnique({
+      where: { id: requestId },
+      include: {
+        product: { include: { curator: true } },
+        requester: { select: { email: true, name: true } },
+      },
+    });
+    const current = refreshed ?? request;
+
+    const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+    const resolvePublicStatus = () => {
+      if (current.status === 'ACCEPTED') return 'available';
+      if (current.status === 'REJECTED') return 'unavailable';
+      if (current.status === 'CANCELLED_BY_RENTER') return 'cancelled';
+      if (isBusinessExpired(current)) return 'dates_passed';
+      if (current.status === 'EXPIRED') return 'awaiting_lister';
+      if (current.status === 'PENDING') return 'checking';
+      return current.status.toLowerCase();
+    };
+
+    return {
+      success: true,
+      data: {
+        requestId: current.id,
+        status: resolvePublicStatus(),
+        canStillBeApproved: canListerActOnAvailabilityRequest(current),
+        businessExpiresAt: computeBusinessExpiresAt(current).toISOString(),
+        productName: current.product?.name,
+        rentalDays: current.rentalDays,
+        rentalStartDate: current.startDate,
+        rentalEndDate: current.endDate,
+        totalPrice: current.totalPrice,
+        requesterEmail: current.requester?.email ?? null,
+        completeRentalUrl: null,
       },
     };
   }
@@ -2518,9 +2777,6 @@ export class RentersService {
     });
     if (!profile) throw new NotFoundException('Profile not found');
 
-    const maskBvn = (val?: string | null) =>
-      val && val.length >= 4 ? `XXXXX${val.slice(-4)}` : null;
-
     return {
       success: true,
       data: {
@@ -2532,12 +2788,6 @@ export class RentersService {
               ? profile.idDocumentUpload.createdAt.toISOString()
               : null,
             expiresAt: null,
-          },
-          bvn: {
-            status: profile.bvn ? 'verified' : 'not_verified',
-            document: 'Bank Verification Number',
-            verifiedDate: null,
-            maskedValue: maskBvn(profile.bvn),
           },
         },
       },
@@ -2585,6 +2835,8 @@ export class RentersService {
       },
       include: { idDocumentUpload: true },
     });
+
+    await this.ensureVirtualAccount(userId);
 
     return {
       success: true,

@@ -68,11 +68,17 @@
 
             {{#if (eq status "accepted")}}
             {{#if (eq requestType 'purchase')}}
-            <p>Great! Your purchase request has been approved. Please complete your payment to secure the purchase.</p>
+            <p>Great news. Your purchase request was approved. Sign in to complete checkout.</p>
             {{else}}
-            <p>Great! Your request has been approved. Please complete your payment to secure the rental.</p>
+            <p>Great news. Your piece is available for your dates. Sign in to complete checkout.</p>
             {{/if}}
-            <p><a href="{{checkoutLink}}" class="button">Proceed to Checkout</a></p>
+            {{#if outboundWindowSummary}}
+            <p>Delivery: {{outboundWindowSummary}}</p>
+            {{/if}}
+            {{#if returnWindowSummary}}
+            <p>Return pickup: {{returnWindowSummary}}</p>
+            {{/if}}
+            <p><a href="{{checkoutLink}}" class="button">Complete checkout</a></p>
             {{else}}
             <p>Unfortunately, your request was not accepted at this time.</p>
             {{#if reason}}<p><strong>Reason:</strong> {{reason}}</p>{{/if}}

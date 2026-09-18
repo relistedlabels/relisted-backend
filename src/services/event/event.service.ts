@@ -55,6 +55,36 @@ export class EventService {
     }
   }
 
+  @OnEvent('magic_link_mail', { async: true })
+  async SendMagicLinkMail(payload: Record<string, unknown>) {
+    try {
+      const p = payload && typeof payload === 'object' ? payload : null;
+      if (
+        !p ||
+        typeof p.email !== 'string' ||
+        typeof p.name !== 'string' ||
+        typeof p.magicLink !== 'string' ||
+        typeof p.year !== 'number'
+      ) {
+        this.logger.warn('magic_link_mail payload missing required fields');
+        return;
+      }
+      await this.mailService.SendMagicLinkMail({
+        email: p.email,
+        name: p.name,
+        magicLink: p.magicLink,
+        year: p.year,
+        expiryMinutes:
+          typeof p.expiryMinutes === 'number' ? p.expiryMinutes : 60,
+      });
+      this.logger.log(`Magic link email sent to ${p.email}`);
+    } catch (err) {
+      this.logger.error(
+        `Failed to send magic link email: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
   @OnEvent('Order_Verification', { async: true })
   async SendOrderVerificationMail(payload: NewType) {
     await this.mailService.SendVerificationOrderMail(payload);

@@ -6,6 +6,8 @@ import { NotificationService } from 'src/services/notification/notification.serv
 import { MailService } from 'src/services/mail/mail.service';
 import { UploadService } from '../upload/upload.service';
 import { ProductAvailabilityNotifyService } from 'src/services/product-availability-notify/product-availability-notify.service';
+import { AuthService } from '../auth/auth.service';
+import { AuthOtpTokenService } from 'src/services/auth-otp-token/auth-otp-token.service';
 
 const mockUser = { id: 'lister-1', email: 'lister@test.com', role: 'LISTER' };
 
@@ -44,6 +46,13 @@ describe('ListersService.getListerStats', () => {
           provide: ProductAvailabilityNotifyService,
           useValue: { notifyWatchersProductAvailable: jest.fn() },
         },
+        {
+          provide: AuthService,
+          useValue: {
+            buildMagicLoginUrl: jest.fn().mockResolvedValue('https://app.test/auth/magic-link'),
+          },
+        },
+        { provide: AuthOtpTokenService, useValue: {} },
       ],
     }).compile();
 

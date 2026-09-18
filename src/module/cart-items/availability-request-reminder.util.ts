@@ -146,15 +146,12 @@ export function expiredListerReminderCopy(params: {
   renterName: string;
   stage: ExpiredListerReminderStage;
 }): { title: string; message: string } {
-  const kind = params.requestType === 'purchase' ? 'purchase' : 'rental';
   const title =
     params.requestType === 'purchase'
-      ? 'You missed a purchase request'
-      : 'You missed a rental request';
-  const message = `${params.renterName} requested to ${
+      ? 'Purchase request waiting on you'
+      : 'Rental request waiting on you';
+  const message = `${params.renterName} is still waiting to ${
     params.requestType === 'purchase' ? 'buy' : 'rent'
-  } ${params.productName}, but the request expired before you responded. Open the request and tell them you are available if you still want to ${
-    params.requestType === 'purchase' ? 'sell' : 'rent out'
-  } this item.`;
+  } ${params.productName}. You can still approve the request from your dashboard while their dates are valid.`;
   return { title, message };
 }

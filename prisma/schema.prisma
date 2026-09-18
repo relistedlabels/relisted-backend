@@ -17,6 +17,7 @@ model User {
   id                               String                            @id @default(uuid())
   email                            String                            @unique
   password                         String
+  passwordSetAt                    DateTime?
   name                             String
   provider                         String?
   isVerified                       Boolean                           @default(false)
@@ -218,6 +219,7 @@ model Product {
   productVerified                  Boolean                           @default(false)
   quantity                         Int?
   status                           ProductStatus                     @default(PENDING)
+  deactivatedByBrandRemoval        Boolean                           @default(false)
   rejectionComment                 String?
   material                         String?
   collateralPrice                  Int?
@@ -247,6 +249,7 @@ model Brand {
   name              String
   createdAt         DateTime  @default(now())
   userId            String?
+  isShopVisible     Boolean   @default(false)
   isShopPrioritized Boolean   @default(false)
   shopPriorityOrder Int?
   user              User?     @relation(fields: [userId], references: [id])

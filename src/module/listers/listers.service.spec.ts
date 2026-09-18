@@ -6,6 +6,14 @@ import { NotificationService } from 'src/services/notification/notification.serv
 import { MailService } from 'src/services/mail/mail.service';
 import { UploadService } from '../upload/upload.service';
 import { ProductAvailabilityNotifyService } from 'src/services/product-availability-notify/product-availability-notify.service';
+import { AuthService } from '../auth/auth.service';
+import { AuthOtpTokenService } from 'src/services/auth-otp-token/auth-otp-token.service';
+
+const mockAuthService = {
+  buildMagicLoginUrl: jest
+    .fn()
+    .mockResolvedValue('https://app.test/auth/magic-link?token=test'),
+};
 import {
   BadRequestException,
   ForbiddenException,
@@ -115,6 +123,8 @@ describe('ListersService — multi-lister return receipt', () => {
           provide: ProductAvailabilityNotifyService,
           useValue: mockProductAvailabilityNotify,
         },
+        { provide: AuthService, useValue: mockAuthService },
+        { provide: AuthOtpTokenService, useValue: {} },
       ],
     }).compile();
     service = module.get<ListersService>(ListersService);
@@ -307,6 +317,10 @@ describe('ListersService.approveOrder', () => {
 
   const lister = { id: 'lister-1', name: 'Ada', email: 'l@test.com' };
   const requestId = 'req-approve-1';
+  const futureOutboundStart = new Date(Date.now() + 2 * 3600000);
+  const futureOutboundEnd = new Date(Date.now() + 3 * 3600000);
+  const futureReturnStart = new Date(Date.now() + 5 * 86400000);
+  const futureReturnEnd = new Date(Date.now() + 5 * 86400000 + 3600000);
 
   const pendingRequest = {
     id: requestId,
@@ -315,7 +329,15 @@ describe('ListersService.approveOrder', () => {
     productId: 'prod-1',
     rentalDays: 3,
     status: 'PENDING',
+    startDate: new Date('2026-10-15T00:00:00+01:00'),
+    endDate: new Date('2026-10-17T00:00:00+01:00'),
+    resaleWindowEnd: null,
+    createdAt: new Date(),
     expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+    outboundWindowStart: futureOutboundStart,
+    outboundWindowEnd: futureOutboundEnd,
+    returnWindowStart: futureReturnStart,
+    returnWindowEnd: futureReturnEnd,
     product: { name: 'Silk dress' },
     requester: { email: 'renter@test.com', name: 'Renter' },
   };
@@ -336,6 +358,8 @@ describe('ListersService.approveOrder', () => {
           provide: ProductAvailabilityNotifyService,
           useValue: mockProductAvailabilityNotify,
         },
+        { provide: AuthService, useValue: mockAuthService },
+        { provide: AuthOtpTokenService, useValue: {} },
       ],
     }).compile();
     service = module.get<ListersService>(ListersService);
@@ -391,12 +415,14 @@ describe('ListersService.approveOrder', () => {
     expect(mockNotificationService.createNotification).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 'renter-1',
-        title: 'Rental Request Approved',
+        title: "It's available!",
         type: 'RENTAL_RESPONSE',
         emailData: expect.objectContaining({
           status: 'accepted',
           reason: 'Looks good',
-          checkoutLink: 'https://app.relisted.test/shop/cart/checkout',
+          checkoutLink: 'https://app.test/auth/magic-link?token=test',
+          outboundWindowSummary: expect.any(String),
+          returnWindowSummary: expect.any(String),
         }),
       }),
     );
@@ -409,6 +435,19 @@ describe('ListersService.approveOrder', () => {
         notes: 'Looks good',
       }),
     });
+  });
+
+  it('rejects approve when the renter delivery window has passed', async () => {
+    mockPrisma.availabilityRequest.findUnique.mockResolvedValue({
+      ...pendingRequest,
+      outboundWindowStart: new Date(Date.now() - 3 * 3600000),
+      outboundWindowEnd: new Date(Date.now() - 2 * 3600000),
+    });
+
+    await expect(
+      service.approveOrder(lister as never, requestId),
+    ).rejects.toThrow(BadRequestException);
+    expect(mockPrisma.availabilityRequest.update).not.toHaveBeenCalled();
   });
 });
 
@@ -445,6 +484,8 @@ describe('ListersService.rejectOrder', () => {
           provide: ProductAvailabilityNotifyService,
           useValue: mockProductAvailabilityNotify,
         },
+        { provide: AuthService, useValue: mockAuthService },
+        { provide: AuthOtpTokenService, useValue: {} },
       ],
     }).compile();
     service = module.get<ListersService>(ListersService);
@@ -545,6 +586,8 @@ describe('ListersService.rejectReturn', () => {
           provide: ProductAvailabilityNotifyService,
           useValue: mockProductAvailabilityNotify,
         },
+        { provide: AuthService, useValue: mockAuthService },
+        { provide: AuthOtpTokenService, useValue: {} },
       ],
     }).compile();
     service = module.get<ListersService>(ListersService);

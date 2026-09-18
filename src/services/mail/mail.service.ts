@@ -215,6 +215,27 @@ export class MailService {
     });
   }
 
+  async SendMagicLinkMail(dto: {
+    email: string;
+    name: string;
+    year: number;
+    magicLink: string;
+    expiryMinutes: number;
+  }) {
+    const { email, ...rest } = dto;
+    const subject = Auth_Otp_Token_Subject.MAGIC_LINK_LOGIN;
+    if (this.devBypass) {
+      await this.handleDevBypass('magic-link', subject, rest, email);
+      return;
+    }
+    await this.deliverMail({
+      to: email,
+      template: './magic-link',
+      subject,
+      context: rest,
+    });
+  }
+
   async SendVerficationMail(dto: VerificationDto) {
     const { email, ...rest } = dto;
     const subject = rest.adminMfa

@@ -8,6 +8,8 @@ import { NotificationService } from 'src/services/notification/notification.serv
 import { MailService } from 'src/services/mail/mail.service';
 import { TopshipService } from 'src/services/topship/topship.service';
 import { ShipbubbleAddressCacheService } from 'src/services/shipbubble/shipbubble-address-cache.service';
+import { CartService } from '../cart-items/cart-items.service';
+import { AuthOtpTokenService } from 'src/services/auth-otp-token/auth-otp-token.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { DisputeStatus, ItemCondition } from '@prisma/client';
 
@@ -45,6 +47,9 @@ const mockPrisma = {
   },
   virtualAccounts: {
     findMany: jest.fn(),
+  },
+  virtualAccount: {
+    findFirst: jest.fn(),
   },
   bankAccount: {
     findMany: jest.fn(),
@@ -140,6 +145,12 @@ const mockTopshipService = {};
 
 const mockShipbubbleAddressCache = {};
 
+const mockAuthOtpTokenService = {
+  createOtp: jest.fn().mockResolvedValue({ code: 'test-otp-token' }),
+  verifyOtp: jest.fn().mockResolvedValue(true),
+  findCode: jest.fn().mockResolvedValue({ email: 'req-1' }),
+};
+
 const mockUser = {
   id: 'renter-uuid',
   email: 'renter@test.com',
@@ -168,6 +179,8 @@ describe('RentersService', () => {
           provide: ShipbubbleAddressCacheService,
           useValue: mockShipbubbleAddressCache,
         },
+        { provide: CartService, useValue: {} },
+        { provide: AuthOtpTokenService, useValue: mockAuthOtpTokenService },
       ],
     }).compile();
     service = module.get<RentersService>(RentersService);
@@ -270,18 +283,23 @@ describe('RentersService', () => {
       expect(result.success).toBe(true);
     });
 
-    it('should create virtual account when BVN is provided', async () => {
+    it('should create virtual account when user has none', async () => {
       mockPrisma.user.update.mockResolvedValue({
         id: mockUser.id,
         name: 'Test',
         virtualAccounts: [],
-        profile: { bvn: '12345678901' },
+        profile: {},
+      });
+      mockPrisma.virtualAccount.findFirst.mockResolvedValue(null);
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: mockUser.id,
+        profile: {},
       });
       mockWemaService.createAccount.mockResolvedValue({
         vaNumber: '6980000000',
       });
 
-      await service.updateProfile(mockUser.id, { bvn: '12345678901' });
+      await service.updateProfile(mockUser.id, { fullName: 'Test' });
 
       expect(mockWemaService.createAccount).toHaveBeenCalled();
     });
@@ -382,7 +400,7 @@ describe('RentersService', () => {
       });
 
       expect(result.success).toBe(true);
-      expect(result.data.status).toBe('pending_lister_approval');
+      expect(result.data.status).toBe('checking_availability');
     });
   });
 
@@ -1160,14 +1178,12 @@ describe('RentersService', () => {
 
       expect(result.success).toBe(true);
       expect(result.data.verifications.validId.status).toBe('verified');
-      expect(result.data.verifications.bvn.status).toBe('verified');
     });
 
     it('should return not_verified when no id document uploaded', async () => {
       mockPrisma.profile.findUnique.mockResolvedValue({
         userId: mockUser.id,
         idDocumentUpload: null,
-        bvn: null,
         idDocumentStatus: 'NOT_UPLOADED',
       });
 
@@ -1175,7 +1191,6 @@ describe('RentersService', () => {
 
       expect(result.success).toBe(true);
       expect(result.data.verifications.validId.status).toBe('not_verified');
-      expect(result.data.verifications.bvn.status).toBe('not_verified');
     });
   });
 });

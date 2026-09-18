@@ -169,7 +169,12 @@ export class AvailabilityRequestReminderDto {
   requestType?: string;
 
   @IsString()
-  cartLink: string;
+  @IsOptional()
+  cartLink?: string;
+
+  @IsString()
+  @IsOptional()
+  listingLink?: string;
 }
 
 export class AvailabilityCheckoutReminderDto {
@@ -244,6 +249,14 @@ export class RentalResponseDto {
   @IsString()
   @IsOptional()
   requestType?: string;
+
+  @IsString()
+  @IsOptional()
+  outboundWindowSummary?: string | null;
+
+  @IsString()
+  @IsOptional()
+  returnWindowSummary?: string | null;
 }
 
 export class WithdrawalDto {
