@@ -10,6 +10,7 @@ import { TopshipService } from 'src/services/topship/topship.service';
 import { ShipbubbleAddressCacheService } from 'src/services/shipbubble/shipbubble-address-cache.service';
 import { CartService } from '../cart-items/cart-items.service';
 import { AuthOtpTokenService } from 'src/services/auth-otp-token/auth-otp-token.service';
+import { AuthService } from '../auth/auth.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { DisputeStatus, ItemCondition } from '@prisma/client';
 
@@ -151,6 +152,12 @@ const mockAuthOtpTokenService = {
   findCode: jest.fn().mockResolvedValue({ email: 'req-1' }),
 };
 
+const mockAuthService = {
+  buildMagicLoginUrl: jest
+    .fn()
+    .mockResolvedValue('https://relisted.test/magic-login?token=test'),
+};
+
 const mockUser = {
   id: 'renter-uuid',
   email: 'renter@test.com',
@@ -181,6 +188,7 @@ describe('RentersService', () => {
         },
         { provide: CartService, useValue: {} },
         { provide: AuthOtpTokenService, useValue: mockAuthOtpTokenService },
+        { provide: AuthService, useValue: mockAuthService },
       ],
     }).compile();
     service = module.get<RentersService>(RentersService);
