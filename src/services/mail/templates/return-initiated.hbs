@@ -23,25 +23,21 @@
     </div>
     <div class="content">
       <p>Hello {{curatorName}},</p>
-      <p><strong>{{renterName}}</strong> started a return for order <strong>{{orderId}}</strong>. Return shipping was paid at checkout; our courier will collect from them.</p>
+      <p><strong>{{renterName}}</strong> started a return for order <strong>{{orderId}}</strong>. Our courier will collect from them.</p>
 
       {{#if itemSummary}}
-      <p><strong>Items in this return:</strong> {{itemSummary}}</p>
+      <p><strong>Items:</strong> {{itemSummary}}</p>
       {{/if}}
 
       {{#if returnWindowSummary}}
       <div class="box">
-        <strong>Return window</strong><br />
-        {{returnWindowSummary}}
+        <strong>Return window:</strong> {{returnWindowSummary}}
       </div>
       {{/if}}
 
-      <p><strong>Condition reported:</strong> {{itemCondition}}</p>
-      {{#if damageNotes}}<p><strong>Notes:</strong> {{damageNotes}}</p>{{/if}}
+      <p><strong>Condition reported:</strong> {{itemCondition}}{{#if damageNotes}}. {{damageNotes}}{{/if}}</p>
 
-      <p style="margin-top:20px;"><strong>Renter</strong></p>
       <table class="contact-table" cellpadding="0" cellspacing="0">
-        <tr><td>Name</td><td>{{renterName}}</td></tr>
         <tr><td>Email</td><td><a href="mailto:{{renterEmail}}" style="color:#111;">{{renterEmail}}</a></td></tr>
         {{#if renterPhone}}<tr><td>Phone</td><td>{{renterPhone}}</td></tr>{{/if}}
       </table>

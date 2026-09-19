@@ -35,16 +35,6 @@
             text-align: center;
         }
 
-        .status-accepted {
-            color: green;
-            font-weight: bold;
-        }
-
-        .status-rejected {
-            color: red;
-            font-weight: bold;
-        }
-
         .button {
             background: #000;
             color: #fff;
@@ -59,28 +49,22 @@
 <body>
     <div class="container">
         <div class="header">
-            <h2>{{#if (eq requestType 'purchase')}}Purchase Request Update{{else}}Rental Request Update{{/if}}</h2>
+            <h2>{{#if (eq requestType 'purchase')}}Purchase request update{{else}}Rental request update{{/if}}</h2>
         </div>
         <div class="content">
             <p>Hello {{userName}},</p>
-            <p>The lister has responded to your {{#if (eq requestType 'purchase')}}purchase{{else}}rental{{/if}} request for <strong>{{productName}}</strong>.</p>
-            <p>Status: <span class="status-{{status}}">{{status}}</span></p>
 
             {{#if (eq status "accepted")}}
-            {{#if (eq requestType 'purchase')}}
-            <p>Great news. Your purchase request was approved. Sign in to complete checkout.</p>
-            {{else}}
-            <p>Great news. Your piece is available for your dates. Sign in to complete checkout.</p>
-            {{/if}}
+            <p>Your {{#if (eq requestType 'purchase')}}purchase{{else}}rental{{/if}} request for <strong>{{productName}}</strong> was approved. Complete checkout to lock it in.</p>
             {{#if outboundWindowSummary}}
-            <p>Delivery: {{outboundWindowSummary}}</p>
+            <p><strong>Delivery:</strong> {{outboundWindowSummary}}</p>
             {{/if}}
             {{#if returnWindowSummary}}
-            <p>Return pickup: {{returnWindowSummary}}</p>
+            <p><strong>Return pickup:</strong> {{returnWindowSummary}}</p>
             {{/if}}
             <p><a href="{{checkoutLink}}" class="button">Complete checkout</a></p>
             {{else}}
-            <p>Unfortunately, your request was not accepted at this time.</p>
+            <p>Your {{#if (eq requestType 'purchase')}}purchase{{else}}rental{{/if}} request for <strong>{{productName}}</strong> was not accepted.</p>
             {{#if reason}}<p><strong>Reason:</strong> {{reason}}</p>{{/if}}
             {{#if notes}}<p><strong>Notes:</strong> {{notes}}</p>{{/if}}
             {{/if}}

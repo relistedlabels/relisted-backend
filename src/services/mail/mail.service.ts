@@ -698,9 +698,6 @@ export class MailService {
         <a href="${threadLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">
           Open message thread
         </a>
-        <div style="margin-top:10px;font-size:12px;color:#6b7280;">
-          If the button doesn't work, open: <span style="color:#111827;">${threadLink}</span>
-        </div>
       </div>`
           : ''
       }
@@ -780,11 +777,8 @@ export class MailService {
       </div>
       <div style="margin-top:18px;">
         <a href="${redispatchUrl}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">
-          View Shipment & Redispatch
+          View shipment and redispatch
         </a>
-        <div style="margin-top:10px;font-size:12px;color:#6b7280;">
-          If the button doesn't work, open: <span style="color:#111827;">${redispatchUrl}</span>
-        </div>
       </div>
     </div>
   </div>
@@ -1326,38 +1320,15 @@ export class MailService {
       <p style="margin:0 0 12px;color:#374151;">Hi ${safeName},</p>
       <p style="margin:0 0 16px;color:#374151;">
         ${is24Hour
-          ? `Your return pickup for <strong>${safeProduct}</strong> is scheduled within the next 24 hours.`
-          : `Your return pickup for <strong>${safeProduct}</strong> is scheduled for today.`
+          ? `Return pickup for <strong>${safeProduct}</strong> is within 24 hours (${dueDate}).`
+          : `Return pickup for <strong>${safeProduct}</strong> is today (${dueDate}).`
         }
+        Submit your return request in the app first, or pickup will not happen.
       </p>
-      <div style="background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:12px;margin:16px 0;">
-        <p style="margin:0;color:#9a3412;font-weight:600;">Important:</p>
-        <p style="margin:8px 0 0;color:#7c2d12;">
-          You must complete your return request in the app first. If the return request is not completed, your return pickup will not happen.
-        </p>
-      </div>
-      <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;margin:16px 0;">
-        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Order ID</div>
-        <div style="font-weight:600;color:#111827;">${orderId}</div>
-        <div style="font-size:12px;color:#6b7280;margin:16px 0 4px;">Pickup Date</div>
-        <div style="font-weight:600;color:#111827;">${dueDate}</div>
-      </div>
+      <p style="margin:0 0 16px;color:#374151;"><strong>Order:</strong> ${orderId}</p>
       <div style="margin:20px 0;">
-        <a href="${orderLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">View Order</a>
-        <div style="margin-top:10px;font-size:12px;color:#6b7280;">
-          If the button doesn't work, open: <span style="color:#111827;">${orderLink}</span>
-        </div>
+        <a href="${orderLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">View order and start return</a>
       </div>
-      <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin:16px 0;">
-        <p style="margin:0 0 8px;color:#374151;font-weight:600;">How to complete your return request:</p>
-        <ol style="margin:0;padding-left:20px;color:#374151;font-size:14px;">
-          <li style="margin-bottom:6px;">Open your order using the button above</li>
-          <li style="margin-bottom:6px;">Go to the "Ready to Return?" section</li>
-          <li style="margin-bottom:6px;">Tap <strong>"Start Return Process"</strong></li>
-          <li>Upload current-condition photos and submit</li>
-        </ol>
-      </div>
-      <p style="margin:16px 0 0;color:#374151;">Please ensure your item is ready for return pickup during the scheduled window to avoid any issues.</p>
     </div>
   </div>
 </div>`;
@@ -1438,26 +1409,8 @@ export class MailService {
         ${windowBlock}
       </div>
       ${collateralBlock}
-      <div style="background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:12px;margin:16px 0;">
-        <p style="margin:0;color:#9a3412;font-weight:600;">You must complete your return request</p>
-        <p style="margin:8px 0 0;color:#7c2d12;font-size:14px;">
-          A rider will not be sent automatically. Open your order, tap <strong>Start Return Process</strong>, upload photos, and submit. Only then can we book pickup with the carrier.
-        </p>
-      </div>
       <div style="margin:20px 0;">
-        <a href="${orderLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">View Order & Start Return</a>
-        <div style="margin-top:10px;font-size:12px;color:#6b7280;">
-          If the button doesn't work, open: <span style="color:#111827;">${orderLink}</span>
-        </div>
-      </div>
-      <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin:16px 0;">
-        <p style="margin:0 0 8px;color:#374151;font-weight:600;">How to complete your return:</p>
-        <ol style="margin:0;padding-left:20px;color:#374151;font-size:14px;">
-          <li style="margin-bottom:6px;">Open your order using the button above</li>
-          <li style="margin-bottom:6px;">Go to the "Ready to Return?" section</li>
-          <li style="margin-bottom:6px;">Tap <strong>"Start Return Process"</strong></li>
-          <li>Upload current-condition photos and submit</li>
-        </ol>
+        <a href="${orderLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">View order and start return</a>
       </div>
       ${copy.footer ? `<p style="margin:16px 0 0;color:#dc2626;font-weight:600;">${copy.footer}</p>` : ''}
     </div>

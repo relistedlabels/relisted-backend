@@ -34,6 +34,14 @@
             margin-top: 20px;
             text-align: center;
         }
+
+        .details {
+            margin: 16px 0;
+        }
+
+        .details p {
+            margin: 4px 0;
+        }
     </style>
 </head>
 
@@ -43,69 +51,52 @@
             {{#if withdrawn}}
             <h2>{{#if (eq requestType 'purchase')}}Purchase request update{{else}}Rental request update{{/if}}</h2>
             {{else}}
-            <h2>{{#if (eq requestType 'purchase')}}New Purchase Request{{else}}New Rental Request{{/if}}</h2>
+            <h2>{{#if (eq requestType 'purchase')}}New purchase request{{else}}New rental request{{/if}}</h2>
             {{/if}}
         </div>
         <div class="content">
+            <p>Hello {{listerName}},</p>
+
             {{#if withdrawn}}
-            <p>Hello {{listerName}},</p>
             {{#if afterApproval}}
-            <p>{{renterName}} has cancelled their {{#if (eq requestType 'purchase')}}purchase{{else}}rental{{/if}} for <strong>{{productName}}</strong> after you had approved it.</p>
+            <p>{{renterName}} cancelled their {{#if (eq requestType 'purchase')}}purchase{{else}}rental{{/if}} for <strong>{{productName}}</strong> after you approved it.</p>
             {{else}}
-            <p>{{renterName}} has withdrawn their {{#if (eq requestType 'purchase')}}purchase{{else}}rental{{/if}} request for <strong>{{productName}}</strong>.</p>
-            {{/if}}
-            {{#if viewLink}}
-            <p style="margin:24px 0;text-align:left;">
-              <a href="{{viewLink}}" target="_blank" rel="noopener noreferrer"
-                 style="background-color:#111111;color:#ffffff;padding:12px 24px;text-decoration:none;border-radius:6px;display:inline-block;font-family:Arial,sans-serif;font-size:15px;font-weight:bold;line-height:1.2;">
-                View Request
-              </a>
-            </p>
-            <p style="font-size:14px;color:#444444;line-height:1.5;word-break:break-all;">
-            You can also view the request here:<br />
-              <a href="{{viewLink}}" style="color:#111111;text-decoration:underline;">{{viewLink}}</a>
-            </p>
-            {{else}}
-            <p style="font-size:14px;color:#444444;">Please open your lister dashboard to review this request.</p>
+            <p>{{renterName}} withdrew their {{#if (eq requestType 'purchase')}}purchase{{else}}rental{{/if}} request for <strong>{{productName}}</strong>.</p>
             {{/if}}
             {{else}}
-            <p>Hello {{listerName}},</p>
             {{#if (eq requestType 'purchase')}}
-            <p>You have a new purchase request for your item: <strong>{{productName}}</strong>.</p>
-            <p><strong>From:</strong> {{renterName}}</p>
-            <p><strong>Purchase Price:</strong> NGN {{totalPrice}}</p>
+            <p><strong>{{renterName}}</strong> wants to buy <strong>{{productName}}</strong> for NGN {{totalPrice}}.</p>
             {{else}}
-            <p>You have a new rental request for your item: <strong>{{productName}}</strong>.</p>
-            <p><strong>From:</strong> {{renterName}}</p>
-            <p><strong>Duration:</strong> {{rentalDays}} days</p>
-            <p><strong>Price:</strong> NGN {{totalPrice}}</p>
-            <p><strong>Dates:</strong> {{startDate}} - {{endDate}}</p>
+            <p><strong>{{renterName}}</strong> wants to rent <strong>{{productName}}</strong> for {{rentalDays}} days (NGN {{totalPrice}}).</p>
             {{/if}}
 
+            <div class="details">
             {{#if dispatchWindows}}
             {{#each dispatchWindows}}
-            <p style="margin:4px 0;">
-                <strong>{{#if (eq type "OUTBOUND")}}Pickup Time{{else if (eq type "RETURN")}}Return Date{{else}}Resale Date{{/if}}:</strong>
-                {{formatDateTime window.start}} - {{formatDateTime window.end}}
+            <p>
+                <strong>{{#if (eq type "OUTBOUND")}}Delivery{{else if (eq type "RETURN")}}Return{{else}}Resale{{/if}}:</strong>
+                {{formatDateTime window.start}} to {{formatDateTime window.end}}
             </p>
             {{/each}}
+            {{else}}
+            {{#unless (eq startDate 'TBD')}}
+            <p><strong>Dates:</strong> {{startDate}}{{#unless (eq endDate 'TBD')}} to {{endDate}}{{/unless}}</p>
+            {{/unless}}
+            {{/if}}
+            </div>
+
+            <p style="font-size:14px;color:#555;">Approve or decline before this request expires.</p>
             {{/if}}
 
-            <p>Please log in to your dashboard to approve or decline this request before it expires.</p>
             {{#if viewLink}}
-            <p style="margin:24px 0;text-align:left;">
+            <p style="margin:20px 0;">
               <a href="{{viewLink}}" target="_blank" rel="noopener noreferrer"
-                 style="background-color:#111111;color:#ffffff;padding:12px 24px;text-decoration:none;border-radius:6px;display:inline-block;font-family:Arial,sans-serif;font-size:15px;font-weight:bold;line-height:1.2;">
-                View Request
+                 style="background-color:#111111;color:#ffffff;padding:12px 24px;text-decoration:none;border-radius:6px;display:inline-block;font-family:Arial,sans-serif;font-size:15px;font-weight:bold;">
+                View request
               </a>
             </p>
-            <p style="font-size:14px;color:#444444;line-height:1.5;word-break:break-all;">
-            You can also view the request here:<br />
-              <a href="{{viewLink}}" style="color:#111111;text-decoration:underline;">{{viewLink}}</a>
-            </p>
             {{else}}
-            <p style="font-size:14px;color:#444444;">Please open your lister dashboard to review pending rental requests.</p>
-            {{/if}}
+            <p style="font-size:14px;color:#444444;">Open your lister dashboard to review this request.</p>
             {{/if}}
         </div>
         <div class="footer">
