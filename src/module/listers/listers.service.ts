@@ -1557,7 +1557,8 @@ export class ListersService {
     }
 
     const listerUser = { ...lister, sub: lister.id } as userEntity;
-    const requestType = request.rentalDays === 0 ? 'purchase' : 'rental';
+    const requestType: 'purchase' | 'rental' =
+      request.rentalDays === 0 ? 'purchase' : 'rental';
 
     const result =
       action === 'accept'
