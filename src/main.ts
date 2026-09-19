@@ -5,6 +5,7 @@ import { join } from 'path';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
+import { warnIfEmailLinkEnvMissing } from './config/app-urls';
 import { isLocalFileUploadMode } from './config/upload-mode';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
@@ -242,6 +243,7 @@ async function bootstrap() {
   const enableHttpAccessLog =
     !leanLogs || process.env.HTTP_ENABLE_ACCESS_LOG === 'true';
   logShippingFulfillmentConfig();
+  warnIfEmailLinkEnvMissing();
   if (!leanLogs) {
     console.log('Database:', redactDatabaseUrl(process.env.DATABASE_URL));
   }

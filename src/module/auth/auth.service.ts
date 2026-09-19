@@ -379,10 +379,30 @@ export class AuthService {
     redirectPath: string,
     expiryMinutes = 60,
   ): Promise<string> {
+    const frontendUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+    const redirect = redirectPath.startsWith('/')
+      ? redirectPath
+      : `/${redirectPath}`;
+
+    // Reuse an existing valid token so email links are not invalidated by
+    // availability polling or other flows that also mint checkout login links.
+    const existing = await this.prisma.authOtpToken.findFirst({
+      where: {
+        userId,
+        subject: Auth_Otp_Token_Subject.MAGIC_LINK_LOGIN,
+        expiry: { gt: new Date() },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (existing) {
+      return `${frontendUrl}/auth/magic-link?token=${existing.code}&redirect=${encodeURIComponent(redirect)}`;
+    }
+
     await this.prisma.authOtpToken.deleteMany({
       where: {
         userId,
         subject: Auth_Otp_Token_Subject.MAGIC_LINK_LOGIN,
+        expiry: { lt: new Date() },
       },
     });
 
@@ -394,11 +414,6 @@ export class AuthService {
       expiry,
       type: 'TOKEN',
     });
-
-    const frontendUrl = process.env.CLIENT_URL || 'http://localhost:3000';
-    const redirect = redirectPath.startsWith('/')
-      ? redirectPath
-      : `/${redirectPath}`;
 
     return `${frontendUrl}/auth/magic-link?token=${tokenRecord.code}&redirect=${encodeURIComponent(redirect)}`;
   }

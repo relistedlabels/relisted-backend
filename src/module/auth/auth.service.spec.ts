@@ -329,4 +329,55 @@ describe('AuthService', () => {
       expect(mockAuthOtpTokenService.createOtp).not.toHaveBeenCalled();
     });
   });
+
+  describe('buildMagicLoginUrl', () => {
+    beforeEach(() => {
+      process.env.CLIENT_URL = 'https://app.relisted.test';
+    });
+
+    it('reuses an existing valid token instead of minting a new one', async () => {
+      mockPrisma.authOtpToken.findFirst.mockResolvedValue({
+        code: 'existing-token',
+      });
+
+      const url = await service.buildMagicLoginUrl(
+        'user-1',
+        'renter@test.com',
+        '/shop/cart/checkout',
+        24 * 60,
+      );
+
+      expect(url).toBe(
+        'https://app.relisted.test/auth/magic-link?token=existing-token&redirect=%2Fshop%2Fcart%2Fcheckout',
+      );
+      expect(mockAuthOtpTokenService.createOtp).not.toHaveBeenCalled();
+      expect(mockPrisma.authOtpToken.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('creates a new token when no valid token exists', async () => {
+      mockPrisma.authOtpToken.findFirst.mockResolvedValue(null);
+      mockAuthOtpTokenService.createOtp.mockResolvedValue({
+        code: 'fresh-token',
+      });
+
+      const url = await service.buildMagicLoginUrl(
+        'user-1',
+        'renter@test.com',
+        '/shop/cart/checkout',
+        24 * 60,
+      );
+
+      expect(url).toBe(
+        'https://app.relisted.test/auth/magic-link?token=fresh-token&redirect=%2Fshop%2Fcart%2Fcheckout',
+      );
+      expect(mockPrisma.authOtpToken.deleteMany).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-1',
+          subject: Auth_Otp_Token_Subject.MAGIC_LINK_LOGIN,
+          expiry: { lt: expect.any(Date) },
+        },
+      });
+      expect(mockAuthOtpTokenService.createOtp).toHaveBeenCalled();
+    });
+  });
 });
