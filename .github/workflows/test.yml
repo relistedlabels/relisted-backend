@@ -31,5 +31,8 @@ jobs:
       - name: Generate Prisma client
         run: pnpm prisma generate
 
+      - name: Build
+        run: pnpm build
+
       - name: Unit tests
         run: pnpm test

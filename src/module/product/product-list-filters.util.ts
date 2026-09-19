@@ -15,7 +15,7 @@ export type ProductListFilterInput = {
   inCloset?: boolean;
 };
 
-function normalizeCsv(value?: string | string[]): string[] {
+export function normalizeCsv(value?: string | string[]): string[] {
   if (!value) return [];
   const raw = Array.isArray(value) ? value : value.split(',');
   return raw.map((s) => s.trim()).filter(Boolean);

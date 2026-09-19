@@ -33,7 +33,10 @@ import { MailService } from 'src/services/mail/mail.service';
 import { fetchAdminAlertRecipients } from '../shipment/shipment-admin-alert-recipients';
 import { assertProductAttachmentUploads } from 'src/utils/validate-product-attachment-uploads';
 import { getShopSalePhase } from '../shop-sale/shop-sale.util';
-import { applyProductListFilters } from './product-list-filters.util';
+import {
+  applyProductListFilters,
+  normalizeCsv,
+} from './product-list-filters.util';
 import { buildProductKeywordSearchWhere } from './product-keyword-search.util';
 import {
   buildAdminPickerScopeWhere,
@@ -345,12 +348,7 @@ export class ProductService {
       }
 
       // 2. Build orderBy
-      const listingTypes = new Set(
-        (query.listingType ?? '')
-          .split(',')
-          .map((value) => value.trim())
-          .filter(Boolean),
-      );
+      const listingTypes = new Set(normalizeCsv(query.listingType));
       const prefersResalePrice =
         listingTypes.has('RESALE') && !listingTypes.has('RENTAL');
       const prefersRentalPrice =
