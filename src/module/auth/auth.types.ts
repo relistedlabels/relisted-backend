@@ -6,7 +6,8 @@ import { IsEmail, IsEnum, IsOptional, IsString } from 'class-validator';
 export const Auth_Otp_Token_Subject = {
   Verify_Email: 'verify email',
   RESET_PASSWORD: 'RESET Password',
-  CONFIRM_ORDER: 'Verify Order ',
+  CONFIRM_ORDER: 'Order confirmed on Relisted',
+  ORDER_AWAITING_APPROVAL: 'Order awaiting your approval on Relisted',
   LISTER_ORDER_PLACED: 'New order on Relisted',
   Admin_MFA: 'Your admin login code',
   RENTAL_REQUEST: 'New Rental Request',

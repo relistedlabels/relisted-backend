@@ -26,6 +26,7 @@ import {
   OrderCancelledDto,
 } from './mail.type';
 import { Auth_Otp_Token_Subject } from '../../module/auth/auth.types';
+import { resolveOrderConfirmationMailSubject } from './order-confirmation-mail.util';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { existsSync, readFileSync } from 'fs';
@@ -283,9 +284,7 @@ export class MailService {
     const { email, ...rest } = dto;
     console.log(`[EMAIL] Sending confirm-order to ${email}`);
 
-    const subject = dto.listerNewOrderConfirmed
-      ? Auth_Otp_Token_Subject.LISTER_ORDER_PLACED
-      : Auth_Otp_Token_Subject.CONFIRM_ORDER;
+    const subject = resolveOrderConfirmationMailSubject(dto);
 
     if (this.devBypass) {
       await this.handleDevBypass('confirm-order', subject, rest, email);
@@ -510,7 +509,7 @@ export class MailService {
     if (this.devBypass) {
       await this.handleDevBypass(
         'lister-return-in-transit',
-        'Return is on its way to you',
+        'Return on its way to you',
         rest,
         email,
       );
@@ -532,7 +531,7 @@ export class MailService {
     if (this.devBypass) {
       await this.handleDevBypass(
         'lister-return-delivered-confirm',
-        'Confirm return receipt. Order almost complete.',
+        'Confirm return receipt. Finish this rental.',
         rest,
         email,
       );
@@ -595,7 +594,7 @@ export class MailService {
     if (this.devBypass) {
       await this.handleDevBypass(
         'return-completed',
-        'Return Completed',
+        'Return completed',
         rest,
         email,
       );
@@ -605,7 +604,7 @@ export class MailService {
     await this.deliverMail({
       to: email,
       template: './return-completed',
-      subject: 'Return Completed',
+      subject: 'Return completed',
       context: rest,
     });
   }
