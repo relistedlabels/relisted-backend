@@ -8,6 +8,7 @@ import {
   ensureRentalReturnDispatchWindow,
   getLagosCalendarDateKey,
   listReturnPickupSlotsForDay,
+  DEFAULT_DISPATCH_WINDOW_MINUTES,
   MIN_DISPATCH_WINDOW_MINUTES,
   parseReturnPickupWindowChoice,
   rentalReturnPickupDate,
@@ -18,6 +19,21 @@ import {
 } from './dispatch-windows';
 
 const LAGOS = '+01:00';
+
+/** Hourly slot starts (Lagos) still open at `nowMinutes` for the configured default duration. */
+function expectedOpenSlotStartHours(nowMinutes: number): number[] {
+  const duration = DEFAULT_DISPATCH_WINDOW_MINUTES;
+  const dayStartMinutes = RETURN_DISPATCH_WINDOW_START_HOUR * 60;
+  const dayEndMinutes = RETURN_DISPATCH_WINDOW_END_HOUR * 60;
+  const lastStartMinutes = dayEndMinutes - duration;
+  const hours: number[] = [];
+  for (let startMin = dayStartMinutes; startMin <= lastStartMinutes; startMin += 60) {
+    if (startMin + duration > nowMinutes) {
+      hours.push(startMin / 60);
+    }
+  }
+  return hours;
+}
 
 function lagosIso(ymd: string, hour: number, minute = 0): string {
   const h = String(hour).padStart(2, '0');
@@ -93,10 +109,13 @@ describe('return pickup window selection', () => {
         new Date('2026-08-01T10:00:00+01:00'),
       );
       expect(slots).toHaveLength(
-        RETURN_DISPATCH_WINDOW_END_HOUR - RETURN_DISPATCH_WINDOW_START_HOUR,
+        RETURN_DISPATCH_WINDOW_END_HOUR -
+          RETURN_DISPATCH_WINDOW_START_HOUR -
+          DEFAULT_DISPATCH_WINDOW_MINUTES / 60 +
+          1,
       );
       expect(differenceInMinutes(slots[0].end, slots[0].start)).toBe(
-        MIN_DISPATCH_WINDOW_MINUTES,
+        DEFAULT_DISPATCH_WINDOW_MINUTES,
       );
       const firstHour = slots[0].start.toLocaleString('en-US', {
         timeZone: 'Africa/Lagos',
@@ -132,11 +151,7 @@ describe('return pickup window selection', () => {
         ),
       );
 
-      expect(startHours).not.toContain(8);
-      expect(startHours).not.toContain(9);
-      expect(startHours).not.toContain(10);
-      expect(startHours).toContain(11);
-      expect(startHours).toEqual([11, 12, 13, 14, 15, 16, 17]);
+      expect(startHours).toEqual(expectedOpenSlotStartHours(11 * 60 + 30));
     });
 
     it('returns only the in-progress last slot when near end of day', () => {
@@ -153,7 +168,9 @@ describe('return pickup window selection', () => {
         }),
         10,
       );
-      expect(startHour).toBe(17);
+      const expected = expectedOpenSlotStartHours(17 * 60 + 30);
+      expect(expected).toHaveLength(1);
+      expect(startHour).toBe(expected[0]);
     });
 
     it('returns no slots after the last window has ended', () => {
@@ -181,7 +198,9 @@ describe('return pickup window selection', () => {
         10,
       );
       expect(startHour).toBe(15);
-      expect(differenceInMinutes(end, start)).toBe(MIN_DISPATCH_WINDOW_MINUTES);
+      expect(differenceInMinutes(end, start)).toBe(
+        DEFAULT_DISPATCH_WINDOW_MINUTES,
+      );
     });
 
     it('rolls to the next day at 8am when called after the dispatch cutoff', () => {
@@ -199,7 +218,9 @@ describe('return pickup window selection', () => {
         10,
       );
       expect(startHour).toBe(RETURN_DISPATCH_WINDOW_START_HOUR);
-      expect(differenceInMinutes(end, start)).toBe(MIN_DISPATCH_WINDOW_MINUTES);
+      expect(differenceInMinutes(end, start)).toBe(
+        DEFAULT_DISPATCH_WINDOW_MINUTES,
+      );
     });
   });
 

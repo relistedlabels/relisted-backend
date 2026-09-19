@@ -23,10 +23,10 @@ function resolveDefaultDispatchWindowMinutes(): number {
   if (fromHours != null && fromHours !== '') {
     return Number(fromHours) * 60;
   }
-  return MIN_DISPATCH_WINDOW_MINUTES;
+  return 120;
 }
 
-/** Default slot length for server-built windows; matches frontend 60-minute dispatch slots. */
+/** Default slot length for server-built windows; matches frontend 2-hour dispatch slots. */
 export const DEFAULT_DISPATCH_WINDOW_MINUTES =
   resolveDefaultDispatchWindowMinutes();
 /** @deprecated Prefer DEFAULT_DISPATCH_WINDOW_MINUTES / MIN_DISPATCH_WINDOW_MINUTES */
@@ -391,7 +391,7 @@ function returnWindowOptionFromRange(range: DispatchWindowRange): ReturnPickupWi
   };
 }
 
-/** Hourly return pickup slots on one Lagos calendar day (60-minute windows). */
+/** Hourly return pickup slots on one Lagos calendar day (default window length). */
 export function listReturnPickupSlotsForDay(
   scheduledDay: string,
   now = new Date(),
