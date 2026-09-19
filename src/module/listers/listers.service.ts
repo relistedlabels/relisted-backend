@@ -22,6 +22,7 @@ import {
   ProductStatus,
   Role,
 } from '@prisma/client';
+import { isAvailabilityRequestSupersededByActiveOrder } from '../cart-items/fulfill-availability-for-checkout';
 import {
   differenceInSeconds,
   subMonths,
@@ -444,6 +445,58 @@ export class ListersService {
     });
   }
 
+  /**
+   * ACCEPTED requests whose renter already paid should not stay on "awaiting payment".
+   * Backfill ORDERED when an active order exists for the same product + renter.
+   */
+  private async reconcileAcceptedAvailabilityRequestsForLister(
+    listerId: string,
+  ): Promise<void> {
+    const accepted = await this.prisma.availabilityRequest.findMany({
+      where: { listerId, status: 'ACCEPTED' },
+      select: { id: true, productId: true, requesterId: true },
+    });
+    if (accepted.length === 0) return;
+
+    const productIds = [...new Set(accepted.map((row) => row.productId))];
+    const requesterIds = [...new Set(accepted.map((row) => row.requesterId))];
+    const paidOrders = await this.prisma.order.findMany({
+      where: {
+        userId: { in: requesterIds },
+        status: { notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED] },
+        orderItems: {
+          some: {
+            productId: { in: productIds },
+            product: { curatorId: listerId },
+          },
+        },
+      },
+      select: {
+        userId: true,
+        orderItems: { select: { productId: true } },
+      },
+    });
+
+    const paidPairs = new Set<string>();
+    for (const order of paidOrders) {
+      for (const item of order.orderItems) {
+        paidPairs.add(`${item.productId}:${order.userId}`);
+      }
+    }
+
+    const supersededIds = accepted
+      .filter((row) =>
+        isAvailabilityRequestSupersededByActiveOrder(paidPairs, row),
+      )
+      .map((row) => row.id);
+    if (supersededIds.length === 0) return;
+
+    await this.prisma.availabilityRequest.updateMany({
+      where: { id: { in: supersededIds }, status: 'ACCEPTED' },
+      data: { status: 'ORDERED' },
+    });
+  }
+
   private formatAvailabilityRequestActionFields(
     req: {
       status: string;
@@ -485,6 +538,7 @@ export class ListersService {
   ) {
     try {
       await this.expireStalePendingAvailabilityRequests(user.id);
+      await this.reconcileAcceptedAvailabilityRequestsForLister(user.id);
 
       const skip = (page - 1) * limit;
       const targetStatus = status?.toLowerCase() || 'all';
@@ -2656,6 +2710,7 @@ export class ListersService {
 
   private async getOrdersSummary(curatorId: string) {
     await this.expireStalePendingAvailabilityRequests(curatorId);
+    await this.reconcileAcceptedAvailabilityRequestsForLister(curatorId);
 
     const [pendingApprovalCount, awaitingPaymentCount] = await Promise.all([
       this.prisma.availabilityRequest.count({

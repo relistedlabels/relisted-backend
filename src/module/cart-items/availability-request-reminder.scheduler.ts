@@ -12,8 +12,9 @@ import {
   type AvailabilityReminderAction,
 } from './availability-request-reminder.util';
 import {
-  findActiveOrderProductRequesterPairs,
+  findSupersedingOrderProductRequesterPairs,
   isAvailabilityRequestSupersededByActiveOrder,
+  markSupersededAvailabilityRequestsOrdered,
 } from './fulfill-availability-for-checkout';
 import {
   canListerActOnAvailabilityRequest,
@@ -92,7 +93,38 @@ export class AvailabilityRequestReminderScheduler {
       orderBy: { approvedAt: 'asc' },
     });
 
+    const supersededPairs = await findSupersedingOrderProductRequesterPairs(
+      this.prisma,
+      accepted.map((request) => ({
+        productId: request.productId,
+        requesterId: request.requester?.id ?? '',
+      })),
+    );
+
+    if (supersededPairs.size > 0) {
+      await markSupersededAvailabilityRequestsOrdered(
+        this.prisma,
+        accepted.map((request) => ({
+          id: request.id,
+          productId: request.productId,
+          requesterId: request.requester?.id ?? '',
+        })),
+        supersededPairs,
+      );
+    }
+
     for (const request of accepted) {
+      const requesterId = request.requester?.id ?? '';
+      if (
+        requesterId &&
+        isAvailabilityRequestSupersededByActiveOrder(supersededPairs, {
+          productId: request.productId,
+          requesterId,
+        })
+      ) {
+        continue;
+      }
+
       const actions = computeCheckoutReminderActions(
         now,
         request.approvedAt,
@@ -118,7 +150,7 @@ export class AvailabilityRequestReminderScheduler {
       orderBy: { expiresAt: 'asc' },
     });
 
-    const activeOrderPairs = await findActiveOrderProductRequesterPairs(
+    const activeOrderPairs = await findSupersedingOrderProductRequesterPairs(
       this.prisma,
       expired.map((request) => ({
         productId: request.productId,

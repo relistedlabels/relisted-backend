@@ -345,30 +345,65 @@ export class ProductService {
       }
 
       // 2. Build orderBy
+      const listingTypes = new Set(
+        (query.listingType ?? '')
+          .split(',')
+          .map((value) => value.trim())
+          .filter(Boolean),
+      );
+      const prefersResalePrice =
+        listingTypes.has('RESALE') && !listingTypes.has('RENTAL');
+      const prefersRentalPrice =
+        listingTypes.has('RENTAL') && !listingTypes.has('RESALE');
+
       let orderBy: any = { createdAt: 'desc' }; // Default: newest
       if (query.sort) {
         switch (query.sort) {
+          case 'newest':
+            orderBy = { createdAt: 'desc' };
+            break;
           case 'oldest':
             orderBy = { createdAt: 'asc' };
             break;
           case 'price_low':
-            // For RESALE products, sort by resalePrice; for RENTAL, sort by dailyPrice
-            orderBy = [
-              { dailyPrice: 'asc' as const },
-              { resalePrice: 'asc' as const },
-            ];
+            orderBy = prefersResalePrice
+              ? [
+                  { resalePrice: 'asc' as const },
+                  { dailyPrice: 'asc' as const },
+                ]
+              : prefersRentalPrice
+                ? [
+                    { dailyPrice: 'asc' as const },
+                    { resalePrice: 'asc' as const },
+                  ]
+                : [
+                    { dailyPrice: 'asc' as const },
+                    { resalePrice: 'asc' as const },
+                  ];
             break;
           case 'price_high':
-            // For RESALE products, sort by resalePrice; for RENTAL, sort by dailyPrice
-            orderBy = [
-              { dailyPrice: 'desc' as const },
-              { resalePrice: 'desc' as const },
-            ];
+            orderBy = prefersResalePrice
+              ? [
+                  { resalePrice: 'desc' as const },
+                  { dailyPrice: 'desc' as const },
+                ]
+              : prefersRentalPrice
+                ? [
+                    { dailyPrice: 'desc' as const },
+                    { resalePrice: 'desc' as const },
+                  ]
+                : [
+                    { dailyPrice: 'desc' as const },
+                    { resalePrice: 'desc' as const },
+                  ];
             break;
           case 'popular':
-            // If we have a viewCount or similar, we can sort by it.
-            // For now fallback to newest if not available.
-            orderBy = { favourites: { _count: 'desc' } };
+            // Paid activity first, then saves, then recency.
+            orderBy = [
+              { items: { _count: 'desc' as const } },
+              { favourites: { _count: 'desc' as const } },
+              { createdAt: 'desc' as const },
+            ];
             break;
           case 'rating':
             orderBy = { reviews: { _avg: { rating: 'desc' } } };
@@ -376,7 +411,8 @@ export class ProductService {
         }
       }
 
-      const applyShopBrandPriority = !inClosetListContext;
+      const userChoseSort = Boolean(query.sort && query.sort !== 'newest');
+      const applyShopBrandPriority = !inClosetListContext && !userChoseSort;
       const brandPriorityOrder = [
         { brand: { isShopPrioritized: 'desc' as const } },
         { brand: { shopPriorityOrder: 'asc' as const } },

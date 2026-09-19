@@ -87,6 +87,7 @@ import {
 import {
   refreshAvailabilityDispatchForCheckout,
 } from 'src/utils/availability-request-expiry.util';
+import { fulfillAvailabilityRequestsForCheckout } from '../cart-items/fulfill-availability-for-checkout';
 import {
   isRelistedDispatchShippingTier,
   RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO,
@@ -3115,6 +3116,12 @@ export class OrderService {
             });
           }
         }
+
+        await fulfillAvailabilityRequestsForCheckout(tx, {
+          requesterId: user.id,
+          cartItemIds: eligibleItems.map((item: any) => item.id),
+          productIds: eligibleItems.map((item: any) => item.product.id),
+        });
       });
 
     for (const row of shipmentDispatchPlan) {

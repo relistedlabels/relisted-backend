@@ -82,4 +82,62 @@ describe('AvailabilityRequestReminderScheduler.sendAvailabilityRequestReminders'
 
     jest.useRealTimers();
   });
+
+  it('skips checkout reminders when the renter already has a paid order', async () => {
+    const now = new Date('2026-07-15T12:00:00.000Z');
+    jest.useFakeTimers();
+    jest.setSystemTime(now);
+
+    const acceptedRequest = {
+      id: 'req-accepted',
+      productId: 'prod-1',
+      rentalDays: 3,
+      approvedAt: new Date(now.getTime() - 20 * 60 * 1000),
+      reminderState: null,
+      product: { name: 'Silk dress' },
+      requester: {
+        id: 'guest-renter-1',
+        name: 'Guest',
+        email: 'guest@test.com',
+      },
+      lister: { name: 'Ada' },
+    };
+
+    const updateMany = jest
+      .fn()
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 1 });
+    const findMany = jest
+      .fn()
+      .mockResolvedValueOnce([acceptedRequest])
+      .mockResolvedValueOnce([]);
+    const update = jest.fn().mockResolvedValue({});
+    const orderFindMany = jest.fn().mockResolvedValue([
+      {
+        userId: 'guest-renter-1',
+        orderItems: [{ productId: 'prod-1' }],
+      },
+    ]);
+
+    const scheduler = buildScheduler({
+      updateMany,
+      findMany,
+      update,
+      orderFindMany,
+    });
+    await scheduler.sendAvailabilityRequestReminders();
+
+    expect(mockNotification.createNotification).not.toHaveBeenCalled();
+    expect(updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: { in: ['req-accepted'] },
+          status: 'ACCEPTED',
+        }),
+        data: { status: 'ORDERED' },
+      }),
+    );
+
+    jest.useRealTimers();
+  });
 });

@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, NotFoundException, Param, Query } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -9,6 +9,7 @@ import {
 import { ClosetService } from './closet.service';
 import { ProductService } from '../product/product.service';
 import { ListProductQuery } from '../product/dto/create-product.dto';
+import { SiteFeaturesService } from '../site-features/site-features.service';
 
 @ApiTags('Public - Closets')
 @Controller('api/public/closets')
@@ -16,7 +17,15 @@ export class ClosetPublicController {
   constructor(
     private readonly closetService: ClosetService,
     private readonly productService: ProductService,
+    private readonly siteFeatures: SiteFeaturesService,
   ) {}
+
+  private async assertClosetFeatureEnabled() {
+    const enabled = await this.siteFeatures.getHeaderClosetsShopNavEnabled();
+    if (!enabled) {
+      throw new NotFoundException('Closet browsing is not available');
+    }
+  }
 
   /** Base list route must be registered before `:slug` / `:slug/products`. */
   @Get()
@@ -26,6 +35,7 @@ export class ClosetPublicController {
   @ApiQuery({ name: 'limit', required: false, description: 'Max closets (1–50)' })
   @ApiResponse({ status: 200 })
   async listPublic(@Query('limit') limit?: string) {
+    await this.assertClosetFeatureEnabled();
     const parsed = parseInt(limit ?? '12', 10);
     const n = Number.isFinite(parsed) ? parsed : 12;
     return this.closetService.listPublicForMarketing(n);
@@ -52,6 +62,7 @@ export class ClosetPublicController {
   @ApiQuery({ name: 'tags', required: false })
   @ApiResponse({ status: 200, description: 'Products for closet' })
   async listProducts(@Param('slug') slug: string, @Query() query: any) {
+    await this.assertClosetFeatureEnabled();
     const closetRes = await this.closetService.getActivePublicClosetBySlug(slug);
     const closetId = closetRes.data.id;
     const listQuery: ListProductQuery = {
@@ -79,6 +90,7 @@ export class ClosetPublicController {
   @ApiParam({ name: 'slug', description: 'Closet slug' })
   @ApiResponse({ status: 200 })
   async getBySlug(@Param('slug') slug: string) {
+    await this.assertClosetFeatureEnabled();
     return this.closetService.getActivePublicClosetBySlug(slug);
   }
 }
