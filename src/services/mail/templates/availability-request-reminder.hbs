@@ -54,11 +54,9 @@
         <div class="content">
             <p>Hello {{userName}},</p>
             {{#if (eq intent "rerequest")}}
-            <p>{{listerName}} could not respond to your earlier {{#if (eq requestType 'purchase')}}purchase{{else}}rental{{/if}} request in time for <strong>{{productName}}</strong>.</p>
-            <p>If you still want this item, open the listing and check availability again.</p>
+            <p>Your earlier {{#if (eq requestType 'purchase')}}purchase{{else}}rental{{/if}} request for <strong>{{productName}}</strong> expired without a response. Check availability again if you still want it.</p>
             {{else}}
-            <p>{{listerName}} says <strong>{{productName}}</strong> may still be available.</p>
-            <p>Open the listing to pick a new delivery time and check availability.</p>
+            <p><strong>{{productName}}</strong> may be available again. Pick a new delivery time on the listing.</p>
             {{/if}}
             <p><a href="{{listingLink}}" class="button">View listing</a></p>
         </div>

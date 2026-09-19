@@ -10,12 +10,7 @@
     </div>
 
     <div style="padding:20px;">
-      <p style="margin:0 0 12px;">Hello {{userName}},</p>
-      {{#if (eq status "created")}}
-        <p style="margin:0 0 16px; color:#374151;">A new dispute has been created.</p>
-      {{else}}
-        <p style="margin:0 0 16px; color:#374151;">Your dispute has been updated.</p>
-      {{/if}}
+      <p style="margin:0 0 16px;">Hello {{userName}},</p>
 
       <div style="border:1px solid #eef0f5; border-radius:10px; padding:14px 16px; background:#fbfbfe;">
         <div style="display:flex; gap:12px; flex-wrap:wrap; color:#111827;">
@@ -131,11 +126,8 @@
       {{#if disputeLink}}
         <div style="margin-top:18px;">
           <a href="{{disputeLink}}" style="display:inline-block; background:#111827; color:#ffffff; text-decoration:none; padding:10px 14px; border-radius:10px; font-weight:600;">
-            View Disputes
+            View disputes
           </a>
-          <div style="margin-top:10px; font-size:12px; color:#6b7280;">
-            If the button doesn’t work, open: <span style="color:#111827;">{{disputeLink}}</span>
-          </div>
         </div>
       {{/if}}
     </div>

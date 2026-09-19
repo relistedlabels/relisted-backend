@@ -27,6 +27,8 @@ const mockPrisma = {
   availabilityRequest: {
     findMany: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
   },
   shipment: { updateMany: jest.fn() },
   cartItem: { deleteMany: jest.fn() },
@@ -535,6 +537,10 @@ function buildTransactionMock(overrides?: {
     },
     productUpdate: jest.fn().mockResolvedValue({}),
     escrow: { create: jest.fn().mockResolvedValue({}) },
+    availabilityRequest: {
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
     shipment: {
       create: jest.fn().mockImplementation(() =>
         Promise.resolve({ id: `ship-${++shipmentSeq}` }),

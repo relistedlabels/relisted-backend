@@ -1,5 +1,6 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import { ProductService } from './product.service';
+import { SiteFeaturesService } from '../site-features/site-features.service';
 import {
   ApiTags,
   ApiOperation,
@@ -12,7 +13,21 @@ import { ListProductQuery } from './dto/create-product.dto';
 @ApiTags('Public - Products')
 @Controller('api/public/products')
 export class ProductPublicController {
-  constructor(private readonly productService: ProductService) {}
+  constructor(
+    private readonly productService: ProductService,
+    private readonly siteFeatures: SiteFeaturesService,
+  ) {}
+
+  private async stripClosetFiltersWhenDisabled(query: ListProductQuery) {
+    const closetFeatureEnabled =
+      await this.siteFeatures.getHeaderClosetsShopNavEnabled();
+    if (closetFeatureEnabled) return query;
+    return {
+      ...query,
+      closetId: undefined,
+      onlyWithCloset: false,
+    };
+  }
 
   @Get()
   @ApiOperation({ summary: 'List all products (Public)' })
@@ -92,7 +107,9 @@ export class ProductPublicController {
       curatorId: query.lister || query.curatorId,
       excludeStagingCurator: true,
     };
-    return this.productService.list(listQuery);
+    return this.productService.list(
+      await this.stripClosetFiltersWhenDisabled(listQuery),
+    );
   }
 
   @Get('filter-options')
@@ -107,11 +124,15 @@ export class ProductPublicController {
     description: 'Filter options retrieved successfully',
   })
   async filterOptions(@Query() query: any) {
-    return this.productService.getShopFilterOptions({
-      sale: query.sale,
+    const filterQuery = await this.stripClosetFiltersWhenDisabled({
       closetId: query.closetId,
       onlyWithCloset:
         query.onlyWithCloset === true || query.onlyWithCloset === 'true',
+    });
+    return this.productService.getShopFilterOptions({
+      sale: query.sale,
+      closetId: filterQuery.closetId,
+      onlyWithCloset: filterQuery.onlyWithCloset,
       excludeStagingCurator: true,
     });
   }
