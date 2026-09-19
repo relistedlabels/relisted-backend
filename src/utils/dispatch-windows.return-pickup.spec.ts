@@ -20,6 +20,21 @@ import {
 
 const LAGOS = '+01:00';
 
+/** Hourly slot starts (Lagos) still open at `nowMinutes` for the configured default duration. */
+function expectedOpenSlotStartHours(nowMinutes: number): number[] {
+  const duration = DEFAULT_DISPATCH_WINDOW_MINUTES;
+  const dayStartMinutes = RETURN_DISPATCH_WINDOW_START_HOUR * 60;
+  const dayEndMinutes = RETURN_DISPATCH_WINDOW_END_HOUR * 60;
+  const lastStartMinutes = dayEndMinutes - duration;
+  const hours: number[] = [];
+  for (let startMin = dayStartMinutes; startMin <= lastStartMinutes; startMin += 60) {
+    if (startMin + duration > nowMinutes) {
+      hours.push(startMin / 60);
+    }
+  }
+  return hours;
+}
+
 function lagosIso(ymd: string, hour: number, minute = 0): string {
   const h = String(hour).padStart(2, '0');
   const m = String(minute).padStart(2, '0');
@@ -136,11 +151,7 @@ describe('return pickup window selection', () => {
         ),
       );
 
-      expect(startHours).not.toContain(8);
-      expect(startHours).not.toContain(9);
-      expect(startHours).not.toContain(10);
-      expect(startHours).toContain(11);
-      expect(startHours).toEqual([11, 12, 13, 14, 15, 16, 17]);
+      expect(startHours).toEqual(expectedOpenSlotStartHours(11 * 60 + 30));
     });
 
     it('returns only the in-progress last slot when near end of day', () => {
@@ -157,7 +168,9 @@ describe('return pickup window selection', () => {
         }),
         10,
       );
-      expect(startHour).toBe(17);
+      const expected = expectedOpenSlotStartHours(17 * 60 + 30);
+      expect(expected).toHaveLength(1);
+      expect(startHour).toBe(expected[0]);
     });
 
     it('returns no slots after the last window has ended', () => {
