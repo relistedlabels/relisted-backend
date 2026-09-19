@@ -140,6 +140,29 @@ export class MailService {
     return Boolean(process.env.MAIL_HOST?.trim());
   }
 
+  private buildEmailButtonRow(
+    buttons: Array<{
+      href: string;
+      label: string;
+      background?: string;
+      color?: string;
+      border?: string;
+    }>,
+    margin = '20px 0',
+  ): string {
+    const cells = buttons
+      .map((btn, index) => {
+        const isLast = index === buttons.length - 1;
+        const paddingRight = isLast ? '0' : '12px';
+        const background = btn.background ?? '#111827';
+        const color = btn.color ?? '#ffffff';
+        const border = btn.border ? `border:${btn.border};` : '';
+        return `<td style="padding:0 ${paddingRight} 12px 0;vertical-align:top;"><a href="${btn.href}" target="_blank" rel="noopener noreferrer" style="display:inline-block;background:${background};color:${color};text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;font-family:Arial,sans-serif;font-size:15px;${border}">${btn.label}</a></td>`;
+      })
+      .join('');
+    return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:${margin};border-collapse:separate;border-spacing:0;"><tr>${cells}</tr></table>`;
+  }
+
   /**
    * Prefer Resend when RESEND_API_KEY is set. On Resend failure, send the same HTML via
    * nodemailer when MAIL_HOST is set (e.g. Gmail smtp.gmail.com).
@@ -1005,18 +1028,27 @@ export class MailService {
             : ''
         }
       </div>
-      <div style="margin-top:18px;display:flex;gap:12px;flex-wrap:wrap;">
-        ${
-          adminShipmentUrl
-            ? `<a href="${adminShipmentUrl}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">View in Admin</a>`
-            : ''
-        }
-        ${
-          trackingUrl
-            ? `<a href="${trackingUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">${providerLabel} tracking</a>`
-            : ''
-        }
-      </div>
+      ${
+        adminShipmentUrl || trackingUrl
+          ? this.buildEmailButtonRow(
+              [
+                ...(adminShipmentUrl
+                  ? [{ href: adminShipmentUrl, label: 'View in Admin' }]
+                  : []),
+                ...(trackingUrl
+                  ? [
+                      {
+                        href: trackingUrl,
+                        label: `${providerLabel} tracking`,
+                        background: '#2563eb',
+                      },
+                    ]
+                  : []),
+              ],
+              '18px 0 0',
+            )
+          : ''
+      }
     </div>
   </div>
 </div>`;
@@ -1540,8 +1572,19 @@ export class MailService {
         <div style="font-weight:600;color:#111827;">${amountStr}</div>
       </div>
       <div style="margin:20px 0;">
-        <a href="${walletUrl}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;margin-right:8px;margin-bottom:8px;">Open wallet</a>
-        <a href="${orderLink}" style="display:inline-block;background:#ffffff;color:#111827;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;border:1px solid #d1d5db;margin-bottom:8px;">View order</a>
+        ${this.buildEmailButtonRow(
+          [
+            { href: walletUrl, label: 'Open wallet' },
+            {
+              href: orderLink,
+              label: 'View order',
+              background: '#ffffff',
+              color: '#111827',
+              border: '1px solid #d1d5db',
+            },
+          ],
+          '0',
+        )}
         <div style="margin-top:10px;font-size:12px;color:#6b7280;">
           Wallet: <a href="${walletUrl}" style="color:#111827;">${walletUrl}</a><br/>
           Order: <span style="color:#111827;">${orderLink}</span>

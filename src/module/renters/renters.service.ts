@@ -24,6 +24,10 @@ import { notifyAdminsNewWithdrawalRequest } from '../wallet/withdrawal-admin-not
 import { assertNoOpenAvailabilityRequestForProduct } from '../../utils/assert-no-open-availability-for-product';
 import { DEFAULT_CLEANING_FEE_NGN } from '../../constants/rental-pricing';
 import {
+  resolveApiPublicUrl,
+  resolveClientUrl,
+} from '../../config/app-urls';
+import {
   buildListerNameMapFromOrderItems,
   buildRentalOutboundPackageRows,
   buildResalePackageRows,
@@ -1325,10 +1329,8 @@ export class RentersService {
       request.listerId,
       businessExpiresAt,
     );
-    const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
-    const apiPublicUrl =
-      process.env.API_PUBLIC_URL ||
-      `http://localhost:${process.env.PORT ?? '4000'}`;
+    const clientUrl = resolveClientUrl();
+    const apiPublicUrl = resolveApiPublicUrl();
     const acceptLink = `${apiPublicUrl}/api/public/lister-response/${listerResponseToken}?action=accept`;
     const rejectLink = `${apiPublicUrl}/api/public/lister-response/${listerResponseToken}?action=reject`;
 

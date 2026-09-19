@@ -1541,6 +1541,14 @@ export class ListersService {
     }
 
     const requestId = tokenRow.email;
+    const request = await this.prisma.availabilityRequest.findUnique({
+      where: { id: requestId },
+      include: { product: { select: { name: true } } },
+    });
+    if (!request) {
+      throw new NotFoundException('Availability request not found');
+    }
+
     const lister = await this.prisma.user.findUnique({
       where: { id: tokenRow.userId },
     });
@@ -1549,13 +1557,25 @@ export class ListersService {
     }
 
     const listerUser = { ...lister, sub: lister.id } as userEntity;
+    const requestType: 'purchase' | 'rental' =
+      request.rentalDays === 0 ? 'purchase' : 'rental';
 
-    if (action === 'accept') {
-      return this.approveOrder(listerUser, requestId);
-    }
-    return this.rejectOrder(listerUser, requestId, {
-      reason: 'Not available for these dates',
-    });
+    const result =
+      action === 'accept'
+        ? await this.approveOrder(listerUser, requestId)
+        : await this.rejectOrder(listerUser, requestId, {
+            reason: 'Not available for these dates',
+          });
+
+    return {
+      ...result,
+      responseMeta: {
+        outcome: action === 'accept' ? 'accepted' : 'rejected',
+        requestId,
+        productName: request.product?.name ?? '',
+        requestType,
+      },
+    };
   }
 
   /** POST /api/listers/orders/:orderId/approve

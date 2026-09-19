@@ -40,16 +40,12 @@ export class AuthOtpTokenService {
 
   // verify otp
   async verifyOtp(dto: VerifyOtp, allowDelete: boolean = true) {
-    // find if the otp exist  in the database
     const { code, subject } = dto;
     const token = await this.prisma.authOtpToken.findUnique({
-      where: {
-        code,
-        subject,
-      },
+      where: { code },
     });
 
-    if (!token) {
+    if (!token || token.subject !== subject) {
       bad('invalid token');
     }
 
