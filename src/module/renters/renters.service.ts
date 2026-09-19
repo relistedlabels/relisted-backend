@@ -21,6 +21,8 @@ import { createAttachments } from 'prisma/prisma.utils';
 import { NotificationService } from '../../services/notification/notification.service';
 import { MailService } from '../../services/mail/mail.service';
 import { notifyAdminsNewWithdrawalRequest } from '../wallet/withdrawal-admin-notify.util';
+import { notifyAdminsInhouseRentalRequest } from './notify-admins-inhouse-rental-request.util';
+import { isInhouseLister } from '../../utils/inhouse-lister.util';
 import { assertNoOpenAvailabilityRequestForProduct } from '../../utils/assert-no-open-availability-for-product';
 import { DEFAULT_CLEANING_FEE_NGN } from '../../constants/rental-pricing';
 import {
@@ -1381,6 +1383,37 @@ export class RentersService {
       metadata: { requestId: request.id, productId: request.productId },
       sendEmail: false,
     });
+
+    if (isInhouseLister(request.listerId)) {
+      try {
+        await notifyAdminsInhouseRentalRequest(
+          this.prisma,
+          this.notificationService,
+          this.mailService,
+          {
+            requestId: request.id,
+            productId: request.productId,
+            productName: request.product?.name || 'Item',
+            renterName: userObj?.name || 'A customer',
+            renterEmail: userObj?.email,
+            isResaleRequest,
+            rentalDays: request.rentalDays ?? 0,
+            totalPrice: request.totalPrice ?? 0,
+            startDate: request.startDate
+              ? formatRentalBoundaryDateLagos(request.startDate)
+              : null,
+            endDate: request.endDate
+              ? formatRentalBoundaryDateLagos(request.endDate)
+              : null,
+          },
+        );
+      } catch (err) {
+        console.warn(
+          `[RentalRequest] Admin notify (inhouse) failed for ${request.id}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
 
     // build response similar to spec sample
     return {

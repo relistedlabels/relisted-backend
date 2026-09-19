@@ -97,6 +97,7 @@ import { fetchAdminAlertRecipients } from 'src/module/shipment/shipment-admin-al
 import { buildAdminShipmentsPageUrl } from 'src/module/shipment/build-admin-shipments-page-url';
 import { shipmentLegLabel } from 'src/module/shipment/shipment-leg-label.util';
 import { MailService } from 'src/services/mail/mail.service';
+import { notifyAdminsNewOrder } from './notify-admins-new-order.util';
 import {
   PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
   firstProductAttachmentImageUrlFromUploads,
@@ -3267,6 +3268,25 @@ export class OrderService {
           },
         });
       }
+
+      const listerNames = [...notifyMergedByLister.values()]
+        .map((row) => row.items[0]?.product?.curator?.name?.trim())
+        .filter((name): name is string => !!name);
+
+      await notifyAdminsNewOrder(
+        this.prisma,
+        this.notificationService,
+        this.mailService,
+        {
+          orderId: order.id,
+          humanOrderId: order.orderId,
+          renterName: user.name || 'Customer',
+          renterEmail: user.email?.trim() || 'unknown',
+          listerNames,
+          itemCount: eligibleItems.length,
+          totalAmount: grandTotal,
+        },
+      );
     } catch (notifyErr) {
       console.error('[Checkout] Error sending checkout notifications:', notifyErr);
     }
