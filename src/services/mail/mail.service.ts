@@ -1156,6 +1156,180 @@ export class MailService {
     });
   }
 
+  async sendAdminNewOrderAlert(dto: {
+    email: string;
+    adminName: string;
+    humanOrderId: string;
+    renterName: string;
+    renterEmail: string;
+    listerSummary: string;
+    itemCount: number;
+    totalAmountFormatted: string;
+    adminLink?: string;
+  }) {
+    const {
+      email,
+      adminName,
+      humanOrderId,
+      renterName,
+      renterEmail,
+      listerSummary,
+      itemCount,
+      totalAmountFormatted,
+      adminLink,
+    } = dto;
+
+    const safe = (s: string) => s.replace(/</g, '');
+    const itemLabel = itemCount === 1 ? '1 item' : `${itemCount} items`;
+
+    console.log(
+      `[EMAIL] Sending admin new order alert to ${email} for order ${humanOrderId}`,
+    );
+
+    const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f6f7fb;padding:24px;">
+  <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
+    <div style="padding:18px 20px;background:#111827;color:#ffffff;">
+      <div style="font-size:14px;opacity:0.9;">Relisted Admin</div>
+      <div style="font-size:18px;font-weight:700;margin-top:6px;">New order</div>
+    </div>
+    <div style="padding:20px;">
+      <p style="margin:0 0 12px;color:#374151;">Hello ${safe(adminName || 'Admin')},</p>
+      <p style="margin:0 0 16px;color:#374151;line-height:1.5;">A renter completed checkout. Review the order in admin.</p>
+      <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Order</div>
+            <div style="font-weight:600;">${safe(humanOrderId)}</div>
+          </div>
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Total</div>
+            <div style="font-weight:600;">NGN ${safe(totalAmountFormatted)}</div>
+          </div>
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Items</div>
+            <div style="font-weight:600;">${safe(itemLabel)}</div>
+          </div>
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Renter</div>
+            <div style="font-weight:600;">${safe(renterName)}</div>
+            <div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(renterEmail)}</div>
+          </div>
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Lister(s)</div>
+            <div style="font-weight:600;">${safe(listerSummary)}</div>
+          </div>
+        </div>
+      </div>
+      ${
+        adminLink
+          ? `<div style="margin-top:18px;"><a href="${adminLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">View order in admin</a></div>`
+          : ''
+      }
+    </div>
+  </div>
+</div>`;
+
+    if (this.devBypass) {
+      await this.handleDevBypassHtml('Admin New Order Alert', html, email);
+      return;
+    }
+
+    await this.deliverMail({
+      to: email,
+      subject: `New order: ${humanOrderId}`,
+      html,
+    });
+  }
+
+  async sendAdminInhouseRentalRequestAlert(dto: {
+    email: string;
+    adminName: string;
+    requestKind: string;
+    productName: string;
+    renterName: string;
+    renterEmail?: string;
+    rentalDays: number;
+    totalAmountFormatted: string;
+    startDate?: string;
+    endDate?: string;
+    adminLink?: string;
+  }) {
+    const {
+      email,
+      adminName,
+      requestKind,
+      productName,
+      renterName,
+      renterEmail,
+      rentalDays,
+      totalAmountFormatted,
+      startDate,
+      endDate,
+      adminLink,
+    } = dto;
+
+    const safe = (s: string) => s.replace(/</g, '');
+    const isPurchase = requestKind.includes('purchase');
+    const subject = isPurchase
+      ? `New inhouse purchase enquiry: ${productName}`
+      : `New inhouse rental enquiry: ${productName}`;
+
+    console.log(
+      `[EMAIL] Sending admin inhouse rental request alert to ${email} for ${productName}`,
+    );
+
+    const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f6f7fb;padding:24px;">
+  <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
+    <div style="padding:18px 20px;background:#111827;color:#ffffff;">
+      <div style="font-size:14px;opacity:0.9;">Relisted Admin</div>
+      <div style="font-size:18px;font-weight:700;margin-top:6px;">New inhouse ${safe(requestKind)}</div>
+    </div>
+    <div style="padding:20px;">
+      <p style="margin:0 0 12px;color:#374151;">Hello ${safe(adminName || 'Admin')},</p>
+      <p style="margin:0 0 16px;color:#374151;line-height:1.5;">A customer submitted a ${safe(requestKind)} on the inhouse lister account. The lister was emailed as usual.</p>
+      <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Item</div>
+            <div style="font-weight:600;">${safe(productName)}</div>
+          </div>
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Customer</div>
+            <div style="font-weight:600;">${safe(renterName)}</div>
+            ${renterEmail ? `<div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(renterEmail)}</div>` : ''}
+          </div>
+          ${
+            !isPurchase
+              ? `<div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Dates</div>
+            <div style="font-weight:600;">${safe(startDate || 'N/A')} – ${safe(endDate || 'N/A')}</div>
+            <div style="font-size:13px;color:#6b7280;margin-top:4px;">${rentalDays} day(s)</div>
+          </div>`
+              : ''
+          }
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Estimated total</div>
+            <div style="font-weight:600;">NGN ${safe(totalAmountFormatted)}</div>
+          </div>
+        </div>
+      </div>
+      ${
+        adminLink
+          ? `<div style="margin-top:18px;"><a href="${adminLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">View request in admin</a></div>`
+          : ''
+      }
+    </div>
+  </div>
+</div>`;
+
+    if (this.devBypass) {
+      await this.handleDevBypassHtml(subject, html, email);
+      return;
+    }
+
+    await this.deliverMail({ to: email, subject, html });
+  }
+
   async sendProductAvailableNotifyEmail(dto: {
     email: string;
     userName: string;
