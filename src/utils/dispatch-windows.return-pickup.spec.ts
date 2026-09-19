@@ -8,6 +8,7 @@ import {
   ensureRentalReturnDispatchWindow,
   getLagosCalendarDateKey,
   listReturnPickupSlotsForDay,
+  DEFAULT_DISPATCH_WINDOW_MINUTES,
   MIN_DISPATCH_WINDOW_MINUTES,
   parseReturnPickupWindowChoice,
   rentalReturnPickupDate,
@@ -93,10 +94,13 @@ describe('return pickup window selection', () => {
         new Date('2026-08-01T10:00:00+01:00'),
       );
       expect(slots).toHaveLength(
-        RETURN_DISPATCH_WINDOW_END_HOUR - RETURN_DISPATCH_WINDOW_START_HOUR,
+        RETURN_DISPATCH_WINDOW_END_HOUR -
+          RETURN_DISPATCH_WINDOW_START_HOUR -
+          DEFAULT_DISPATCH_WINDOW_MINUTES / 60 +
+          1,
       );
       expect(differenceInMinutes(slots[0].end, slots[0].start)).toBe(
-        MIN_DISPATCH_WINDOW_MINUTES,
+        DEFAULT_DISPATCH_WINDOW_MINUTES,
       );
       const firstHour = slots[0].start.toLocaleString('en-US', {
         timeZone: 'Africa/Lagos',
@@ -181,7 +185,9 @@ describe('return pickup window selection', () => {
         10,
       );
       expect(startHour).toBe(15);
-      expect(differenceInMinutes(end, start)).toBe(MIN_DISPATCH_WINDOW_MINUTES);
+      expect(differenceInMinutes(end, start)).toBe(
+        DEFAULT_DISPATCH_WINDOW_MINUTES,
+      );
     });
 
     it('rolls to the next day at 8am when called after the dispatch cutoff', () => {
@@ -199,7 +205,9 @@ describe('return pickup window selection', () => {
         10,
       );
       expect(startHour).toBe(RETURN_DISPATCH_WINDOW_START_HOUR);
-      expect(differenceInMinutes(end, start)).toBe(MIN_DISPATCH_WINDOW_MINUTES);
+      expect(differenceInMinutes(end, start)).toBe(
+        DEFAULT_DISPATCH_WINDOW_MINUTES,
+      );
     });
   });
 
