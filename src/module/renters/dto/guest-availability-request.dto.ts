@@ -28,6 +28,11 @@ export class GuestAvailabilityRequestDto {
   @IsEmail()
   email: string;
 
+  @ApiProperty({ required: false, description: 'WhatsApp number for notifications' })
+  @IsOptional()
+  @IsString()
+  whatsappPhone?: string;
+
   @ApiProperty({ description: '0 for purchase/resale, 1+ for rental' })
   @Type(() => Number)
   @IsInt()
