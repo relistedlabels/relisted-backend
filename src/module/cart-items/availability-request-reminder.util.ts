@@ -133,9 +133,9 @@ export function checkoutReminderCopy(params: {
       : 'Complete your rental';
   const message =
     params.stage === '15m'
-      ? `Your ${kind} request for ${params.productName} was approved. Open your cart and check out to lock it in.`
+      ? `${params.productName} is available. Open your cart and check out to lock it in.`
       : params.stage === '1h'
-        ? `Reminder: your approved ${kind} for ${params.productName} is still waiting in your cart.`
+        ? `Reminder: ${params.productName} is still waiting in your cart.`
         : `Last reminder: check out now so you don’t lose ${params.productName}.`;
   return { title, message };
 }
@@ -152,6 +152,6 @@ export function expiredListerReminderCopy(params: {
       : 'Rental request waiting on you';
   const message = `${params.renterName} is still waiting to ${
     params.requestType === 'purchase' ? 'buy' : 'rent'
-  } ${params.productName}. You can still approve the request from your dashboard while their dates are valid.`;
+  } ${params.productName}. You can still confirm availability from your dashboard while their dates are valid.`;
   return { title, message };
 }

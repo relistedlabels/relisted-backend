@@ -18,6 +18,7 @@ import { WemaServiceService } from '../../services/wema-service/wema-service.ser
 import { ProductAvailabilityNotifyModule } from '../../services/product-availability-notify/product-availability-notify.module';
 import { CartItemsModule } from '../cart-items/cart-items.module';
 import { AuthOtpTokenModule } from '../../services/auth-otp-token/auth-otp-token.module';
+import { AuthModule } from '../auth/auth.module';
 import { RentersAvailabilityPublicController } from './renters.availability-public.controller';
 
 @Module({
@@ -29,6 +30,7 @@ import { RentersAvailabilityPublicController } from './renters.availability-publ
     ProductAvailabilityNotifyModule,
     CartItemsModule,
     AuthOtpTokenModule,
+    AuthModule,
   ],
   controllers: [
     RentersAvailabilityPublicController,

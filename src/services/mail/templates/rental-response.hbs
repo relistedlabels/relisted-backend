@@ -55,7 +55,7 @@
             <p>Hello {{userName}},</p>
 
             {{#if (eq status "accepted")}}
-            <p>Your {{#if (eq requestType 'purchase')}}purchase{{else}}rental{{/if}} request for <strong>{{productName}}</strong> was approved. Complete checkout to lock it in.</p>
+            <p><strong>{{productName}}</strong> is available for your dates. Complete checkout to lock it in.</p>
             {{#if outboundWindowSummary}}
             <p><strong>Delivery:</strong> {{outboundWindowSummary}}</p>
             {{/if}}

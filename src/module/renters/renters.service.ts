@@ -90,6 +90,7 @@ import { resolveRenterStartReturn } from '../order/renter-start-return.util';
 import { ShipbubbleAddressCacheService } from '../../services/shipbubble/shipbubble-address-cache.service';
 import { CartService } from '../cart-items/cart-items.service';
 import { AuthOtpTokenService } from '../../services/auth-otp-token/auth-otp-token.service';
+import { AuthService } from '../auth/auth.service';
 import { Auth_Otp_Token_Subject } from '../auth/auth.types';
 import * as argon2 from 'argon2';
 import type { GuestAvailabilityRequestDto } from './dto/guest-availability-request.dto';
@@ -302,6 +303,7 @@ export class RentersService {
     private readonly shipbubbleAddressCache: ShipbubbleAddressCacheService,
     private readonly cartService: CartService,
     private readonly authOtpTokenService: AuthOtpTokenService,
+    private readonly authService: AuthService,
   ) {}
 
   /** Accepts ISO strings, timestamps, or Date; rejects invalid / missing values. */
@@ -1442,8 +1444,13 @@ export class RentersService {
     return token.code;
   }
 
-  private async findOrCreateGuestRenter(firstName: string, email: string) {
+  private async findOrCreateGuestRenter(
+    firstName: string,
+    email: string,
+    whatsappPhone?: string,
+  ) {
     const normalizedEmail = email.trim().toLowerCase();
+    const phone = whatsappPhone?.trim() ?? '';
     let user = await this.prisma.user.findUnique({
       where: { email: normalizedEmail },
     });
@@ -1461,7 +1468,7 @@ export class RentersService {
           profile: {
             create: {
               fullName: firstName.trim(),
-              phoneNumber: '',
+              phoneNumber: phone,
             },
           },
         },
@@ -1477,11 +1484,14 @@ export class RentersService {
       }),
       this.prisma.profile.upsert({
         where: { userId: user.id },
-        update: { fullName: trimmedName },
+        update: {
+          fullName: trimmedName,
+          ...(phone ? { phoneNumber: phone } : {}),
+        },
         create: {
           userId: user.id,
           fullName: trimmedName,
-          phoneNumber: '',
+          phoneNumber: phone,
         },
       }),
     ]);
@@ -1490,7 +1500,11 @@ export class RentersService {
   }
 
   async createGuestAvailabilityRequest(dto: GuestAvailabilityRequestDto) {
-    const user = await this.findOrCreateGuestRenter(dto.firstName, dto.email);
+    const user = await this.findOrCreateGuestRenter(
+      dto.firstName,
+      dto.email,
+      dto.whatsappPhone,
+    );
 
     let cartItemId: string | undefined;
     try {
@@ -1610,11 +1624,26 @@ export class RentersService {
       return current.status.toLowerCase();
     };
 
+    const publicStatus = resolvePublicStatus();
+    const requesterEmail = current.requester?.email ?? null;
+    let completeRentalUrl: string | null = null;
+    if (publicStatus === 'available' && requesterEmail) {
+      const checkoutRedirect = `/shop/availability/available?requestId=${encodeURIComponent(current.id)}&token=${encodeURIComponent(token.trim())}`;
+      completeRentalUrl = await this.authService.buildMagicLoginUrl(
+        current.requesterId,
+        requesterEmail,
+        checkoutRedirect,
+        24 * 60,
+      );
+    } else if (publicStatus === 'available') {
+      completeRentalUrl = `${clientUrl}/shop/availability/available?requestId=${encodeURIComponent(current.id)}&token=${encodeURIComponent(token.trim())}`;
+    }
+
     return {
       success: true,
       data: {
         requestId: current.id,
-        status: resolvePublicStatus(),
+        status: publicStatus,
         canStillBeApproved: canListerActOnAvailabilityRequest(current),
         businessExpiresAt: computeBusinessExpiresAt(current).toISOString(),
         productName: current.product?.name,
@@ -1622,8 +1651,8 @@ export class RentersService {
         rentalStartDate: current.startDate,
         rentalEndDate: current.endDate,
         totalPrice: current.totalPrice,
-        requesterEmail: current.requester?.email ?? null,
-        completeRentalUrl: null,
+        requesterEmail,
+        completeRentalUrl,
       },
     };
   }

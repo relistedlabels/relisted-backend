@@ -9,7 +9,7 @@ export class RentersAvailabilityPublicController {
   constructor(private readonly rentersService: RentersService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Guest availability check (name, email, phone only)' })
+  @ApiOperation({ summary: 'Guest availability check (name, email, WhatsApp)' })
   createGuestRequest(@Body() dto: GuestAvailabilityRequestDto) {
     return this.rentersService.createGuestAvailabilityRequest(dto);
   }
