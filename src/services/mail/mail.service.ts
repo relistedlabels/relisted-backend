@@ -888,6 +888,110 @@ export class MailService {
     });
   }
 
+  async sendAdminReturnRequestPastDueAlert(dto: {
+    email: string;
+    adminName: string;
+    humanOrderId: string;
+    productName: string;
+    renterName: string;
+    renterEmail: string;
+    listerName: string;
+    windowLabel: string;
+    daysPastDue: number;
+    adminLink?: string;
+  }) {
+    const {
+      email,
+      adminName,
+      humanOrderId,
+      productName,
+      renterName,
+      renterEmail,
+      listerName,
+      windowLabel,
+      daysPastDue,
+      adminLink,
+    } = dto;
+
+    const safe = (s: string) => s.replace(/</g, '');
+    const dayLabel =
+      daysPastDue === 1 ? '1 day overdue' : `${daysPastDue} days overdue`;
+    const subject = `Follow up: overdue return request (${humanOrderId})`;
+
+    console.log(
+      `[EMAIL] Sending admin overdue return request alert to ${email} for order ${humanOrderId}`,
+    );
+
+    const linkBlock = adminLink
+      ? `<div style="margin-top:18px;">
+        <a href="${adminLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">
+          View order in admin
+        </a>
+        <div style="margin-top:10px;font-size:12px;color:#6b7280;">
+          If the button does not work, open: <span style="color:#111827;">${adminLink}</span>
+        </div>
+      </div>`
+      : '';
+
+    const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f6f7fb;padding:24px;">
+  <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
+    <div style="padding:18px 20px;background:#b91c1c;color:#ffffff;">
+      <div style="font-size:14px;opacity:0.95;">Relisted Admin</div>
+      <div style="font-size:18px;font-weight:700;margin-top:6px;">Overdue return request</div>
+    </div>
+    <div style="padding:20px;">
+      <p style="margin:0 0 12px;color:#374151;">Hello ${safe(adminName || 'Admin')},</p>
+      <p style="margin:0 0 16px;color:#374151;line-height:1.5;">The return pickup window for this order has passed and the renter has <strong>not submitted a return request</strong>. Please follow up so pickup can be scheduled.</p>
+      <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Order</div>
+            <div style="font-weight:600;">${safe(humanOrderId)}</div>
+          </div>
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Status</div>
+            <div style="font-weight:600;">${safe(dayLabel)}</div>
+          </div>
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Item</div>
+            <div style="font-weight:600;">${safe(productName)}</div>
+          </div>
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Renter</div>
+            <div style="font-weight:600;">${safe(renterName)}</div>
+            <div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(renterEmail)}</div>
+          </div>
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Lister</div>
+            <div style="font-weight:600;">${safe(listerName)}</div>
+          </div>
+        </div>
+        ${
+          windowLabel
+            ? `<div style="margin-top:12px;">
+          <div style="font-size:12px;color:#6b7280;">Pickup window</div>
+          <div style="font-weight:600;">${safe(windowLabel)}</div>
+        </div>`
+            : ''
+        }
+      </div>
+      ${linkBlock}
+    </div>
+  </div>
+</div>`;
+
+    if (this.devBypass) {
+      await this.handleDevBypassHtml(subject, html, email);
+      return;
+    }
+
+    await this.deliverMail({
+      to: email,
+      subject,
+      html,
+    });
+  }
+
   async sendAdminManualFulfillmentDueReminder(dto: {
     to: string;
     humanOrderId: string;
@@ -1525,14 +1629,13 @@ export class MailService {
       <p style="margin:0 0 12px;color:#374151;">Hi ${safeName},</p>
       <p style="margin:0 0 16px;color:#374151;">
         ${is24Hour
-          ? `Return pickup for <strong>${safeProduct}</strong> is within 24 hours (${dueDate}).`
-          : `Return pickup for <strong>${safeProduct}</strong> is today (${dueDate}).`
+          ? `Return pickup for <strong>${safeProduct}</strong> is within 24 hours (${dueDate}). Please have your item packed and ready for collection.`
+          : `Return pickup for <strong>${safeProduct}</strong> is scheduled for today (${dueDate}). Please keep your item ready for the carrier.`
         }
-        Submit your return request in the app first, or pickup will not happen.
       </p>
       <p style="margin:0 0 16px;color:#374151;"><strong>Order:</strong> ${orderId}</p>
       <div style="margin:20px 0;">
-        <a href="${orderLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">View order and start return</a>
+        <a href="${orderLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">View order</a>
       </div>
     </div>
   </div>

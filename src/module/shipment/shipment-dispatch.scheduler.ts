@@ -20,9 +20,11 @@ import { buildAdminShipmentsPageUrl } from 'src/module/shipment/build-admin-ship
 import { shipmentLegLabel } from 'src/module/shipment/shipment-leg-label.util';
 import { OrderService } from 'src/module/order/order.service';
 import {
+  findReturnRequestForLister,
   listerDisplayName,
   productNamesForReturnLeg,
   resolveCuratorForReturnLeg,
+  returnRequestExistsForShipment,
 } from 'src/module/order/return-request-leg.util';
 import {
   applyLateReturnCollateralPenaltyIfEnabled,
@@ -31,7 +33,15 @@ import {
   computeReturnRequestReminderActions,
   getPastDueDaysNotified,
   returnRequestReminderNotificationCopy,
+  type ReturnRequestReminderType,
 } from './return-request-reminder.util';
+import { notifyAdminsReturnRequestPastDue } from './notify-admins-return-request-past-due.util';
+
+const PAST_DUE_RETURN_REQUEST_REMINDER_TYPES = new Set<ReturnRequestReminderType>([
+  'past_due_morning',
+  'past_due_afternoon',
+  'past_due_evening',
+]);
 
 const DISPATCH_CRON_LOOKAHEAD_MINUTES = Number(
   process.env.DISPATCH_CRON_LOOKAHEAD_MINUTES ?? 59,
@@ -419,12 +429,14 @@ export class ShipmentDispatchScheduler {
         scheduledWindowStart: true,
         scheduledWindowEnd: true,
         returnRequestReminderState: true,
+        adminReturnRequestPastDueLastNotifiedAt: true,
         order: {
           select: {
             id: true,
             orderId: true,
             userId: true,
             user: { select: { email: true, name: true } },
+            returnRequests: { select: { id: true, shipmentId: true } },
             escrows: {
               select: {
                 listerId: true,
@@ -451,6 +463,10 @@ export class ShipmentDispatchScheduler {
     for (const leg of legs) {
       const order = leg.order;
       if (!order?.user?.email?.trim()) continue;
+
+      if (returnRequestExistsForShipment(order.returnRequests, leg.id)) {
+        continue;
+      }
 
       const actions = computeReturnRequestReminderActions(now, leg, config);
 
@@ -521,6 +537,46 @@ export class ShipmentDispatchScheduler {
           await applyLateReturnCollateralPenaltyIfEnabled(this.prisma, {
             collateralAmount: collateralAtRisk,
           });
+        }
+
+        if (PAST_DUE_RETURN_REQUEST_REMINDER_TYPES.has(action.type)) {
+          const todayKey = this.toLagosDateKey(now);
+          const lastNotifiedKey = leg.adminReturnRequestPastDueLastNotifiedAt
+            ? this.toLagosDateKey(
+                new Date(leg.adminReturnRequestPastDueLastNotifiedAt),
+              )
+            : null;
+
+          if (lastNotifiedKey !== todayKey) {
+            const lister = resolveCuratorForReturnLeg(
+              order.orderItems,
+              leg.listerId,
+            );
+            const adminCount = await notifyAdminsReturnRequestPastDue(
+              this.prisma,
+              this.notification,
+              this.mail,
+              {
+                orderId: order.id,
+                humanOrderId: order.orderId,
+                shipmentId: leg.id,
+                productName,
+                renterName: order.user.name || 'Renter',
+                renterEmail: order.user.email.trim(),
+                listerName: lister ? listerDisplayName(lister) : 'Unknown lister',
+                windowLabel,
+                daysPastDue: Math.max(daysPastDue, 1),
+              },
+            );
+
+            if (adminCount > 0) {
+              await this.prisma.shipment.update({
+                where: { id: leg.id },
+                data: { adminReturnRequestPastDueLastNotifiedAt: now },
+              });
+              leg.adminReturnRequestPastDueLastNotifiedAt = now;
+            }
+          }
         }
 
         const nextState = applyReturnRequestReminderState(
@@ -598,6 +654,16 @@ export class ShipmentDispatchScheduler {
             orderId: true,
             userId: true,
             user: { select: { email: true, name: true } },
+            returnRequests: {
+              select: {
+                id: true,
+                shipmentId: true,
+                pickupWindowStart: true,
+                pickupWindowEnd: true,
+                reminder24hSentAt: true,
+                reminderDayOfSentAt: true,
+              },
+            },
             orderItems: {
               select: {
                 returnShipmentId: true,
@@ -621,7 +687,15 @@ export class ShipmentDispatchScheduler {
       const order = leg.order;
       if (!order?.user?.email?.trim()) continue;
 
-      const linkedRr = leg.returnRequests[0] ?? null;
+      const linkedRr =
+        leg.returnRequests[0] ??
+        (leg.listerId
+          ? findReturnRequestForLister(
+              order.returnRequests,
+              [{ id: leg.id, type: 'RETURN', listerId: leg.listerId }],
+              leg.listerId,
+            )
+          : null);
       if (!linkedRr) continue;
 
       const pickupStart = linkedRr.pickupWindowStart

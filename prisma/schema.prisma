@@ -1007,6 +1007,8 @@ model Shipment {
   returnDueReminderMorningSentAt DateTime?
   /// Return-request completion nudges dedupe (per RETURN leg, no ReturnRequest yet).
   returnRequestReminderState Json?
+  /// Admin alert dedupe: last past-due ping when renter has not submitted a return request (Lagos day).
+  adminReturnRequestPastDueLastNotifiedAt DateTime?
   dispatchAttempts     Int                  @default(0)
   dispatchedAt         DateTime?
   /// Buyer confirmed receipt for RESALE legs (releases resale payout for this shipment only).
