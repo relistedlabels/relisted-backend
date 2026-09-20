@@ -2051,6 +2051,7 @@ export class RentersService {
           'PROCESSING',
           'ACCEPTED',
           'RETURN_DUE',
+          'IN_DISPUTE',
         ],
       };
     if (status === 'completed') {

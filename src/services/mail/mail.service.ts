@@ -1629,14 +1629,13 @@ export class MailService {
       <p style="margin:0 0 12px;color:#374151;">Hi ${safeName},</p>
       <p style="margin:0 0 16px;color:#374151;">
         ${is24Hour
-          ? `Return pickup for <strong>${safeProduct}</strong> is within 24 hours (${dueDate}).`
-          : `Return pickup for <strong>${safeProduct}</strong> is today (${dueDate}).`
+          ? `Return pickup for <strong>${safeProduct}</strong> is within 24 hours (${dueDate}). Please have your item packed and ready for collection.`
+          : `Return pickup for <strong>${safeProduct}</strong> is scheduled for today (${dueDate}). Please keep your item ready for the carrier.`
         }
-        Submit your return request in the app first, or pickup will not happen.
       </p>
       <p style="margin:0 0 16px;color:#374151;"><strong>Order:</strong> ${orderId}</p>
       <div style="margin:20px 0;">
-        <a href="${orderLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">View order and start return</a>
+        <a href="${orderLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">View order</a>
       </div>
     </div>
   </div>

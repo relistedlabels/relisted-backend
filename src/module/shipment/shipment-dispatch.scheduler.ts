@@ -20,9 +20,11 @@ import { buildAdminShipmentsPageUrl } from 'src/module/shipment/build-admin-ship
 import { shipmentLegLabel } from 'src/module/shipment/shipment-leg-label.util';
 import { OrderService } from 'src/module/order/order.service';
 import {
+  findReturnRequestForLister,
   listerDisplayName,
   productNamesForReturnLeg,
   resolveCuratorForReturnLeg,
+  returnRequestExistsForShipment,
 } from 'src/module/order/return-request-leg.util';
 import {
   applyLateReturnCollateralPenaltyIfEnabled,
@@ -434,6 +436,7 @@ export class ShipmentDispatchScheduler {
             orderId: true,
             userId: true,
             user: { select: { email: true, name: true } },
+            returnRequests: { select: { id: true, shipmentId: true } },
             escrows: {
               select: {
                 listerId: true,
@@ -460,6 +463,10 @@ export class ShipmentDispatchScheduler {
     for (const leg of legs) {
       const order = leg.order;
       if (!order?.user?.email?.trim()) continue;
+
+      if (returnRequestExistsForShipment(order.returnRequests, leg.id)) {
+        continue;
+      }
 
       const actions = computeReturnRequestReminderActions(now, leg, config);
 
@@ -647,6 +654,16 @@ export class ShipmentDispatchScheduler {
             orderId: true,
             userId: true,
             user: { select: { email: true, name: true } },
+            returnRequests: {
+              select: {
+                id: true,
+                shipmentId: true,
+                pickupWindowStart: true,
+                pickupWindowEnd: true,
+                reminder24hSentAt: true,
+                reminderDayOfSentAt: true,
+              },
+            },
             orderItems: {
               select: {
                 returnShipmentId: true,
@@ -670,7 +687,15 @@ export class ShipmentDispatchScheduler {
       const order = leg.order;
       if (!order?.user?.email?.trim()) continue;
 
-      const linkedRr = leg.returnRequests[0] ?? null;
+      const linkedRr =
+        leg.returnRequests[0] ??
+        (leg.listerId
+          ? findReturnRequestForLister(
+              order.returnRequests,
+              [{ id: leg.id, type: 'RETURN', listerId: leg.listerId }],
+              leg.listerId,
+            )
+          : null);
       if (!linkedRr) continue;
 
       const pickupStart = linkedRr.pickupWindowStart

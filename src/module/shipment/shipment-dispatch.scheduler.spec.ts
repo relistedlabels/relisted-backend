@@ -317,6 +317,66 @@ describe('ShipmentDispatchScheduler.sendRenterReturnDueReminders', () => {
     });
   });
 
+  it('sends a morning-of return pickup reminder when return request is only linked on the order', async () => {
+    const now = new Date('2026-05-11T08:00:00+01:00');
+    jest.setSystemTime(now);
+
+    const pickupStart = new Date('2026-05-11T10:00:00+01:00');
+    const pickupEnd = new Date('2026-05-11T12:00:00+01:00');
+    const returnRequestUpdate = jest.fn().mockResolvedValue({});
+
+    const findMany = jest.fn().mockResolvedValue([
+      {
+        id: 'ship-ret-1',
+        listerId: 'lister-1',
+        scheduledWindowStart: pickupStart,
+        scheduledWindowEnd: pickupEnd,
+        returnDueReminder24hSentAt: new Date('2026-05-10T08:00:00+01:00'),
+        returnDueReminderMorningSentAt: null,
+        returnRequests: [],
+        order: {
+          id: 'order-1',
+          orderId: 'ORD-RET-1',
+          userId: 'user-1',
+          user: { email: 'renter@test.com', name: 'Renter' },
+          returnRequests: [
+            {
+              id: 'rr-1',
+              shipmentId: null,
+              pickupWindowStart: pickupStart,
+              pickupWindowEnd: pickupEnd,
+              reminder24hSentAt: new Date('2026-05-10T08:00:00+01:00'),
+              reminderDayOfSentAt: null,
+            },
+          ],
+          orderItems: [
+            {
+              returnShipmentId: 'ship-ret-1',
+              product: {
+                name: 'Silk dress',
+                curator: { id: 'lister-1' },
+              },
+            },
+          ],
+        },
+      },
+    ]);
+
+    const scheduler = buildScheduler({ findMany, returnRequestUpdate });
+    await scheduler.sendRenterReturnDueReminders();
+
+    expect(mockNotification.createNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Return pickup is today',
+        type: 'RETURN_DUE_REMINDER',
+      }),
+    );
+    expect(returnRequestUpdate).toHaveBeenCalledWith({
+      where: { id: 'rr-1' },
+      data: { reminderDayOfSentAt: now },
+    });
+  });
+
   it('sends a morning-of return pickup reminder on pickup day in Lagos', async () => {
     const now = new Date('2026-05-11T08:00:00+01:00');
     jest.setSystemTime(now);
@@ -485,6 +545,48 @@ describe('ShipmentDispatchScheduler.sendReturnRequestCompletionReminders', () =>
       where: { id: 'ship-ret-1' },
       data: { adminReturnRequestPastDueLastNotifiedAt: now },
     });
+  });
+
+  it('skips completion reminders when order already has a return request without shipment link', async () => {
+    const now = new Date('2026-06-10T07:55:00+01:00');
+    jest.setSystemTime(now);
+
+    const windowStart = new Date('2026-06-10T08:00:00+01:00');
+    const windowEnd = new Date('2026-06-10T09:00:00+01:00');
+
+    const findMany = jest.fn().mockResolvedValue([
+      {
+        id: 'ship-ret-1',
+        listerId: 'lister-1',
+        scheduledWindowStart: windowStart,
+        scheduledWindowEnd: windowEnd,
+        returnRequestReminderState: null,
+        adminReturnRequestPastDueLastNotifiedAt: null,
+        order: {
+          id: 'order-uuid-1',
+          orderId: 'ORD-1001',
+          userId: 'user-1',
+          user: { email: 'renter@test.com', name: 'Jane Renter' },
+          returnRequests: [{ id: 'rr-1', shipmentId: null }],
+          escrows: [],
+          orderItems: [
+            {
+              returnShipmentId: 'ship-ret-1',
+              product: {
+                name: 'Silk dress',
+                curator: { id: 'lister-1', name: 'Curator' },
+              },
+            },
+          ],
+        },
+      },
+    ]);
+
+    const scheduler = buildScheduler({ findMany });
+    await scheduler.sendReturnRequestCompletionReminders();
+
+    expect(mockNotification.createNotification).not.toHaveBeenCalled();
+    expect(mockNotifyAdminsReturnRequestPastDue).not.toHaveBeenCalled();
   });
 
   it('does not notify admins again on the same Lagos calendar day', async () => {
