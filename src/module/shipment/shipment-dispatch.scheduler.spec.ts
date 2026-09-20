@@ -1,4 +1,14 @@
 import { ShipmentDispatchScheduler } from './shipment-dispatch.scheduler';
+import { notifyAdminsReturnRequestPastDue } from './notify-admins-return-request-past-due.util';
+
+jest.mock('./notify-admins-return-request-past-due.util', () => ({
+  notifyAdminsReturnRequestPastDue: jest.fn().mockResolvedValue(1),
+}));
+
+const mockNotifyAdminsReturnRequestPastDue =
+  notifyAdminsReturnRequestPastDue as jest.MockedFunction<
+    typeof notifyAdminsReturnRequestPastDue
+  >;
 
 describe('ShipmentDispatchScheduler.dispatchDueShipments', () => {
   const mockQueue = { add: jest.fn().mockResolvedValue(undefined) };
@@ -364,6 +374,163 @@ describe('ShipmentDispatchScheduler.sendRenterReturnDueReminders', () => {
       where: { id: 'rr-1' },
       data: { reminderDayOfSentAt: now },
     });
+  });
+});
+
+describe('ShipmentDispatchScheduler.sendReturnRequestCompletionReminders', () => {
+  const mockNotification = {
+    createNotification: jest.fn().mockResolvedValue({}),
+  };
+  const mockMail = {
+    sendReturnRequestReminderMail: jest.fn(),
+  };
+
+  function buildScheduler(prisma: {
+    findMany: jest.Mock;
+    shipmentUpdate?: jest.Mock;
+  }) {
+    return new ShipmentDispatchScheduler(
+      {
+        shipment: {
+          findMany: prisma.findMany,
+          update: prisma.shipmentUpdate ?? jest.fn().mockResolvedValue({}),
+        },
+      } as never,
+      { add: jest.fn() } as never,
+      {} as never,
+      mockNotification as never,
+      mockMail as never,
+      {} as never,
+      {} as never,
+    );
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockNotifyAdminsReturnRequestPastDue.mockResolvedValue(1);
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('notifies admins when return window is past due and renter has no return request', async () => {
+    const now = new Date('2026-06-10T14:30:00+01:00');
+    jest.setSystemTime(now);
+
+    const windowStart = new Date('2026-06-10T07:00:00+01:00');
+    const windowEnd = new Date('2026-06-10T12:00:00+01:00');
+    const shipmentUpdate = jest.fn().mockResolvedValue({});
+
+    const findMany = jest.fn().mockResolvedValue([
+      {
+        id: 'ship-ret-1',
+        listerId: 'lister-1',
+        scheduledWindowStart: windowStart,
+        scheduledWindowEnd: windowEnd,
+        returnRequestReminderState: {
+          sent: {
+            past_due_morning: new Date('2026-06-10T07:00:00+01:00').toISOString(),
+          },
+        },
+        adminReturnRequestPastDueLastNotifiedAt: null,
+        order: {
+          id: 'order-uuid-1',
+          orderId: 'ORD-1001',
+          userId: 'user-1',
+          user: { email: 'renter@test.com', name: 'Jane Renter' },
+          escrows: [{ listerId: 'lister-1', collateralAmount: 50000 }],
+          orderItems: [
+            {
+              returnShipmentId: 'ship-ret-1',
+              product: {
+                name: 'Silk dress',
+                curator: {
+                  id: 'lister-1',
+                  name: 'Curator',
+                  profile: {
+                    businessInfo: { businessName: 'Style Closet' },
+                  },
+                },
+              },
+            },
+          ],
+        },
+      },
+    ]);
+
+    const scheduler = buildScheduler({ findMany, shipmentUpdate });
+    await scheduler.sendReturnRequestCompletionReminders();
+
+    expect(mockNotification.createNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-1',
+        type: 'RETURN_REQUEST_REMINDER',
+      }),
+    );
+    expect(mockNotifyAdminsReturnRequestPastDue).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        orderId: 'order-uuid-1',
+        humanOrderId: 'ORD-1001',
+        shipmentId: 'ship-ret-1',
+        renterEmail: 'renter@test.com',
+        productName: 'Silk dress',
+      }),
+    );
+    expect(shipmentUpdate).toHaveBeenCalledWith({
+      where: { id: 'ship-ret-1' },
+      data: { adminReturnRequestPastDueLastNotifiedAt: now },
+    });
+  });
+
+  it('does not notify admins again on the same Lagos calendar day', async () => {
+    const now = new Date('2026-06-10T20:00:00+01:00');
+    jest.setSystemTime(now);
+
+    const windowStart = new Date('2026-06-10T07:00:00+01:00');
+    const windowEnd = new Date('2026-06-10T12:00:00+01:00');
+    const earlierToday = new Date('2026-06-10T14:00:00+01:00');
+
+    const findMany = jest.fn().mockResolvedValue([
+      {
+        id: 'ship-ret-1',
+        listerId: 'lister-1',
+        scheduledWindowStart: windowStart,
+        scheduledWindowEnd: windowEnd,
+        returnRequestReminderState: {
+          sent: {
+            past_due_morning: new Date('2026-06-10T07:00:00+01:00').toISOString(),
+            past_due_afternoon: earlierToday.toISOString(),
+          },
+        },
+        adminReturnRequestPastDueLastNotifiedAt: earlierToday,
+        order: {
+          id: 'order-uuid-1',
+          orderId: 'ORD-1001',
+          userId: 'user-1',
+          user: { email: 'renter@test.com', name: 'Jane Renter' },
+          escrows: [],
+          orderItems: [
+            {
+              returnShipmentId: 'ship-ret-1',
+              product: {
+                name: 'Silk dress',
+                curator: { id: 'lister-1', name: 'Curator' },
+              },
+            },
+          ],
+        },
+      },
+    ]);
+
+    const scheduler = buildScheduler({ findMany });
+    await scheduler.sendReturnRequestCompletionReminders();
+
+    expect(mockNotifyAdminsReturnRequestPastDue).not.toHaveBeenCalled();
   });
 });
 

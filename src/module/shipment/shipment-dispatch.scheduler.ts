@@ -31,7 +31,15 @@ import {
   computeReturnRequestReminderActions,
   getPastDueDaysNotified,
   returnRequestReminderNotificationCopy,
+  type ReturnRequestReminderType,
 } from './return-request-reminder.util';
+import { notifyAdminsReturnRequestPastDue } from './notify-admins-return-request-past-due.util';
+
+const PAST_DUE_RETURN_REQUEST_REMINDER_TYPES = new Set<ReturnRequestReminderType>([
+  'past_due_morning',
+  'past_due_afternoon',
+  'past_due_evening',
+]);
 
 const DISPATCH_CRON_LOOKAHEAD_MINUTES = Number(
   process.env.DISPATCH_CRON_LOOKAHEAD_MINUTES ?? 59,
@@ -419,6 +427,7 @@ export class ShipmentDispatchScheduler {
         scheduledWindowStart: true,
         scheduledWindowEnd: true,
         returnRequestReminderState: true,
+        adminReturnRequestPastDueLastNotifiedAt: true,
         order: {
           select: {
             id: true,
@@ -521,6 +530,46 @@ export class ShipmentDispatchScheduler {
           await applyLateReturnCollateralPenaltyIfEnabled(this.prisma, {
             collateralAmount: collateralAtRisk,
           });
+        }
+
+        if (PAST_DUE_RETURN_REQUEST_REMINDER_TYPES.has(action.type)) {
+          const todayKey = this.toLagosDateKey(now);
+          const lastNotifiedKey = leg.adminReturnRequestPastDueLastNotifiedAt
+            ? this.toLagosDateKey(
+                new Date(leg.adminReturnRequestPastDueLastNotifiedAt),
+              )
+            : null;
+
+          if (lastNotifiedKey !== todayKey) {
+            const lister = resolveCuratorForReturnLeg(
+              order.orderItems,
+              leg.listerId,
+            );
+            const adminCount = await notifyAdminsReturnRequestPastDue(
+              this.prisma,
+              this.notification,
+              this.mail,
+              {
+                orderId: order.id,
+                humanOrderId: order.orderId,
+                shipmentId: leg.id,
+                productName,
+                renterName: order.user.name || 'Renter',
+                renterEmail: order.user.email.trim(),
+                listerName: lister ? listerDisplayName(lister) : 'Unknown lister',
+                windowLabel,
+                daysPastDue: Math.max(daysPastDue, 1),
+              },
+            );
+
+            if (adminCount > 0) {
+              await this.prisma.shipment.update({
+                where: { id: leg.id },
+                data: { adminReturnRequestPastDueLastNotifiedAt: now },
+              });
+              leg.adminReturnRequestPastDueLastNotifiedAt = now;
+            }
+          }
         }
 
         const nextState = applyReturnRequestReminderState(
