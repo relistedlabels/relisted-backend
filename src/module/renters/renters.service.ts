@@ -100,6 +100,7 @@ import { AuthService } from '../auth/auth.service';
 import { Auth_Otp_Token_Subject } from '../auth/auth.types';
 import * as argon2 from 'argon2';
 import type { GuestAvailabilityRequestDto } from './dto/guest-availability-request.dto';
+import { WhatsAppService } from '../../services/whatsapp/whatsapp.service';
 
 /** Renter progress ordering (subset of shipment-driven flow; excludes terminal edge cases). */
 const RENTER_PROGRESS_RANK: OrderStatus[] = [
@@ -310,6 +311,7 @@ export class RentersService {
     private readonly cartService: CartService,
     private readonly authOtpTokenService: AuthOtpTokenService,
     private readonly authService: AuthService,
+    private readonly whatsappService: WhatsAppService,
   ) {}
 
   /** Accepts ISO strings, timestamps, or Date; rejects invalid / missing values. */
@@ -1373,6 +1375,26 @@ export class RentersService {
         })),
       },
     });
+
+    const listerProfile = await this.prisma.profile.findUnique({
+      where: { userId: request.listerId },
+      select: { phoneNumber: true },
+    });
+    if (listerProfile?.phoneNumber?.trim()) {
+      const datesLabel =
+        request.startDate && request.endDate
+          ? `${formatRentalBoundaryDateLagos(request.startDate)} - ${formatRentalBoundaryDateLagos(request.endDate)}`
+          : 'N/A';
+      await this.whatsappService.sendListerAvailabilityRequest({
+        toPhone: listerProfile.phoneNumber,
+        productName: request.product?.name || 'Item',
+        datesLabel,
+        renterName: userObj?.name || 'A customer',
+        acceptUrl: acceptLink,
+        rejectUrl: rejectLink,
+        requestId: request.id,
+      });
+    }
 
     // Notify Renter
     await this.notificationService.createNotification({

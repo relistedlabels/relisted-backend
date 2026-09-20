@@ -30,5 +30,6 @@ import { ListersAvailabilityPublicController } from './listers.availability-publ
     ListersAvailabilityPublicController,
   ],
   providers: [ListersService, WemaServiceService],
+  exports: [ListersService],
 })
 export class ListersModule {}

@@ -11,6 +11,7 @@ import { ShipbubbleAddressCacheService } from 'src/services/shipbubble/shipbubbl
 import { CartService } from '../cart-items/cart-items.service';
 import { AuthOtpTokenService } from 'src/services/auth-otp-token/auth-otp-token.service';
 import { AuthService } from '../auth/auth.service';
+import { WhatsAppService } from 'src/services/whatsapp/whatsapp.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { DisputeStatus, ItemCondition } from '@prisma/client';
 
@@ -158,6 +159,10 @@ const mockAuthService = {
     .mockResolvedValue('https://relisted.test/magic-login?token=test'),
 };
 
+const mockWhatsAppService = {
+  sendListerAvailabilityRequest: jest.fn().mockResolvedValue(false),
+};
+
 const mockUser = {
   id: 'renter-uuid',
   email: 'renter@test.com',
@@ -189,6 +194,7 @@ describe('RentersService', () => {
         { provide: CartService, useValue: {} },
         { provide: AuthOtpTokenService, useValue: mockAuthOtpTokenService },
         { provide: AuthService, useValue: mockAuthService },
+        { provide: WhatsAppService, useValue: mockWhatsAppService },
       ],
     }).compile();
     service = module.get<RentersService>(RentersService);
