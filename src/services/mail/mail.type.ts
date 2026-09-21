@@ -177,6 +177,26 @@ export class AvailabilityRequestReminderDto {
   listingLink?: string;
 }
 
+export class AvailabilityReminderEmailItemDto {
+  @IsString()
+  productName: string;
+
+  @IsString()
+  requestType: string;
+
+  @IsString()
+  @IsOptional()
+  renterName?: string;
+
+  @IsString()
+  @IsOptional()
+  orderLink?: string;
+
+  @IsString()
+  @IsOptional()
+  listerName?: string;
+}
+
 export class AvailabilityCheckoutReminderDto {
   @IsEmail()
   email: string;
@@ -185,13 +205,19 @@ export class AvailabilityCheckoutReminderDto {
   userName: string;
 
   @IsString()
-  listerName: string;
+  title: string;
 
   @IsString()
-  productName: string;
+  @IsOptional()
+  listerName?: string;
 
   @IsString()
-  requestType: string;
+  @IsOptional()
+  productName?: string;
+
+  @IsString()
+  @IsOptional()
+  requestType?: string;
 
   @IsString()
   cartLink: string;
@@ -199,6 +225,9 @@ export class AvailabilityCheckoutReminderDto {
   @IsString()
   @IsOptional()
   stage?: string;
+
+  @IsOptional()
+  items?: AvailabilityReminderEmailItemDto[];
 }
 
 export class AvailabilityExpiredListerReminderDto {
@@ -209,20 +238,34 @@ export class AvailabilityExpiredListerReminderDto {
   listerName: string;
 
   @IsString()
-  renterName: string;
+  title: string;
 
   @IsString()
-  productName: string;
+  @IsOptional()
+  renterName?: string;
 
   @IsString()
-  requestType: string;
+  @IsOptional()
+  productName?: string;
 
   @IsString()
-  orderLink: string;
+  @IsOptional()
+  requestType?: string;
+
+  @IsString()
+  @IsOptional()
+  orderLink?: string;
+
+  @IsString()
+  @IsOptional()
+  ordersLink?: string;
 
   @IsString()
   @IsOptional()
   stage?: string;
+
+  @IsOptional()
+  items?: AvailabilityReminderEmailItemDto[];
 }
 
 export class RentalResponseDto {

@@ -49,12 +49,22 @@
 <body>
     <div class="container">
         <div class="header">
-            <h2>{{#if (eq requestType 'purchase')}}Purchase request waiting{{else}}Rental request waiting{{/if}}</h2>
+            <h2>{{title}}</h2>
         </div>
         <div class="content">
             <p>Hello {{listerName}},</p>
+            {{#if items}}
+            <p>These requests are still waiting on you. Approve or decline from your dashboard while dates are valid.</p>
+            <ul>
+                {{#each items}}
+                <li><strong>{{renterName}}</strong> wants to {{#if (eq requestType 'purchase')}}buy{{else}}rent{{/if}} <strong>{{productName}}</strong></li>
+                {{/each}}
+            </ul>
+            <p><a href="{{ordersLink}}" class="button">View requests</a></p>
+            {{else}}
             <p><strong>{{renterName}}</strong> is still waiting to {{#if (eq requestType 'purchase')}}buy{{else}}rent{{/if}} <strong>{{productName}}</strong>. Approve or decline from your dashboard while their dates are valid.</p>
             <p><a href="{{orderLink}}" class="button">View request</a></p>
+            {{/if}}
         </div>
         <div class="footer">
             <p>&copy; {{currentYear}} Relisted. All rights reserved.</p>

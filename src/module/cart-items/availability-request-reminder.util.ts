@@ -121,23 +121,87 @@ export function computeExpiredListerReminderActions(
   return actions;
 }
 
+export type CheckoutReminderItem = {
+  productName: string;
+  requestType: 'purchase' | 'rental';
+  listerName?: string;
+};
+
+export type ExpiredListerReminderItem = {
+  productName: string;
+  requestType: 'purchase' | 'rental';
+  renterName: string;
+  orderLink: string;
+};
+
+export type ReminderRequestKind = 'purchase' | 'rental' | 'mixed';
+
+function reminderRequestKind(
+  items: Array<{ requestType: 'purchase' | 'rental' }>,
+): ReminderRequestKind {
+  const kinds = new Set(items.map((item) => item.requestType));
+  if (kinds.size !== 1) return 'mixed';
+  return items[0]?.requestType === 'purchase' ? 'purchase' : 'rental';
+}
+
+function checkoutReminderTitle(kind: ReminderRequestKind, count: number): string {
+  if (kind === 'mixed') return 'Complete your checkout';
+  if (kind === 'purchase') {
+    return count > 1 ? 'Complete your purchases' : 'Complete your purchase';
+  }
+  return count > 1 ? 'Complete your rentals' : 'Complete your rental';
+}
+
+function expiredListerReminderTitle(
+  kind: ReminderRequestKind,
+  count: number,
+): string {
+  if (count > 1) return 'Requests waiting on you';
+  if (kind === 'purchase') return 'Purchase request waiting on you';
+  return 'Rental request waiting on you';
+}
+
 export function checkoutReminderCopy(params: {
   productName: string;
   requestType: 'purchase' | 'rental';
   stage: CheckoutReminderStage;
-}): { title: string; message: string } {
-  const kind = params.requestType === 'purchase' ? 'purchase' : 'rental';
-  const title =
-    params.requestType === 'purchase'
-      ? 'Complete your purchase'
-      : 'Complete your rental';
+}): { title: string; message: string; requestType: ReminderRequestKind } {
+  const requestType = params.requestType;
+  const title = checkoutReminderTitle(requestType, 1);
   const message =
     params.stage === '15m'
       ? `${params.productName} is available. Open your cart and check out to lock it in.`
       : params.stage === '1h'
         ? `Reminder: ${params.productName} is still waiting in your cart.`
         : `Last reminder: check out now so you don’t lose ${params.productName}.`;
-  return { title, message };
+  return { title, message, requestType };
+}
+
+export function checkoutReminderBatchCopy(params: {
+  items: CheckoutReminderItem[];
+  stage: CheckoutReminderStage;
+}): { title: string; message: string; requestType: ReminderRequestKind } {
+  const count = params.items.length;
+  const requestType = reminderRequestKind(params.items);
+  const title = checkoutReminderTitle(requestType, count);
+  const names = params.items.map((item) => item.productName).join(', ');
+
+  if (count === 1) {
+    return checkoutReminderCopy({
+      productName: params.items[0].productName,
+      requestType: params.items[0].requestType,
+      stage: params.stage,
+    });
+  }
+
+  const message =
+    params.stage === '15m'
+      ? `${count} approved items are waiting in your cart: ${names}. Check out to lock them in.`
+      : params.stage === '1h'
+        ? `Reminder: ${count} items are still waiting in your cart: ${names}.`
+        : `Last reminder: check out for ${count} items before you lose them: ${names}.`;
+
+  return { title, message, requestType };
 }
 
 export function expiredListerReminderCopy(params: {
@@ -145,13 +209,42 @@ export function expiredListerReminderCopy(params: {
   requestType: 'purchase' | 'rental';
   renterName: string;
   stage: ExpiredListerReminderStage;
-}): { title: string; message: string } {
-  const title =
-    params.requestType === 'purchase'
-      ? 'Purchase request waiting on you'
-      : 'Rental request waiting on you';
+}): { title: string; message: string; requestType: ReminderRequestKind } {
+  const requestType = params.requestType;
+  const title = expiredListerReminderTitle(requestType, 1);
   const message = `${params.renterName} is still waiting to ${
     params.requestType === 'purchase' ? 'buy' : 'rent'
   } ${params.productName}. You can still confirm availability from your dashboard while their dates are valid.`;
-  return { title, message };
+  return { title, message, requestType };
+}
+
+export function expiredListerReminderBatchCopy(params: {
+  items: ExpiredListerReminderItem[];
+  stage: ExpiredListerReminderStage;
+}): { title: string; message: string; requestType: ReminderRequestKind } {
+  const count = params.items.length;
+  const requestType = reminderRequestKind(params.items);
+  const title = expiredListerReminderTitle(requestType, count);
+
+  if (count === 1) {
+    return expiredListerReminderCopy({
+      productName: params.items[0].productName,
+      requestType: params.items[0].requestType,
+      renterName: params.items[0].renterName,
+      stage: params.stage,
+    });
+  }
+
+  const summary = params.items
+    .map(
+      (item) =>
+        `${item.renterName} (${item.productName})`,
+    )
+    .join('; ');
+
+  return {
+    title,
+    message: `${count} requests are still waiting on you: ${summary}. Review them from your dashboard while dates are valid.`,
+    requestType,
+  };
 }
