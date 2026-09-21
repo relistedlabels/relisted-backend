@@ -38,10 +38,11 @@ export const MAX_DISPATCH_WINDOW_MINUTES = Number(
 export const DISPATCH_WINDOW_START_HOUR = Number(
   process.env.DISPATCH_WINDOW_START_HOUR ?? 8,
 );
+/** Last hour any dispatch window may end (Lagos). Rental delivery, purchase delivery, and return pickup. */
 export const DISPATCH_WINDOW_END_HOUR = Number(
-  process.env.DISPATCH_WINDOW_END_HOUR ?? 18,
+  process.env.DISPATCH_WINDOW_END_HOUR ?? 16,
 );
-/** Renter return pickup slots (UI + booking); defaults to 8am–6pm Lagos. */
+/** Renter return pickup slots (UI + booking); defaults to dispatch window hours. */
 export const RETURN_DISPATCH_WINDOW_START_HOUR = Number(
   process.env.RETURN_DISPATCH_WINDOW_START_HOUR ??
     process.env.DISPATCH_WINDOW_START_HOUR ??
@@ -50,7 +51,7 @@ export const RETURN_DISPATCH_WINDOW_START_HOUR = Number(
 export const RETURN_DISPATCH_WINDOW_END_HOUR = Number(
   process.env.RETURN_DISPATCH_WINDOW_END_HOUR ??
     process.env.DISPATCH_WINDOW_END_HOUR ??
-    18,
+    16,
 );
 
 const LAGOS_TZ = 'Africa/Lagos';
@@ -92,6 +93,13 @@ export const returnRequestWindowFieldMap: DispatchWindowFieldMap = {
   RETURN: { start: 'pickupWindowStart', end: 'pickupWindowEnd' },
   RESALE: { start: 'pickupWindowStart', end: 'pickupWindowEnd' },
 };
+
+function getDispatchWindowEndHour(type: DispatchWindowType): number {
+  if (type === 'RETURN') {
+    return RETURN_DISPATCH_WINDOW_END_HOUR;
+  }
+  return DISPATCH_WINDOW_END_HOUR;
+}
 
 export function getDailyWindowBounds(date: Date) {
   const dayKey = getLagosCalendarDateKey(date);
@@ -274,13 +282,13 @@ export function parseDispatchWindowFromInput(
   }
 
   const dayStartMinutes = DISPATCH_WINDOW_START_HOUR * 60;
-  const dayEndMinutes = DISPATCH_WINDOW_END_HOUR * 60;
+  const dayEndMinutes = getDispatchWindowEndHour(type) * 60;
   const startMinutes = getLagosMinutesFromMidnight(start);
   const endMinutes = getLagosMinutesFromMidnight(end);
 
   if (startMinutes < dayStartMinutes || endMinutes > dayEndMinutes) {
     bad(
-      `${type} dispatch window must fall between ${DISPATCH_WINDOW_START_HOUR}:00 and ${DISPATCH_WINDOW_END_HOUR}:00 local time.`,
+      `${type} dispatch window must fall between ${DISPATCH_WINDOW_START_HOUR}:00 and ${getDispatchWindowEndHour(type)}:00 local time.`,
     );
   }
 
