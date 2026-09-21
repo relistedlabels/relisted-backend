@@ -156,7 +156,7 @@ describe('return pickup window selection', () => {
 
     it('returns only the in-progress last slot when near end of day', () => {
       jest.useFakeTimers();
-      jest.setSystemTime(new Date('2026-06-15T17:30:00+01:00'));
+      jest.setSystemTime(new Date('2026-06-15T15:30:00+01:00'));
 
       const slots = listReturnPickupSlotsForDay('2026-06-15');
       expect(slots).toHaveLength(1);
@@ -168,14 +168,14 @@ describe('return pickup window selection', () => {
         }),
         10,
       );
-      const expected = expectedOpenSlotStartHours(17 * 60 + 30);
+      const expected = expectedOpenSlotStartHours(15 * 60 + 30);
       expect(expected).toHaveLength(1);
       expect(startHour).toBe(expected[0]);
     });
 
     it('returns no slots after the last window has ended', () => {
       jest.useFakeTimers();
-      jest.setSystemTime(new Date('2026-06-15T18:30:00+01:00'));
+      jest.setSystemTime(new Date('2026-06-15T16:30:00+01:00'));
 
       const slots = listReturnPickupSlotsForDay('2026-06-15');
       expect(slots).toHaveLength(0);
@@ -185,7 +185,7 @@ describe('return pickup window selection', () => {
   describe('buildDefaultReturnDispatchWindow', () => {
     it('picks the next hour slot when called mid-afternoon', () => {
       jest.useFakeTimers();
-      jest.setSystemTime(new Date('2026-06-15T14:30:00+01:00'));
+      jest.setSystemTime(new Date('2026-06-15T12:30:00+01:00'));
 
       const { start, end } = buildDefaultReturnDispatchWindow(new Date());
       expect(getLagosCalendarDateKey(start)).toBe('2026-06-15');
@@ -197,7 +197,7 @@ describe('return pickup window selection', () => {
         }),
         10,
       );
-      expect(startHour).toBe(15);
+      expect(startHour).toBe(13);
       expect(differenceInMinutes(end, start)).toBe(
         DEFAULT_DISPATCH_WINDOW_MINUTES,
       );
@@ -205,7 +205,7 @@ describe('return pickup window selection', () => {
 
     it('rolls to the next day at 8am when called after the dispatch cutoff', () => {
       jest.useFakeTimers();
-      jest.setSystemTime(new Date('2026-06-15T19:00:00+01:00'));
+      jest.setSystemTime(new Date('2026-06-15T17:00:00+01:00'));
 
       const { start, end } = buildDefaultReturnDispatchWindow(new Date());
       expect(getLagosCalendarDateKey(start)).toBe('2026-06-16');
@@ -265,7 +265,7 @@ describe('return pickup window selection', () => {
   describe('buildReturnPickupWindowOptions', () => {
     it('marks original window expired and suggests a future slot on the same day', () => {
       jest.useFakeTimers();
-      jest.setSystemTime(new Date('2026-06-15T14:30:00+01:00'));
+      jest.setSystemTime(new Date('2026-06-15T12:30:00+01:00'));
 
       const preferred = {
         start: new Date('2026-06-15T09:00:00+01:00'),
