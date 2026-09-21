@@ -1,8 +1,10 @@
 import {
   applyAvailabilityRequestReminderState,
   CHECKOUT_REMINDER_OFFSETS_MS,
+  checkoutReminderBatchCopy,
   computeCheckoutReminderActions,
   computeExpiredListerReminderActions,
+  expiredListerReminderBatchCopy,
   EXPIRED_LISTER_REMINDER_OFFSETS_MS,
 } from './availability-request-reminder.util';
 
@@ -72,5 +74,45 @@ describe('availability-request-reminder.util', () => {
         (a) => a.stage,
       ),
     ).toEqual(['1', '2', '3']);
+  });
+
+  it('builds grouped checkout copy for multiple items', () => {
+    const copy = checkoutReminderBatchCopy({
+      stage: '15m',
+      items: [
+        { productName: 'Silk dress', requestType: 'rental' },
+        { productName: 'Linen set', requestType: 'rental' },
+      ],
+    });
+
+    expect(copy.title).toBe('Complete your rentals');
+    expect(copy.message).toContain('2 approved items');
+    expect(copy.message).toContain('Silk dress');
+    expect(copy.message).toContain('Linen set');
+  });
+
+  it('builds grouped expired lister copy for multiple requests', () => {
+    const copy = expiredListerReminderBatchCopy({
+      stage: '1',
+      items: [
+        {
+          productName: 'Silk dress',
+          requestType: 'rental',
+          renterName: 'Renter One',
+          orderLink: 'https://app.test/orders/1',
+        },
+        {
+          productName: 'Bag',
+          requestType: 'purchase',
+          renterName: 'Renter Two',
+          orderLink: 'https://app.test/orders/2',
+        },
+      ],
+    });
+
+    expect(copy.title).toBe('Requests waiting on you');
+    expect(copy.message).toContain('2 requests are still waiting');
+    expect(copy.message).toContain('Renter One (Silk dress)');
+    expect(copy.message).toContain('Renter Two (Bag)');
   });
 });

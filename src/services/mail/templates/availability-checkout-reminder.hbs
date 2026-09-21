@@ -49,10 +49,26 @@
 <body>
     <div class="container">
         <div class="header">
-            <h2>{{#if (eq requestType 'purchase')}}Complete your purchase{{else}}Complete your rental{{/if}}</h2>
+            <h2>{{title}}</h2>
         </div>
         <div class="content">
             <p>Hello {{userName}},</p>
+            {{#if items}}
+            {{#if (eq stage "15m")}}
+            <p>These approved items are waiting in your cart. Check out soon to lock them in.</p>
+            {{else}}
+            {{#if (eq stage "1h")}}
+            <p>Reminder: these items are still waiting in your cart.</p>
+            {{else}}
+            <p>Last reminder: check out before you lose these items.</p>
+            {{/if}}
+            {{/if}}
+            <ul>
+                {{#each items}}
+                <li><strong>{{productName}}</strong></li>
+                {{/each}}
+            </ul>
+            {{else}}
             {{#if (eq stage "15m")}}
             <p><strong>{{productName}}</strong> is available. Check out soon to lock it in.</p>
             {{else}}
@@ -60,6 +76,7 @@
             <p><strong>{{productName}}</strong> is still waiting in your cart.</p>
             {{else}}
             <p>Last reminder: check out for <strong>{{productName}}</strong> before you lose it.</p>
+            {{/if}}
             {{/if}}
             {{/if}}
             <p><a href="{{cartLink}}" class="button">Open cart and check out</a></p>
