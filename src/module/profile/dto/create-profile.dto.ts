@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import { IsEmail, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { IsValidPhone } from 'src/utils/is-valid-phone.decorator';
 
 export class CreateEmergencyDto {
   @ApiProperty()
@@ -16,6 +17,7 @@ export class CreateEmergencyDto {
   relationship: string;
   @ApiProperty()
   @IsString()
+  @IsValidPhone()
   phoneNumber: string;
   @ApiProperty()
   @IsString()
@@ -80,6 +82,7 @@ export class CreateAddressInfoDto {
 export class CreateProfileDto {
   @ApiProperty()
   @IsString()
+  @IsValidPhone()
   phoneNumber: string;
 
   @ApiProperty({ required: false })

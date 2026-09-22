@@ -17,6 +17,7 @@ import { randomUUID } from 'crypto';
 import { ListingType, OrderStatus, Role } from '@prisma/client';
 import { addMinutes, addDays } from 'date-fns';
 import { createAttachments } from 'prisma/prisma.utils';
+import { normalizePhoneNumber, normalizePhoneOrThrow } from '../../utils/phone';
 
 import { NotificationService } from '../../services/notification/notification.service';
 import { MailService } from '../../services/mail/mail.service';
@@ -642,11 +643,19 @@ export class RentersService {
       updateData.phone !== undefined
         ? updateData.phone
         : updateData.phoneNumber;
-    const emergencyContactData =
+    let emergencyContactData =
       updateData.emergencyContact || updateData.emergencyContacts;
+    if (emergencyContactData?.phoneNumber) {
+      emergencyContactData = {
+        ...emergencyContactData,
+        phoneNumber: normalizePhoneOrThrow(emergencyContactData.phoneNumber),
+      };
+    }
 
     const profileUpdate: any = {};
-    if (phoneToSet !== undefined) profileUpdate.phoneNumber = phoneToSet;
+    if (phoneToSet !== undefined) {
+      profileUpdate.phoneNumber = normalizePhoneOrThrow(phoneToSet);
+    }
     if (updateData.bvn !== undefined) profileUpdate.bvn = updateData.bvn;
     if (updateData.nin !== undefined) profileUpdate.nin = updateData.nin;
 
@@ -1507,7 +1516,15 @@ export class RentersService {
     whatsappPhone?: string,
   ) {
     const normalizedEmail = email.trim().toLowerCase();
-    const phone = whatsappPhone?.trim() ?? '';
+    const trimmedPhone = whatsappPhone?.trim() ?? '';
+    let phone = '';
+    if (trimmedPhone) {
+      const normalized = normalizePhoneNumber(trimmedPhone);
+      if (!normalized) {
+        throw new BadRequestException('Enter a valid Nigerian phone number.');
+      }
+      phone = normalized;
+    }
     let user = await this.prisma.user.findUnique({
       where: { email: normalizedEmail },
     });

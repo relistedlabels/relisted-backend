@@ -24,6 +24,10 @@ import {
 } from '@prisma/client';
 import { isAvailabilityRequestSupersededByActiveOrder } from '../cart-items/fulfill-availability-for-checkout';
 import {
+  normalizePhoneNumber,
+  normalizePhoneOrThrow,
+} from 'src/utils/phone';
+import {
   differenceInSeconds,
   subMonths,
   startOfMonth,
@@ -4551,11 +4555,19 @@ export class ListersService {
     }
 
     const phoneToSet = body.phone !== undefined ? body.phone : body.phoneNumber;
-    const emergencyContactData =
+    let emergencyContactData =
       body.emergencyContact || body.emergencyContacts;
+    if (emergencyContactData?.phoneNumber) {
+      emergencyContactData = {
+        ...emergencyContactData,
+        phoneNumber: normalizePhoneOrThrow(emergencyContactData.phoneNumber),
+      };
+    }
 
     const profileUpdate: any = {};
-    if (phoneToSet !== undefined) profileUpdate.phoneNumber = phoneToSet;
+    if (phoneToSet !== undefined) {
+      profileUpdate.phoneNumber = normalizePhoneOrThrow(phoneToSet);
+    }
     if (body.bvn !== undefined) profileUpdate.bvn = body.bvn;
     if (body.nin !== undefined) profileUpdate.nin = body.nin;
 
@@ -5058,7 +5070,16 @@ export class ListersService {
       updateData.businessEmail = body.businessEmail.trim();
     }
     if (body.businessPhone !== undefined) {
-      updateData.businessPhone = body.businessPhone.trim() || null;
+      const trimmedBusinessPhone = body.businessPhone.trim();
+      if (!trimmedBusinessPhone) {
+        updateData.businessPhone = null;
+      } else {
+        const normalized = normalizePhoneNumber(trimmedBusinessPhone);
+        if (!normalized) {
+          throw new BadRequestException('Enter a valid Nigerian phone number.');
+        }
+        updateData.businessPhone = normalized;
+      }
     }
     if (
       body.businessAddress !== undefined &&
@@ -5388,7 +5409,7 @@ export class ListersService {
     const data = {
       name: body.fullName,
       email: body.email?.trim() || null,
-      phoneNumber: body.phone,
+      phoneNumber: normalizePhoneOrThrow(body.phone),
       relationship: body.relationship,
       city: (body.city ?? '').trim(),
       state: (body.state ?? '').trim(),
