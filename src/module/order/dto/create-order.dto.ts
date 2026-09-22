@@ -8,6 +8,7 @@ import {
   IsString,
   ValidateNested,
 } from 'class-validator';
+import { IsValidPhone } from 'src/utils/is-valid-phone.decorator';
 import type {
   DispatchWindowInput as DispatchWindowInputType,
   DispatchWindowsInput as DispatchWindowsInputType,
@@ -73,6 +74,7 @@ export class ReturnPickupAddressDto {
 
   @IsOptional()
   @IsString()
+  @IsValidPhone()
   phoneNumber?: string;
 }
 

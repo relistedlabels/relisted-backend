@@ -10,6 +10,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { DispatchWindowsDto } from 'src/module/order/dto/create-order.dto';
+import { IsValidPhone } from 'src/utils/is-valid-phone.decorator';
 
 export class GuestAvailabilityRequestDto {
   @ApiProperty()
@@ -31,6 +32,7 @@ export class GuestAvailabilityRequestDto {
   @ApiProperty({ required: false, description: 'WhatsApp number for notifications' })
   @IsOptional()
   @IsString()
+  @IsValidPhone()
   whatsappPhone?: string;
 
   @ApiProperty({ description: '0 for purchase/resale, 1+ for rental' })
