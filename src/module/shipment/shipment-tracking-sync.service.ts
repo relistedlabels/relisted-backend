@@ -11,6 +11,7 @@ import { shipmentLegLabel } from 'src/module/shipment/shipment-leg-label.util';
 import { notifyListersForReturnLeg } from './shipment-lister-return-notifications';
 import { sendShipmentLegStatusNotification } from './shipment-status-notifications';
 import {
+  buildShippingEmailTrackingFields,
   getShippingProviderDisplayName,
   resolveShipmentFulfillmentProvider,
 } from './shipment-tracking-url.util';
