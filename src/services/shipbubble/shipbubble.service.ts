@@ -76,6 +76,48 @@ export function redactShipbubbleLogPayload(
   return out;
 }
 
+/** Slim courier row for fetch_rates logs (checkout-eligible couriers only). */
+function fetchRatesLogCourierSummary(
+  courier: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    courier_id: courier.courier_id,
+    courier_name: courier.courier_name,
+    service_code: courier.service_code,
+    total: courier.total ?? courier.rate_card_amount,
+    pickup_eta: courier.pickup_eta,
+    delivery_eta: courier.delivery_eta,
+  };
+}
+
+/**
+ * fetch_rates responses include every Shipbubble courier; checkout only uses
+ * checkout-eligible couriers, so logs should not dump the full courier list.
+ */
+export function summarizeFetchRatesLogPayload(payload: unknown): unknown {
+  if (payload == null || typeof payload !== 'object') {
+    return payload;
+  }
+
+  const root = payload as Record<string, unknown>;
+  const data = (root.data ?? root) as Record<string, unknown>;
+  const couriers = Array.isArray(data.couriers)
+    ? (data.couriers as Record<string, unknown>[])
+    : [];
+  const allowedCouriers = couriers.filter((c) => isAllowedShipbubbleCourier(c));
+
+  return {
+    status: root.status,
+    message: root.message,
+    data: {
+      request_token: data.request_token,
+      courier_count: couriers.length,
+      allowed_courier_count: allowedCouriers.length,
+      allowed_couriers: allowedCouriers.map(fetchRatesLogCourierSummary),
+    },
+  };
+}
+
 export type ShipbubbleValidatedAddress = {
   addressCode: number;
   formattedAddress: string;
@@ -113,8 +155,12 @@ export function formatShipbubbleCheckoutTierName(courierName: string): string {
   return `${label} (via Shipbubble)`;
 }
 
-/** Same-day Shipbubble couriers we expose at checkout (matched on name and service_code). */
-export const SHIPBUBBLE_ALLOWED_COURIER_KEYS = ['chowdeck', 'glovo'] as const;
+/** Shipbubble couriers we expose at checkout (matched on name and service_code). */
+export const SHIPBUBBLE_ALLOWED_COURIER_KEYS = [
+  'chowdeck',
+  'glovo',
+  'routelift',
+] as const;
 
 export { isShipbubbleSandboxApiKey } from './shipbubble-address-normalize';
 
@@ -604,10 +650,16 @@ export class ShipbubbleService {
       ? this.listSameDayPickupCouriers(data, pickupDate)
       : this.listAllowedPickupCouriers(data);
     if (!couriers.length) {
+      const totalCouriers = Array.isArray(data.couriers)
+        ? data.couriers.length
+        : 0;
+      this.logger.warn(
+        `Shipbubble fetch_rates returned ${totalCouriers} couriers but none qualify (sameDayOnly=${sameDayOnly}, pickupDate=${pickupDate})`,
+      );
       throw new InternalServerErrorException(
         sameDayOnly
-          ? 'Shipbubble has no same-day Chowdeck or Glovo pickup options for this route'
-          : 'Shipbubble has no Chowdeck or Glovo pickup options for this route on the selected pickup date',
+          ? 'Shipbubble has no same-day pickup options for this route'
+          : 'Shipbubble has no pickup options for this route on the selected pickup date',
       );
     }
 
@@ -704,7 +756,11 @@ export class ShipbubbleService {
         body,
         { headers: this.authHeaders(), ...this.axiosOpts() },
       );
-      this.logShipbubblePayload('fetch_rates', 'response', res.data);
+      this.logShipbubblePayload(
+        'fetch_rates',
+        'response',
+        summarizeFetchRatesLogPayload(res.data),
+      );
       const payload = res.data;
       const data = (payload?.data ?? payload) as Record<string, unknown>;
       const requestToken = String(data?.request_token ?? '').trim();
