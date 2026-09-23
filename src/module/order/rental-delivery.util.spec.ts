@@ -2,6 +2,7 @@ import {
   canBuyerConfirmRentalReceipt,
   canConfirmRentalShipment,
   canRenterRaiseRentalDeliveryDispute,
+  getListerReturnInspectionPeriodLabel,
   getRentalInspectionHours,
   isRentalShipmentWithinInspectionWindow,
   listConfirmableRentalShipments,
@@ -16,6 +17,10 @@ describe('rental-delivery.util', () => {
 
   it('defaults inspection window to 1 hour', () => {
     expect(getRentalInspectionHours()).toBe(1);
+  });
+
+  it('defaults lister return auto-confirm label to 24 hours', () => {
+    expect(getListerReturnInspectionPeriodLabel()).toBe('24 hours');
   });
 
   it('allows confirm after OUTBOUND leg delivered', () => {
