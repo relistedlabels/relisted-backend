@@ -405,6 +405,16 @@ export class ListerReturnDeliveredConfirmDto {
   @IsString()
   @IsOptional()
   trackingNumber?: string;
+  @IsString()
+  autoConfirmPeriodLabel: string;
+  @IsString()
+  @IsOptional()
+  itemSummary?: string;
+  @IsOptional()
+  returnItems?: Array<{
+    name: string;
+    imageUrl?: string | null;
+  }>;
 }
 
 /** Lister: pickup window ended without completed return leg */
