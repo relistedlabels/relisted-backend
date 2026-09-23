@@ -92,7 +92,26 @@ export function getRentalInspectionCutoffDate(): Date {
 }
 
 export function getRentalInspectionPeriodLabel(): string {
-  const hours = getRentalInspectionHours();
+  return formatInspectionPeriodLabel(getRentalInspectionHours());
+}
+
+/** Hours after return delivery before lister receipt auto-confirms (default 24). */
+export function getListerReturnInspectionHours(): number {
+  const hoursRaw = process.env.LISTER_RETURN_INSPECTION_HOURS?.trim();
+  if (hoursRaw) {
+    const h = parseInt(hoursRaw, 10);
+    if (Number.isFinite(h) && h >= 1) return Math.min(h, 24 * 30);
+  }
+  return 24;
+}
+
+export function getListerReturnInspectionPeriodLabel(): string {
+  const hours = getListerReturnInspectionHours();
+  if (hours === 1) return '1 hour';
+  return `${hours} hours`;
+}
+
+function formatInspectionPeriodLabel(hours: number): string {
   if (hours === 1) return '1 hour';
   if (hours < 24) return `${hours} hours`;
   if (hours % 24 === 0) {

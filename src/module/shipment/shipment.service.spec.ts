@@ -703,11 +703,15 @@ describe('ShipmentService.switchToManualFulfillment', () => {
 describe('ShipmentService.markManualDelivered', () => {
   function buildService(deps: {
     shipment?: Record<string, unknown> | null;
+    order?: Record<string, unknown> | null;
   }) {
     const prisma = {
       shipment: {
         findUnique: jest.fn().mockResolvedValue(deps.shipment ?? null),
         update: jest.fn().mockResolvedValue({}),
+      },
+      order: {
+        findUnique: jest.fn().mockResolvedValue(deps.order ?? null),
       },
     };
     const notificationService = {
@@ -771,14 +775,35 @@ describe('ShipmentService.markManualDelivered', () => {
   });
 
   it('marks Relisted dispatch IN_TRANSIT shipment as COMPLETED', async () => {
-    const { service, prisma } = buildService({
+    const { service, prisma, notificationService } = buildService({
       shipment: {
         id: 's1',
         status: 'IN_TRANSIT',
         manualFulfillment: true,
         orderId: 'o1',
+        listerId: 'l1',
         type: 'RETURN',
         order: { orderId: 'ORD-1', user: { id: 'u1', email: 'a@b.com', name: 'A' } },
+      },
+      order: {
+        id: 'o1',
+        orderId: 'ORD-1',
+        orderItems: [
+          {
+            returnShipmentId: 's1',
+            imageUrl: 'https://img.example/dress.jpg',
+            product: {
+              name: 'Silk Midi Dress',
+              attachments: { uploads: [] },
+              curator: {
+                id: 'l1',
+                email: 'lister@example.com',
+                name: 'Lister Co',
+                profile: { businessInfo: { businessName: 'Lister Boutique' } },
+              },
+            },
+          },
+        ],
       },
     });
 
@@ -788,6 +813,20 @@ describe('ShipmentService.markManualDelivered', () => {
       where: { id: 's1' },
       data: expect.objectContaining({ status: 'COMPLETED' }),
     });
+    expect(notificationService.createNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'l1',
+        type: 'LISTER_RETURN_DELIVERED_CONFIRM',
+        sendEmail: true,
+        emailData: expect.objectContaining({
+          email: 'lister@example.com',
+          orderNumber: 'ORD-1',
+          returnItems: [
+            { name: 'Silk Midi Dress', imageUrl: 'https://img.example/dress.jpg' },
+          ],
+        }),
+      }),
+    );
   });
 
   it('marks DISPATCH_FAILED shipment as COMPLETED and sets dispatchedAt', async () => {

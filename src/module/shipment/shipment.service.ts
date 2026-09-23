@@ -24,6 +24,7 @@ import {
 } from 'src/utils/dispatch-windows';
 import { addMinutes, startOfDay } from 'date-fns';
 import { formatDispatchWindowLagos } from 'src/module/shipment/dispatch-window-format';
+import { notifyListersForReturnLeg } from './shipment-lister-return-notifications';
 import { sendShipmentLegStatusNotification } from './shipment-status-notifications';
 import { buildShippingEmailTrackingFields } from './shipment-tracking-url.util';
 import { PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY } from 'src/utils/product-attachment-upload-order';
@@ -944,24 +945,35 @@ export class ShipmentService {
     }
 
     try {
+      const notifyCtx = {
+        id: shipment.id,
+        listerId: shipment.listerId,
+        orderId: shipment.orderId,
+        type: shipment.type,
+        trackingId: shipment.trackingId,
+        pricingTier: shipment.pricingTier,
+        providerTrackingUrl: shipment.providerTrackingUrl,
+        providerShipmentId: shipment.providerShipmentId,
+        order: shipment.order
+          ? {
+              orderId: shipment.order.orderId,
+              user: shipment.order.user,
+            }
+          : null,
+      };
       await sendShipmentLegStatusNotification(
         this.notificationService,
-        {
-          id: shipment.id,
-          type: shipment.type,
-          trackingId: shipment.trackingId,
-          pricingTier: shipment.pricingTier,
-          providerTrackingUrl: shipment.providerTrackingUrl,
-          providerShipmentId: shipment.providerShipmentId,
-          order: shipment.order
-            ? {
-                orderId: shipment.order.orderId,
-                user: shipment.order.user,
-              }
-            : null,
-        },
+        notifyCtx,
         'COMPLETED',
       );
+      if (shipment.type === 'RETURN') {
+        await notifyListersForReturnLeg(
+          this.prisma,
+          this.notificationService,
+          notifyCtx,
+          'COMPLETED',
+        );
+      }
     } catch (notifyErr: any) {
       console.warn(
         `[ShipmentService] Delivery notification failed for ${id}: ${notifyErr?.message ?? notifyErr}`,

@@ -8,9 +8,9 @@ import { syncOrderStatusFromShipments } from 'src/module/order/order-shipment-st
 import { fetchAdminAlertRecipients } from 'src/module/shipment/shipment-admin-alert-recipients';
 import { buildAdminShipmentsPageUrl } from 'src/module/shipment/build-admin-shipments-page-url';
 import { shipmentLegLabel } from 'src/module/shipment/shipment-leg-label.util';
+import { notifyListersForReturnLeg } from './shipment-lister-return-notifications';
 import { sendShipmentLegStatusNotification } from './shipment-status-notifications';
 import {
-  buildShippingEmailTrackingFields,
   getShippingProviderDisplayName,
   resolveShipmentFulfillmentProvider,
 } from './shipment-tracking-url.util';
@@ -247,106 +247,20 @@ export class ShipmentTrackingSyncService {
     );
 
     if (newStatus === 'IN_TRANSIT' && isReturn) {
-      await this.notifyListersForReturnLeg(shipment, 'IN_TRANSIT');
+      await notifyListersForReturnLeg(
+        this.prisma,
+        this.notification,
+        shipment,
+        'IN_TRANSIT',
+      );
     }
     if (newStatus === 'COMPLETED' && isReturn) {
-      await this.notifyListersForReturnLeg(shipment, 'COMPLETED');
-    }
-  }
-
-  private async notifyListersForReturnLeg(
-    shipment: ShipmentTrackingPollRow,
-    phase: 'IN_TRANSIT' | 'COMPLETED',
-  ): Promise<void> {
-    const orderInternalId = shipment.order?.id;
-    if (!orderInternalId) return;
-
-    const full = await this.prisma.order.findUnique({
-      where: { id: orderInternalId },
-      select: {
-        id: true,
-        orderId: true,
-        orderItems: {
-          select: {
-            product: {
-              select: {
-                curator: {
-                  select: {
-                    id: true,
-                    email: true,
-                    name: true,
-                    profile: {
-                      select: {
-                        businessInfo: { select: { businessName: true } },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    });
-    if (!full) return;
-
-    const clientUrl = process.env.CLIENT_URL || 'https://relisted.com';
-    const orderPageUrl = `${clientUrl}/listers/orders/${full.id}`;
-    const trackingFields = buildShippingEmailTrackingFields(shipment);
-
-    const listerId = shipment.listerId;
-    if (!listerId) return;
-
-    const lister = full.orderItems
-      .map((oi) => oi.product?.curator)
-      .find((c) => c?.id === listerId);
-    if (!lister?.email?.trim()) return;
-
-    const curatorName =
-      lister.profile?.businessInfo?.businessName || lister.name || 'there';
-
-    if (phase === 'IN_TRANSIT') {
-      await this.notification.createNotification({
-        userId: listerId,
-        title: 'Return on its way to you',
-        message: `The renter's return for order ${full.orderId} is in transit to your address.`,
-        type: 'LISTER_RETURN_IN_TRANSIT',
-        metadata: {
-          orderId: full.id,
-          orderNumber: full.orderId,
-          shipmentId: shipment.id,
-        },
-        sendEmail: true,
-        emailData: {
-          email: lister.email.trim(),
-          curatorName,
-          orderNumber: full.orderId,
-          orderPageUrl,
-          platformName: 'Relisted',
-          ...trackingFields,
-        },
-      });
-    } else {
-      await this.notification.createNotification({
-        userId: listerId,
-        title: 'Confirm return receipt to finish this rental',
-        message: `Tracking shows the return for order ${full.orderId} was delivered. Open your order, review the renter's condition report, then confirm return receipt. That completes the order: collateral goes back to the renter and your rental earnings plus cleaning fee are released to your wallet.`,
-        type: 'LISTER_RETURN_DELIVERED_CONFIRM',
-        metadata: {
-          orderId: full.id,
-          orderNumber: full.orderId,
-          shipmentId: shipment.id,
-        },
-        sendEmail: true,
-        emailData: {
-          email: lister.email.trim(),
-          curatorName,
-          orderNumber: full.orderId,
-          orderPageUrl,
-          platformName: 'Relisted',
-          trackingNumber: trackingFields.trackingNumber,
-        },
-      });
+      await notifyListersForReturnLeg(
+        this.prisma,
+        this.notification,
+        shipment,
+        'COMPLETED',
+      );
     }
   }
 
