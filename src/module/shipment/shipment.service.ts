@@ -29,6 +29,7 @@ import { sendShipmentLegStatusNotification } from './shipment-status-notificatio
 import { buildShippingEmailTrackingFields } from './shipment-tracking-url.util';
 import { PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY } from 'src/utils/product-attachment-upload-order';
 import { formatAdminReturnRequest } from '../order/admin-return-request.format';
+import { returnRequestExistsForShipment } from '../order/return-request-leg.util';
 
 const IMMEDIATE_DISPATCH_THRESHOLD_MINUTES = Number(
   process.env.IMMEDIATE_DISPATCH_THRESHOLD_MINUTES ?? 60,
@@ -421,16 +422,10 @@ export class ShipmentService {
       }
     }
 
-    if (shipment.type === 'RETURN') {
-      const returnRequest = await this.prisma.returnRequest.findFirst({
-        where: { orderId: shipment.orderId, shipmentId: id },
-      });
-      if (!returnRequest) {
-        throw new BadRequestException(
-          'The renter must submit a return request before you can book pickup.',
-        );
-      }
-    }
+    const returnRequestReady = await this.returnRequestReadyForShipment(
+      shipment,
+      id,
+    );
 
     const updateWindow = dto.updateWindow !== false;
     const forImmediate =
@@ -511,8 +506,14 @@ export class ShipmentService {
       shipment.scheduledWindowStart ??
       shipment.scheduledDate;
 
-    const enqueueNow =
-      forImmediate || this.shouldDispatchImmediately(effectiveWindowStart);
+    let enqueueNow =
+      forImmediate ||
+      (updateWindow &&
+        this.shouldDispatchImmediately(effectiveWindowStart));
+
+    if (shipment.type === 'RETURN' && !returnRequestReady) {
+      enqueueNow = false;
+    }
 
     if (enqueueNow) {
       await this.enqueueDispatchJob(id);
@@ -522,10 +523,30 @@ export class ShipmentService {
       };
     }
 
+    if (shipment.type === 'RETURN' && !returnRequestReady) {
+      return {
+        success: true,
+        message:
+          'Booked for the scheduled window. Pickup will start once the renter submits their return request.',
+      };
+    }
+
     return {
       success: true,
       message: 'Booked for the scheduled window',
     };
+  }
+
+  private async returnRequestReadyForShipment(
+    shipment: Pick<import('@prisma/client').Shipment, 'type' | 'orderId'>,
+    shipmentId: string,
+  ): Promise<boolean> {
+    if (shipment.type !== 'RETURN') return true;
+    const returnRequests = await this.prisma.returnRequest.findMany({
+      where: { orderId: shipment.orderId },
+      select: { shipmentId: true },
+    });
+    return returnRequestExistsForShipment(returnRequests, shipmentId);
   }
 
   // ─── Manual redispatch (admin) ─────────────────────────────────────────────

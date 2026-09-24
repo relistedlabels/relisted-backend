@@ -107,10 +107,15 @@ describe('ShipmentService.dispatchNow', () => {
           .mockResolvedValue({ count: deps.updateManyCount ?? 1 }),
       },
       returnRequest: {
-        findFirst: jest.fn().mockResolvedValue(
+        findMany: jest.fn().mockResolvedValue(
           deps.returnRequest === false
-            ? null
-            : (deps.returnRequest ?? { id: 'rr-1' }),
+            ? []
+            : [
+                deps.returnRequest ?? {
+                  id: 'rr-1',
+                  shipmentId: (deps.shipment as { id?: string })?.id ?? 's1',
+                },
+              ],
         ),
       },
     };
@@ -172,7 +177,42 @@ describe('ShipmentService.dispatchNow', () => {
     );
   });
 
-  it('blocks return legs without a return request', async () => {
+  it('saves return carrier booking without enqueuing when return request is missing', async () => {
+    const futureStart = new Date(Date.now() + 86400000);
+    const { service, prisma } = buildService({
+      shipment: {
+        id: 's1',
+        status: 'PENDING',
+        manualFulfillment: true,
+        type: 'RETURN',
+        orderId: 'o1',
+        pricingTier: RELISTED_DISPATCH_SHIPPING_LABEL,
+        scheduledWindowStart: futureStart,
+        scheduledWindowEnd: new Date(futureStart.getTime() + 3_600_000),
+        scheduledDate: new Date(),
+      },
+      returnRequest: false,
+    });
+
+    const result = await service.dispatchNow('s1', {
+      pricingTier: 'chowdeck',
+      updateWindow: false,
+    });
+
+    expect(result.message).toContain('renter submits their return request');
+    expect(prisma.shipment.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 's1' },
+        data: expect.objectContaining({
+          manualFulfillment: false,
+          pricingTier: 'chowdeck',
+        }),
+      }),
+    );
+    expect(mockQueue.add).not.toHaveBeenCalled();
+  });
+
+  it('does not enqueue due return legs until the renter submits a return request', async () => {
     const { service } = buildService({
       shipment: {
         id: 's1',
@@ -181,15 +221,17 @@ describe('ShipmentService.dispatchNow', () => {
         type: 'RETURN',
         orderId: 'o1',
         pricingTier: 'chowdeck',
-        scheduledWindowStart: new Date(Date.now() + 86400000),
+        scheduledWindowStart: new Date(Date.now() - 3_600_000),
+        scheduledWindowEnd: new Date(Date.now() + 3_600_000),
         scheduledDate: new Date(),
       },
       returnRequest: false,
     });
 
-    await expect(
-      service.dispatchNow('s1', { pricingTier: 'chowdeck' }),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    const result = await service.dispatchNow('s1', {});
+
+    expect(result.message).toContain('renter submits their return request');
+    expect(mockQueue.add).not.toHaveBeenCalled();
   });
 
   it('throws NotFoundException for unknown shipment', async () => {
@@ -330,6 +372,51 @@ describe('ShipmentService.dispatchNow', () => {
       where: { id: 's1' },
       data: { status: 'PENDING' },
     });
+  });
+
+  it('does not enqueue when updateWindow is false even if window starts within 60 minutes', async () => {
+    const windowStart = new Date(Date.now() + 45 * 60_000);
+    const { service, prisma } = buildService({
+      shipment: {
+        id: 's1',
+        status: 'PENDING',
+        manualFulfillment: false,
+        type: 'OUTBOUND',
+        orderId: 'o1',
+        pricingTier: 'chowdeck',
+        scheduledWindowStart: windowStart,
+        scheduledWindowEnd: new Date(windowStart.getTime() + 3_600_000),
+        scheduledDate: new Date(),
+      },
+    });
+
+    const result = await service.dispatchNow('s1', { updateWindow: false });
+
+    expect(result.message).toBe('Booked for the scheduled window');
+    expect(prisma.shipment.update).not.toHaveBeenCalled();
+    expect(mockQueue.add).not.toHaveBeenCalled();
+  });
+
+  it('allows return booking when the sole return request is not yet linked to a shipment', async () => {
+    const futureStart = new Date(Date.now() + 86400000);
+    const { service } = buildService({
+      shipment: {
+        id: 's1',
+        status: 'PENDING',
+        manualFulfillment: false,
+        type: 'RETURN',
+        orderId: 'o1',
+        pricingTier: 'chowdeck',
+        scheduledWindowStart: futureStart,
+        scheduledWindowEnd: new Date(futureStart.getTime() + 3_600_000),
+        scheduledDate: new Date(),
+      },
+      returnRequest: { id: 'rr-1', shipmentId: null },
+    });
+
+    const result = await service.dispatchNow('s1', { updateWindow: false });
+
+    expect(result.message).toBe('Booked for the scheduled window');
   });
 
   it('does not pull dispatch window forward when updateWindow is false', async () => {

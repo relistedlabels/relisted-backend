@@ -10,6 +10,8 @@ import { SHIPBUBBLE_TRACKING_PAGE_URL } from 'src/module/shipment/shipment-track
 import { formatShipbubbleAddressLine } from '../../shipbubble/shipbubble-address-normalize';
 import {
   isShipbubblePricingTier,
+  parseShipbubblePricingTier,
+  resolveShipbubbleSameDayOnly,
   sanitizeShipbubbleContactName,
   sanitizeShipbubblePhone,
   ShipbubbleAddressContact,
@@ -116,8 +118,8 @@ export class ShipbubbleProvider implements DeliveryProvider {
     let serviceCode = '';
     let courierId = storedCourierId;
 
-    if (pricingTier.startsWith('shipbubble:')) {
-      serviceCode = pricingTier.slice('shipbubble:'.length);
+    if (isShipbubblePricingTier(pricingTier)) {
+      serviceCode = parseShipbubblePricingTier(pricingTier).serviceCode;
     }
 
     if (
@@ -133,7 +135,13 @@ export class ShipbubbleProvider implements DeliveryProvider {
           packageItems,
           scheduledWindowStart,
         },
-        { sameDayOnly: shipment.type !== 'RETURN' },
+        {
+          sameDayOnly: resolveShipbubbleSameDayOnly({
+            shipmentType: shipment.type as 'OUTBOUND' | 'RETURN' | 'RESALE',
+            scheduledWindowStart: scheduledWindowStart ?? new Date(),
+            forImmediate: false,
+          }),
+        },
       );
       requestToken = quote.requestToken;
       serviceCode = quote.serviceCode;

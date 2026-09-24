@@ -25,6 +25,7 @@ import {
   isShipbubblePricingTier,
   sanitizeShipbubbleContactName,
   sanitizeShipbubblePhone,
+  resolveShipbubbleSameDayOnly,
   shipbubblePricingTierSlug,
   ShipbubbleService,
 } from 'src/services/shipbubble/shipbubble.service';
@@ -104,6 +105,7 @@ export class ShipmentQuoteService {
       shipment,
       quoteWindowStart,
       warnings,
+      forImmediate,
     );
     const tiers = this.buildTierCards(rawRates, renterChargedKobo);
 
@@ -138,6 +140,7 @@ export class ShipmentQuoteService {
       shipment,
       quoteWindowStart,
       warnings,
+      forImmediate,
     );
     if (rawRates === null) {
       return {
@@ -333,6 +336,7 @@ export class ShipmentQuoteService {
     shipment: Awaited<ReturnType<typeof this.loadShipmentForQuote>>,
     quoteWindowStart: Date,
     warnings: ShippingQuoteWarning[],
+    forImmediate = false,
   ): Promise<any[]> {
     const pickup = this.asAddress(shipment.pickupAddress);
     const delivery = this.asAddress(shipment.deliveryAddress);
@@ -377,6 +381,7 @@ export class ShipmentQuoteService {
         warnings,
         leg,
         shipment.type,
+        forImmediate,
       ),
       this.fetchTshipRateRows(
         pickup,
@@ -409,6 +414,7 @@ export class ShipmentQuoteService {
     shipment: Awaited<ReturnType<typeof this.loadShipmentForQuote>>,
     quoteWindowStart: Date,
     warnings: ShippingQuoteWarning[],
+    forImmediate = false,
   ): Promise<any[] | null> {
     if (!this.isAdminRatePreviewProviderAvailable(provider)) {
       return null;
@@ -450,6 +456,7 @@ export class ShipmentQuoteService {
           warnings,
           leg,
           shipment.type,
+          forImmediate,
         );
         break;
       case ADMIN_RATE_PREVIEW_TSHIP:
@@ -835,6 +842,7 @@ export class ShipmentQuoteService {
     warnings: ShippingQuoteWarning[],
     leg: ShippingQuoteWarning['leg'],
     shipmentType: ShipmentType,
+    forImmediate = false,
   ): Promise<any[]> {
     if (!shipbubbleQuotesAvailable()) return [];
 
@@ -881,10 +889,16 @@ export class ShipmentQuoteService {
           ]),
           scheduledWindowStart,
         },
-        { sameDayOnly: shipmentType !== 'RETURN' },
+        {
+          sameDayOnly: resolveShipbubbleSameDayOnly({
+            shipmentType,
+            scheduledWindowStart,
+            forImmediate,
+          }),
+        },
       );
       const rows = quotes.map((q) => ({
-        pricingTier: shipbubblePricingTierSlug(q.serviceCode),
+        pricingTier: shipbubblePricingTierSlug(q.serviceCode, q.courierId),
         name: formatShipbubbleCheckoutTierName(q.courierName),
         cost: Math.round(q.totalNgn * 100),
         shipbubbleRequestToken: q.requestToken,
