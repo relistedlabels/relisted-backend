@@ -13,6 +13,7 @@ import { buildAdminShipmentsPageUrl } from 'src/module/shipment/build-admin-ship
 import { formatDispatchWindowLagos } from 'src/module/shipment/dispatch-window-format';
 import { buildShippingEmailTrackingFields } from 'src/module/shipment/shipment-tracking-url.util';
 import { shipmentLegLabel } from 'src/module/shipment/shipment-leg-label.util';
+import { returnRequestExistsForShipment } from 'src/module/order/return-request-leg.util';
 
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAYS_MS = [
@@ -93,10 +94,11 @@ export class ShipmentDispatchProcessor {
     }
 
     if (shipment.type === 'RETURN') {
-      const returnRequest = await this.prisma.returnRequest.findFirst({
-        where: { orderId: shipment.orderId, shipmentId },
+      const returnRequests = await this.prisma.returnRequest.findMany({
+        where: { orderId: shipment.orderId },
+        select: { shipmentId: true },
       });
-      if (!returnRequest) {
+      if (!returnRequestExistsForShipment(returnRequests, shipmentId)) {
         this.logger.log(
           `[Worker] RETURN shipment ${shipmentId}: no renter return request yet — releasing DISPATCHING lock`,
         );

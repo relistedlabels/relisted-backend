@@ -6,7 +6,7 @@ describe('ShipmentDispatchProcessor — RETURN legs', () => {
 
   function buildProcessor(prisma: {
     shipment: { findUnique: jest.Mock };
-    returnRequest: { findFirst: jest.Mock };
+    returnRequest: { findMany: jest.Mock };
     shipmentUpdate: jest.Mock;
   }) {
     const prismaService = {
@@ -15,7 +15,7 @@ describe('ShipmentDispatchProcessor — RETURN legs', () => {
         update: prisma.shipmentUpdate,
       },
       returnRequest: {
-        findFirst: prisma.returnRequest.findFirst,
+        findMany: prisma.returnRequest.findMany,
       },
     };
     return new ShipmentDispatchProcessor(
@@ -28,7 +28,7 @@ describe('ShipmentDispatchProcessor — RETURN legs', () => {
   }
 
   it('skips RETURN dispatch when no return request exists for that shipmentId', async () => {
-    const findFirst = jest.fn().mockResolvedValue(null);
+    const findMany = jest.fn().mockResolvedValue([]);
     const shipmentUpdate = jest.fn().mockResolvedValue({});
     const processor = buildProcessor({
       shipment: {
@@ -42,14 +42,15 @@ describe('ShipmentDispatchProcessor — RETURN legs', () => {
           order: { id: orderId },
         }),
       },
-      returnRequest: { findFirst },
+      returnRequest: { findMany },
       shipmentUpdate,
     });
 
     await processor.handleDispatch({ data: { shipmentId } } as any);
 
-    expect(findFirst).toHaveBeenCalledWith({
-      where: { orderId, shipmentId },
+    expect(findMany).toHaveBeenCalledWith({
+      where: { orderId },
+      select: { shipmentId: true },
     });
     expect(shipmentUpdate).toHaveBeenCalledWith({
       where: { id: shipmentId },

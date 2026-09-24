@@ -29,6 +29,7 @@ import { sendShipmentLegStatusNotification } from './shipment-status-notificatio
 import { buildShippingEmailTrackingFields } from './shipment-tracking-url.util';
 import { PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY } from 'src/utils/product-attachment-upload-order';
 import { formatAdminReturnRequest } from '../order/admin-return-request.format';
+import { returnRequestExistsForShipment } from '../order/return-request-leg.util';
 
 const IMMEDIATE_DISPATCH_THRESHOLD_MINUTES = Number(
   process.env.IMMEDIATE_DISPATCH_THRESHOLD_MINUTES ?? 60,
@@ -422,10 +423,11 @@ export class ShipmentService {
     }
 
     if (shipment.type === 'RETURN') {
-      const returnRequest = await this.prisma.returnRequest.findFirst({
-        where: { orderId: shipment.orderId, shipmentId: id },
+      const returnRequests = await this.prisma.returnRequest.findMany({
+        where: { orderId: shipment.orderId },
+        select: { shipmentId: true },
       });
-      if (!returnRequest) {
+      if (!returnRequestExistsForShipment(returnRequests, id)) {
         throw new BadRequestException(
           'The renter must submit a return request before you can book pickup.',
         );
@@ -512,7 +514,9 @@ export class ShipmentService {
       shipment.scheduledDate;
 
     const enqueueNow =
-      forImmediate || this.shouldDispatchImmediately(effectiveWindowStart);
+      forImmediate ||
+      (updateWindow &&
+        this.shouldDispatchImmediately(effectiveWindowStart));
 
     if (enqueueNow) {
       await this.enqueueDispatchJob(id);
