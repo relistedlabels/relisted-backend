@@ -71,6 +71,10 @@ import {
   sumListerPendingEscrow,
 } from './lister-earnings.util';
 import { ProductAvailabilityNotifyService } from 'src/services/product-availability-notify/product-availability-notify.service';
+import {
+  ADMIN_ACTIVE_LISTING_STATUSES,
+  buildPublicActiveListingWhere,
+} from '../product/product-list-scope.util';
 import { guessExternalTrackingUrlFromReference } from '../shipment/shipment-tracking-url.util';
 import { findReturnRequestForLister } from '../order/return-request-leg.util';
 import { markRentalsReturnedForOrder } from '../order/mark-rentals-returned.util';
@@ -5512,7 +5516,7 @@ export class ListersService {
           },
           _count: {
             select: {
-              products: { where: { status: ProductStatus.AVAILABLE } },
+              products: { where: buildPublicActiveListingWhere() },
               curatorReviews: true,
             },
           },
@@ -5571,7 +5575,7 @@ export class ListersService {
         },
         _count: {
           select: {
-            products: { where: { status: ProductStatus.AVAILABLE } },
+            products: { where: buildPublicActiveListingWhere() },
             curatorReviews: true,
           },
         },
@@ -5587,12 +5591,7 @@ export class ListersService {
 
     // Get featured products (e.g. recent 5 available)
     const featuredProducts = await this.prisma.product.findMany({
-      where: {
-        curatorId: lister.id,
-        status: ProductStatus.AVAILABLE,
-        isActive: true,
-        productVerified: true,
-      },
+      where: buildPublicActiveListingWhere({ curatorId: lister.id }),
       take: 4,
       orderBy: { createdAt: 'desc' },
       select: {
@@ -5673,11 +5672,7 @@ export class ListersService {
     const limit = Number(query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const where: any = {
-      curatorId: userId,
-      status: ProductStatus.APPROVED,
-      isActive: true,
-    };
+    const where: any = buildPublicActiveListingWhere({ curatorId: userId });
 
     if (query.category) {
       where.category = {
@@ -5732,7 +5727,8 @@ export class ListersService {
           image: p.attachments?.uploads?.[0]?.url || null,
           rating: Math.round((ratingAgg._avg.rating || 0) * 10) / 10,
           reviews: p._count.reviews,
-          isInStock: p.status === ProductStatus.AVAILABLE,
+          isInStock: ADMIN_ACTIVE_LISTING_STATUSES.includes(p.status),
+          status: p.status,
           originalValue: p.originalValue,
         };
       }),

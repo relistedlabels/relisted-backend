@@ -9,6 +9,7 @@ import { CreateClosetDto } from './dto/create-closet.dto';
 import { UpdateClosetDto } from './dto/update-closet.dto';
 import { slugFromName, normalizeClosetSlug } from './closet-slug.util';
 import { Prisma, ProductStatus } from '@prisma/client';
+import { LIVE_SHOP_STATUSES } from '../product/product-list-scope.util';
 
 @Injectable()
 export class ClosetService {
@@ -23,13 +24,7 @@ export class ClosetService {
       OR: [
         {
           isActive: true,
-          status: {
-            in: [
-              ProductStatus.AVAILABLE,
-              ProductStatus.APPROVED,
-              ProductStatus.RENTED,
-            ],
-          },
+          status: { in: LIVE_SHOP_STATUSES },
         },
         { status: ProductStatus.SOLD },
       ],
