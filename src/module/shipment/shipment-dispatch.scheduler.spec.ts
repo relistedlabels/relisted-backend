@@ -258,13 +258,12 @@ describe('ShipmentDispatchScheduler.sendRenterReturnDueReminders', () => {
     jest.useRealTimers();
   });
 
-  it('sends a 24-hour return pickup reminder and stamps return request', async () => {
+  it('does not send a 24-hour return pickup reminder', async () => {
     const now = new Date('2026-05-10T07:00:00+01:00');
     jest.setSystemTime(now);
 
     const pickupStart = new Date('2026-05-11T06:00:00+01:00');
     const pickupEnd = new Date('2026-05-11T08:00:00+01:00');
-    const returnRequestUpdate = jest.fn().mockResolvedValue({});
 
     const findMany = jest.fn().mockResolvedValue([
       {
@@ -288,6 +287,7 @@ describe('ShipmentDispatchScheduler.sendRenterReturnDueReminders', () => {
           orderId: 'ORD-RET-1',
           userId: 'user-1',
           user: { email: 'renter@test.com', name: 'Renter' },
+          returnRequests: [],
           orderItems: [
             {
               returnShipmentId: 'ship-ret-1',
@@ -301,20 +301,10 @@ describe('ShipmentDispatchScheduler.sendRenterReturnDueReminders', () => {
       },
     ]);
 
-    const scheduler = buildScheduler({ findMany, returnRequestUpdate });
+    const scheduler = buildScheduler({ findMany });
     await scheduler.sendRenterReturnDueReminders();
 
-    expect(mockNotification.createNotification).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: 'Return pickup due in 24 hours',
-        type: 'RETURN_DUE_REMINDER',
-        metadata: expect.objectContaining({ reminderType: '24_hours' }),
-      }),
-    );
-    expect(returnRequestUpdate).toHaveBeenCalledWith({
-      where: { id: 'rr-1' },
-      data: { reminder24hSentAt: now },
-    });
+    expect(mockNotification.createNotification).not.toHaveBeenCalled();
   });
 
   it('sends a morning-of return pickup reminder when return request is only linked on the order', async () => {
@@ -476,7 +466,7 @@ describe('ShipmentDispatchScheduler.sendReturnRequestCompletionReminders', () =>
   });
 
   it('notifies admins when return window is past due and renter has no return request', async () => {
-    const now = new Date('2026-06-10T14:30:00+01:00');
+    const now = new Date('2026-06-11T08:30:00+01:00');
     jest.setSystemTime(now);
 
     const windowStart = new Date('2026-06-10T07:00:00+01:00');
@@ -489,11 +479,7 @@ describe('ShipmentDispatchScheduler.sendReturnRequestCompletionReminders', () =>
         listerId: 'lister-1',
         scheduledWindowStart: windowStart,
         scheduledWindowEnd: windowEnd,
-        returnRequestReminderState: {
-          sent: {
-            past_due_morning: new Date('2026-06-10T07:00:00+01:00').toISOString(),
-          },
-        },
+        returnRequestReminderState: null,
         adminReturnRequestPastDueLastNotifiedAt: null,
         order: {
           id: 'order-uuid-1',

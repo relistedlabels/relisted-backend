@@ -73,22 +73,7 @@ describe('computeReturnRequestReminderActions', () => {
     expect(actions.map((a) => a.type)).toContain('morning_of');
   });
 
-  it('skips hourly when morning was less than 1h before window start', () => {
-    const start = lagosLocal(2026, 6, 10, 9, 30);
-    const morningSent = lagosLocal(2026, 6, 10, 8);
-    const now = lagosLocal(2026, 6, 10, 8, 30);
-    const actions = computeReturnRequestReminderActions(
-      now,
-      withSent({ morning_of: morningSent.toISOString() }, {
-        scheduledWindowStart: start,
-        scheduledWindowEnd: lagosLocal(2026, 6, 10, 12),
-      }),
-      config,
-    );
-    expect(actions.map((a) => a.type)).not.toContain('hourly');
-  });
-
-  it('fires hourly when morning was more than 1h before window start', () => {
+  it('does not fire hourly reminders', () => {
     const start = lagosLocal(2026, 6, 10, 14);
     const morningSent = lagosLocal(2026, 6, 10, 8);
     const now = lagosLocal(2026, 6, 10, 10);
@@ -100,12 +85,12 @@ describe('computeReturnRequestReminderActions', () => {
       }),
       config,
     );
-    expect(actions.some((a) => a.type === 'hourly')).toBe(true);
+    expect(actions.map((a) => a.type)).not.toContain('hourly');
   });
 
-  it('fires 30_minutes within tolerance', () => {
+  it('fires 15_minutes within tolerance', () => {
     const start = lagosLocal(2026, 6, 10, 14);
-    const now = new Date(start.getTime() - 32 * 60 * 1000);
+    const now = new Date(start.getTime() - 16 * 60 * 1000);
     const actions = computeReturnRequestReminderActions(
       now,
       baseLeg({
@@ -114,7 +99,9 @@ describe('computeReturnRequestReminderActions', () => {
       }),
       config,
     );
-    expect(actions.map((a) => a.type)).toContain('30_minutes');
+    expect(actions.map((a) => a.type)).toContain('15_minutes');
+    expect(actions.map((a) => a.type)).not.toContain('30_minutes');
+    expect(actions.map((a) => a.type)).not.toContain('5_minutes');
   });
 
   it('fires past_due_morning after window end on a new day', () => {
@@ -133,7 +120,7 @@ describe('computeReturnRequestReminderActions', () => {
     ]);
   });
 
-  it('fires past_due_afternoon same day when morning already sent', () => {
+  it('does not fire afternoon or evening past-due reminders', () => {
     const end = lagosLocal(2026, 6, 10, 12);
     const now = lagosLocal(2026, 6, 10, 14);
     const actions = computeReturnRequestReminderActions(
@@ -147,27 +134,7 @@ describe('computeReturnRequestReminderActions', () => {
       ),
       config,
     );
-    expect(actions.map((a) => a.type)).toContain('past_due_afternoon');
-  });
-
-  it('fires past_due_evening when afternoon already sent today', () => {
-    const end = lagosLocal(2026, 6, 10, 12);
-    const now = lagosLocal(2026, 6, 10, 20);
-    const actions = computeReturnRequestReminderActions(
-      now,
-      withSent(
-        {
-          past_due_morning: lagosLocal(2026, 6, 10, 8).toISOString(),
-          past_due_afternoon: lagosLocal(2026, 6, 10, 14).toISOString(),
-        },
-        {
-          scheduledWindowStart: lagosLocal(2026, 6, 10, 8),
-          scheduledWindowEnd: end,
-        },
-      ),
-      config,
-    );
-    expect(actions.map((a) => a.type)).toContain('past_due_evening');
+    expect(actions).toEqual([]);
   });
 });
 
