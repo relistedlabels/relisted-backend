@@ -8,6 +8,7 @@ import http from 'http';
 import https from 'https';
 import { addDays } from 'date-fns';
 import { shipbubbleApiConfigured } from 'src/constants/shipping-fulfillment-providers';
+import { getLagosCalendarDateKey } from 'src/utils/dispatch-windows';
 import { ShipbubbleAddressCacheService } from './shipbubble-address-cache.service';
 import {
   isShipbubbleSandboxApiKey,
@@ -142,12 +143,48 @@ export function isShipbubblePricingTier(tier: string | null | undefined): boolea
   return t === 'shipbubble' || t.startsWith('shipbubble:');
 }
 
-export function shipbubblePricingTierSlug(serviceCode: string): string {
-  const code = String(serviceCode ?? '')
+function normalizeShipbubbleTierSegment(value: string): string {
+  return String(value ?? '')
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9_-]+/g, '_');
+}
+
+/** Unique checkout/admin tier slug; includes courier id when multiple options share a service_code. */
+export function shipbubblePricingTierSlug(
+  serviceCode: string,
+  courierId?: string,
+): string {
+  const code = normalizeShipbubbleTierSegment(serviceCode);
+  const id = normalizeShipbubbleTierSegment(courierId ?? '');
+  if (code && id) return `shipbubble:${code}:${id}`;
   return `shipbubble:${code || 'courier'}`;
+}
+
+/** Parse tier slug back to Shipbubble service_code (courier id lives on shipment.pickupPartner). */
+export function parseShipbubblePricingTier(tier: string): {
+  serviceCode: string;
+} {
+  const raw = String(tier ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/^shipbubble:/, '');
+  const serviceCode = raw.split(':')[0]?.trim() || 'courier';
+  return { serviceCode };
+}
+
+/** Return legs on a future calendar day may include multi-day couriers; today/immediate stay same-day. */
+export function resolveShipbubbleSameDayOnly(input: {
+  shipmentType: 'OUTBOUND' | 'RETURN' | 'RESALE';
+  scheduledWindowStart?: Date | null;
+  forImmediate?: boolean;
+}): boolean {
+  if (input.shipmentType !== 'RETURN') return true;
+  if (input.forImmediate) return true;
+  const windowStart = input.scheduledWindowStart ?? new Date();
+  const windowDay = getLagosCalendarDateKey(windowStart);
+  const today = getLagosCalendarDateKey(new Date());
+  return windowDay === today;
 }
 
 export function formatShipbubbleCheckoutTierName(courierName: string): string {
