@@ -36,7 +36,7 @@ describe('AvailabilityRequestReminderScheduler.sendAvailabilityRequestReminders'
     jest.useFakeTimers();
     jest.setSystemTime(now);
 
-    const approvedAt = new Date(now.getTime() - 20 * 60 * 1000);
+    const approvedAt = new Date(now.getTime() - 35 * 60 * 1000);
     const acceptedRequest = {
       id: 'req-accepted',
       productId: 'prod-1',
@@ -74,7 +74,7 @@ describe('AvailabilityRequestReminderScheduler.sendAvailabilityRequestReminders'
         type: 'AVAILABILITY_CHECKOUT_REMINDER',
         emailData: expect.objectContaining({
           cartLink: 'https://app.relisted.test/shop/cart',
-          stage: '15m',
+          stage: '30m',
         }),
       }),
     );

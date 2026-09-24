@@ -61,10 +61,8 @@
         <div class="content">
             <p>Hello {{userName}},</p>
             <p>{{listerName}} already approved your {{#if (eq requestType 'purchase')}}purchase{{else}}rental{{/if}} request for <strong>{{productName}}</strong>.</p>
-            {{#if (eq stage "15m")}}
+            {{#if (eq stage "30m")}}
             <p>Open your cart and check out to lock it in before it slips away.</p>
-            {{else if (eq stage "1h")}}
-            <p>Reminder: your approved request is still waiting in your cart.</p>
             {{else}}
             <p>Last reminder: check out now so you do not lose this item.</p>
             {{/if}}

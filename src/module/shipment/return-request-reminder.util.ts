@@ -46,11 +46,7 @@ const MINUTE_STAGES: Array<{
   type: TimestampStage;
   minutes: number;
   tolerance: number;
-}> = [
-  { type: '30_minutes', minutes: 30, tolerance: 5 },
-  { type: '15_minutes', minutes: 15, tolerance: 3 },
-  { type: '5_minutes', minutes: 5, tolerance: 2 },
-];
+}> = [{ type: '15_minutes', minutes: 15, tolerance: 3 }];
 
 const PAST_DUE_SLOTS: Array<{
   type: TimestampStage;
@@ -58,8 +54,6 @@ const PAST_DUE_SLOTS: Array<{
   incrementDay?: boolean;
 }> = [
   { type: 'past_due_morning', hourKey: 'pastDueMorningHour', incrementDay: true },
-  { type: 'past_due_afternoon', hourKey: 'pastDueAfternoonHour' },
-  { type: 'past_due_evening', hourKey: 'pastDueEveningHour' },
 ];
 
 const lagosDateFmt = new Intl.DateTimeFormat('en-CA', {
@@ -167,22 +161,6 @@ export function computeReturnRequestReminderActions(
       nowHour >= config.preWindowMorningHour
     ) {
       actions.push({ type: 'morning_of' });
-    }
-
-    const morningSent = sentAt(state, 'morning_of');
-    if (morningSent && msToStart > MS_HOUR) {
-      const hourlyStop = windowStart.getTime() - MS_HOUR;
-      if (
-        windowStart.getTime() - morningSent.getTime() > MS_HOUR &&
-        now >= morningSent &&
-        now.getTime() <= hourlyStop &&
-        nowHour > toLagosHour(morningSent)
-      ) {
-        const hourlyKey = `${nowDate}T${String(nowHour).padStart(2, '0')}`;
-        if (!(state.hourly ?? []).includes(hourlyKey)) {
-          actions.push({ type: 'hourly', hourlyKey });
-        }
-      }
     }
 
     for (const stage of MINUTE_STAGES) {

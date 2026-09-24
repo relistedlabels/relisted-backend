@@ -383,7 +383,7 @@ export class ShipmentDispatchScheduler {
 
   /**
    * Nudge renters to complete their return request before the RETURN window opens,
-   * then past-due alerts (8 AM / 2 PM / 8 PM Lagos) if the window passes with no request.
+   * then a once-daily past-due alert (8 AM Lagos) if the window passes with no request.
    */
   @Cron(RETURN_REQUEST_REMINDER_CRON_SCHEDULE, {
     timeZone: 'Africa/Lagos',
@@ -547,7 +547,7 @@ export class ShipmentDispatchScheduler {
 
   /**
    * Renter return due reminders (per RETURN shipment leg):
-   * - 24-hour reminder (day before pickup window)
+   * - Morning-of reminder on pickup day
    * - morning-of reminder (default 8 AM Africa/Lagos)
    *
    * Timing uses return-request pickup window when submitted, else checkout window on the leg.
@@ -636,20 +636,12 @@ export class ShipmentDispatchScheduler {
           : null;
       if (!pickupStart) continue;
 
-      const alreadySent24h =
-        linkedRr?.reminder24hSentAt ?? leg.returnDueReminder24hSentAt;
       const alreadySentMorning =
         linkedRr?.reminderDayOfSentAt ?? leg.returnDueReminderMorningSentAt;
 
       const pickupLagosDate = this.toLagosDateKey(pickupStart);
-      const msUntilPickup = pickupStart.getTime() - now.getTime();
       const msSincePickup = now.getTime() - pickupStart.getTime();
       const isPickupTodayInLagos = pickupLagosDate === nowLagosDate;
-      const shouldSend24h =
-        !alreadySent24h &&
-        msUntilPickup > 0 &&
-        msUntilPickup <= 24 * 60 * 60 * 1000 &&
-        !isPickupTodayInLagos;
       const isWithinMorningCatchup =
         RETURN_DUE_REMINDER_MORNING_CATCHUP_HOURS > 0 &&
         msSincePickup >= 0 &&
@@ -661,7 +653,7 @@ export class ShipmentDispatchScheduler {
           nowLagosHour >= RETURN_DUE_REMINDER_MORNING_HOUR) ||
           isWithinMorningCatchup);
 
-      if (!shouldSend24h && !shouldSendMorningOf) continue;
+      if (!shouldSendMorningOf) continue;
 
       const orderLink = `${clientUrl}/renters/orders/${order.orderId}`;
       const productName = productNamesForReturnLeg(
@@ -673,43 +665,6 @@ export class ShipmentDispatchScheduler {
         pickupStart,
         pickupEnd,
       );
-
-      if (shouldSend24h) {
-        await this.notification.createNotification({
-          userId: order.userId,
-          title: 'Return pickup due in 24 hours',
-          message: `Your return pickup for order ${order.orderId} (${productName}) is within the next 24 hours. Please have your item ready.`,
-          type: 'RETURN_DUE_REMINDER',
-          metadata: {
-            orderId: order.id,
-            orderNumber: order.orderId,
-            shipmentId: leg.id,
-            reminderType: '24_hours',
-          },
-          sendEmail: true,
-          emailData: {
-            email: order.user.email.trim(),
-            userName: order.user.name || 'there',
-            orderId: order.orderId,
-            orderLink,
-            dueDate: pickupWindowLabel,
-            productName,
-            reminderType: '24_hours',
-          },
-        });
-
-        if (linkedRr) {
-          await this.prisma.returnRequest.update({
-            where: { id: linkedRr.id },
-            data: { reminder24hSentAt: now },
-          });
-        } else {
-          await this.prisma.shipment.update({
-            where: { id: leg.id },
-            data: { returnDueReminder24hSentAt: now },
-          });
-        }
-      }
 
       if (shouldSendMorningOf) {
         await this.notification.createNotification({
@@ -751,8 +706,7 @@ export class ShipmentDispatchScheduler {
   }
 
   /**
-   * Admin reminders for pending manual Relisted dispatch legs (mirrors renter return timing):
-   * - “within 24 hours” when the due start is in the next 24h but not the same Lagos calendar day
+   * Admin reminders for pending manual Relisted dispatch legs (morning-of only):
    * - “due today” at {@link RETURN_DUE_REMINDER_MORNING_HOUR} Lagos (same env as renter return reminders)
    */
   @Cron(MANUAL_FULFILLMENT_DUE_REMINDER_CRON_SCHEDULE, {
@@ -796,7 +750,6 @@ export class ShipmentDispatchScheduler {
     const nowLagosHour = this.toLagosHour(now);
     const maxAheadMs = 49 * 60 * 60 * 1000;
 
-    let sent24 = 0;
     let sentMorning = 0;
 
     for (const s of shipments) {
@@ -813,12 +766,6 @@ export class ShipmentDispatchScheduler {
       const dueLagosDate = this.toLagosDateKey(dueStart);
       const isDueTodayInLagos = dueLagosDate === nowLagosDate;
 
-      const shouldSend24h =
-        !s.manualDueReminder24hSentAt &&
-        msUntilDue > 0 &&
-        msUntilDue <= 24 * 60 * 60 * 1000 &&
-        !isDueTodayInLagos;
-
       const msSinceDueStart = now.getTime() - dueStart.getTime();
       const isWithinMorningCatchup =
         RETURN_DUE_REMINDER_MORNING_CATCHUP_HOURS > 0 &&
@@ -832,7 +779,7 @@ export class ShipmentDispatchScheduler {
           nowLagosHour >= RETURN_DUE_REMINDER_MORNING_HOUR) ||
           isWithinMorningCatchup);
 
-      if (!shouldSend24h && !shouldSendMorningOf) continue;
+      if (!shouldSendMorningOf) continue;
 
       const humanOrderId = s.order.orderId;
       const dueSummary = this.formatLagosPickupWindow(dueStart, pickupEnd);
@@ -876,19 +823,6 @@ export class ShipmentDispatchScheduler {
         }
       };
 
-      if (shouldSend24h) {
-        await pingAdmins(
-          '24_hours',
-          'Manual dispatch due within 24 hours',
-          `Order ${humanOrderId}: ${legLabel}. Scheduled: ${dueSummary}. Mark dispatched in admin when booking is done.`,
-        );
-        await this.prisma.shipment.update({
-          where: { id: s.id },
-          data: { manualDueReminder24hSentAt: now },
-        });
-        sent24 += 1;
-      }
-
       if (shouldSendMorningOf) {
         await pingAdmins(
           'morning_of',
@@ -903,9 +837,9 @@ export class ShipmentDispatchScheduler {
       }
     }
 
-    if (sent24 > 0 || sentMorning > 0) {
+    if (sentMorning > 0) {
       this.logger.log(
-        `[ManualDueReminder] Sent ${sent24} x 24h + ${sentMorning} morning admin reminder(s).`,
+        `[ManualDueReminder] Sent ${sentMorning} morning admin reminder(s).`,
       );
     }
   }
