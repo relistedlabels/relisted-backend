@@ -1848,14 +1848,37 @@ export class AdminService {
         skip,
         take: limit,
         orderBy: { updatedAt: 'desc' },
-        include: { user: { select: { name: true, email: true } } },
+        include: {
+          user: {
+            select: {
+              name: true,
+              email: true,
+              role: true,
+              profile: {
+                select: {
+                  avatarUpload: { select: { url: true } },
+                },
+              },
+            },
+          },
+        },
       }),
     ]);
+
+    const mappedWallets = wallets.map((wallet) => ({
+      ...wallet,
+      user: {
+        name: wallet.user.name,
+        email: wallet.user.email,
+        role: wallet.user.role,
+        avatar: wallet.user.profile?.avatarUpload?.url ?? null,
+      },
+    }));
 
     return {
       success: true,
       data: {
-        wallets,
+        wallets: mappedWallets,
         pagination: this.buildListPagination(total, page, limit),
       },
     };

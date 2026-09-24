@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 
@@ -163,6 +163,92 @@ export class NotificationService {
     } catch (error) {
       console.error(`Failed to send email for ${type}:`, error);
     }
+  }
+
+  resolveNotificationDays(days?: string): number {
+    const parsed = days ? parseInt(days, 10) : 30;
+    if (!Number.isFinite(parsed) || parsed <= 0) return 30;
+    return Math.min(parsed, 365);
+  }
+
+  private notificationCreatedSince(days: number): Date {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    return since;
+  }
+
+  async getUnreadCountForUser(userId: string, days: number): Promise<number> {
+    return this.prisma.notification.count({
+      where: {
+        userId,
+        isRead: false,
+        createdAt: { gte: this.notificationCreatedSince(days) },
+      },
+    });
+  }
+
+  async getUserNotificationsPage(
+    userId: string,
+    options: { page: number; limit: number; days: number },
+  ) {
+    const { page, limit, days } = options;
+    const skip = (page - 1) * limit;
+    const createdAt = { gte: this.notificationCreatedSince(days) };
+
+    const [items, total, unreadCount] = await this.prisma.$transaction([
+      this.prisma.notification.findMany({
+        where: { userId, createdAt },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.notification.count({ where: { userId, createdAt } }),
+      this.prisma.notification.count({
+        where: { userId, isRead: false, createdAt },
+      }),
+    ]);
+
+    return {
+      items,
+      total,
+      unreadCount,
+      page,
+      limit,
+      days,
+      hasMore: skip + items.length < total,
+    };
+  }
+
+  async markAllAsReadForUser(userId: string, days: number): Promise<number> {
+    const result = await this.prisma.notification.updateMany({
+      where: {
+        userId,
+        isRead: false,
+        createdAt: { gte: this.notificationCreatedSince(days) },
+      },
+      data: { isRead: true },
+    });
+
+    return result.count;
+  }
+
+  async markAsReadForUser(userId: string, notificationId: string) {
+    const notification = await this.prisma.notification.findFirst({
+      where: { id: notificationId, userId },
+    });
+
+    if (!notification) {
+      throw new NotFoundException('Notification not found');
+    }
+
+    if (notification.isRead) {
+      return notification;
+    }
+
+    return this.prisma.notification.update({
+      where: { id: notificationId },
+      data: { isRead: true },
+    });
   }
 
   async markAsRead(notificationId: string) {

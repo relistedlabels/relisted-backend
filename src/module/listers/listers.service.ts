@@ -5382,14 +5382,17 @@ export class ListersService {
           itemCount: lister._count.products,
           joined: lister.createdAt,
           isVerified: lister.isVerified,
-          verificationDate: lister.updatedAt, // Approximate
+          verificationDate: null,
           featured: false,
-          shopPolicies: {
-            returnPolicy: 'Full refund within 30 days of rental', // placeholder
-            deliveryTime: '2-3 business days',
-            cancellationPolicy:
-              'Free cancellation up to 48 hours before rental',
-          },
+          website: lister.profile?.businessInfo?.website || null,
+          businessCategory:
+            lister.profile?.businessInfo?.businessCategory || null,
+          location:
+            lister.profile?.businessInfo?.businessCity &&
+            lister.profile?.businessInfo?.businessState
+              ? `${lister.profile.businessInfo.businessCity}, ${lister.profile.businessInfo.businessState}`
+              : null,
+          shopPolicies: null,
           featuredProducts: featuredProducts.map((p) => ({
             id: p.id,
             name: p.name,
@@ -5469,6 +5472,10 @@ export class ListersService {
           brand: p.brand?.name || null,
           category: p.category?.name || null,
           dailyPrice: p.dailyPrice,
+          resalePrice: p.resalePrice,
+          listingType: p.listingType,
+          measurement: p.measurement,
+          status: p.status,
           image: p.attachments?.uploads?.[0]?.url || null,
           rating: Math.round((ratingAgg._avg.rating || 0) * 10) / 10,
           reviews: p._count.reviews,
