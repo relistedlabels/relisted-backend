@@ -77,15 +77,12 @@ import {
   DispatchWindowRangeMap,
   DispatchWindowType,
   DispatchWindowsInput,
-  applyRangeMapToData,
-  availabilityRequestWindowFieldMap,
   buildDefaultDispatchWindow,
   getLagosCalendarDateKey,
   isWindowExpired,
   mergeDispatchWindowRanges,
   parseDispatchWindowFromInput,
 } from 'src/utils/dispatch-windows';
-import { refreshAvailabilityDispatchForCheckout } from 'src/utils/availability-request-expiry.util';
 import {
   isRelistedDispatchShippingTier,
   RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO,
@@ -207,7 +204,6 @@ export class OrderService {
         cartItemId: true,
         startDate: true,
         endDate: true,
-        totalPrice: true,
         outboundWindowStart: true,
         outboundWindowEnd: true,
         returnWindowStart: true,
@@ -223,79 +219,22 @@ export class OrderService {
     for (const item of items) {
       const request = acceptedMap.get(item.id);
       if (!request) continue;
-      const resolved = await this.resolveCheckoutDispatchWindows(
+      const dispatchWindows = this.buildDispatchWindowRangeMap(request);
+      await this.ensureAvailabilityRequestWindowActive(
         item,
         request,
+        dispatchWindows,
         now,
       );
       enriched.push({
         ...item,
-        startDate: resolved.startDate,
-        endDate: resolved.endDate,
-        dispatchWindows: resolved.dispatchWindows,
-        dispatchRescheduled: resolved.dispatchRescheduled,
+        startDate: request.startDate,
+        endDate: request.endDate,
+        dispatchWindows,
       });
     }
 
     return enriched;
-  }
-
-  private async resolveCheckoutDispatchWindows(
-    item: any,
-    request: any,
-    now: Date,
-  ): Promise<{
-    dispatchWindows: DispatchWindowRangeMap;
-    dispatchRescheduled: boolean;
-    startDate: Date | null;
-    endDate: Date | null;
-  }> {
-    const dailyPrice = Number(item.product?.dailyPrice ?? 0);
-    const refresh = refreshAvailabilityDispatchForCheckout(
-      {
-        ...request,
-        rentalDays: item.days,
-        status: 'ACCEPTED',
-        expiresAt: request.expiresAt ?? now,
-      },
-      dailyPrice,
-      now,
-    );
-
-    if (refresh.rescheduled) {
-      await this.prisma.availabilityRequest.update({
-        where: { id: request.id },
-        data: {
-          ...applyRangeMapToData(
-            refresh.map,
-            availabilityRequestWindowFieldMap,
-          ),
-          startDate: refresh.startDate,
-          endDate: refresh.endDate,
-          totalPrice: refresh.totalPrice,
-        },
-      });
-      return {
-        dispatchWindows: refresh.map,
-        dispatchRescheduled: true,
-        startDate: refresh.startDate,
-        endDate: refresh.endDate,
-      };
-    }
-
-    const dispatchWindows = this.buildDispatchWindowRangeMap(request);
-    await this.ensureAvailabilityRequestWindowActive(
-      item,
-      request,
-      dispatchWindows,
-      now,
-    );
-    return {
-      dispatchWindows,
-      dispatchRescheduled: false,
-      startDate: request.startDate,
-      endDate: request.endDate,
-    };
   }
 
   private buildDispatchWindowRangeMap(request: any): DispatchWindowRangeMap {
