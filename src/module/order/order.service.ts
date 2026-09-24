@@ -73,19 +73,22 @@ import {
   ReturnPickupAddressDto,
 } from './dto/create-order.dto';
 import {
+  applyRangeMapToData,
+  availabilityRequestWindowFieldMap,
   DispatchWindowRange,
   DispatchWindowRangeMap,
   DispatchWindowType,
   DispatchWindowsInput,
-  applyRangeMapToData,
-  availabilityRequestWindowFieldMap,
   buildDefaultDispatchWindow,
   getLagosCalendarDateKey,
   isWindowExpired,
   mergeDispatchWindowRanges,
   parseDispatchWindowFromInput,
 } from 'src/utils/dispatch-windows';
-import { refreshAvailabilityDispatchForCheckout } from 'src/utils/availability-request-expiry.util';
+import {
+  refreshAvailabilityDispatchForCheckout,
+} from 'src/utils/availability-request-expiry.util';
+import { fulfillAvailabilityRequestsForCheckout } from '../cart-items/fulfill-availability-for-checkout';
 import {
   isRelistedDispatchShippingTier,
   RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO,
@@ -95,6 +98,7 @@ import { fetchAdminAlertRecipients } from 'src/module/shipment/shipment-admin-al
 import { buildAdminShipmentsPageUrl } from 'src/module/shipment/build-admin-shipments-page-url';
 import { shipmentLegLabel } from 'src/module/shipment/shipment-leg-label.util';
 import { MailService } from 'src/services/mail/mail.service';
+import { notifyAdminsNewOrder } from './notify-admins-new-order.util';
 import {
   PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
   firstProductAttachmentImageUrlFromUploads,
@@ -205,9 +209,11 @@ export class OrderService {
       select: {
         id: true,
         cartItemId: true,
+        rentalDays: true,
+        totalPrice: true,
         startDate: true,
         endDate: true,
-        totalPrice: true,
+        createdAt: true,
         outboundWindowStart: true,
         outboundWindowEnd: true,
         returnWindowStart: true,
@@ -223,79 +229,53 @@ export class OrderService {
     for (const item of items) {
       const request = acceptedMap.get(item.id);
       if (!request) continue;
-      const resolved = await this.resolveCheckoutDispatchWindows(
-        item,
-        request,
+
+      const listingType = item.product?.listingType;
+      const isResaleItem =
+        item.days === 0 &&
+        (listingType === 'RESALE' || listingType === 'RENT_OR_RESALE');
+      const unitPrice = isResaleItem
+        ? Number(item.product?.resalePrice ?? request.totalPrice ?? 0)
+        : Number(item.product?.dailyPrice ?? 0);
+
+      const refresh = refreshAvailabilityDispatchForCheckout(
+        {
+          ...(request as any),
+          rentalDays: request.rentalDays ?? item.days ?? 0,
+        },
+        unitPrice,
         now,
       );
+
+      let activeRequest = request;
+      if (refresh.rescheduled) {
+        const windowData = applyRangeMapToData(
+          refresh.map,
+          availabilityRequestWindowFieldMap,
+        );
+        activeRequest = await this.prisma.availabilityRequest.update({
+          where: { id: request.id },
+          data: {
+            startDate: refresh.startDate,
+            endDate: refresh.endDate,
+            totalPrice: refresh.totalPrice,
+            ...windowData,
+          },
+        });
+      }
+
       enriched.push({
         ...item,
-        startDate: resolved.startDate,
-        endDate: resolved.endDate,
-        dispatchWindows: resolved.dispatchWindows,
-        dispatchRescheduled: resolved.dispatchRescheduled,
+        startDate: activeRequest.startDate,
+        endDate: activeRequest.endDate,
+        totalPrice: activeRequest.totalPrice,
+        dispatchWindows: refresh.map,
+        dispatchRescheduled: refresh.rescheduled,
+        dispatchRescheduleSummary: refresh.rescheduledOutboundSummary,
       });
     }
 
     return enriched;
-  }
-
-  private async resolveCheckoutDispatchWindows(
-    item: any,
-    request: any,
-    now: Date,
-  ): Promise<{
-    dispatchWindows: DispatchWindowRangeMap;
-    dispatchRescheduled: boolean;
-    startDate: Date | null;
-    endDate: Date | null;
-  }> {
-    const dailyPrice = Number(item.product?.dailyPrice ?? 0);
-    const refresh = refreshAvailabilityDispatchForCheckout(
-      {
-        ...request,
-        rentalDays: item.days,
-        status: 'ACCEPTED',
-        expiresAt: request.expiresAt ?? now,
-      },
-      dailyPrice,
-      now,
-    );
-
-    if (refresh.rescheduled) {
-      await this.prisma.availabilityRequest.update({
-        where: { id: request.id },
-        data: {
-          ...applyRangeMapToData(
-            refresh.map,
-            availabilityRequestWindowFieldMap,
-          ),
-          startDate: refresh.startDate,
-          endDate: refresh.endDate,
-          totalPrice: refresh.totalPrice,
-        },
-      });
-      return {
-        dispatchWindows: refresh.map,
-        dispatchRescheduled: true,
-        startDate: refresh.startDate,
-        endDate: refresh.endDate,
-      };
-    }
-
-    const dispatchWindows = this.buildDispatchWindowRangeMap(request);
-    await this.ensureAvailabilityRequestWindowActive(
-      item,
-      request,
-      dispatchWindows,
-      now,
-    );
-    return {
-      dispatchWindows,
-      dispatchRescheduled: false,
-      startDate: request.startDate,
-      endDate: request.endDate,
-    };
   }
 
   private buildDispatchWindowRangeMap(request: any): DispatchWindowRangeMap {
@@ -318,44 +298,6 @@ export class OrderService {
     assign('RESALE', request.resaleWindowStart, request.resaleWindowEnd);
 
     return map;
-  }
-
-  private async ensureAvailabilityRequestWindowActive(
-    item: any,
-    request: any,
-    dispatchWindows: DispatchWindowRangeMap,
-    now: Date,
-  ) {
-    const listingType = item.product?.listingType;
-    const isRentalItem =
-      item.days > 0 &&
-      (listingType === 'RENTAL' || listingType === 'RENT_OR_RESALE');
-    const isResaleItem =
-      item.days === 0 &&
-      (listingType === 'RESALE' || listingType === 'RENT_OR_RESALE');
-
-    const required: DispatchWindowType[] = [];
-    if (isRentalItem) {
-      required.push('OUTBOUND', 'RETURN');
-    }
-    if (isResaleItem) {
-      required.push('RESALE');
-    }
-
-    for (const type of required) {
-      const window = dispatchWindows[type];
-      if (!window || isWindowExpired(window, now)) {
-        await this.prisma.availabilityRequest.update({
-          where: { id: request.id },
-          data: { status: 'EXPIRED' },
-        });
-        bad(
-          `The approved ${type.toLowerCase()} dispatch window for ${
-            item.product?.name || 'this item'
-          } has expired. Please submit a new availability request.`,
-        );
-      }
-    }
   }
 
   private resolveDispatchWindow(
@@ -2049,10 +1991,20 @@ export class OrderService {
     const baselineGrandTotal =
       itemTotalsBase + baselineShippingTotal + globalServiceChargeTotal + globalVatTotal;
 
+    const dispatchReschedules = eligibleItems
+      .filter((item) => item.dispatchRescheduled)
+      .map((item) => ({
+        cartItemId: item.id,
+        productName: item.product?.name,
+        outboundSummary: item.dispatchRescheduleSummary,
+        priceUnchanged: true,
+      }));
+
     return {
       success: true,
       message: 'Checkout summary calculated successfully',
       data: {
+        dispatchReschedules,
         summary: {
           rentalTotal: globalRentalTotal,
           collateralTotal: globalCollateralTotal,
@@ -3172,6 +3124,12 @@ export class OrderService {
             });
           }
         }
+
+        await fulfillAvailabilityRequestsForCheckout(tx, {
+          requesterId: user.id,
+          cartItemIds: eligibleItems.map((item: any) => item.id),
+          productIds: eligibleItems.map((item: any) => item.product.id),
+        });
       });
 
     for (const row of shipmentDispatchPlan) {
@@ -3317,6 +3275,25 @@ export class OrderService {
           },
         });
       }
+
+      const listerNames = [...notifyMergedByLister.values()]
+        .map((row) => row.items[0]?.product?.curator?.name?.trim())
+        .filter((name): name is string => !!name);
+
+      await notifyAdminsNewOrder(
+        this.prisma,
+        this.notificationService,
+        this.mailService,
+        {
+          orderId: order.id,
+          humanOrderId: order.orderId,
+          renterName: user.name || 'Customer',
+          renterEmail: user.email?.trim() || 'unknown',
+          listerNames,
+          itemCount: eligibleItems.length,
+          totalAmount: grandTotal,
+        },
+      );
     } catch (notifyErr) {
       console.error('[Checkout] Error sending checkout notifications:', notifyErr);
     }
