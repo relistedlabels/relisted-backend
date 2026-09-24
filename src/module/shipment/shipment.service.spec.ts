@@ -177,7 +177,42 @@ describe('ShipmentService.dispatchNow', () => {
     );
   });
 
-  it('blocks return legs without a return request', async () => {
+  it('saves return carrier booking without enqueuing when return request is missing', async () => {
+    const futureStart = new Date(Date.now() + 86400000);
+    const { service, prisma } = buildService({
+      shipment: {
+        id: 's1',
+        status: 'PENDING',
+        manualFulfillment: true,
+        type: 'RETURN',
+        orderId: 'o1',
+        pricingTier: RELISTED_DISPATCH_SHIPPING_LABEL,
+        scheduledWindowStart: futureStart,
+        scheduledWindowEnd: new Date(futureStart.getTime() + 3_600_000),
+        scheduledDate: new Date(),
+      },
+      returnRequest: false,
+    });
+
+    const result = await service.dispatchNow('s1', {
+      pricingTier: 'chowdeck',
+      updateWindow: false,
+    });
+
+    expect(result.message).toContain('renter submits their return request');
+    expect(prisma.shipment.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 's1' },
+        data: expect.objectContaining({
+          manualFulfillment: false,
+          pricingTier: 'chowdeck',
+        }),
+      }),
+    );
+    expect(mockQueue.add).not.toHaveBeenCalled();
+  });
+
+  it('does not enqueue due return legs until the renter submits a return request', async () => {
     const { service } = buildService({
       shipment: {
         id: 's1',
@@ -186,15 +221,17 @@ describe('ShipmentService.dispatchNow', () => {
         type: 'RETURN',
         orderId: 'o1',
         pricingTier: 'chowdeck',
-        scheduledWindowStart: new Date(Date.now() + 86400000),
+        scheduledWindowStart: new Date(Date.now() - 3_600_000),
+        scheduledWindowEnd: new Date(Date.now() + 3_600_000),
         scheduledDate: new Date(),
       },
       returnRequest: false,
     });
 
-    await expect(
-      service.dispatchNow('s1', { pricingTier: 'chowdeck' }),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    const result = await service.dispatchNow('s1', {});
+
+    expect(result.message).toContain('renter submits their return request');
+    expect(mockQueue.add).not.toHaveBeenCalled();
   });
 
   it('throws NotFoundException for unknown shipment', async () => {
