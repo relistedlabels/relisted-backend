@@ -39,6 +39,10 @@ import {
 } from './product-list-filters.util';
 import { buildProductKeywordSearchWhere } from './product-keyword-search.util';
 import {
+  buildSimilarProductCandidateWhere,
+  rankProductsBySimilarity,
+} from './product-similarity.util';
+import {
   buildAdminPickerScopeWhere,
   buildProductListScopeWhere,
   collectProductFilterOptions,
@@ -961,6 +965,122 @@ export class ProductService {
       }
 
       throw new InternalServerErrorException('Failed to retrieve product');
+    }
+  }
+
+  async getSimilarProducts(id: string, limit = 20) {
+    try {
+      const parsedLimit = Math.min(Math.max(Number(limit) || 20, 1), 40);
+      const source = await this.prisma.product.findUnique({
+        where: { id },
+        include: {
+          tags: { select: { id: true, name: true } },
+        },
+      });
+
+      if (!source) {
+        throw new NotFoundException(`Product with ID ${id} not found`);
+      }
+
+      const scopeWhere = await buildProductListScopeWhere(this.prisma, {
+        closetId: source.closetId ?? undefined,
+        onlyWithCloset: Boolean(source.closetId),
+        excludeStagingCurator: true,
+      });
+
+      const stagingCuratorId =
+        process.env.STAGING_INTERNAL_CURATOR_ID ??
+        '7d172d18-daad-46cd-ab6d-8d8af28c0b16';
+
+      const baseWhere: any = {
+        AND: [
+          scopeWhere,
+          { id: { not: source.id } },
+          { NOT: { curatorId: stagingCuratorId } },
+        ],
+      };
+
+      const candidateSignals = buildSimilarProductCandidateWhere(source);
+      const candidatePoolSize = Math.max(parsedLimit * 8, 80);
+
+      const productInclude = {
+        brand: {
+          select: { id: true, name: true },
+        },
+        category: {
+          select: { id: true, name: true },
+        },
+        tags: {
+          select: { id: true, name: true },
+        },
+        attachments: {
+          include: {
+            uploads: {
+              orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+              select: { id: true, url: true, displayOrder: true },
+            },
+          },
+        },
+        closet: {
+          select: { id: true, name: true, slug: true, imageUrl: true },
+        },
+      };
+
+      let candidates = await this.prisma.product.findMany({
+        where:
+          candidateSignals.length > 0
+            ? {
+                AND: [...baseWhere.AND, { OR: candidateSignals }],
+              }
+            : baseWhere,
+        take: candidatePoolSize,
+        orderBy: { createdAt: 'desc' },
+        include: productInclude,
+      });
+
+      if (candidates.length < parsedLimit) {
+        const existingIds = new Set([
+          source.id,
+          ...candidates.map((product) => product.id),
+        ]);
+        const fallbackCandidates = await this.prisma.product.findMany({
+          where: baseWhere,
+          take: candidatePoolSize,
+          orderBy: { createdAt: 'desc' },
+          include: productInclude,
+        });
+
+        candidates = [
+          ...candidates,
+          ...fallbackCandidates.filter(
+            (product) => !existingIds.has(product.id),
+          ),
+        ];
+      }
+
+      const rankedProducts = rankProductsBySimilarity(
+        source,
+        candidates,
+        parsedLimit,
+      );
+
+      return {
+        success: true,
+        message: 'Similar products retrieved successfully',
+        data: {
+          products: rankedProducts,
+        },
+      };
+    } catch (error) {
+      console.error('Get similar products error:', error);
+
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+
+      throw new InternalServerErrorException(
+        'Failed to retrieve similar products',
+      );
     }
   }
 
