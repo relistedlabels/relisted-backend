@@ -94,23 +94,26 @@ describe('product similarity', () => {
 
   it('gives partial listing type credit for rent-or-resale overlap', () => {
     const source = baseProduct({ listingType: ListingType.RENTAL });
-    const hybrid = baseProduct({
-      id: 'hybrid',
-      listingType: ListingType.RENT_OR_RESALE,
+    const sharedOverrides = {
       categoryId: 'cat-other',
       brandId: 'brand-other',
       color: 'Blue',
       measurement: 'L',
       tags: [],
+      condition: 'Good',
+      material: 'Cotton',
+      curatorId: 'lister-2',
+      dailyPrice: 3000,
+    };
+    const hybrid = baseProduct({
+      id: 'hybrid',
+      listingType: ListingType.RENT_OR_RESALE,
+      ...sharedOverrides,
     });
     const resaleOnly = baseProduct({
       id: 'resale',
       listingType: ListingType.RESALE,
-      categoryId: 'cat-other',
-      brandId: 'brand-other',
-      color: 'Blue',
-      measurement: 'L',
-      tags: [],
+      ...sharedOverrides,
     });
 
     expect(scoreProductSimilarity(source, hybrid)).toBeGreaterThan(

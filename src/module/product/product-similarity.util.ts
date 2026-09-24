@@ -105,13 +105,10 @@ function scoreListingType(
     return SIMILARITY_WEIGHTS.listingType;
   }
 
-  const hybridTypes = new Set<ListingType>([
-    ListingType.RENT_OR_RESALE,
-    source,
-    candidate,
-  ]);
-
-  if (hybridTypes.has(ListingType.RENT_OR_RESALE)) {
+  if (
+    source === ListingType.RENT_OR_RESALE ||
+    candidate === ListingType.RENT_OR_RESALE
+  ) {
     return SIMILARITY_WEIGHTS.listingType * 0.4;
   }
 
