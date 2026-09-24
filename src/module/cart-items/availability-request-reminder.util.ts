@@ -1,8 +1,8 @@
 const MS_MINUTE = 60 * 1000;
 const MS_HOUR = 60 * MS_MINUTE;
 
-export type CheckoutReminderStage = '15m' | '1h' | '2h';
-export type ExpiredListerReminderStage = '1' | '2' | '3';
+export type CheckoutReminderStage = '30m' | '2h';
+export type ExpiredListerReminderStage = '1' | '2';
 
 export type AvailabilityRequestReminderState = {
   checkout?: Partial<Record<CheckoutReminderStage, string>>;
@@ -13,26 +13,24 @@ export type AvailabilityReminderAction =
   | { track: 'checkout'; stage: CheckoutReminderStage }
   | { track: 'expiredLister'; stage: ExpiredListerReminderStage };
 
-/** Renter: approved but not checked out (max 3). */
+/** Renter: approved but not checked out (max 2). */
 export const CHECKOUT_REMINDER_OFFSETS_MS: Record<CheckoutReminderStage, number> =
   {
-    '15m': 15 * MS_MINUTE,
-    '1h': 1 * MS_HOUR,
+    '30m': 30 * MS_MINUTE,
     '2h': 2 * MS_HOUR,
   };
 
-/** Lister: expired with no response (max 3). */
+/** Lister: expired with no response (max 2). */
 export const EXPIRED_LISTER_REMINDER_OFFSETS_MS: Record<
   ExpiredListerReminderStage,
   number
 > = {
-  '1': 30 * MS_MINUTE,
-  '2': 1 * MS_HOUR,
-  '3': 2 * MS_HOUR,
+  '1': 1 * MS_HOUR,
+  '2': 2 * MS_HOUR,
 };
 
-const CHECKOUT_STAGES: CheckoutReminderStage[] = ['15m', '1h', '2h'];
-const EXPIRED_LISTER_STAGES: ExpiredListerReminderStage[] = ['1', '2', '3'];
+const CHECKOUT_STAGES: CheckoutReminderStage[] = ['30m', '2h'];
+const EXPIRED_LISTER_STAGES: ExpiredListerReminderStage[] = ['1', '2'];
 
 function toDate(v: Date | string | null | undefined): Date | null {
   if (!v) return null;
@@ -169,11 +167,9 @@ export function checkoutReminderCopy(params: {
   const requestType = params.requestType;
   const title = checkoutReminderTitle(requestType, 1);
   const message =
-    params.stage === '15m'
+    params.stage === '30m'
       ? `${params.productName} is available. Open your cart and check out to lock it in.`
-      : params.stage === '1h'
-        ? `Reminder: ${params.productName} is still waiting in your cart.`
-        : `Last reminder: check out now so you don’t lose ${params.productName}.`;
+      : `Last reminder: check out now so you don’t lose ${params.productName}.`;
   return { title, message, requestType };
 }
 
@@ -195,11 +191,9 @@ export function checkoutReminderBatchCopy(params: {
   }
 
   const message =
-    params.stage === '15m'
+    params.stage === '30m'
       ? `${count} approved items are waiting in your cart: ${names}. Check out to lock them in.`
-      : params.stage === '1h'
-        ? `Reminder: ${count} items are still waiting in your cart: ${names}.`
-        : `Last reminder: check out for ${count} items before you lose them: ${names}.`;
+      : `Last reminder: check out for ${count} items before you lose them: ${names}.`;
 
   return { title, message, requestType };
 }

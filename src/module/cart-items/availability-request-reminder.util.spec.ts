@@ -11,44 +11,29 @@ import {
 describe('availability-request-reminder.util', () => {
   const base = new Date('2026-07-15T12:00:00.000Z');
 
-  it('computes checkout reminders at 15m, 1h, and 2h without double-sending', () => {
-    const approvedAt = new Date(base.getTime() - 20 * 60 * 1000);
+  it('computes checkout reminders at 30m and 2h without double-sending', () => {
+    const approvedAt = new Date(base.getTime() - 35 * 60 * 1000);
     const first = computeCheckoutReminderActions(base, approvedAt, null);
-    expect(first.map((a) => a.stage)).toEqual(['15m']);
+    expect(first.map((a) => a.stage)).toEqual(['30m']);
 
     const afterFirst = applyAvailabilityRequestReminderState(
       null,
       first[0],
       base,
     );
-    const atOneHour = new Date(
-      approvedAt.getTime() + CHECKOUT_REMINDER_OFFSETS_MS['1h'],
-    );
-    const second = computeCheckoutReminderActions(
-      atOneHour,
-      approvedAt,
-      afterFirst,
-    );
-    expect(second.map((a) => a.stage)).toEqual(['1h']);
-
-    const afterSecond = applyAvailabilityRequestReminderState(
-      afterFirst,
-      second[0],
-      atOneHour,
-    );
     const atTwoHours = new Date(
       approvedAt.getTime() + CHECKOUT_REMINDER_OFFSETS_MS['2h'],
     );
-    const third = computeCheckoutReminderActions(
+    const second = computeCheckoutReminderActions(
       atTwoHours,
       approvedAt,
-      afterSecond,
+      afterFirst,
     );
-    expect(third.map((a) => a.stage)).toEqual(['2h']);
+    expect(second.map((a) => a.stage)).toEqual(['2h']);
 
     const afterAll = applyAvailabilityRequestReminderState(
-      afterSecond,
-      third[0],
+      afterFirst,
+      second[0],
       atTwoHours,
     );
     expect(
@@ -56,7 +41,7 @@ describe('availability-request-reminder.util', () => {
     ).toEqual([]);
   });
 
-  it('computes expired lister reminders at 30m, 1h, and 2h', () => {
+  it('computes expired lister reminders at 1h and 2h', () => {
     const expiresAt = new Date(
       base.getTime() - EXPIRED_LISTER_REMINDER_OFFSETS_MS['1'] - 1000,
     );
@@ -67,18 +52,18 @@ describe('availability-request-reminder.util', () => {
     ).toEqual(['1']);
 
     const atTwoHours = new Date(
-      expiresAt.getTime() + EXPIRED_LISTER_REMINDER_OFFSETS_MS['3'] + 1000,
+      expiresAt.getTime() + EXPIRED_LISTER_REMINDER_OFFSETS_MS['2'] + 1000,
     );
     expect(
       computeExpiredListerReminderActions(atTwoHours, expiresAt, null).map(
         (a) => a.stage,
       ),
-    ).toEqual(['1', '2', '3']);
+    ).toEqual(['1', '2']);
   });
 
   it('builds grouped checkout copy for multiple items', () => {
     const copy = checkoutReminderBatchCopy({
-      stage: '15m',
+      stage: '30m',
       items: [
         { productName: 'Silk dress', requestType: 'rental' },
         { productName: 'Linen set', requestType: 'rental' },

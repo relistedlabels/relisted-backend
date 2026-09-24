@@ -36,7 +36,7 @@ describe('AvailabilityRequestReminderScheduler.sendAvailabilityRequestReminders'
     jest.useFakeTimers();
     jest.setSystemTime(now);
 
-    const approvedAt = new Date(now.getTime() - 20 * 60 * 1000);
+    const approvedAt = new Date(now.getTime() - 35 * 60 * 1000);
     const acceptedRequest = {
       id: 'req-accepted',
       productId: 'prod-1',
@@ -75,7 +75,7 @@ describe('AvailabilityRequestReminderScheduler.sendAvailabilityRequestReminders'
         emailData: expect.objectContaining({
           title: 'Complete your rental',
           cartLink: 'https://app.relisted.test/shop/cart',
-          stage: '15m',
+          stage: '30m',
           productName: 'Silk dress',
         }),
       }),
@@ -148,7 +148,7 @@ describe('AvailabilityRequestReminderScheduler.sendAvailabilityRequestReminders'
     jest.useFakeTimers();
     jest.setSystemTime(now);
 
-    const approvedAt = new Date(now.getTime() - 20 * 60 * 1000);
+    const approvedAt = new Date(now.getTime() - 35 * 60 * 1000);
     const acceptedRequests = [
       {
         id: 'req-accepted-1',
@@ -218,7 +218,7 @@ describe('AvailabilityRequestReminderScheduler.sendAvailabilityRequestReminders'
     jest.useFakeTimers();
     jest.setSystemTime(now);
 
-    const expiresAt = new Date(now.getTime() - 40 * 60 * 1000);
+    const expiresAt = new Date(now.getTime() - 65 * 60 * 1000);
     const expiredRequests = [
       {
         id: 'req-expired-1',
