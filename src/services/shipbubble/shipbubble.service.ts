@@ -134,12 +134,13 @@ export function parseShipbubblePricingTier(tier: string): {
 /** Return legs on a future calendar day may include multi-day couriers; today/immediate stay same-day. */
 export function resolveShipbubbleSameDayOnly(input: {
   shipmentType: 'OUTBOUND' | 'RETURN' | 'RESALE';
-  scheduledWindowStart: Date;
+  scheduledWindowStart?: Date | null;
   forImmediate?: boolean;
 }): boolean {
   if (input.shipmentType !== 'RETURN') return true;
   if (input.forImmediate) return true;
-  const windowDay = getLagosCalendarDateKey(input.scheduledWindowStart);
+  const windowStart = input.scheduledWindowStart ?? new Date();
+  const windowDay = getLagosCalendarDateKey(windowStart);
   const today = getLagosCalendarDateKey(new Date());
   return windowDay === today;
 }
