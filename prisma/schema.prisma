@@ -487,15 +487,16 @@ model Rental {
 }
 
 model Review {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   userId    String
   productId String
   curatorId String
   rating    Int
   comment   String?
-  rentalId  String   @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  rentalId  String    @unique
+  hiddenAt  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   curator   User     @relation("CuratorReviews", fields: [curatorId], references: [id])
   product   Product  @relation(fields: [productId], references: [id])
   rental    Rental   @relation(fields: [rentalId], references: [id])

@@ -5584,9 +5584,13 @@ export class ListersService {
 
     if (!lister) throw new NotFoundException('Lister not found');
 
+    const visibleReviewWhere = { curatorId: lister.id, hiddenAt: null };
     const ratingAgg = await this.prisma.review.aggregate({
-      where: { curatorId: lister.id },
+      where: visibleReviewWhere,
       _avg: { rating: true },
+    });
+    const visibleReviewCount = await this.prisma.review.count({
+      where: visibleReviewWhere,
     });
 
     // Get featured products (e.g. recent 5 available)
@@ -5612,7 +5616,7 @@ export class ListersService {
 
     // Get recent reviews
     const recentReviews = await this.prisma.review.findMany({
-      where: { curatorId: lister.id },
+      where: visibleReviewWhere,
       take: 2,
       orderBy: { createdAt: 'desc' },
       include: {
@@ -5637,7 +5641,7 @@ export class ListersService {
           shopDescription:
             lister.profile?.businessInfo?.businessDescription || '',
           rating: Math.round((ratingAgg._avg.rating || 0) * 10) / 10,
-          reviewCount: lister._count.curatorReviews,
+          reviewCount: visibleReviewCount,
           itemCount: lister._count.products,
           joined: lister.createdAt,
           isVerified: lister.isVerified,
@@ -5755,8 +5759,7 @@ export class ListersService {
 
     const where = {
       curatorId: userId,
-      // Only show reviews for completed rentals? Or all reviews?
-      // Assuming all public reviews are okay
+      hiddenAt: null,
     };
 
     const [reviews, total] = await Promise.all([
