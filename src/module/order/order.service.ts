@@ -16,6 +16,7 @@ import { formatShipbubbleAddressLine } from 'src/services/shipbubble/shipbubble-
 import {
   formatShipbubbleCheckoutTierName,
   isShipbubblePricingTier,
+  resolveShipbubbleSameDayOnly,
   sanitizeShipbubbleContactName,
   sanitizeShipbubblePhone,
   shipbubblePricingTierSlug,
@@ -968,10 +969,16 @@ export class OrderService {
       };
       const quotes = await this.shipbubbleService.fetchPickupQuotes(
         shipbubbleContact,
-        { sameDayOnly: leg !== 'return' },
+        {
+          sameDayOnly: resolveShipbubbleSameDayOnly({
+            shipmentType: leg === 'return' ? 'RETURN' : 'OUTBOUND',
+            scheduledWindowStart,
+            forImmediate: false,
+          }),
+        },
       );
       const rows = quotes.map((q) => ({
-        pricingTier: shipbubblePricingTierSlug(q.serviceCode),
+        pricingTier: shipbubblePricingTierSlug(q.serviceCode, q.courierId),
         name: formatShipbubbleCheckoutTierName(q.courierName),
         cost: Math.round(q.totalNgn * 100),
         shipbubbleRequestToken: q.requestToken,
