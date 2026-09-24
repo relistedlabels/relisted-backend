@@ -137,6 +137,21 @@ export class ProductPublicController {
     });
   }
 
+  @Get(':id/similar')
+  @ApiOperation({ summary: 'Get similar products for a listing (Public)' })
+  @ApiParam({ name: 'id', description: 'Product ID' })
+  @ApiQuery({ name: 'limit', required: false, example: 20 })
+  @ApiResponse({
+    status: 200,
+    description: 'Similar products retrieved successfully',
+  })
+  async getSimilar(
+    @Param('id') id: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.productService.getSimilarProducts(id, Number(limit) || 20);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get product details (Public)' })
   @ApiParam({ name: 'id', description: 'Product ID' })
