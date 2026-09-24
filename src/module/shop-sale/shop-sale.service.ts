@@ -17,6 +17,7 @@ import {
   slugifySaleName,
 } from './shop-sale.util';
 import { applyProductListFilters } from '../product/product-list-filters.util';
+import { LIVE_SHOP_STATUSES } from '../product/product-list-scope.util';
 
 @Injectable()
 export class ShopSaleService {
@@ -329,13 +330,7 @@ export class ShopSaleService {
     inCloset?: boolean;
   }): Prisma.ProductWhereInput {
     const where: Prisma.ProductWhereInput = {
-      status: {
-        in: [
-          ProductStatus.APPROVED,
-          ProductStatus.AVAILABLE,
-          ProductStatus.RENTED,
-        ],
-      },
+      status: { in: LIVE_SHOP_STATUSES },
       isActive: true,
     };
 
