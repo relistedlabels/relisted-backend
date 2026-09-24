@@ -47,6 +47,17 @@ export function buildAdminPickerScopeWhere(): Prisma.ProductWhereInput {
   };
 }
 
+/** Public lister profile counts and product grids (available + approved, active only). */
+export function buildPublicActiveListingWhere(
+  extra?: Prisma.ProductWhereInput,
+): Prisma.ProductWhereInput {
+  return {
+    status: { in: ADMIN_ACTIVE_LISTING_STATUSES },
+    isActive: true,
+    ...(extra ?? {}),
+  };
+}
+
 export async function buildProductListScopeWhere(
   prisma: PrismaService,
   query: ProductListScopeInput,

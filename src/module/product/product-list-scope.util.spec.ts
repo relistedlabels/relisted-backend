@@ -2,6 +2,7 @@ import { ProductStatus } from '@prisma/client';
 import {
   ADMIN_ACTIVE_LISTING_STATUSES,
   AVAILABILITY_TOGGLE_STATUSES,
+  buildPublicActiveListingWhere,
   isAvailabilityToggleStatus,
   isLiveAdminListingStatus,
 } from './product-list-scope.util';
@@ -52,5 +53,31 @@ describe('live admin listing status parity', () => {
     for (const status of ADMIN_ACTIVE_LISTING_STATUSES) {
       expect(AVAILABILITY_TOGGLE_STATUSES).toContain(status);
     }
+  });
+});
+
+describe('buildPublicActiveListingWhere', () => {
+  it('includes available and approved active listings only', () => {
+    expect(buildPublicActiveListingWhere()).toEqual({
+      status: { in: ADMIN_ACTIVE_LISTING_STATUSES },
+      isActive: true,
+    });
+  });
+
+  it('merges extra filters such as curatorId', () => {
+    expect(
+      buildPublicActiveListingWhere({ curatorId: 'lister-1' }),
+    ).toEqual({
+      status: { in: ADMIN_ACTIVE_LISTING_STATUSES },
+      isActive: true,
+      curatorId: 'lister-1',
+    });
+  });
+
+  it('does not include rented or pending statuses', () => {
+    const where = buildPublicActiveListingWhere();
+    const statuses = (where.status as { in: ProductStatus[] }).in;
+    expect(statuses).not.toContain(ProductStatus.RENTED);
+    expect(statuses).not.toContain(ProductStatus.PENDING);
   });
 });

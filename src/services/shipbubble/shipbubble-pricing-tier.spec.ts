@@ -33,13 +33,18 @@ describe('resolveShipbubbleSameDayOnly', () => {
   });
 
   it('filters to same-day couriers for return legs scheduled today', () => {
-    const todayWindow = new Date();
-    todayWindow.setHours(todayWindow.getHours() + 2, 0, 0, 0);
-    expect(
-      resolveShipbubbleSameDayOnly({
-        shipmentType: 'RETURN',
-        scheduledWindowStart: todayWindow,
-      }),
-    ).toBe(true);
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-09-24T11:00:00.000Z')); // midday Lagos
+
+    try {
+      expect(
+        resolveShipbubbleSameDayOnly({
+          shipmentType: 'RETURN',
+          scheduledWindowStart: new Date('2026-09-24T14:00:00.000Z'),
+        }),
+      ).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
