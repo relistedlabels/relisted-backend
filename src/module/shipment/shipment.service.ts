@@ -422,17 +422,10 @@ export class ShipmentService {
       }
     }
 
-    if (shipment.type === 'RETURN') {
-      const returnRequests = await this.prisma.returnRequest.findMany({
-        where: { orderId: shipment.orderId },
-        select: { shipmentId: true },
-      });
-      if (!returnRequestExistsForShipment(returnRequests, id)) {
-        throw new BadRequestException(
-          'The renter must submit a return request before you can book pickup.',
-        );
-      }
-    }
+    const returnRequestReady = await this.returnRequestReadyForShipment(
+      shipment,
+      id,
+    );
 
     const updateWindow = dto.updateWindow !== false;
     const forImmediate =
@@ -513,10 +506,14 @@ export class ShipmentService {
       shipment.scheduledWindowStart ??
       shipment.scheduledDate;
 
-    const enqueueNow =
+    let enqueueNow =
       forImmediate ||
       (updateWindow &&
         this.shouldDispatchImmediately(effectiveWindowStart));
+
+    if (shipment.type === 'RETURN' && !returnRequestReady) {
+      enqueueNow = false;
+    }
 
     if (enqueueNow) {
       await this.enqueueDispatchJob(id);
@@ -526,10 +523,30 @@ export class ShipmentService {
       };
     }
 
+    if (shipment.type === 'RETURN' && !returnRequestReady) {
+      return {
+        success: true,
+        message:
+          'Booked for the scheduled window. Pickup will start once the renter submits their return request.',
+      };
+    }
+
     return {
       success: true,
       message: 'Booked for the scheduled window',
     };
+  }
+
+  private async returnRequestReadyForShipment(
+    shipment: Pick<import('@prisma/client').Shipment, 'type' | 'orderId'>,
+    shipmentId: string,
+  ): Promise<boolean> {
+    if (shipment.type !== 'RETURN') return true;
+    const returnRequests = await this.prisma.returnRequest.findMany({
+      where: { orderId: shipment.orderId },
+      select: { shipmentId: true },
+    });
+    return returnRequestExistsForShipment(returnRequests, shipmentId);
   }
 
   // ─── Manual redispatch (admin) ─────────────────────────────────────────────
