@@ -18,6 +18,10 @@ import {
 import { fetchAdminAlertRecipients } from 'src/module/shipment/shipment-admin-alert-recipients';
 import { buildAdminShipmentsPageUrl } from 'src/module/shipment/build-admin-shipments-page-url';
 import { shipmentLegLabel } from 'src/module/shipment/shipment-leg-label.util';
+import {
+  manualFulfillmentShipmentEmailSelect,
+  productNamesFromManualShipment,
+} from 'src/module/shipment/manual-fulfillment-email.util';
 import { OrderService } from 'src/module/order/order.service';
 import {
   findReturnRequestForLister,
@@ -36,6 +40,7 @@ import {
   type ReturnRequestReminderType,
 } from './return-request-reminder.util';
 import { notifyAdminsReturnRequestPastDue } from './notify-admins-return-request-past-due.util';
+import type { WhatsAppOutbound } from 'src/services/whatsapp/whatsapp.service';
 
 const PAST_DUE_RETURN_REQUEST_REMINDER_TYPES = new Set<ReturnRequestReminderType>([
   'past_due_morning',
@@ -493,6 +498,41 @@ export class ShipmentDispatchScheduler {
       );
       const collateralAtRisk = listerEscrow?.collateralAmount ?? 0;
 
+      const prePickupWhatsAppTypes = new Set<string>([
+        '24_hours_before',
+        'morning_of',
+      ]);
+      let whatsappPayload: WhatsAppOutbound | null = null;
+      if (
+        actions.some((a) => prePickupWhatsAppTypes.has(a.type)) &&
+        windowLabel.trim()
+      ) {
+        const [renterProfile, renterSettings] = await Promise.all([
+          this.prisma.profile.findUnique({
+            where: { userId: order.userId },
+            select: { phoneNumber: true },
+          }),
+          this.prisma.notificationSettings.findUnique({
+            where: { userId: order.userId },
+            select: { whatsappOptIn: true },
+          }),
+        ]);
+        if (
+          renterProfile?.phoneNumber?.trim() &&
+          renterSettings?.whatsappOptIn === true
+        ) {
+          whatsappPayload = {
+            kind: 'renter_return_reminder',
+            params: {
+              toPhone: renterProfile.phoneNumber,
+              renterName: order.user.name || 'there',
+              productName,
+              pickupLabel: windowLabel,
+            },
+          };
+        }
+      }
+
       for (const action of actions) {
         const daysPastDue = action.incrementPastDueDay
           ? getPastDueDaysNotified(leg.returnRequestReminderState) + 1
@@ -531,6 +571,7 @@ export class ShipmentDispatchScheduler {
               process.env.LATE_RETURN_COLLATERAL_PENALTY_PERCENT ?? 5,
             ),
           },
+          ...(whatsappPayload ? { whatsapp: whatsappPayload } : {}),
         });
 
         if (action.incrementPastDueDay) {
@@ -807,14 +848,15 @@ export class ShipmentDispatchScheduler {
         },
       },
       select: {
-        id: true,
-        type: true,
-        scheduledWindowStart: true,
-        scheduledWindowEnd: true,
-        scheduledDate: true,
+        ...manualFulfillmentShipmentEmailSelect,
         manualDueReminder24hSentAt: true,
         manualDueReminderMorningSentAt: true,
-        order: { select: { orderId: true } },
+        order: {
+          select: {
+            orderId: true,
+            user: { select: { name: true, email: true } },
+          },
+        },
       },
     });
 
@@ -858,6 +900,8 @@ export class ShipmentDispatchScheduler {
       const humanOrderId = s.order.orderId;
       const dueSummary = this.formatLagosPickupWindow(dueStart, pickupEnd);
       const legLabel = shipmentLegLabel(s.type);
+      const productNames = productNamesFromManualShipment(s);
+      const deliveryLocation = s.deliveryLocation?.trim() || undefined;
 
       const pingAdmins = async (
         reminderKind: '24_hours' | 'morning_of',
@@ -884,6 +928,8 @@ export class ShipmentDispatchScheduler {
               to: admin.email.trim(),
               humanOrderId,
               legLabel,
+              productNames,
+              deliveryLocation,
               adminShipmentUrl:
                 buildAdminShipmentsPageUrl({ shipmentId: s.id }) || '',
               reminderKind,

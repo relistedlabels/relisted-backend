@@ -821,27 +821,75 @@ export class MailService {
   async sendAdminManualFulfillmentShipmentAlert(dto: {
     to: string;
     humanOrderId: string;
+    renterName?: string;
+    renterEmail?: string;
     shipments: Array<{
       legLabel: string;
+      productNames: string[];
+      windowLabel: string;
+      deliveryLocation?: string;
       adminShipmentUrl: string;
     }>;
   }) {
-    const { to, humanOrderId, shipments } = dto;
+    const { to, humanOrderId, renterName, renterEmail, shipments } = dto;
+    const safe = (s: string) => s.replace(/</g, '');
     console.log(
       `[EMAIL] Sending admin manual fulfillment alert to ${to} for order ${humanOrderId} (${shipments.length} leg(s))`,
     );
 
-    const rows = shipments
+    const renterBlock =
+      renterName || renterEmail
+        ? `<div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Renter</div>
+            ${
+              renterName
+                ? `<div style="font-weight:600;color:#111827;">${safe(renterName)}</div>`
+                : ''
+            }
+            ${
+              renterEmail
+                ? `<div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(renterEmail)}</div>`
+                : ''
+            }
+          </div>`
+        : '';
+
+    const legBlocks = shipments
       .map((s) => {
+        const itemLabel =
+          s.productNames.length === 0
+            ? 'Item not linked yet'
+            : s.productNames.length === 1
+              ? safe(s.productNames[0])
+              : safe(s.productNames.join(', '));
         const link = s.adminShipmentUrl
-          ? `<a href="${s.adminShipmentUrl}" style="color:#1d4ed8;font-weight:600;">Open</a>`
+          ? `<div style="margin-top:12px;">
+              <a href="${s.adminShipmentUrl}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:8px 12px;border-radius:8px;font-weight:600;font-size:13px;">
+                Open in admin
+              </a>
+            </div>`
           : '';
-        return `<tr>
-          <td style="padding:10px 12px;border-bottom:1px solid #eef0f5;vertical-align:top;">
-            <div style="font-weight:600;color:#111827;">${s.legLabel}</div>
-          </td>
-          <td style="padding:10px 12px;border-bottom:1px solid #eef0f5;text-align:right;vertical-align:middle;">${link}</td>
-        </tr>`;
+        const locationBlock = s.deliveryLocation
+          ? `<div style="margin-top:10px;">
+              <div style="font-size:12px;color:#6b7280;">Location</div>
+              <div style="font-weight:600;color:#111827;">${safe(s.deliveryLocation)}</div>
+            </div>`
+          : '';
+        return `<div style="padding:14px 16px;border-bottom:1px solid #eef0f5;">
+          <div style="font-weight:700;color:#111827;">${safe(s.legLabel)}</div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px;color:#111827;">
+            <div style="min-width:200px;">
+              <div style="font-size:12px;color:#6b7280;">Item</div>
+              <div style="font-weight:600;">${itemLabel}</div>
+            </div>
+            <div style="min-width:200px;">
+              <div style="font-size:12px;color:#6b7280;">Delivery window</div>
+              <div style="font-weight:600;">${safe(s.windowLabel || 'Not scheduled')}</div>
+            </div>
+          </div>
+          ${locationBlock}
+          ${link}
+        </div>`;
       })
       .join('');
 
@@ -854,19 +902,16 @@ export class MailService {
     <div style="padding:20px;">
       <p style="margin:0 0 16px;color:#374151;line-height:1.5;">This order uses <strong>Relisted dispatch</strong>. No carrier is booked automatically for these legs. Arrange pickup or delivery yourself, then open each shipment below and click <strong>Mark dispatched</strong> when it is on the way.</p>
       <div style="border:1px solid #eef0f5;border-radius:10px;overflow:hidden;background:#fbfbfe;">
-        <div style="padding:12px 16px;border-bottom:1px solid #eef0f5;background:#f3f4f6;">
-          <div style="font-size:12px;color:#6b7280;">Order</div>
-          <div style="font-weight:700;color:#111827;">${humanOrderId}</div>
+        <div style="padding:14px 16px;border-bottom:1px solid #eef0f5;background:#f3f4f6;">
+          <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
+            <div style="min-width:200px;">
+              <div style="font-size:12px;color:#6b7280;">Order</div>
+              <div style="font-weight:700;">${safe(humanOrderId)}</div>
+            </div>
+            ${renterBlock}
+          </div>
         </div>
-        <table style="width:100%;border-collapse:collapse;font-size:14px;">
-          <thead>
-            <tr style="background:#fafafa;">
-              <th style="text-align:left;padding:8px 12px;font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;">Leg</th>
-              <th style="text-align:right;padding:8px 12px;font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;">Admin</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
+        ${legBlocks}
       </div>
     </div>
   </div>
@@ -996,6 +1041,8 @@ export class MailService {
     to: string;
     humanOrderId: string;
     legLabel: string;
+    productNames: string[];
+    deliveryLocation?: string;
     adminShipmentUrl: string;
     reminderKind: '24_hours' | 'morning_of';
     dueSummary: string;
@@ -1004,10 +1051,19 @@ export class MailService {
       to,
       humanOrderId,
       legLabel,
+      productNames,
+      deliveryLocation,
       adminShipmentUrl,
       reminderKind,
       dueSummary,
     } = dto;
+    const safe = (s: string) => s.replace(/</g, '');
+    const itemLabel =
+      productNames.length === 0
+        ? 'Item not linked yet'
+        : productNames.length === 1
+          ? safe(productNames[0])
+          : safe(productNames.join(', '));
 
     const headline =
       reminderKind === '24_hours'
@@ -1045,17 +1101,29 @@ export class MailService {
         <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
           <div style="min-width:200px;">
             <div style="font-size:12px;color:#6b7280;">Order</div>
-            <div style="font-weight:600;">${humanOrderId}</div>
+            <div style="font-weight:600;">${safe(humanOrderId)}</div>
           </div>
           <div style="min-width:200px;">
             <div style="font-size:12px;color:#6b7280;">Leg</div>
-            <div style="font-weight:600;">${legLabel}</div>
+            <div style="font-weight:600;">${safe(legLabel)}</div>
+          </div>
+          <div style="min-width:200px;">
+            <div style="font-size:12px;color:#6b7280;">Item</div>
+            <div style="font-weight:600;">${itemLabel}</div>
           </div>
         </div>
         <div style="margin-top:12px;">
-          <div style="font-size:12px;color:#6b7280;">Scheduled window</div>
-          <div style="font-weight:600;">${dueSummary}</div>
+          <div style="font-size:12px;color:#6b7280;">Delivery window</div>
+          <div style="font-weight:600;">${safe(dueSummary)}</div>
         </div>
+        ${
+          deliveryLocation
+            ? `<div style="margin-top:12px;">
+          <div style="font-size:12px;color:#6b7280;">Location</div>
+          <div style="font-weight:600;">${safe(deliveryLocation)}</div>
+        </div>`
+            : ''
+        }
       </div>
       ${linkBlock}
     </div>
