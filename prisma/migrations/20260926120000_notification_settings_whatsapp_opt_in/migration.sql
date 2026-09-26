@@ -1,0 +1,1 @@
+ALTER TABLE "NotificationSettings" ADD COLUMN "whatsappOptIn" BOOLEAN NOT NULL DEFAULT false;

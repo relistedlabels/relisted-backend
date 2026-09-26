@@ -751,6 +751,7 @@ model NotificationSettings {
   id                     String   @id @default(uuid())
   userId                 String   @unique
   emailAlertsEnabled     Boolean  @default(true)
+  whatsappOptIn          Boolean  @default(false)
   emailAlertsCategories  String[]
   smsUpdatesEnabled      Boolean  @default(false)
   smsUpdatesCategories   String[]

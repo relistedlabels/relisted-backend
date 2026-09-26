@@ -1,6 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
+import {
+  WhatsAppOutbound,
+  WhatsAppService,
+} from '../whatsapp/whatsapp.service';
 
 export const NOTIFICATION_LIST_DEFAULT_LIMIT = 30;
 export const NOTIFICATION_LIST_MAX_LIMIT = 50;
@@ -11,6 +15,7 @@ export class NotificationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mailService: MailService,
+    private readonly whatsappService: WhatsAppService,
   ) {}
 
   async createNotification(dto: {
@@ -21,6 +26,7 @@ export class NotificationService {
     metadata?: any;
     sendEmail?: boolean;
     emailData?: any;
+    whatsapp?: WhatsAppOutbound;
   }) {
     const { userId, title, message, type, metadata, sendEmail, emailData } =
       dto;
@@ -36,7 +42,12 @@ export class NotificationService {
       },
     });
 
-    // 2. Handle Email if requested
+    // 2. Handle WhatsApp if requested
+    if (dto.whatsapp) {
+      await this.dispatchWhatsApp(dto.whatsapp);
+    }
+
+    // 3. Handle Email if requested
     if (sendEmail) {
       if (
         type === 'DISPUTE_CREATED' ||
@@ -58,6 +69,22 @@ export class NotificationService {
     }
 
     return notification;
+  }
+
+  private async dispatchWhatsApp(outbound: WhatsAppOutbound) {
+    switch (outbound.kind) {
+      case 'lister_availability':
+        await this.whatsappService.sendListerAvailabilityRequest(
+          outbound.params,
+        );
+        break;
+      case 'lister_purchase':
+        await this.whatsappService.sendListerPurchaseRequest(outbound.params);
+        break;
+      case 'renter_return_reminder':
+        await this.whatsappService.sendRenterReturnReminder(outbound.params);
+        break;
+    }
   }
 
   private async triggerEmail(type: string, data: any) {
