@@ -3538,11 +3538,12 @@ export class AdminService {
       throw new BadRequestException('A cancellation reason is required.');
     }
 
-    const order = await this.prisma.order.findFirst({
-      where: { orderId },
-      include: {
-        user: { select: { id: true, email: true, name: true } },
-        escrows: {
+  const order = await this.prisma.order.findFirst({
+    where: { orderId },
+    include: {
+      user: { select: { id: true, email: true, name: true } },
+      orderItems: { select: { product: { select: { name: true } } } },
+      escrows: {
           select: {
             id: true,
             status: true,
@@ -3659,6 +3660,13 @@ export class AdminService {
           renterName: order.user?.name || 'Customer',
           renterEmail: order.user?.email?.trim() || 'unknown',
           listerNames,
+          productNames: [
+            ...new Set(
+              (order.orderItems ?? [])
+                .map((ol) => ol.product?.name?.trim())
+                .filter((name): name is string => Boolean(name)),
+            ),
+          ],
           refundAmount: result.refundAmount,
           reason,
           cancelledAt,

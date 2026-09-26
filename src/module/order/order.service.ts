@@ -3314,6 +3314,13 @@ export class OrderService {
           renterEmail: user.email?.trim() || 'unknown',
           listerNames,
           itemCount: eligibleItems.length,
+          productNames: [
+            ...new Set(
+              eligibleItems
+                .map((item) => item.product?.name?.trim())
+                .filter((name): name is string => Boolean(name)),
+            ),
+          ],
           totalAmount: grandTotal,
         },
       );

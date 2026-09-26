@@ -29,6 +29,7 @@ export async function notifyAdminsNewOrder(
     renterEmail: string;
     listerNames: string[];
     itemCount: number;
+    productNames?: string[];
     totalAmount: number;
   },
 ): Promise<number> {
@@ -77,6 +78,7 @@ export async function notifyAdminsNewOrder(
           renterEmail: input.renterEmail,
           listerSummary,
           itemCount: input.itemCount,
+          productNames: input.productNames,
           totalAmountFormatted: totalFormatted,
           adminLink,
         });

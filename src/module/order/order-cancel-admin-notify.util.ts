@@ -24,6 +24,7 @@ export async function notifyAdminsOrderCancelled(
     renterName: string;
     renterEmail: string;
     listerNames: string[];
+    productNames?: string[];
     refundAmount: number;
     reason: string;
     cancelledAt: Date;
@@ -72,6 +73,7 @@ export async function notifyAdminsOrderCancelled(
           renterName: input.renterName,
           renterEmail: input.renterEmail,
           listerSummary,
+          productNames: input.productNames,
           refundAmountFormatted: refundFormatted,
           reason: input.reason,
           cancelledAt: input.cancelledAt.toISOString(),

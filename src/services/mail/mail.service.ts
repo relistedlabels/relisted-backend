@@ -743,6 +743,9 @@ export class MailService {
     to: string;
     humanOrderId: string;
     legLabel: string;
+    renterName?: string;
+    renterEmail?: string;
+    productNames?: string[];
     scheduledDate: Date;
     errorMessage: string;
     redispatchUrl: string;
@@ -751,10 +754,20 @@ export class MailService {
       to,
       humanOrderId,
       legLabel,
+      renterName,
+      renterEmail,
+      productNames,
       scheduledDate,
       errorMessage,
       redispatchUrl,
     } = dto;
+    const safe = (s: string) => s.replace(/</g, '');
+    const itemLabel =
+      !productNames || productNames.length === 0
+        ? 'Item not linked yet'
+        : productNames.length === 1
+          ? safe(productNames[0])
+          : safe(productNames.join(', '));
     console.log(
       `[EMAIL] Sending admin dispatch failure alert to ${to} (order ${humanOrderId}, ${legLabel})`,
     );
@@ -781,12 +794,25 @@ export class MailService {
         <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
           <div style="min-width:220px;">
             <div style="font-size:12px;color:#6b7280;">Order</div>
-            <div style="font-weight:600;">${humanOrderId}</div>
+            <div style="font-weight:600;">${safe(humanOrderId)}</div>
+          </div>
+          <div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Item</div>
+            <div style="font-weight:600;">${itemLabel}</div>
           </div>
           <div style="min-width:220px;">
             <div style="font-size:12px;color:#6b7280;">Leg</div>
-            <div style="font-weight:600;">${legLabel}</div>
+            <div style="font-weight:600;">${safe(legLabel)}</div>
           </div>
+          ${
+            renterName || renterEmail
+              ? `<div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Renter</div>
+            ${renterName ? `<div style="font-weight:600;">${safe(renterName)}</div>` : ''}
+            ${renterEmail ? `<div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(renterEmail)}</div>` : ''}
+          </div>`
+              : ''
+          }
           <div style="min-width:220px;">
             <div style="font-size:12px;color:#6b7280;">Scheduled Date</div>
             <div style="font-weight:600;">${scheduledDateStr}</div>
@@ -1041,6 +1067,8 @@ export class MailService {
     to: string;
     humanOrderId: string;
     legLabel: string;
+    renterName?: string;
+    renterEmail?: string;
     productNames: string[];
     deliveryLocation?: string;
     adminShipmentUrl: string;
@@ -1051,6 +1079,8 @@ export class MailService {
       to,
       humanOrderId,
       legLabel,
+      renterName,
+      renterEmail,
       productNames,
       deliveryLocation,
       adminShipmentUrl,
@@ -1111,6 +1141,15 @@ export class MailService {
             <div style="font-size:12px;color:#6b7280;">Item</div>
             <div style="font-weight:600;">${itemLabel}</div>
           </div>
+          ${
+            renterName || renterEmail
+              ? `<div style="min-width:200px;">
+            <div style="font-size:12px;color:#6b7280;">Renter</div>
+            ${renterName ? `<div style="font-weight:600;">${safe(renterName)}</div>` : ''}
+            ${renterEmail ? `<div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(renterEmail)}</div>` : ''}
+          </div>`
+              : ''
+          }
         </div>
         <div style="margin-top:12px;">
           <div style="font-size:12px;color:#6b7280;">Delivery window</div>
@@ -1146,6 +1185,9 @@ export class MailService {
     to: string;
     humanOrderId: string;
     legLabel: string;
+    renterName?: string;
+    renterEmail?: string;
+    productNames?: string[];
     providerStatus: string;
     providerMessage?: string;
     providerLabel?: string;
@@ -1156,12 +1198,22 @@ export class MailService {
       to,
       humanOrderId,
       legLabel,
+      renterName,
+      renterEmail,
+      productNames,
       providerStatus,
       providerMessage,
       providerLabel = 'carrier',
       trackingUrl,
       adminShipmentUrl,
     } = dto;
+    const safe = (s: string) => s.replace(/</g, '');
+    const itemLabel =
+      !productNames || productNames.length === 0
+        ? null
+        : productNames.length === 1
+          ? safe(productNames[0])
+          : safe(productNames.join(', '));
 
     console.log(
       `[EMAIL] Sending admin shipment cancellation alert to ${to} for order ${humanOrderId} (${legLabel})`,
@@ -1171,30 +1223,47 @@ export class MailService {
   <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
     <div style="padding:18px 20px;background:#b91c1c;color:#ffffff;">
       <div style="font-size:14px;opacity:0.9;">Relisted Admin Alert</div>
-      <div style="font-size:18px;font-weight:700;margin-top:6px;">🚨 Shipment cancelled by ${providerLabel}</div>
+      <div style="font-size:18px;font-weight:700;margin-top:6px;">🚨 Shipment cancelled by ${safe(providerLabel)}</div>
     </div>
     <div style="padding:20px;">
-      <p style="margin:0 0 16px;color:#374151;">${providerLabel} reported that this shipment has been cancelled. Please review and take action.</p>
+      <p style="margin:0 0 16px;color:#374151;">${safe(providerLabel)} reported that this shipment has been cancelled. Please review and take action.</p>
       <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
         <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
           <div style="min-width:220px;">
             <div style="font-size:12px;color:#6b7280;">Order</div>
-            <div style="font-weight:600;">${humanOrderId}</div>
+            <div style="font-weight:600;">${safe(humanOrderId)}</div>
           </div>
+          ${
+            itemLabel
+              ? `<div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Item</div>
+            <div style="font-weight:600;">${itemLabel}</div>
+          </div>`
+              : ''
+          }
           <div style="min-width:220px;">
             <div style="font-size:12px;color:#6b7280;">Leg</div>
-            <div style="font-weight:600;">${legLabel}</div>
+            <div style="font-weight:600;">${safe(legLabel)}</div>
           </div>
+          ${
+            renterName || renterEmail
+              ? `<div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Renter</div>
+            ${renterName ? `<div style="font-weight:600;">${safe(renterName)}</div>` : ''}
+            ${renterEmail ? `<div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(renterEmail)}</div>` : ''}
+          </div>`
+              : ''
+          }
           <div style="min-width:220px;">
             <div style="font-size:12px;color:#6b7280;">Provider Status</div>
-            <div style="font-weight:600;">${providerStatus}</div>
+            <div style="font-weight:600;">${safe(providerStatus)}</div>
           </div>
         </div>
         ${
           providerMessage
             ? `<div style="margin-top:12px;">
           <div style="font-size:12px;color:#6b7280;">Provider Message</div>
-          <div style="margin-top:6px;color:#111827;line-height:1.45;white-space:pre-wrap;">${providerMessage}</div>
+          <div style="margin-top:6px;color:#111827;line-height:1.45;white-space:pre-wrap;">${safe(providerMessage)}</div>
         </div>`
             : ''
         }
@@ -1243,6 +1312,7 @@ export class MailService {
     renterName: string;
     renterEmail: string;
     listerSummary: string;
+    productNames?: string[];
     refundAmountFormatted: string;
     reason: string;
     cancelledAt: string;
@@ -1255,6 +1325,7 @@ export class MailService {
       renterName,
       renterEmail,
       listerSummary,
+      productNames,
       refundAmountFormatted,
       reason,
       cancelledAt,
@@ -1292,6 +1363,14 @@ export class MailService {
             <div style="font-weight:600;">${safe(renterName)}</div>
             <div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(renterEmail)}</div>
           </div>
+          ${
+            productNames && productNames.length > 0
+              ? `<div style="min-width:220px;">
+            <div style="font-size:12px;color:#6b7280;">Item(s)</div>
+            <div style="font-weight:600;">${safe(productNames.join(', '))}</div>
+          </div>`
+              : ''
+          }
           <div style="min-width:220px;">
             <div style="font-size:12px;color:#6b7280;">Lister(s)</div>
             <div style="font-weight:600;">${safe(listerSummary)}</div>
@@ -1335,6 +1414,7 @@ export class MailService {
     renterEmail: string;
     listerSummary: string;
     itemCount: number;
+    productNames?: string[];
     totalAmountFormatted: string;
     adminLink?: string;
   }) {
@@ -1346,12 +1426,18 @@ export class MailService {
       renterEmail,
       listerSummary,
       itemCount,
+      productNames,
       totalAmountFormatted,
       adminLink,
     } = dto;
 
     const safe = (s: string) => s.replace(/</g, '');
-    const itemLabel = itemCount === 1 ? '1 item' : `${itemCount} items`;
+    const itemLabel =
+      productNames && productNames.length > 0
+        ? safe(productNames.join(', '))
+        : itemCount === 1
+          ? '1 item'
+          : `${itemCount} items`;
 
     console.log(
       `[EMAIL] Sending admin new order alert to ${email} for order ${humanOrderId}`,

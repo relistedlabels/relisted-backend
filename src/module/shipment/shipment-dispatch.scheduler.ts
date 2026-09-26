@@ -902,6 +902,8 @@ export class ShipmentDispatchScheduler {
       const legLabel = shipmentLegLabel(s.type);
       const productNames = productNamesFromManualShipment(s);
       const deliveryLocation = s.deliveryLocation?.trim() || undefined;
+      const renterName = s.order?.user?.name?.trim() || undefined;
+      const renterEmail = s.order?.user?.email?.trim() || undefined;
 
       const pingAdmins = async (
         reminderKind: '24_hours' | 'morning_of',
@@ -928,6 +930,8 @@ export class ShipmentDispatchScheduler {
               to: admin.email.trim(),
               humanOrderId,
               legLabel,
+              renterName,
+              renterEmail,
               productNames,
               deliveryLocation,
               adminShipmentUrl:
