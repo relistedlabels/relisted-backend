@@ -31,7 +31,7 @@ import {
   parseDispatchWindowFromInput,
   resolveRentalDispatchWindowBases,
 } from 'src/utils/dispatch-windows';
-import { formatRentalBoundaryDateLagos } from '../shipment/dispatch-window-format';
+import { formatRentalBoundaryDateLagos, formatDispatchWindowLabel } from '../shipment/dispatch-window-format';
 
 @Injectable()
 export class CartService {
@@ -320,6 +320,27 @@ export class CartService {
         (updated.product as any)?.listingType === 'RESALE' ||
         ((updated.product as any)?.listingType === 'RENT_OR_RESALE' &&
           updated.rentalDays === 0);
+      const updatedWindows = extractRangeMapFromEntity(
+        updated,
+        availabilityRequestWindowFieldMap,
+      );
+      const [listerProfile, listerSettings] = await Promise.all([
+        this.prisma.profile.findUnique({
+          where: { userId: updated.listerId },
+          select: { phoneNumber: true },
+        }),
+        this.prisma.notificationSettings.findUnique({
+          where: { userId: updated.listerId },
+          select: { whatsappOptIn: true },
+        }),
+      ]);
+      const listerWhatsAppOptIn = listerSettings?.whatsappOptIn === true;
+      const deliveryWindowLabel =
+        formatDispatchWindowLabel(updatedWindows['RESALE']) ||
+        formatDispatchWindowLabel(updatedWindows['OUTBOUND']) ||
+        'TBD';
+      const returnWindowLabel =
+        formatDispatchWindowLabel(updatedWindows['RETURN']) || 'TBD';
       await this.notificationService.createNotification({
         userId: updated.listerId,
         title: isResale ? 'Purchase Request Reactivated' : 'Rental Request Reactivated',
@@ -341,21 +362,58 @@ export class CartService {
           endDate: existingExpired.endDate
             ? formatRentalBoundaryDateLagos(existingExpired.endDate)
             : 'TBD',
-          dispatchWindows: Object.entries(
-            extractRangeMapFromEntity(
-              updated,
-              availabilityRequestWindowFieldMap,
-            ),
-          ).map(([type, window]) => ({
-            type,
-            window: {
-              start: window.start.toISOString(),
-              end: window.end.toISOString(),
-            },
-          })),
+          dispatchWindows: Object.entries(updatedWindows).map(
+            ([type, window]) => ({
+              type,
+              window: {
+                start: window.start.toISOString(),
+                end: window.end.toISOString(),
+              },
+            }),
+          ),
           viewLink: `${process.env.CLIENT_URL}/listers/orders/${updated.id}`,
           requestType: isResale ? 'purchase' : 'rental',
         },
+        ...(listerWhatsAppOptIn && listerProfile?.phoneNumber?.trim()
+          ? {
+              whatsapp: isResale
+                ? ({
+                    kind: 'lister_purchase',
+                    params: {
+                      toPhone: listerProfile.phoneNumber,
+                      listerName: updated.product?.curator?.name || 'there',
+                      renterName: user.name || 'A user',
+                      productName: updated.product?.name || 'Item',
+                      deliveryWindowLabel,
+                      payoutLabel: existingExpired.totalPrice
+                        ? Math.round(Number(existingExpired.totalPrice)).toLocaleString()
+                        : 'TBD',
+                      viewUrl: `${process.env.CLIENT_URL}/listers/orders/${updated.id}`,
+                      requestId: updated.id,
+                    },
+                  } as const)
+                : ({
+                    kind: 'lister_availability',
+                    params: {
+                      toPhone: listerProfile.phoneNumber,
+                      listerName: updated.product?.curator?.name || 'there',
+                      productName: updated.product?.name || 'Item',
+                      renterName: user.name || 'A user',
+                      datesLabel:
+                        existingExpired.startDate && existingExpired.endDate
+                          ? `${formatRentalBoundaryDateLagos(existingExpired.startDate)} - ${formatRentalBoundaryDateLagos(existingExpired.endDate)}`
+                          : 'N/A',
+                      deliveryWindowLabel,
+                      returnWindowLabel,
+                      payoutLabel: existingExpired.totalPrice
+                        ? Math.round(Number(existingExpired.totalPrice)).toLocaleString()
+                        : 'TBD',
+                      viewUrl: `${process.env.CLIENT_URL}/listers/orders/${updated.id}`,
+                      requestId: updated.id,
+                    },
+                  } as const),
+            }
+          : {}),
       });
 
       return updated;
@@ -416,6 +474,26 @@ export class CartService {
     });
 
     // Notify Lister
+    const [listerProfile, listerSettings] = await Promise.all([
+      this.prisma.profile.findUnique({
+        where: { userId: request.listerId },
+        select: { phoneNumber: true },
+      }),
+      this.prisma.notificationSettings.findUnique({
+        where: { userId: request.listerId },
+        select: { whatsappOptIn: true },
+      }),
+    ]);
+    const listerWhatsAppOptIn = listerSettings?.whatsappOptIn === true;
+    const newDeliveryWindowLabel =
+      formatDispatchWindowLabel(windowMap['RESALE']) ||
+      formatDispatchWindowLabel(windowMap['OUTBOUND']) ||
+      'TBD';
+    const newReturnWindowLabel =
+      formatDispatchWindowLabel(windowMap['RETURN']) || 'TBD';
+    const newPayoutLabel = request.totalPrice
+      ? Math.round(Number(request.totalPrice)).toLocaleString()
+      : 'TBD';
     await this.notificationService.createNotification({
       userId: request.listerId,
       title: isResaleRequest ? 'New Purchase Request' : 'New Rental Request',
@@ -445,6 +523,42 @@ export class CartService {
         viewLink: `${process.env.CLIENT_URL}/listers/orders/${request.id}`,
         requestType: isResaleRequest ? 'purchase' : 'rental',
       },
+      ...(listerWhatsAppOptIn && listerProfile?.phoneNumber?.trim()
+        ? {
+            whatsapp: isResaleRequest
+              ? ({
+                  kind: 'lister_purchase',
+                  params: {
+                    toPhone: listerProfile.phoneNumber,
+                    listerName: request.product?.curator?.name || 'there',
+                    renterName: user.name || 'A user',
+                    productName: request.product?.name || 'Item',
+                    deliveryWindowLabel: newDeliveryWindowLabel,
+                    payoutLabel: newPayoutLabel,
+                    viewUrl: `${process.env.CLIENT_URL}/listers/orders/${request.id}`,
+                    requestId: request.id,
+                  },
+                } as const)
+              : ({
+                  kind: 'lister_availability',
+                  params: {
+                    toPhone: listerProfile.phoneNumber,
+                    listerName: request.product?.curator?.name || 'there',
+                    productName: request.product?.name || 'Item',
+                    renterName: user.name || 'A user',
+                    datesLabel:
+                      request.startDate && request.endDate
+                        ? `${formatRentalBoundaryDateLagos(request.startDate)} - ${formatRentalBoundaryDateLagos(request.endDate)}`
+                        : 'N/A',
+                    deliveryWindowLabel: newDeliveryWindowLabel,
+                    returnWindowLabel: newReturnWindowLabel,
+                    payoutLabel: newPayoutLabel,
+                    viewUrl: `${process.env.CLIENT_URL}/listers/orders/${request.id}`,
+                    requestId: request.id,
+                  },
+                } as const),
+          }
+        : {}),
     });
 
     // Notify Renter

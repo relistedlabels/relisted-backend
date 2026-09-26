@@ -19,6 +19,8 @@ const mockPrisma = {
     update: jest.fn(),
   },
   rental: { findFirst: jest.fn() },
+  profile: { findUnique: jest.fn().mockResolvedValue(null) },
+  notificationSettings: { findUnique: jest.fn().mockResolvedValue(null) },
 };
 
 const mockNotificationService = {

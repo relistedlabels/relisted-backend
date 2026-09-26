@@ -97,6 +97,11 @@ import {
 import { fetchAdminAlertRecipients } from 'src/module/shipment/shipment-admin-alert-recipients';
 import { buildAdminShipmentsPageUrl } from 'src/module/shipment/build-admin-shipments-page-url';
 import { shipmentLegLabel } from 'src/module/shipment/shipment-leg-label.util';
+import {
+  formatManualShipmentWindow,
+  manualFulfillmentShipmentEmailSelect,
+  productNamesFromManualShipment,
+} from 'src/module/shipment/manual-fulfillment-email.util';
 import { MailService } from 'src/services/mail/mail.service';
 import { notifyAdminsNewOrder } from './notify-admins-new-order.util';
 import {
@@ -649,6 +654,15 @@ export class OrderService {
         ? legLabels[0]
         : `${count} legs (${legLabels.slice(0, 3).join(', ')}${count > 3 ? ', ...' : ''})`;
 
+    const shipmentRows = await this.prisma.shipment.findMany({
+      where: { id: { in: shipmentIds } },
+      select: manualFulfillmentShipmentEmailSelect,
+    });
+    const shipmentById = new Map(shipmentRows.map((row) => [row.id, row]));
+    const renterName = shipmentRows[0]?.order?.user?.name?.trim() || undefined;
+    const renterEmail =
+      shipmentRows[0]?.order?.user?.email?.trim() || undefined;
+
     for (const admin of admins) {
       await this.notificationService.createNotification({
         userId: admin.id,
@@ -664,14 +678,23 @@ export class OrderService {
 
     for (const admin of admins) {
       if (!admin.email?.trim()) continue;
-      const shipmentsPayload = manualShipments.map((s) => ({
-        legLabel: shipmentLegLabel(s.type),
-        adminShipmentUrl: buildAdminShipmentsPageUrl({ shipmentId: s.id }) || '',
-      }));
+      const shipmentsPayload = manualShipments.map((s) => {
+        const row = shipmentById.get(s.id);
+        return {
+          legLabel: shipmentLegLabel(s.type),
+          productNames: row ? productNamesFromManualShipment(row) : [],
+          windowLabel: row ? formatManualShipmentWindow(row) : '',
+          deliveryLocation: row?.deliveryLocation?.trim() || undefined,
+          adminShipmentUrl:
+            buildAdminShipmentsPageUrl({ shipmentId: s.id }) || '',
+        };
+      });
       try {
         await this.mailService.sendAdminManualFulfillmentShipmentAlert({
           to: admin.email.trim(),
           humanOrderId,
+          renterName,
+          renterEmail,
           shipments: shipmentsPayload,
         });
       } catch (mailErr: any) {
@@ -3291,6 +3314,13 @@ export class OrderService {
           renterEmail: user.email?.trim() || 'unknown',
           listerNames,
           itemCount: eligibleItems.length,
+          productNames: [
+            ...new Set(
+              eligibleItems
+                .map((item) => item.product?.name?.trim())
+                .filter((name): name is string => Boolean(name)),
+            ),
+          ],
           totalAmount: grandTotal,
         },
       );

@@ -147,3 +147,11 @@ export function formatDispatchWindowCompact(
   const ep = lagosDayMonth(e);
   return `${sp.dayLabel} ${sp.month} ${startTime} – ${ep.dayLabel} ${ep.month} ${endTime}`;
 }
+
+/** Compact label for an optional dispatch window, or '' when missing. */
+export function formatDispatchWindowLabel(
+  window?: { start?: Date | string | null; end?: Date | string | null } | null,
+): string {
+  if (!window?.start || !window?.end) return '';
+  return formatDispatchWindowCompact(window.start, window.end);
+}

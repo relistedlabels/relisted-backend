@@ -50,6 +50,16 @@ function parseListerReply(payload: TwilioWhatsAppInbound): 'accept' | 'reject' |
   return null;
 }
 
+const STOP_WORDS = new Set([
+  'stop',
+  'unsubscribe',
+  'cancel',
+  'opt out',
+  'optout',
+  'quit',
+  'end',
+]);
+
 @Injectable()
 export class WhatsAppWebhookService {
   private readonly logger = new Logger(WhatsAppWebhookService.name);
@@ -87,17 +97,47 @@ export class WhatsAppWebhookService {
       return;
     }
 
+    const fromDigits = normalizePhoneDigits(payload.From ?? '');
+    if (!fromDigits) {
+      this.logger.warn('WhatsApp webhook missing From phone');
+      return;
+    }
+
+    const rawMessage =
+      payload.ButtonPayload?.trim() ||
+      payload.ButtonText?.trim() ||
+      payload.Body?.trim() ||
+      '';
+    if (STOP_WORDS.has(rawMessage.toLowerCase())) {
+      const profiles = await this.prisma.profile.findMany({
+        where: { phoneNumber: { not: '' } },
+        select: { userId: true, phoneNumber: true },
+      });
+      const profile = profiles.find(
+        (row) => normalizePhoneDigits(row.phoneNumber) === fromDigits,
+      );
+      if (profile) {
+        await this.prisma.notificationSettings.upsert({
+          where: { userId: profile.userId },
+          update: { whatsappOptIn: false },
+          create: { userId: profile.userId },
+        });
+        this.logger.log(
+          `WhatsApp opt-out recorded for user ${profile.userId}`,
+        );
+      } else {
+        this.logger.warn(
+          `No profile matched WhatsApp opt-out sender ${payload.From}`,
+        );
+      }
+      return;
+    }
+
     const action = parseListerReply(payload);
     if (!action) {
       this.logger.debug(
         `Ignoring WhatsApp message without accept/reject intent: ${payload.Body ?? payload.ButtonPayload ?? ''}`,
       );
-      return;
-    }
-
-    const fromDigits = normalizePhoneDigits(payload.From ?? '');
-    if (!fromDigits) {
-      this.logger.warn('WhatsApp webhook missing From phone');
       return;
     }
 

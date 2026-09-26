@@ -14,6 +14,14 @@ export class RentersAvailabilityPublicController {
     return this.rentersService.createGuestAvailabilityRequest(dto);
   }
 
+  @Get(':requestId/shop-filters')
+  @ApiOperation({
+    summary: 'Shop filter hints for the product on an availability request',
+  })
+  getShopFilters(@Param('requestId') requestId: string) {
+    return this.rentersService.getAvailabilityRequestShopFilters(requestId);
+  }
+
   @Get(':requestId')
   @ApiOperation({ summary: 'Poll availability status with access token' })
   getStatus(

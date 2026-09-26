@@ -20,7 +20,6 @@ import { CartItemsModule } from '../cart-items/cart-items.module';
 import { AuthOtpTokenModule } from '../../services/auth-otp-token/auth-otp-token.module';
 import { AuthModule } from '../auth/auth.module';
 import { RentersAvailabilityPublicController } from './renters.availability-public.controller';
-import { WhatsAppModule } from '../../services/whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -32,7 +31,6 @@ import { WhatsAppModule } from '../../services/whatsapp/whatsapp.module';
     CartItemsModule,
     AuthOtpTokenModule,
     AuthModule,
-    WhatsAppModule,
   ],
   controllers: [
     RentersAvailabilityPublicController,

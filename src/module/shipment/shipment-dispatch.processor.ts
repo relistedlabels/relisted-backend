@@ -368,6 +368,15 @@ export class ShipmentDispatchProcessor {
       buildAdminShipmentsPageUrl({ shipmentId: shipment.id }) || '';
     const humanOrderId = shipment.order?.orderId ?? 'Unknown order';
     const legLabel = shipmentLegLabel(shipment.type);
+    const renterName = shipment.order?.user?.name?.trim() || undefined;
+    const renterEmail = shipment.order?.user?.email?.trim() || undefined;
+    const productNames: string[] = [
+      ...new Set<string>(
+        (shipment.order?.orderItems ?? [])
+          .map((row: any) => row?.product?.name?.trim())
+          .filter((name: any) => Boolean(name)),
+      ),
+    ];
 
     const admins = await fetchAdminAlertRecipients(this.prisma);
     if (admins.length === 0) {
@@ -400,6 +409,9 @@ export class ShipmentDispatchProcessor {
           to: admin.email.trim(),
           humanOrderId,
           legLabel,
+          renterName,
+          renterEmail,
+          productNames,
           scheduledDate: shipment.scheduledDate,
           errorMessage,
           redispatchUrl,
