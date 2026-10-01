@@ -5652,12 +5652,7 @@ export class ListersService {
           isVerified: lister.isVerified,
           verificationDate: lister.updatedAt, // Approximate
           featured: false,
-          shopPolicies: {
-            returnPolicy: 'Full refund within 30 days of rental', // placeholder
-            deliveryTime: '2-3 business days',
-            cancellationPolicy:
-              'Free cancellation up to 48 hours before rental',
-          },
+          shopPolicies: null,
           featuredProducts: featuredProducts.map((p) => ({
             id: p.id,
             name: p.name,

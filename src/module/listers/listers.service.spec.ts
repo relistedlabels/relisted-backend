@@ -187,6 +187,7 @@ describe('ListersService — multi-lister return receipt', () => {
       const user = result.data.user;
 
       expect(user.location).toBe('Lagos');
+      expect(user.shopPolicies).toBeNull();
       expect(user).not.toHaveProperty('street');
       expect(user).not.toHaveProperty('zipCode');
       expect(user).not.toHaveProperty('address');
