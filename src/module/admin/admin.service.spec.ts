@@ -79,6 +79,33 @@ describe('AdminService', () => {
     service = module.get<AdminService>(AdminService);
   });
 
+  describe('getWalletStats', () => {
+    it('excludes renter collateral from order escrow totals', async () => {
+      mockPrisma.wallet.aggregate = jest.fn().mockResolvedValue({
+        _sum: { mainBalance: 100000, collateralBalance: 200 },
+      });
+      mockPrisma.$queryRaw = jest.fn().mockResolvedValue([{ total: 500n }]);
+      mockPrisma.walletTransaction.aggregate = jest.fn().mockResolvedValue({
+        _sum: { amount: 0 },
+      });
+      mockPrisma.order.aggregate = jest.fn().mockResolvedValue({ _sum: {} });
+      mockPrisma.order.count = jest.fn().mockResolvedValue(0);
+
+      const result = await service.getWalletStats();
+      const escrowQuery = mockPrisma.$queryRaw.mock.calls[0][0];
+
+      expect(escrowQuery.sql).toContain('e."rentalAmount"');
+      expect(escrowQuery.sql).not.toContain('e."collateralAmount"');
+      expect(result.data).toEqual(
+        expect.objectContaining({
+          totalWalletBalance: 100200,
+          totalEscrowBalance: 500,
+          totalCollateralLocked: 200,
+        }),
+      );
+    });
+  });
+
   describe('resolveDisputeAndSettle', () => {
     it('settles collateral and notifies renter and lister', async () => {
       mockPrisma.dispute.findUnique.mockResolvedValue({

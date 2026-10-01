@@ -2416,9 +2416,9 @@ export class AdminService {
           SELECT COALESCE(SUM(
             CASE
               WHEN e.status = 'LOCKED' THEN
-                e."rentalAmount" + COALESCE(e."resaleAmount", 0) + e."collateralAmount" + e."cleaningFee"
+                e."rentalAmount" + COALESCE(e."resaleAmount", 0) + e."cleaningFee"
               WHEN e.status = 'PARTIALLY_RELEASED' THEN
-                COALESCE(e."resaleAmount", 0) + e."collateralAmount" + e."cleaningFee"
+                COALESCE(e."resaleAmount", 0) + e."cleaningFee"
               ELSE 0
             END
           ), 0)::bigint AS total
@@ -2526,7 +2526,7 @@ export class AdminService {
           (walletSums._sum.mainBalance || 0) +
           (walletSums._sum.collateralBalance || 0),
         totalEscrowBalance: totalEscrowLocked,
-        /** Renter collateral held in wallets (wallet.collateralBalance), not order escrow */
+        /** Renter collateral is held in wallet balances and excluded from escrow total. */
         totalCollateralLocked,
         totalReleasedToListers: releasedToListers._sum.amount || 0,
         /** @deprecated Use totalReleasedToListers; kept for older admin clients */
