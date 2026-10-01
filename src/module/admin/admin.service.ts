@@ -2522,9 +2522,7 @@ export class AdminService {
     return {
       success: true,
       data: {
-        totalWalletBalance:
-          (walletSums._sum.mainBalance || 0) +
-          (walletSums._sum.collateralBalance || 0),
+        totalWalletBalance: walletSums._sum.mainBalance || 0,
         totalEscrowBalance: totalEscrowLocked,
         /** Renter collateral is held in wallet balances and excluded from escrow total. */
         totalCollateralLocked,

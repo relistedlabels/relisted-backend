@@ -80,7 +80,7 @@ describe('AdminService', () => {
   });
 
   describe('getWalletStats', () => {
-    it('excludes renter collateral from order escrow totals', async () => {
+    it('does not double-count renter collateral in wallet totals', async () => {
       mockPrisma.wallet.aggregate = jest.fn().mockResolvedValue({
         _sum: { mainBalance: 100000, collateralBalance: 200 },
       });
@@ -98,7 +98,7 @@ describe('AdminService', () => {
       expect(escrowQuery.sql).not.toContain('e."collateralAmount"');
       expect(result.data).toEqual(
         expect.objectContaining({
-          totalWalletBalance: 100200,
+          totalWalletBalance: 100000,
           totalEscrowBalance: 500,
           totalCollateralLocked: 200,
         }),
