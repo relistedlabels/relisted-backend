@@ -222,6 +222,108 @@ export class AdminService {
     };
   }
 
+  private resolvePreviousOrderAnalyticsDateRange(
+    timeframe: string,
+    year?: string,
+    month?: string,
+  ): { gte: Date; lte: Date } | null {
+    if (timeframe === 'year' && year) {
+      const selectedYear = Number(year);
+      const previousYear = selectedYear - 1;
+      if (!Number.isInteger(previousYear)) return null;
+      const range = this.resolveOrderAnalyticsDateRange(
+        'year',
+        String(previousYear),
+      );
+      const selected = this.buildAnalyticsDateRange(
+        'year',
+        String(previousYear),
+      );
+      if (!selected.lte || selected.lte < ADMIN_ORDER_ANALYTICS_CUTOFF) {
+        return null;
+      }
+      const now = new Date();
+      const lte =
+        selectedYear === now.getUTCFullYear()
+          ? new Date(
+              Date.UTC(
+                previousYear,
+                now.getUTCMonth(),
+                now.getUTCDate(),
+                now.getUTCHours(),
+                now.getUTCMinutes(),
+                now.getUTCSeconds(),
+                now.getUTCMilliseconds(),
+              ),
+            )
+          : selected.lte;
+      if (lte < ADMIN_ORDER_ANALYTICS_CUTOFF) return null;
+      return { ...range, lte };
+    }
+
+    if (timeframe === 'month' && year && month) {
+      const selectedYear = Number(year);
+      const selectedMonth = Number(month);
+      if (
+        !Number.isInteger(selectedYear) ||
+        !Number.isInteger(selectedMonth) ||
+        selectedMonth < 1 ||
+        selectedMonth > 12
+      ) {
+        return null;
+      }
+      const previousDate = new Date(
+        Date.UTC(selectedYear, selectedMonth - 2, 1),
+      );
+      const previousYear = String(previousDate.getUTCFullYear());
+      const previousMonth = String(previousDate.getUTCMonth() + 1);
+      const selected = this.buildAnalyticsDateRange(
+        'month',
+        previousYear,
+        previousMonth,
+      );
+      if (!selected.lte || selected.lte < ADMIN_ORDER_ANALYTICS_CUTOFF) {
+        return null;
+      }
+      const now = new Date();
+      const lte =
+        selectedYear === now.getUTCFullYear() &&
+        selectedMonth === now.getUTCMonth() + 1
+          ? new Date(
+              Date.UTC(
+                previousDate.getUTCFullYear(),
+                previousDate.getUTCMonth(),
+                Math.min(
+                  now.getUTCDate(),
+                  new Date(
+                    Date.UTC(
+                      previousDate.getUTCFullYear(),
+                      previousDate.getUTCMonth() + 1,
+                      0,
+                    ),
+                  ).getUTCDate(),
+                ),
+                now.getUTCHours(),
+                now.getUTCMinutes(),
+                now.getUTCSeconds(),
+                now.getUTCMilliseconds(),
+              ),
+            )
+          : selected.lte;
+      if (lte < ADMIN_ORDER_ANALYTICS_CUTOFF) return null;
+      return {
+        ...this.resolveOrderAnalyticsDateRange(
+          'month',
+          previousYear,
+          previousMonth,
+        ),
+        lte,
+      };
+    }
+
+    return null;
+  }
+
   /**
    * Gross order revenue (sum of `totalAmountPaid`), same as admin overview
    * analytics and rentals-revenue trend charts.
@@ -344,6 +446,7 @@ export class AdminService {
       totalRevenue,
       activeListings,
       activeDisputes,
+      ordersWithDisputes,
       activeUsers,
       deliveryOrders,
     ] = await Promise.all([
@@ -361,6 +464,12 @@ export class AdminService {
           status: { in: [DisputeStatus.PENDING, DisputeStatus.IN_REVIEW] },
         },
       }),
+      this.prisma.order.count({
+        where: {
+          ...orderWhere,
+          disputes: { some: {} },
+        },
+      }),
       this.prisma.user.count({
         where: this.buildActiveUserWhere(selectedRange, hasDateRange),
       }),
@@ -373,6 +482,36 @@ export class AdminService {
         select: { dispatchedAt: true, deliveredAt: true },
       }),
     ]);
+
+    const previousRange = this.resolvePreviousOrderAnalyticsDateRange(
+      timeframe,
+      year,
+      month,
+    );
+    const previousPeriod = previousRange
+      ? await Promise.all([
+          this.prisma.order.count({
+            where: {
+              status: {
+                notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED],
+              },
+              createdAt: previousRange,
+            },
+          }),
+          this.prisma.order.aggregate({
+            where: {
+              status: {
+                notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED],
+              },
+              createdAt: previousRange,
+            },
+            _sum: { totalAmountPaid: true },
+          }),
+        ]).then(([orders, revenue]) => ({
+          orders,
+          revenue: revenue._sum.totalAmountPaid ?? 0,
+        }))
+      : null;
 
     let avgDeliveryTime = 0;
     let avgDeliveryTimeMinutes = 0;
@@ -400,6 +539,9 @@ export class AdminService {
       data: {
         totalOrders,
         totalRevenue,
+        previousPeriod,
+        ordersWithDisputes,
+        disputeRate: totalOrders > 0 ? ordersWithDisputes / totalOrders : 0,
         activeListings,
         activeDisputes,
         activeUsers,
@@ -745,11 +887,26 @@ export class AdminService {
       month,
     );
     const now = new Date();
-    const rangeEnd =
+    const requestedEnd =
       orderRange.lte ??
       new Date(
-        Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999),
+        Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth() + 1,
+          0,
+          23,
+          59,
+          59,
+          999,
+        ),
       );
+    const rangeEnd =
+      (timeframe === 'year' && Number(year) === now.getUTCFullYear()) ||
+      (timeframe === 'month' &&
+        Number(year) === now.getUTCFullYear() &&
+        Number(month) === now.getUTCMonth() + 1)
+        ? new Date(Math.min(requestedEnd.getTime(), now.getTime()))
+        : requestedEnd;
     const rangeStart = orderRange.gte;
 
     const orders = await this.prisma.order.findMany({
@@ -760,26 +917,47 @@ export class AdminService {
       select: { createdAt: true, totalAmountPaid: true },
     });
 
-    const monthKeys: string[] = [];
-    const cursor = new Date(
-      Date.UTC(rangeStart.getUTCFullYear(), rangeStart.getUTCMonth(), 1),
-    );
-    const endCursor = new Date(
-      Date.UTC(rangeEnd.getUTCFullYear(), rangeEnd.getUTCMonth(), 1),
-    );
+    const isDaily = timeframe === 'month';
+    const bucketStarts: Date[] = [];
+    const cursor = isDaily
+      ? new Date(
+          Date.UTC(
+            rangeStart.getUTCFullYear(),
+            rangeStart.getUTCMonth(),
+            rangeStart.getUTCDate(),
+          ),
+        )
+      : new Date(
+          Date.UTC(rangeStart.getUTCFullYear(), rangeStart.getUTCMonth(), 1),
+        );
+    const endCursor = isDaily
+      ? new Date(
+          Date.UTC(
+            rangeEnd.getUTCFullYear(),
+            rangeEnd.getUTCMonth(),
+            rangeEnd.getUTCDate(),
+          ),
+        )
+      : new Date(
+          Date.UTC(rangeEnd.getUTCFullYear(), rangeEnd.getUTCMonth(), 1),
+        );
     while (cursor <= endCursor) {
-      const key = `${cursor.getUTCFullYear()}-${String(cursor.getUTCMonth() + 1).padStart(2, '0')}`;
-      monthKeys.push(key);
-      cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+      bucketStarts.push(new Date(cursor));
+      if (isDaily) cursor.setUTCDate(cursor.getUTCDate() + 1);
+      else cursor.setUTCMonth(cursor.getUTCMonth() + 1);
     }
 
+    const getBucketKey = (date: Date) =>
+      isDaily
+        ? `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
+        : `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
     const buckets = new Map<string, { orders: number; revenue: number }>();
-    for (const key of monthKeys) {
-      buckets.set(key, { orders: 0, revenue: 0 });
+    for (const start of bucketStarts) {
+      buckets.set(getBucketKey(start), { orders: 0, revenue: 0 });
     }
 
     for (const order of orders) {
-      const key = `${order.createdAt.getUTCFullYear()}-${String(order.createdAt.getUTCMonth() + 1).padStart(2, '0')}`;
+      const key = getBucketKey(order.createdAt);
       const bucket = buckets.get(key);
       if (bucket) {
         bucket.orders += 1;
@@ -787,27 +965,20 @@ export class AdminService {
       }
     }
 
-    const monthLabels = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-
-    const trend = monthKeys.map((key) => {
-      const [, m] = key.split('-');
-      const monthIndex = parseInt(m, 10) - 1;
+    const trend = bucketStarts.map((start) => {
+      const key = getBucketKey(start);
+      const monthLabel = start.toLocaleString('en-US', {
+        month: 'short',
+        timeZone: 'UTC',
+      });
+      const label = isDaily
+        ? `${monthLabel} ${start.getUTCDate()}`
+        : timeframe === 'all_time'
+          ? `${monthLabel} ${start.getUTCFullYear()}`
+          : monthLabel;
       const bucket = buckets.get(key) ?? { orders: 0, revenue: 0 };
       return {
-        month: monthLabels[monthIndex] ?? key,
+        month: label,
         orders: bucket.orders,
         revenue: bucket.revenue,
       };
@@ -824,77 +995,233 @@ export class AdminService {
   }
 
   async getCategoryBreakdown(timeframe: string, year?: string, month?: string) {
-    const categories = await this.prisma.productCategory.findMany({
-      include: { _count: { select: { products: true } } },
-    });
+    const requestRange = this.buildAnalyticsDateRange(timeframe, year, month);
+    const productScope: Prisma.ProductWhereInput = {
+      isActive: true,
+      productVerified: true,
+      status: { in: LIVE_SHOP_STATUSES },
+    };
+    const [categories, listingCounts, requestedProducts] = await Promise.all([
+      this.prisma.productCategory.findMany({
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      }),
+      this.prisma.product.groupBy({
+        by: ['categoryId'],
+        where: { ...productScope, categoryId: { not: null } },
+        _count: { _all: true },
+      }),
+      this.prisma.availabilityRequest.groupBy({
+        by: ['productId'],
+        where: { createdAt: requestRange },
+        _count: { _all: true },
+      }),
+    ]);
 
-    const total =
-      categories.reduce((sum, cat) => sum + cat._count.products, 0) || 1;
+    const requestedProductIds = requestedProducts.map((row) => row.productId);
+    const requestedProductCategories =
+      requestedProductIds.length > 0
+        ? await this.prisma.product.findMany({
+            where: { id: { in: requestedProductIds } },
+            select: { id: true, categoryId: true },
+          })
+        : [];
+    const productCategoryMap = new Map(
+      requestedProductCategories.map((product) => [
+        product.id,
+        product.categoryId,
+      ]),
+    );
+    const activeByCategory = new Map(
+      listingCounts
+        .filter((row) => row.categoryId)
+        .map((row) => [row.categoryId!, row._count._all]),
+    );
+    const requestsByCategory = new Map<string, number>();
+    for (const request of requestedProducts) {
+      const categoryId = productCategoryMap.get(request.productId);
+      if (categoryId) {
+        requestsByCategory.set(
+          categoryId,
+          (requestsByCategory.get(categoryId) ?? 0) + request._count._all,
+        );
+      }
+    }
 
     return {
       success: true,
-      data: categories.map((cat) => ({
-        category: cat.name,
-        value: cat._count.products,
-        percentage: Math.round((cat._count.products / total) * 100),
+      data: categories.map((category) => ({
+        category: category.name,
+        activeListings: activeByCategory.get(category.id) ?? 0,
+        availabilityRequests: requestsByCategory.get(category.id) ?? 0,
       })),
     };
   }
 
   async getRevenueByCategory(timeframe: string, year?: string, month?: string) {
-    // Mocked for chart
+    const dateRange = this.resolveOrderAnalyticsDateRange(
+      timeframe,
+      year,
+      month,
+    );
+    const rentalsByProduct = await this.prisma.rental.groupBy({
+      by: ['productId'],
+      where: {
+        createdAt: dateRange,
+        order: {
+          status: { notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED] },
+        },
+      },
+      _sum: { totalAmount: true },
+    });
+    const productIds = rentalsByProduct.map((rental) => rental.productId);
+    const products =
+      productIds.length > 0
+        ? await this.prisma.product.findMany({
+            where: { id: { in: productIds } },
+            select: { id: true, category: { select: { name: true } } },
+          })
+        : [];
+    const productCategoryMap = new Map(
+      products.map((product) => [product.id, product.category?.name ?? null]),
+    );
+    const revenueByCategory = new Map<string, number>();
+    for (const rental of rentalsByProduct) {
+      const category = productCategoryMap.get(rental.productId);
+      if (category) {
+        revenueByCategory.set(
+          category,
+          (revenueByCategory.get(category) ?? 0) +
+            (rental._sum.totalAmount ?? 0),
+        );
+      }
+    }
+    const revenue = [...revenueByCategory].map(([category, amount]) => ({
+      category,
+      amount,
+    }));
+
     return {
       success: true,
-      data: [
-        { category: 'Dresses', revenue: 15000 },
-        { category: 'Bags', revenue: 8000 },
-        { category: 'Shoes', revenue: 5000 },
-      ],
+      data: {
+        revenue,
+        totalRevenue: revenue.reduce((sum, row) => sum + row.amount, 0),
+        timeframe,
+      },
     };
   }
 
-  async getTopCurators(limit: number) {
-    const topCurators = await this.prisma.user.findMany({
-      where: { role: 'LISTER' },
-      take: limit,
-      include: {
-        profile: true,
-        _count: { select: { products: true, rentalsCurated: true } },
+  async getTopCurators(
+    limit: number,
+    timeframe = 'all_time',
+    year?: string,
+    month?: string,
+  ) {
+    const dateRange = this.resolveOrderAnalyticsDateRange(
+      timeframe,
+      year,
+      month,
+    );
+    const rentalCounts = await this.prisma.rental.groupBy({
+      by: ['curatorId'],
+      where: {
+        createdAt: dateRange,
+        order: {
+          status: { notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED] },
+        },
       },
-      orderBy: { rentalsCurated: { _count: 'desc' } },
+      _count: { _all: true },
+      _sum: { totalAmount: true },
+      orderBy: { _count: { id: 'desc' } },
+      take: Math.min(Math.max(limit, 1), 50),
     });
+    const listerIds = rentalCounts.map((row) => row.curatorId);
+    const listers =
+      listerIds.length > 0
+        ? await this.prisma.user.findMany({
+            where: { id: { in: listerIds }, role: Role.LISTER },
+            select: {
+              id: true,
+              name: true,
+              profile: { select: { avatarUploadId: true } },
+              _count: { select: { products: true } },
+            },
+          })
+        : [];
+    const listerMap = new Map(listers.map((lister) => [lister.id, lister]));
 
     return {
       success: true,
-      data: topCurators.map((user) => ({
-        id: user.id,
-        name: user.name,
-        avatar: user.profile?.avatarUploadId || null,
-        totalRentals: user._count.rentalsCurated,
-        totalProducts: user._count.products,
-      })),
+      data: rentalCounts.flatMap((row) => {
+        const lister = listerMap.get(row.curatorId);
+        return lister
+          ? [
+              {
+                id: lister.id,
+                name: lister.name,
+                avatar: lister.profile?.avatarUploadId ?? null,
+                totalRentals: row._count._all,
+                totalProducts: lister._count.products,
+                revenue: row._sum.totalAmount ?? 0,
+              },
+            ]
+          : [];
+      }),
     };
   }
 
-  async getTopItems(limit: number) {
-    const topProducts = await this.prisma.product.findMany({
-      take: limit,
-      include: {
-        _count: { select: { rentals: true } },
-        brand: true,
+  async getTopItems(
+    limit: number,
+    timeframe = 'all_time',
+    year?: string,
+    month?: string,
+  ) {
+    const dateRange = this.resolveOrderAnalyticsDateRange(
+      timeframe,
+      year,
+      month,
+    );
+    const rentalCounts = await this.prisma.rental.groupBy({
+      by: ['productId'],
+      where: {
+        createdAt: dateRange,
+        order: {
+          status: { notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED] },
+        },
       },
-      orderBy: { rentals: { _count: 'desc' } },
+      _count: { _all: true },
+      _sum: { totalAmount: true },
+      orderBy: { _count: { id: 'desc' } },
+      take: Math.min(Math.max(limit, 1), 50),
     });
+    const productIds = rentalCounts.map((row) => row.productId);
+    const products =
+      productIds.length > 0
+        ? await this.prisma.product.findMany({
+            where: { id: { in: productIds } },
+            select: { id: true, name: true, brand: { select: { name: true } } },
+          })
+        : [];
+    const productMap = new Map(
+      products.map((product) => [product.id, product]),
+    );
 
     return {
       success: true,
-      data: topProducts.map((prod) => ({
-        id: prod.id,
-        name: prod.name,
-        brand: prod.brand?.name,
-        rentalsCount: prod._count.rentals,
-        dailyPrice: prod.dailyPrice,
-      })),
+      data: rentalCounts.flatMap((row) => {
+        const product = productMap.get(row.productId);
+        return product
+          ? [
+              {
+                id: product.id,
+                name: product.name,
+                brand: product.brand?.name ?? null,
+                rentalsCount: row._count._all,
+                earnings: row._sum.totalAmount ?? 0,
+              },
+            ]
+          : [];
+      }),
     };
   }
 
