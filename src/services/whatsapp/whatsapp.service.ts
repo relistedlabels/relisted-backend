@@ -32,12 +32,17 @@ export type RenterReturnReminderWhatsAppParams = {
   renterName: string;
   productName: string;
   pickupLabel: string;
+  orderId: string;
+  startReturnUrl?: string;
 };
 
 export type WhatsAppOutbound =
   | { kind: 'lister_availability'; params: ListerAvailabilityWhatsAppParams }
   | { kind: 'lister_purchase'; params: ListerPurchaseWhatsAppParams }
-  | { kind: 'renter_return_reminder'; params: RenterReturnReminderWhatsAppParams };
+  | {
+      kind: 'renter_return_reminder';
+      params: RenterReturnReminderWhatsAppParams;
+    };
 
 /** Strip non-digits for phone comparison and E.164 assembly. */
 export function normalizePhoneDigits(phone: string): string {
@@ -64,8 +69,8 @@ export class WhatsAppService {
   isConfigured(): boolean {
     return Boolean(
       process.env.TWILIO_ACCOUNT_SID?.trim() &&
-        process.env.TWILIO_AUTH_TOKEN?.trim() &&
-        process.env.TWILIO_WHATSAPP_FROM?.trim(),
+      process.env.TWILIO_AUTH_TOKEN?.trim() &&
+      process.env.TWILIO_WHATSAPP_FROM?.trim(),
     );
   }
 
@@ -185,6 +190,7 @@ export class WhatsAppService {
         '1': params.renterName,
         '2': params.productName,
         '3': params.pickupLabel,
+        '4': params.startReturnUrl || params.orderId,
       },
       fallbackBody: [
         `Hi ${params.renterName}, thanks for shopping with Relisted!`,
@@ -192,6 +198,10 @@ export class WhatsAppService {
         `Pickup for your ${params.productName} rental is ${params.pickupLabel}.`,
         '',
         'Pack the item, snap clear photos, and have it ready.',
+        '',
+        params.startReturnUrl
+          ? `Start return: ${params.startReturnUrl}`
+          : `Return ID: ${params.orderId}`,
       ].join('\n'),
       logLabel: `renter return reminder (${params.productName})`,
     });
@@ -222,8 +232,7 @@ export class WhatsAppService {
     }
 
     const from = process.env.TWILIO_WHATSAPP_FROM!.trim();
-    const contentSid =
-      process.env[opts.contentSidEnvKey]?.trim() || '';
+    const contentSid = process.env[opts.contentSidEnvKey]?.trim() || '';
 
     try {
       const client = this.getClient()!;
@@ -235,9 +244,7 @@ export class WhatsAppService {
             to,
           })
         : await client.messages.create({ body: opts.fallbackBody, from, to });
-      this.logger.log(
-        `Twilio WhatsApp ${opts.logLabel} sent: ${message.sid}`,
-      );
+      this.logger.log(`Twilio WhatsApp ${opts.logLabel} sent: ${message.sid}`);
       return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

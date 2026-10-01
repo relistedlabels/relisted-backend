@@ -13,6 +13,7 @@ import { PrismaModule } from '../../services/prisma/prisma.module';
 import { ProductAvailabilityNotifyModule } from '../../services/product-availability-notify/product-availability-notify.module';
 import { ReviewModule } from '../review/review.module';
 import { AdminReviewsController } from './admin.reviews.controller';
+import { AdminSearchController } from './admin.search.controller';
 
 @Module({
   imports: [PrismaModule, ProductAvailabilityNotifyModule, ReviewModule],
@@ -27,6 +28,7 @@ import { AdminReviewsController } from './admin.reviews.controller';
     AdminClosetsController,
     AdminAvailabilityRequestsController,
     AdminReviewsController,
+    AdminSearchController,
   ],
   providers: [AdminService],
   exports: [AdminService],

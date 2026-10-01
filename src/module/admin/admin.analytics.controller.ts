@@ -24,6 +24,12 @@ export class AdminAnalyticsController {
     return this.adminService.getAnalyticsStats(timeframe, year, month);
   }
 
+  @Get('dashboard-overview')
+  @ApiOperation({ summary: 'Get needs-attention counts, today load, and recent activity' })
+  async getDashboardOverview() {
+    return this.adminService.getDashboardOverview();
+  }
+
   @Get('rentals-revenue-trend')
   @ApiOperation({ summary: 'Get rentals and revenue trend over time' })
   async getRentalsRevenueTrend(

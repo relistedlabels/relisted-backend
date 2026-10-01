@@ -42,11 +42,12 @@ import {
 import { notifyAdminsReturnRequestPastDue } from './notify-admins-return-request-past-due.util';
 import type { WhatsAppOutbound } from 'src/services/whatsapp/whatsapp.service';
 
-const PAST_DUE_RETURN_REQUEST_REMINDER_TYPES = new Set<ReturnRequestReminderType>([
-  'past_due_morning',
-  'past_due_afternoon',
-  'past_due_evening',
-]);
+const PAST_DUE_RETURN_REQUEST_REMINDER_TYPES =
+  new Set<ReturnRequestReminderType>([
+    'past_due_morning',
+    'past_due_afternoon',
+    'past_due_evening',
+  ]);
 
 const DISPATCH_CRON_LOOKAHEAD_MINUTES = Number(
   process.env.DISPATCH_CRON_LOOKAHEAD_MINUTES ?? 59,
@@ -63,8 +64,7 @@ const RETURN_DUE_REMINDER_MORNING_CATCHUP_HOURS = Number(
   process.env.RETURN_DUE_REMINDER_MORNING_CATCHUP_HOURS ?? 0,
 );
 
-const DISPATCH_CRON_SCHEDULE =
-  process.env.DISPATCH_CRON?.trim() || '0 * * * *';
+const DISPATCH_CRON_SCHEDULE = process.env.DISPATCH_CRON?.trim() || '0 * * * *';
 const POLLING_CRON_SCHEDULE =
   process.env.POLLING_CRON?.trim() || '*/10 * * * *';
 const LISTER_RETURN_WINDOW_CRON_SCHEDULE =
@@ -528,6 +528,8 @@ export class ShipmentDispatchScheduler {
               renterName: order.user.name || 'there',
               productName,
               pickupLabel: windowLabel,
+              orderId: order.orderId,
+              startReturnUrl: orderLink,
             },
           };
         }
@@ -604,7 +606,9 @@ export class ShipmentDispatchScheduler {
                 productName,
                 renterName: order.user.name || 'Renter',
                 renterEmail: order.user.email.trim(),
-                listerName: lister ? listerDisplayName(lister) : 'Unknown lister',
+                listerName: lister
+                  ? listerDisplayName(lister)
+                  : 'Unknown lister',
                 windowLabel,
                 daysPastDue: Math.max(daysPastDue, 1),
               },
