@@ -5570,7 +5570,11 @@ export class ListersService {
           include: {
             avatarUpload: { select: { url: true } },
             businessInfo: true,
-            address: true,
+            address: {
+              select: {
+                city: true,
+              },
+            },
           },
         },
         _count: {
@@ -5636,6 +5640,7 @@ export class ListersService {
           id: lister.id,
           name: lister.profile?.businessInfo?.businessName || lister.name,
           avatar: lister.profile?.avatarUpload?.url || null,
+          location: lister.profile?.address?.city || null,
           role: 'lister',
           bio: lister.profile?.businessInfo?.businessDescription || '', // Use description as bio
           shopDescription:
