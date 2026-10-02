@@ -791,29 +791,29 @@ export class MailService {
     <div style="padding:20px;">
       <p style="margin:0 0 16px;color:#374151;">A shipment dispatch has failed after 3 retry attempts. Manual action is required.</p>
       <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
-        <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
-          <div style="min-width:220px;">
+        <div style="color:#111827;word-break:break-word;overflow-wrap:anywhere;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Order</div>
             <div style="font-weight:600;">${safe(humanOrderId)}</div>
           </div>
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Item</div>
             <div style="font-weight:600;">${itemLabel}</div>
           </div>
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Leg</div>
             <div style="font-weight:600;">${safe(legLabel)}</div>
           </div>
           ${
             renterName || renterEmail
-              ? `<div style="min-width:220px;">
+              ? `<div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Renter</div>
             ${renterName ? `<div style="font-weight:600;">${safe(renterName)}</div>` : ''}
             ${renterEmail ? `<div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(renterEmail)}</div>` : ''}
           </div>`
               : ''
           }
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Scheduled Date</div>
             <div style="font-weight:600;">${scheduledDateStr}</div>
           </div>
@@ -865,7 +865,7 @@ export class MailService {
 
     const renterBlock =
       renterName || renterEmail
-        ? `<div style="min-width:220px;">
+        ? `<div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Renter</div>
             ${
               renterName
@@ -903,12 +903,12 @@ export class MailService {
           : '';
         return `<div style="padding:14px 16px;border-bottom:1px solid #eef0f5;">
           <div style="font-weight:700;color:#111827;">${safe(s.legLabel)}</div>
-          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px;color:#111827;">
-            <div style="min-width:200px;">
+          <div style="margin-top:12px;color:#111827;word-break:break-word;overflow-wrap:anywhere;">
+            <div style="margin:0 0 12px 0;max-width:100%;">
               <div style="font-size:12px;color:#6b7280;">Item</div>
               <div style="font-weight:600;">${itemLabel}</div>
             </div>
-            <div style="min-width:200px;">
+            <div style="margin:0 0 12px 0;max-width:100%;">
               <div style="font-size:12px;color:#6b7280;">Delivery window</div>
               <div style="font-weight:600;">${safe(s.windowLabel || 'Not scheduled')}</div>
             </div>
@@ -929,8 +929,8 @@ export class MailService {
       <p style="margin:0 0 16px;color:#374151;line-height:1.5;">This order uses <strong>Relisted dispatch</strong>. No carrier is booked automatically for these legs. Arrange pickup or delivery yourself, then open each shipment below and click <strong>Mark dispatched</strong> when it is on the way.</p>
       <div style="border:1px solid #eef0f5;border-radius:10px;overflow:hidden;background:#fbfbfe;">
         <div style="padding:14px 16px;border-bottom:1px solid #eef0f5;background:#f3f4f6;">
-          <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
-            <div style="min-width:200px;">
+          <div style="color:#111827;word-break:break-word;overflow-wrap:anywhere;">
+            <div style="margin:0 0 12px 0;max-width:100%;">
               <div style="font-size:12px;color:#6b7280;">Order</div>
               <div style="font-weight:700;">${safe(humanOrderId)}</div>
             </div>
@@ -999,7 +999,7 @@ export class MailService {
           View order in admin
         </a>
         <div style="margin-top:10px;font-size:12px;color:#6b7280;">
-          If the button does not work, open: <span style="color:#111827;">${adminLink}</span>
+          If the button does not work, open: <span style="color:#111827;word-break:break-all;overflow-wrap:anywhere;">${adminLink}</span>
         </div>
       </div>`
       : '';
@@ -1014,25 +1014,25 @@ export class MailService {
       <p style="margin:0 0 12px;color:#374151;">Hello ${safe(adminName || 'Admin')},</p>
       <p style="margin:0 0 16px;color:#374151;line-height:1.5;">The return pickup window for this order has passed and the renter has <strong>not submitted a return request</strong>. Please follow up so pickup can be scheduled.</p>
       <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
-        <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
-          <div style="min-width:220px;">
+        <div style="color:#111827;word-break:break-word;overflow-wrap:anywhere;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Order</div>
             <div style="font-weight:600;">${safe(humanOrderId)}</div>
           </div>
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Status</div>
             <div style="font-weight:600;">${safe(dayLabel)}</div>
           </div>
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Item</div>
             <div style="font-weight:600;">${safe(productName)}</div>
           </div>
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Renter</div>
             <div style="font-weight:600;">${safe(renterName)}</div>
             <div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(renterEmail)}</div>
           </div>
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Lister</div>
             <div style="font-weight:600;">${safe(listerName)}</div>
           </div>
@@ -1114,7 +1114,7 @@ export class MailService {
           Open shipment in admin
         </a>
         <div style="margin-top:10px;font-size:12px;color:#6b7280;">
-          If the button does not work, open: <span style="color:#111827;">${adminShipmentUrl}</span>
+          If the button does not work, open: <span style="color:#111827;word-break:break-all;overflow-wrap:anywhere;">${adminShipmentUrl}</span>
         </div>
       </div>`
       : '';
@@ -1128,22 +1128,22 @@ export class MailService {
     <div style="padding:20px;">
       <p style="margin:0 0 16px;color:#374151;line-height:1.5;">A <strong>Relisted dispatch</strong> leg is still <strong>pending</strong> and is coming up. Arrange pickup or delivery, then click <strong>Mark dispatched</strong> when it is on the way.</p>
       <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
-        <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
-          <div style="min-width:200px;">
+        <div style="color:#111827;word-break:break-word;overflow-wrap:anywhere;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Order</div>
             <div style="font-weight:600;">${safe(humanOrderId)}</div>
           </div>
-          <div style="min-width:200px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Leg</div>
             <div style="font-weight:600;">${safe(legLabel)}</div>
           </div>
-          <div style="min-width:200px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Item</div>
             <div style="font-weight:600;">${itemLabel}</div>
           </div>
           ${
             renterName || renterEmail
-              ? `<div style="min-width:200px;">
+              ? `<div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Renter</div>
             ${renterName ? `<div style="font-weight:600;">${safe(renterName)}</div>` : ''}
             ${renterEmail ? `<div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(renterEmail)}</div>` : ''}
@@ -1228,33 +1228,33 @@ export class MailService {
     <div style="padding:20px;">
       <p style="margin:0 0 16px;color:#374151;">${safe(providerLabel)} reported that this shipment has been cancelled. Please review and take action.</p>
       <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
-        <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
-          <div style="min-width:220px;">
+        <div style="color:#111827;word-break:break-word;overflow-wrap:anywhere;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Order</div>
             <div style="font-weight:600;">${safe(humanOrderId)}</div>
           </div>
           ${
             itemLabel
-              ? `<div style="min-width:220px;">
+              ? `<div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Item</div>
             <div style="font-weight:600;">${itemLabel}</div>
           </div>`
               : ''
           }
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Leg</div>
             <div style="font-weight:600;">${safe(legLabel)}</div>
           </div>
           ${
             renterName || renterEmail
-              ? `<div style="min-width:220px;">
+              ? `<div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Renter</div>
             ${renterName ? `<div style="font-weight:600;">${safe(renterName)}</div>` : ''}
             ${renterEmail ? `<div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(renterEmail)}</div>` : ''}
           </div>`
               : ''
           }
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Provider Status</div>
             <div style="font-weight:600;">${safe(providerStatus)}</div>
           </div>
@@ -1349,33 +1349,33 @@ export class MailService {
       <p style="margin:0 0 12px;color:#374151;">Hello ${safe(adminName || 'Admin')},</p>
       <p style="margin:0 0 16px;color:#374151;line-height:1.5;">An order was cancelled from the admin panel. The renter was refunded to their wallet and both parties were notified.</p>
       <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
-        <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
-          <div style="min-width:220px;">
+        <div style="color:#111827;word-break:break-word;overflow-wrap:anywhere;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Order</div>
             <div style="font-weight:600;">${safe(humanOrderId)}</div>
           </div>
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Refund</div>
             <div style="font-weight:600;">NGN ${safe(refundAmountFormatted)}</div>
           </div>
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Renter</div>
             <div style="font-weight:600;">${safe(renterName)}</div>
             <div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(renterEmail)}</div>
           </div>
           ${
             productNames && productNames.length > 0
-              ? `<div style="min-width:220px;">
+              ? `<div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Item(s)</div>
             <div style="font-weight:600;">${safe(productNames.join(', '))}</div>
           </div>`
               : ''
           }
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Lister(s)</div>
             <div style="font-weight:600;">${safe(listerSummary)}</div>
           </div>
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Cancelled at</div>
             <div style="font-weight:600;">${safe(cancelledLabel)}</div>
           </div>
@@ -1453,25 +1453,25 @@ export class MailService {
       <p style="margin:0 0 12px;color:#374151;">Hello ${safe(adminName || 'Admin')},</p>
       <p style="margin:0 0 16px;color:#374151;line-height:1.5;">A renter completed checkout. Review the order in admin.</p>
       <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
-        <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
-          <div style="min-width:220px;">
+        <div style="color:#111827;word-break:break-word;overflow-wrap:anywhere;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Order</div>
             <div style="font-weight:600;">${safe(humanOrderId)}</div>
           </div>
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Total</div>
             <div style="font-weight:600;">NGN ${safe(totalAmountFormatted)}</div>
           </div>
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Items</div>
             <div style="font-weight:600;">${safe(itemLabel)}</div>
           </div>
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Renter</div>
             <div style="font-weight:600;">${safe(renterName)}</div>
             <div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(renterEmail)}</div>
           </div>
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Lister(s)</div>
             <div style="font-weight:600;">${safe(listerSummary)}</div>
           </div>
@@ -1545,26 +1545,26 @@ export class MailService {
       <p style="margin:0 0 12px;color:#374151;">Hello ${safe(adminName || 'Admin')},</p>
       <p style="margin:0 0 16px;color:#374151;line-height:1.5;">A customer submitted a ${safe(requestKind)} on the inhouse lister account. The lister was emailed as usual.</p>
       <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
-        <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
-          <div style="min-width:220px;">
+        <div style="color:#111827;word-break:break-word;overflow-wrap:anywhere;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Item</div>
             <div style="font-weight:600;">${safe(productName)}</div>
           </div>
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Customer</div>
             <div style="font-weight:600;">${safe(renterName)}</div>
             ${renterEmail ? `<div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(renterEmail)}</div>` : ''}
           </div>
           ${
             !isPurchase
-              ? `<div style="min-width:220px;">
+              ? `<div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Dates</div>
             <div style="font-weight:600;">${safe(startDate || 'N/A')} – ${safe(endDate || 'N/A')}</div>
             <div style="font-size:13px;color:#6b7280;margin-top:4px;">${rentalDays} day(s)</div>
           </div>`
               : ''
           }
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Estimated total</div>
             <div style="font-weight:600;">NGN ${safe(totalAmountFormatted)}</div>
           </div>
@@ -1922,21 +1922,21 @@ export class MailService {
       <p style="margin:0 0 12px;color:#374151;">Hello ${safe(adminName || 'Admin')},</p>
       <p style="margin:0 0 16px;color:#374151;line-height:1.5;">A user submitted a withdrawal request that needs review. Open <strong>Payments & balances</strong>, then the <strong>Withdrawals</strong> tab to approve, reject, or mark as paid.</p>
       <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
-        <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
-          <div style="min-width:220px;">
+        <div style="color:#111827;word-break:break-word;overflow-wrap:anywhere;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Reference</div>
             <div style="font-weight:600;">${safe(reference)}</div>
           </div>
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Amount</div>
             <div style="font-weight:600;">${amountStr}</div>
           </div>
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Requested by</div>
             <div style="font-weight:600;">${safe(requesterName)} (${safe(requesterRole)})</div>
             <div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(requesterEmail)}</div>
           </div>
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Bank account</div>
             <div style="font-weight:600;">${safe(bankName)}</div>
             <div style="font-size:13px;color:#111827;margin-top:4px;font-family:ui-monospace,monospace;">${safe(accountNumber)}</div>
@@ -1947,7 +1947,7 @@ export class MailService {
       <div style="margin-top:18px;">
         <a href="${adminLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">Review in admin</a>
         <div style="margin-top:10px;font-size:12px;color:#6b7280;">
-          If the button does not work, open: <span style="color:#111827;">${adminLink}</span>
+          If the button does not work, open: <span style="color:#111827;word-break:break-all;overflow-wrap:anywhere;">${adminLink}</span>
         </div>
       </div>
     </div>
