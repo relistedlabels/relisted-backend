@@ -10,6 +10,7 @@ const mockPrisma: any = {
   dispute: {
     findUnique: jest.fn(),
     update: jest.fn(),
+    count: jest.fn(),
   },
   user: {
     findUnique: jest.fn(),
@@ -17,6 +18,7 @@ const mockPrisma: any = {
   wallet: {
     upsert: jest.fn(),
     update: jest.fn(),
+    aggregate: jest.fn(),
   },
   walletTransaction: {
     create: jest.fn(),
@@ -26,6 +28,8 @@ const mockPrisma: any = {
   },
   order: {
     update: jest.fn(),
+    count: jest.fn(),
+    aggregate: jest.fn(),
   },
   shipment: {
     findFirst: jest.fn(),
@@ -33,13 +37,21 @@ const mockPrisma: any = {
   orderItem: {
     findMany: jest.fn().mockResolvedValue([]),
   },
+  walletTransaction: {
+    count: jest.fn(),
+    findMany: jest.fn(),
+    aggregate: jest.fn(),
+    create: jest.fn(),
+  },
   rental: {
     updateMany: jest.fn().mockResolvedValue({ count: 1 }),
   },
   product: {
     update: jest.fn(),
+    count: jest.fn(),
   },
   $transaction: jest.fn(),
+  $queryRaw: jest.fn(),
 };
 
 const mockNotificationService = {
@@ -59,8 +71,8 @@ describe('AdminService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    mockPrisma.$transaction.mockImplementation(async (fn: any) =>
-      fn(mockPrisma),
+    mockPrisma.$transaction.mockImplementation(async (arg: any) =>
+      Array.isArray(arg) ? Promise.all(arg) : arg(mockPrisma),
     );
 
     const module: TestingModule = await Test.createTestingModule({
@@ -77,6 +89,55 @@ describe('AdminService', () => {
     }).compile();
 
     service = module.get<AdminService>(AdminService);
+  });
+
+  describe('getOrderStats', () => {
+    it('counts return-due orders as active, but not delivered orders', async () => {
+      mockPrisma.product.count.mockResolvedValue(0);
+      mockPrisma.order.count.mockResolvedValue(0);
+      mockPrisma.dispute.count.mockResolvedValue(0);
+      mockPrisma.order.aggregate.mockResolvedValue({
+        _sum: { totalAmountPaid: 0 },
+      });
+
+      await service.getOrderStats();
+
+      expect(mockPrisma.order.count).toHaveBeenCalledWith({
+        where: {
+          status: {
+            in: [
+              'PROCESSING',
+              'ACCEPTED',
+              'CONFIRMED',
+              'IN_TRANSIT',
+              'ACTIVE',
+              'RETURN_DUE',
+              'RETURNED',
+            ],
+          },
+        },
+      });
+    });
+  });
+
+  describe('getAllWalletTransactions', () => {
+    it('returns the full real-user ledger without hiding legacy or pending rows', async () => {
+      mockPrisma.walletTransaction.count.mockResolvedValue(2);
+      mockPrisma.walletTransaction.findMany.mockResolvedValue([]);
+
+      await service.getAllWalletTransactions(1, 20);
+
+      const query = mockPrisma.walletTransaction.findMany.mock.calls[0][0];
+      expect(query.where).toEqual({
+        wallet: {
+          user: expect.objectContaining({
+            role: { in: ['RENTER', 'LISTER'] },
+          }),
+        },
+      });
+      expect(query.where).not.toHaveProperty('status');
+      expect(query.where).not.toHaveProperty('createdAt');
+    });
   });
 
   describe('getWalletStats', () => {

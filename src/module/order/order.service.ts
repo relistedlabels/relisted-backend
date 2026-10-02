@@ -41,6 +41,7 @@ import { userEntity } from '../auth/auth.types';
 import { addDays, addMinutes, startOfDay } from 'date-fns';
 import { NotificationService } from 'src/services/notification/notification.service';
 import { DEFAULT_CLEANING_FEE_NGN } from 'src/constants/rental-pricing';
+import { calculatePlatformFee } from './platform-fee.util';
 import { buildRenterCheckoutEmailLinesFromCheckout } from './renter-checkout-confirmation-email.util';
 import {
   closetSplitKindForResaleOrderConfirm,
@@ -1494,7 +1495,7 @@ export class OrderService {
           collateralAmount = 0;
           cleaningFee = 0;
           vatAmount = Math.round(item.product.resalePrice * 0.075);
-          serviceCharge = Math.round(item.product.resalePrice * 0.1);
+          serviceCharge = calculatePlatformFee(item.product.resalePrice);
           listerPurchaseTotal += item.product.resalePrice;
           listerRentalTotal += 0; // No rental fee for resale
         } else {
@@ -1509,7 +1510,7 @@ export class OrderService {
             ) || 0;
           cleaningFee = DEFAULT_CLEANING_FEE_NGN;
           vatAmount = Math.round(rentalAmount * 0.075);
-          serviceCharge = Math.round(rentalAmount * 0.1);
+          serviceCharge = calculatePlatformFee(rentalAmount);
           listerRentalTotal += rentalAmount;
         }
 
@@ -2261,7 +2262,7 @@ export class OrderService {
           collateralAmount = 0;
           cleaningFee = 0;
           vatAmount = Math.round(item.product.resalePrice * 0.075);
-          serviceCharge = Math.round(item.product.resalePrice * 0.1);
+          serviceCharge = calculatePlatformFee(item.product.resalePrice);
           itemTotal = item.product.resalePrice + vatAmount + serviceCharge;
         } else if (item.product.listingType === 'RENT_OR_RESALE') {
           // RENT_OR_RESALE flow: can be either rental or resale based on context
@@ -2277,7 +2278,7 @@ export class OrderService {
               ) || 0;
             cleaningFee = DEFAULT_CLEANING_FEE_NGN;
             vatAmount = Math.round(rentalAmount * 0.075);
-            serviceCharge = Math.round(rentalAmount * 0.1);
+            serviceCharge = calculatePlatformFee(rentalAmount);
             itemTotal =
               rentalAmount +
               collateralAmount +
@@ -2296,7 +2297,7 @@ export class OrderService {
             collateralAmount = 0;
             cleaningFee = 0;
             vatAmount = Math.round(item.product.resalePrice * 0.075);
-            serviceCharge = Math.round(item.product.resalePrice * 0.1);
+            serviceCharge = calculatePlatformFee(item.product.resalePrice);
             itemTotal = item.product.resalePrice + vatAmount + serviceCharge;
           }
         } else {
@@ -2314,7 +2315,7 @@ export class OrderService {
             ) || 0;
           cleaningFee = DEFAULT_CLEANING_FEE_NGN;
           vatAmount = Math.round(rentalAmount * 0.075);
-          serviceCharge = Math.round(rentalAmount * 0.1);
+          serviceCharge = calculatePlatformFee(rentalAmount);
           itemTotal =
             rentalAmount +
             collateralAmount +

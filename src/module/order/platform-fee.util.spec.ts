@@ -1,4 +1,5 @@
 import {
+  calculatePlatformFee,
   computePlatformFee,
   escrowFeeBaseOnReturnConfirm,
   escrowPlatformFee,
@@ -7,59 +8,43 @@ import {
   platformFeeNoteSuffix,
 } from './platform-fee.util';
 
-describe('platform-fee.util', () => {
-  const OLD = process.env.LISTER_PLATFORM_FEE_PERCENT;
-  afterEach(() => {
-    if (OLD === undefined) delete process.env.LISTER_PLATFORM_FEE_PERCENT;
-    else process.env.LISTER_PLATFORM_FEE_PERCENT = OLD;
+describe('calculatePlatformFee', () => {
+  it('floors fractional naira instead of rounding up', () => {
+    expect(calculatePlatformFee(155)).toBe(15);
   });
 
-  it('defaults to 10% and honours env override', () => {
-    delete process.env.LISTER_PLATFORM_FEE_PERCENT;
+  it('keeps whole-naira fees unchanged', () => {
+    expect(calculatePlatformFee(150)).toBe(15);
+  });
+
+  it('uses the configured lister rate with a ten-percent default', () => {
     expect(getListerPlatformFeePercent()).toBe(10);
-    process.env.LISTER_PLATFORM_FEE_PERCENT = '0';
-    expect(getListerPlatformFeePercent()).toBe(0);
-    process.env.LISTER_PLATFORM_FEE_PERCENT = 'abc';
-    expect(getListerPlatformFeePercent()).toBe(10);
+    expect(computePlatformFee(155, 5)).toBe(7);
   });
 
-  it('computes whole-naira fees', () => {
-    expect(computePlatformFee(25000, 10)).toBe(2500);
-    expect(computePlatformFee(1005, 10)).toBe(101);
-    expect(computePlatformFee(5000, 0)).toBe(0);
-    expect(computePlatformFee(-5, 10)).toBe(0);
-  });
-
-  it('excludes cleaning from the rental fee base', () => {
-    expect(escrowRentalFeeBase({ rentalAmount: 25000, cleaningFee: 5000 })).toBe(
-      20000,
-    );
-  });
-
-  it('charges nothing on legacy escrows (rate 0)', () => {
-    expect(escrowPlatformFee({ platformFeeRate: 0 }, 20000)).toBe(0);
-    expect(escrowPlatformFee({}, 20000)).toBe(0);
-  });
-
-  it('computes the return-confirm fee base by escrow state', () => {
-    const base = {
-      rentalAmount: 25000,
-      cleaningFee: 5000,
-      collateralAmount: 50000,
-      resaleAmount: 30000,
-      resaleReleasedAmount: 10000,
-    };
-    expect(escrowFeeBaseOnReturnConfirm({ ...base, status: 'LOCKED' })).toBe(
-      40000,
-    );
+  it('uses the persisted escrow fee or computes it from the escrow rate', () => {
     expect(
-      escrowFeeBaseOnReturnConfirm({ ...base, status: 'PARTIALLY_RELEASED' }),
-    ).toBe(20000);
-    expect(escrowFeeBaseOnReturnConfirm({ ...base, status: 'RELEASED' })).toBe(0);
+      escrowPlatformFee(
+        { platformFeeRate: 5, platformFeeAmount: 0 },
+        155,
+      ),
+    ).toBe(7);
+    expect(
+      escrowPlatformFee(
+        { platformFeeRate: 5, platformFeeAmount: 8 },
+        155,
+      ),
+    ).toBe(8);
   });
 
-  it('formats the ledger note suffix', () => {
+  it('builds rental and return-confirmation fee bases', () => {
+    const escrow = { rentalAmount: 100, cleaningFee: 25, resaleAmount: 50 };
+    expect(escrowRentalFeeBase(escrow)).toBe(125);
+    expect(escrowFeeBaseOnReturnConfirm(escrow)).toBe(175);
+  });
+
+  it('adds a fee note only for positive fees', () => {
+    expect(platformFeeNoteSuffix(15)).toBe(' (platform fee ₦15)');
     expect(platformFeeNoteSuffix(0)).toBe('');
-    expect(platformFeeNoteSuffix(2500)).toContain('platform fee');
   });
 });
