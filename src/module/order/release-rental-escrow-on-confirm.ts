@@ -33,14 +33,10 @@ export async function releaseRentalEscrowForListerOnConfirm(
   if (escrow.status !== 'LOCKED' || !(escrow.rentalAmount || 0)) return;
 
   const platformFee = Math.min(
-    escrow.rentalAmount,
-    escrowPlatformFee(
-      escrow,
-      escrowRentalFeeBase(escrow) +
-        Math.max(0, Number(escrow.cleaningFee ?? 0)),
-    ),
+    escrowRentalFeeBase(escrow),
+    escrowPlatformFee(escrow, escrowRentalFeeBase(escrow)),
   );
-  const releaseAmount = escrow.rentalAmount - platformFee;
+  const releaseAmount = Math.max(0, escrow.rentalAmount - platformFee);
   const hasResaleAmount = (escrow.resaleAmount || 0) > 0;
 
   const listerWallet = await tx.wallet.upsert({

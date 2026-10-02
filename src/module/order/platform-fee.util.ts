@@ -23,20 +23,20 @@ export function computePlatformFee(
   return Math.floor((amount * percent) / 100);
 }
 
+/** Commission base for rental income only; excludes cleaning and collateral. */
 export function escrowRentalFeeBase(
   escrow: Pick<Escrow, 'rentalAmount' | 'cleaningFee'>,
 ): number {
-  return Number(escrow.rentalAmount ?? 0) + Number(escrow.cleaningFee ?? 0);
+  return Math.max(
+    0,
+    Number(escrow.rentalAmount ?? 0) - Number(escrow.cleaningFee ?? 0),
+  );
 }
 
 export function escrowFeeBaseOnReturnConfirm(
   escrow: Pick<Escrow, 'rentalAmount' | 'cleaningFee' | 'resaleAmount'>,
 ): number {
-  return (
-    Number(escrow.rentalAmount ?? 0) +
-    Number(escrow.cleaningFee ?? 0) +
-    Number(escrow.resaleAmount ?? 0)
-  );
+  return escrowRentalFeeBase(escrow) + Number(escrow.resaleAmount ?? 0);
 }
 
 export function escrowPlatformFee(

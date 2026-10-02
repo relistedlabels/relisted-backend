@@ -2993,8 +2993,8 @@ export class ListersService {
       ? listerEscrowDisplaySummary(listerEscrow)
       : null;
     const merchandiseTotal = listerEscrow
-      ? (listerEscrow.rentalAmount ?? 0) + (listerEscrow.resaleAmount ?? 0)
-      : listerRentalSubtotal + listerCleaningFeesTotal + listerResaleSubtotal;
+      ? escrowFromDb!.rentalFeeTotal + escrowFromDb!.purchasePrice
+      : listerRentalSubtotal + listerResaleSubtotal;
     const displayTotalAmount = listerEscrow
       ? merchandiseTotal
       : totalAmount;
@@ -3113,11 +3113,11 @@ export class ListersService {
           ? (() => {
               const feeBase =
                 escrowFromDb!.rentalFeeTotal +
-                escrowFromDb!.cleaningFeeTotal +
                 escrowFromDb!.purchasePrice;
               const amount = escrowPlatformFee(listerEscrow, feeBase);
               return {
                 ratePercent: listerEscrow.platformFeeRate ?? 0,
+                base: feeBase,
                 amount,
                 netEarnings:
                   merchandiseTotal + escrowFromDb!.cleaningFeeTotal - amount,
