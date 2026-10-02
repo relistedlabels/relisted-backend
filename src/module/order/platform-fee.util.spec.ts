@@ -37,6 +37,27 @@ describe('calculatePlatformFee', () => {
     ).toBe(8);
   });
 
+  it('does not charge a fee on legacy escrows with no persisted rate', () => {
+    expect(
+      escrowPlatformFee(
+        { platformFeeRate: 0, platformFeeAmount: 0 },
+        155,
+      ),
+    ).toBe(0);
+  });
+
+  it('includes cleaning fees in the commissionable rental base', () => {
+    expect(escrowPlatformFee(
+      {
+        platformFeeRate: 10,
+        platformFeeAmount: 0,
+        rentalAmount: 205,
+        cleaningFee: 0,
+      },
+      205,
+    )).toBe(20);
+  });
+
   it('builds rental and return-confirmation fee bases', () => {
     const escrow = { rentalAmount: 100, cleaningFee: 25, resaleAmount: 50 };
     expect(escrowRentalFeeBase(escrow)).toBe(125);
