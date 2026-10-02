@@ -1848,6 +1848,83 @@ export class RentersService {
     };
   }
 
+  async getAuthenticatedAvailabilityStatus(
+    requestId: string,
+    requesterId: string,
+  ) {
+    const request = await this.prisma.availabilityRequest.findFirst({
+      where: { id: requestId, requesterId },
+      include: {
+        product: {
+          include: {
+            curator: true,
+            ...AVAILABILITY_REQUEST_SHOP_PRODUCT_INCLUDE,
+          },
+        },
+        requester: { select: { email: true, name: true } },
+      },
+    });
+
+    if (!request) {
+      throw new NotFoundException('Availability request not found');
+    }
+
+    await this.expireStalePendingAvailabilityRequestsForRequester(
+      request.requesterId,
+    );
+
+    const refreshed = await this.prisma.availabilityRequest.findFirst({
+      where: { id: requestId, requesterId },
+      include: {
+        product: {
+          include: {
+            curator: true,
+            ...AVAILABILITY_REQUEST_SHOP_PRODUCT_INCLUDE,
+          },
+        },
+        requester: { select: { email: true, name: true } },
+      },
+    });
+    const current = refreshed ?? request;
+    const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+    const publicStatus =
+      current.status === 'ACCEPTED'
+        ? 'available'
+        : current.status === 'REJECTED'
+          ? 'unavailable'
+          : current.status === 'CANCELLED_BY_RENTER'
+            ? 'cancelled'
+            : isBusinessExpired(current)
+              ? 'dates_passed'
+              : current.status === 'EXPIRED'
+                ? 'awaiting_lister'
+                : current.status === 'PENDING'
+                  ? 'checking'
+                  : current.status.toLowerCase();
+
+    return {
+      success: true,
+      data: {
+        requestId: current.id,
+        status: publicStatus,
+        canStillBeApproved: canListerActOnAvailabilityRequest(current),
+        businessExpiresAt: computeBusinessExpiresAt(current).toISOString(),
+        productId: current.productId,
+        productName: current.product?.name,
+        similarShop: buildSimilarShopFromProduct(current.product),
+        rentalDays: current.rentalDays,
+        rentalStartDate: current.startDate,
+        rentalEndDate: current.endDate,
+        totalPrice: current.totalPrice,
+        requesterEmail: current.requester?.email ?? null,
+        completeRentalUrl:
+          publicStatus === 'available'
+            ? `${clientUrl}/shop/availability/available?requestId=${encodeURIComponent(current.id)}`
+            : null,
+      },
+    };
+  }
+
   async getRentalRequests(userId: string, query: any) {
     await this.expireStalePendingAvailabilityRequestsForRequester(userId);
 

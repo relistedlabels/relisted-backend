@@ -1,7 +1,17 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RentersService } from './renters.service';
 import { GuestAvailabilityRequestDto } from './dto/guest-availability-request.dto';
+import { JwtAuthGuard } from '../auth/guard/authGuard';
 
 @ApiTags('Public Availability')
 @Controller('api/public/availability-requests')
@@ -29,5 +39,20 @@ export class RentersAvailabilityPublicController {
     @Query('token') token: string,
   ) {
     return this.rentersService.getPublicAvailabilityStatus(requestId, token);
+  }
+
+  @Get(':requestId/authenticated-status')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: 'Get availability status for the signed-in requester',
+  })
+  getAuthenticatedStatus(
+    @Param('requestId') requestId: string,
+    @Req() req: { user: { id: string } },
+  ) {
+    return this.rentersService.getAuthenticatedAvailabilityStatus(
+      requestId,
+      req.user.id,
+    );
   }
 }
