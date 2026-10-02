@@ -26,10 +26,7 @@ import { notifyAdminsInhouseRentalRequest } from './notify-admins-inhouse-rental
 import { isInhouseLister } from '../../utils/inhouse-lister.util';
 import { assertNoOpenAvailabilityRequestForProduct } from '../../utils/assert-no-open-availability-for-product';
 import { DEFAULT_CLEANING_FEE_NGN } from '../../constants/rental-pricing';
-import {
-  resolveApiPublicUrl,
-  resolveClientUrl,
-} from '../../config/app-urls';
+import { resolveApiPublicUrl, resolveClientUrl } from '../../config/app-urls';
 import {
   buildListerNameMapFromOrderItems,
   buildRentalOutboundPackageRows,
@@ -91,7 +88,10 @@ import {
   buildListerWithdrawRentalRequestEmailContext,
   type ListerWithdrawNotify,
 } from '../cart-items/withdraw-availability-for-cart-item';
-import { formatRentalBoundaryDateLagos, formatDispatchWindowLabel } from '../shipment/dispatch-window-format';
+import {
+  formatRentalBoundaryDateLagos,
+  formatDispatchWindowLabel,
+} from '../shipment/dispatch-window-format';
 import { syncOrderStatusFromShipments } from '../order/order-shipment-status.sync';
 import { resolveRenterStartReturn } from '../order/renter-start-return.util';
 import { ShipbubbleAddressCacheService } from '../../services/shipbubble/shipbubble-address-cache.service';
@@ -288,7 +288,13 @@ function selectedRateFromCheckoutReturnShipment(s: {
   const vatCharge = koboToNgn(s.vatCharge);
   const tier = s.pricingTier?.trim();
   const partner = s.pickupPartner?.trim();
-  if (!tier && !partner && shipmentCharge <= 0 && pickupCharge <= 0 && vatCharge <= 0) {
+  if (
+    !tier &&
+    !partner &&
+    shipmentCharge <= 0 &&
+    pickupCharge <= 0 &&
+    vatCharge <= 0
+  ) {
     return null;
   }
   const totalCharge = shipmentCharge + pickupCharge + vatCharge;
@@ -1848,6 +1854,83 @@ export class RentersService {
     };
   }
 
+  async getAuthenticatedAvailabilityStatus(
+    requestId: string,
+    requesterId: string,
+  ) {
+    const request = await this.prisma.availabilityRequest.findFirst({
+      where: { id: requestId, requesterId },
+      include: {
+        product: {
+          include: {
+            curator: true,
+            ...AVAILABILITY_REQUEST_SHOP_PRODUCT_INCLUDE,
+          },
+        },
+        requester: { select: { email: true, name: true } },
+      },
+    });
+
+    if (!request) {
+      throw new NotFoundException('Availability request not found');
+    }
+
+    await this.expireStalePendingAvailabilityRequestsForRequester(
+      request.requesterId,
+    );
+
+    const refreshed = await this.prisma.availabilityRequest.findFirst({
+      where: { id: requestId, requesterId },
+      include: {
+        product: {
+          include: {
+            curator: true,
+            ...AVAILABILITY_REQUEST_SHOP_PRODUCT_INCLUDE,
+          },
+        },
+        requester: { select: { email: true, name: true } },
+      },
+    });
+    const current = refreshed ?? request;
+    const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+    const publicStatus =
+      current.status === 'ACCEPTED'
+        ? 'available'
+        : current.status === 'REJECTED'
+          ? 'unavailable'
+          : current.status === 'CANCELLED_BY_RENTER'
+            ? 'cancelled'
+            : isBusinessExpired(current)
+              ? 'dates_passed'
+              : current.status === 'EXPIRED'
+                ? 'awaiting_lister'
+                : current.status === 'PENDING'
+                  ? 'checking'
+                  : current.status.toLowerCase();
+
+    return {
+      success: true,
+      data: {
+        requestId: current.id,
+        status: publicStatus,
+        canStillBeApproved: canListerActOnAvailabilityRequest(current),
+        businessExpiresAt: computeBusinessExpiresAt(current).toISOString(),
+        productId: current.productId,
+        productName: current.product?.name,
+        similarShop: buildSimilarShopFromProduct(current.product),
+        rentalDays: current.rentalDays,
+        rentalStartDate: current.startDate,
+        rentalEndDate: current.endDate,
+        totalPrice: current.totalPrice,
+        requesterEmail: current.requester?.email ?? null,
+        completeRentalUrl:
+          publicStatus === 'available'
+            ? `${clientUrl}/shop/cart/checkout`
+            : null,
+      },
+    };
+  }
+
   async getRentalRequests(userId: string, query: any) {
     await this.expireStalePendingAvailabilityRequestsForRequester(userId);
 
@@ -1888,9 +1971,10 @@ export class RentersService {
       const selectedWindows =
         r.rentalDays === 0
           ? {
-              resaleWindow: r.resaleWindowStart && r.resaleWindowEnd
-                ? { start: r.resaleWindowStart, end: r.resaleWindowEnd }
-                : null,
+              resaleWindow:
+                r.resaleWindowStart && r.resaleWindowEnd
+                  ? { start: r.resaleWindowStart, end: r.resaleWindowEnd }
+                  : null,
             }
           : {
               outboundDeliveryWindow:
@@ -2452,8 +2536,7 @@ export class RentersService {
             oi.product?.listingType === 'RENT_OR_RESALE');
         if (isResaleItem) return sum;
         return (
-          sum +
-          (oi.pricePerDay ?? oi.product?.dailyPrice ?? 0) * (oi.days ?? 0)
+          sum + (oi.pricePerDay ?? oi.product?.dailyPrice ?? 0) * (oi.days ?? 0)
         );
       },
       0,
@@ -2510,7 +2593,7 @@ export class RentersService {
         listerId: s.listerId ?? null,
         buyerConfirmedAt: s.buyerConfirmedAt?.toISOString?.() ?? null,
         listerName: s.listerId
-          ? listerNameByIdFromOrder.get(s.listerId) ?? 'Seller'
+          ? (listerNameByIdFromOrder.get(s.listerId) ?? 'Seller')
           : null,
         trackingId: s.trackingId ?? null,
         providerTrackingUrl: s.providerTrackingUrl ?? null,
@@ -2559,9 +2642,7 @@ export class RentersService {
     const confirmableRentalShipments = listConfirmableRentalShipments(
       typedOrder.shipments ?? [],
     )
-      .filter(
-        (leg) => leg.id && isRentalShipmentWithinInspectionWindow(leg),
-      )
+      .filter((leg) => leg.id && isRentalShipmentWithinInspectionWindow(leg))
       .map((leg) => {
         const items = orderItemsForRentalShipment(
           typedOrder.orderItems,
@@ -2668,7 +2749,8 @@ export class RentersService {
           returnLegDetails,
           lister: {
             userId:
-              (typedOrder.orderListers && typedOrder.orderListers[0]?.listerId) ||
+              (typedOrder.orderListers &&
+                typedOrder.orderListers[0]?.listerId) ||
               typedOrder.orderItems?.[0]?.product?.curator?.id,
             businessName:
               typedOrder.listerBusinessName ||
@@ -2771,9 +2853,14 @@ export class RentersService {
       baseDate: string;
     }> = [];
 
-    for (const type of ['OUTBOUND', 'RETURN', 'RESALE'] as DispatchWindowType[]) {
+    for (const type of [
+      'OUTBOUND',
+      'RETURN',
+      'RESALE',
+    ] as DispatchWindowType[]) {
       const shipment = byType.get(type);
-      if (!shipment?.scheduledWindowStart || !shipment?.scheduledWindowEnd) continue;
+      if (!shipment?.scheduledWindowStart || !shipment?.scheduledWindowEnd)
+        continue;
 
       const baseDate = shipment.scheduledDate
         ? new Date(shipment.scheduledDate)
@@ -2902,8 +2989,7 @@ export class RentersService {
     out.sort(
       (a, b) =>
         orderRank(a.type) - orderRank(b.type) ||
-        new Date(a.window.start).getTime() -
-          new Date(b.window.start).getTime(),
+        new Date(a.window.start).getTime() - new Date(b.window.start).getTime(),
     );
     return out;
   }
@@ -3381,7 +3467,8 @@ export class RentersService {
     const listerUserId =
       (orderWithLister as any)?.rentals?.[0]?.curatorId ??
       (orderWithLister as any)?.orderItems?.[0]?.product?.curator?.id ??
-      (orderWithLister?.orderListers && orderWithLister.orderListers[0]?.listerId) ??
+      (orderWithLister?.orderListers &&
+        orderWithLister.orderListers[0]?.listerId) ??
       null;
 
     const listerUser = listerUserId
@@ -3908,10 +3995,7 @@ export class RentersService {
       throw new NotFoundException('Order not found');
 
     const status = order.status;
-    if (
-      status === OrderStatus.CANCELLED ||
-      status === OrderStatus.REJECTED
-    ) {
+    if (status === OrderStatus.CANCELLED || status === OrderStatus.REJECTED) {
       return {
         success: true,
         data: {
@@ -4175,7 +4259,9 @@ export class RentersService {
         listerNameById.set(u.id, label);
       }
     }
-    for (const [id, label] of buildListerNameMapFromOrderItems(orderItemsProg)) {
+    for (const [id, label] of buildListerNameMapFromOrderItems(
+      orderItemsProg,
+    )) {
       if (!listerNameById.has(id)) listerNameById.set(id, label);
     }
 
@@ -4500,8 +4586,7 @@ export class RentersService {
         'shipmentId is required when returning items from multiple sellers',
       );
     }
-    const targetShipmentId =
-      data.shipmentId ?? returnLegsReady[0]?.id ?? null;
+    const targetShipmentId = data.shipmentId ?? returnLegsReady[0]?.id ?? null;
     if (
       returnRequestExistsForShipment(order.returnRequests, targetShipmentId)
     ) {
@@ -4645,7 +4730,7 @@ export class RentersService {
     }
 
     let returnShipmentRow: any = shipmentId
-      ? returnLegs.find((s) => s.id === shipmentId) ?? null
+      ? (returnLegs.find((s) => s.id === shipmentId) ?? null)
       : returnLegs.length === 1
         ? returnLegs[0]
         : null;
@@ -4795,8 +4880,8 @@ export class RentersService {
     }
 
     let returnShipmentRow: any = data.shipmentId
-      ? returnLegsShip.find((s: { id: string }) => s.id === data.shipmentId) ??
-        null
+      ? (returnLegsShip.find((s: { id: string }) => s.id === data.shipmentId) ??
+        null)
       : null;
     if (data.shipmentId && !returnShipmentRow) {
       throw new BadRequestException('Invalid return shipment for this order');
@@ -4811,14 +4896,12 @@ export class RentersService {
           }
         : null;
 
-    const {
-      window: pickupWindow,
-      rescheduled: pickupWindowRescheduled,
-    } = resolveReturnPickupWindowForSubmit(
-      new Date(),
-      scheduledFromShipment,
-      data.pickupWindow ?? null,
-    );
+    const { window: pickupWindow, rescheduled: pickupWindowRescheduled } =
+      resolveReturnPickupWindowForSubmit(
+        new Date(),
+        scheduledFromShipment,
+        data.pickupWindow ?? null,
+      );
 
     const rescheduledPickupSummary = pickupWindowRescheduled
       ? formatPickupWindowLagos(pickupWindow.start, pickupWindow.end)
@@ -4871,8 +4954,7 @@ export class RentersService {
       ? selectedRateFromCheckoutReturnShipment(returnShipmentRow)
       : null;
     /** New flow: pricing tier + charges were chosen and paid at checkout — never require a fresh rate quote here. */
-    const selectedRate =
-      fromCheckout ?? data.selectedRate ?? null;
+    const selectedRate = fromCheckout ?? data.selectedRate ?? null;
     if (!selectedRate) {
       bad(
         'Return shipping for this order is missing. For older orders, contact support.',
@@ -5078,9 +5160,10 @@ export class RentersService {
     const renterLegNote = legItemSummary
       ? `Items in this return: ${legItemSummary}.`
       : '';
-    const rescheduleNote = pickupWindowRescheduled && rescheduledPickupSummary
-      ? `Your original return window had passed. Your pickup is now scheduled for: ${rescheduledPickupSummary}. `
-      : '';
+    const rescheduleNote =
+      pickupWindowRescheduled && rescheduledPickupSummary
+        ? `Your original return window had passed. Your pickup is now scheduled for: ${rescheduledPickupSummary}. `
+        : '';
     await this.notificationService.createNotification({
       userId: order.userId,
       title: pickupWindowRescheduled
