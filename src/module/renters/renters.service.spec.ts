@@ -457,7 +457,7 @@ describe('RentersService', () => {
   });
 
   describe('getAuthenticatedAvailabilityStatus()', () => {
-    it('routes an approved request directly to checkout', async () => {
+    it('routes an approved request to the normal checkout screen', async () => {
       const request = {
         id: 'req-1',
         requesterId: mockUser.id,
@@ -482,9 +482,7 @@ describe('RentersService', () => {
       );
 
       expect(result.data.status).toBe('available');
-      expect(result.data.completeRentalUrl).toBe(
-        `${process.env.CLIENT_URL || 'http://localhost:3000'}/shop/cart/checkout`,
-      );
+      expect(result.data.completeRentalUrl).toBe('/shop/cart/checkout');
     });
 
     it('keeps an unapproved request on the availability checking flow', async () => {

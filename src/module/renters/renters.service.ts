@@ -1892,7 +1892,6 @@ export class RentersService {
       },
     });
     const current = refreshed ?? request;
-    const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
     const publicStatus =
       current.status === 'ACCEPTED'
         ? 'available'
@@ -1924,9 +1923,7 @@ export class RentersService {
         totalPrice: current.totalPrice,
         requesterEmail: current.requester?.email ?? null,
         completeRentalUrl:
-          publicStatus === 'available'
-            ? `${clientUrl}/shop/cart/checkout`
-            : null,
+          publicStatus === 'available' ? '/shop/cart/checkout' : null,
       },
     };
   }
