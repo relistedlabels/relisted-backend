@@ -66,13 +66,9 @@ export function buildWalletTransactionCleanupWhere(
   };
 }
 
-/** Production ledger rows kept after cleanup. */
-export function buildProductionWalletTransactionWhere(
-  cutoff: Date = ADMIN_ORDER_ANALYTICS_CUTOFF,
-): Prisma.WalletTransactionWhereInput {
+/** Finance ledger history for real marketplace users, including pending and legacy rows. */
+export function buildAdminWalletTransactionWhere(): Prisma.WalletTransactionWhereInput {
   return {
-    status: 'SUCCESS',
-    createdAt: { gte: cutoff },
     wallet: { user: buildWalletStatsUserWhere() },
   };
 }

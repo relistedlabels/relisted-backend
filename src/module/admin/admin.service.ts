@@ -32,7 +32,10 @@ import {
   orderHasCompletedReturnRequest,
 } from '../order/mark-rentals-returned.util';
 import { formatAdminReturnRequest } from '../order/admin-return-request.format';
-import { LIVE_SHOP_STATUSES, ADMIN_ACTIVE_LISTING_STATUSES } from '../product/product-list-scope.util';
+import {
+  LIVE_SHOP_STATUSES,
+  ADMIN_ACTIVE_LISTING_STATUSES,
+} from '../product/product-list-scope.util';
 import {
   applyProductListFilters,
   type ProductListFilterInput,
@@ -43,7 +46,7 @@ import {
 } from 'src/utils/product-attachment-upload-order';
 import { ADMIN_ORDER_ANALYTICS_CUTOFF } from 'src/constants/admin-analytics';
 import {
-  buildProductionWalletTransactionWhere,
+  buildAdminWalletTransactionWhere,
   buildWalletStatsOrderWhere,
   buildWalletStatsUserWhere,
   getStagingInternalCuratorId,
@@ -713,15 +716,55 @@ export class AdminService {
       status: WalletTransactionStatus.SUCCESS,
       wallet: { user: { role: Role.LISTER } },
       OR: [
-        { note: { contains: 'Payment released for completed', mode: 'insensitive' } },
-        { note: { contains: 'Rental payment released for order', mode: 'insensitive' } },
+        {
+          note: {
+            contains: 'Payment released for completed',
+            mode: 'insensitive',
+          },
+        },
+        {
+          note: {
+            contains: 'Rental payment released for order',
+            mode: 'insensitive',
+          },
+        },
         { note: { contains: 'Escrow release for order', mode: 'insensitive' } },
-        { note: { contains: 'Final payout released for completed order', mode: 'insensitive' } },
-        { note: { contains: 'Escrow payout released after dispute resolution', mode: 'insensitive' } },
-        { note: { contains: 'Resale payment auto-released for order', mode: 'insensitive' } },
-        { note: { contains: 'Resale payment released for order', mode: 'insensitive' } },
-        { note: { contains: 'Payment auto-released after', mode: 'insensitive' } },
-        { note: { contains: 'Payment released for resale order', mode: 'insensitive' } },
+        {
+          note: {
+            contains: 'Final payout released for completed order',
+            mode: 'insensitive',
+          },
+        },
+        {
+          note: {
+            contains: 'Escrow payout released after dispute resolution',
+            mode: 'insensitive',
+          },
+        },
+        {
+          note: {
+            contains: 'Resale payment auto-released for order',
+            mode: 'insensitive',
+          },
+        },
+        {
+          note: {
+            contains: 'Resale payment released for order',
+            mode: 'insensitive',
+          },
+        },
+        {
+          note: {
+            contains: 'Payment auto-released after',
+            mode: 'insensitive',
+          },
+        },
+        {
+          note: {
+            contains: 'Payment released for resale order',
+            mode: 'insensitive',
+          },
+        },
       ],
     };
 
@@ -759,7 +802,12 @@ export class AdminService {
       this.prisma.dispute.findMany({
         take: limit,
         orderBy: { createdAt: 'desc' },
-        select: { id: true, disputeId: true, issueCategory: true, createdAt: true },
+        select: {
+          id: true,
+          disputeId: true,
+          issueCategory: true,
+          createdAt: true,
+        },
       }),
       this.prisma.withdrawalRequest.findMany({
         take: limit,
@@ -2252,7 +2300,8 @@ export class AdminService {
     const clientUrl = process.env.CLIENT_URL || '';
     const resolutionDetailsText = (data.resolutionDetails ?? '').trim();
 
-    const renterWalletCreditTotal = rawRefundAmount + collateralReturnedToRenter;
+    const renterWalletCreditTotal =
+      rawRefundAmount + collateralReturnedToRenter;
     const listerWalletCreditTotal =
       listerPayoutToRelease + collateralWithheldToLister;
 
@@ -2675,7 +2724,9 @@ export class AdminService {
       });
       const userIds = matchingUsers.map((u) => u.id);
       where.OR = [
-        { order: { orderId: { contains: trimmedSearch, mode: 'insensitive' } } },
+        {
+          order: { orderId: { contains: trimmedSearch, mode: 'insensitive' } },
+        },
         ...(userIds.length > 0
           ? [{ listerId: { in: userIds } }, { renterId: { in: userIds } }]
           : []),
@@ -2774,7 +2825,7 @@ export class AdminService {
 
   async getAllWalletTransactions(page: number, limit: number, search?: string) {
     const skip = (page - 1) * limit;
-    const baseWhere = buildProductionWalletTransactionWhere();
+    const baseWhere = buildAdminWalletTransactionWhere();
     const trimmedSearch = search?.trim();
 
     const where: Prisma.WalletTransactionWhereInput = trimmedSearch
@@ -2839,7 +2890,7 @@ export class AdminService {
   }
 
   async exportWalletTransactionsCsv(): Promise<string> {
-    const where = buildProductionWalletTransactionWhere();
+    const where = buildAdminWalletTransactionWhere();
     const transactions = await this.prisma.walletTransaction.findMany({
       where,
       orderBy: { createdAt: 'desc' },
@@ -3714,7 +3765,11 @@ export class AdminService {
       : ProductStatus.UNAVAILABLE;
 
     const allowedStatuses = isAvailable
-      ? [...ADMIN_ACTIVE_LISTING_STATUSES, ProductStatus.UNAVAILABLE, ProductStatus.REJECTED]
+      ? [
+          ...ADMIN_ACTIVE_LISTING_STATUSES,
+          ProductStatus.UNAVAILABLE,
+          ProductStatus.REJECTED,
+        ]
       : ADMIN_ACTIVE_LISTING_STATUSES;
 
     const result = await this.prisma.product.updateMany({
@@ -3836,10 +3891,13 @@ export class AdminService {
         where: {
           status: {
             in: [
+              OrderStatus.PROCESSING,
+              OrderStatus.ACCEPTED,
               OrderStatus.CONFIRMED,
               OrderStatus.IN_TRANSIT,
-              OrderStatus.DELIVERED,
               OrderStatus.ACTIVE,
+              OrderStatus.RETURN_DUE,
+              OrderStatus.RETURNED,
             ],
           },
         },
@@ -3956,6 +4014,14 @@ export class AdminService {
             include: {
               product: {
                 include: {
+                  attachments: {
+                    include: {
+                      uploads: {
+                        orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+                        take: 1,
+                      },
+                    },
+                  },
                   curator: {
                     include: { profile: { include: { avatarUpload: true } } },
                   },
@@ -3992,9 +4058,7 @@ export class AdminService {
       const totalAmount =
         Number.isFinite(paid) && paid > 0
           ? paid
-          : rental?.totalAmount ||
-            rentalLineTotal + resaleLineTotal ||
-            0;
+          : rental?.totalAmount || rentalLineTotal + resaleLineTotal || 0;
 
       // Determine curator (from rental or first order item)
       const curatorUser = rental?.curator || o.orderItems[0]?.product?.curator;
@@ -4031,6 +4095,13 @@ export class AdminService {
             }
           : null,
         items: o.orderItems.length,
+        itemPreview: o.orderItems[0]?.product
+          ? {
+              name: o.orderItems[0].product.name,
+              image:
+                o.orderItems[0].product.attachments?.uploads?.[0]?.url ?? null,
+            }
+          : null,
         total: totalAmount,
         status: displayStatus,
         returnDue: o.returnDueAt
@@ -4186,8 +4257,8 @@ export class AdminService {
         const subtotal = isResaleLine
           ? (oi.resaleListerAmount ?? oi.product?.resalePrice ?? 0)
           : (oi.rentalFee ??
-              (oi.pricePerDay ?? oi.product?.dailyPrice ?? 0) * (oi.days ?? 0)) +
-            (oi.cleaningFee ?? 0);
+              (oi.pricePerDay ?? oi.product?.dailyPrice ?? 0) *
+                (oi.days ?? 0)) + (oi.cleaningFee ?? 0);
         return {
           id: oi.id,
           productId: oi.productId,
@@ -4200,9 +4271,7 @@ export class AdminService {
           collateralFee: oi.collateralFee ?? 0,
           listingType: oi.product?.listingType ?? null,
           subtotal,
-          rentalStart: rental?.startDate
-            ? formatDate(rental.startDate)
-            : null,
+          rentalStart: rental?.startDate ? formatDate(rental.startDate) : null,
           rentalEnd: rental?.endDate ? formatDate(rental.endDate) : null,
         };
       }),
@@ -4313,12 +4382,12 @@ export class AdminService {
       throw new BadRequestException('A cancellation reason is required.');
     }
 
-  const order = await this.prisma.order.findFirst({
-    where: { orderId },
-    include: {
-      user: { select: { id: true, email: true, name: true } },
-      orderItems: { select: { product: { select: { name: true } } } },
-      escrows: {
+    const order = await this.prisma.order.findFirst({
+      where: { orderId },
+      include: {
+        user: { select: { id: true, email: true, name: true } },
+        orderItems: { select: { product: { select: { name: true } } } },
+        escrows: {
           select: {
             id: true,
             status: true,
@@ -4469,10 +4538,7 @@ export class AdminService {
   }
 
   /** Resend renter checkout confirmation email (email only, no in-app notification). */
-  async resendRenterCheckoutConfirmation(
-    orderId: string,
-    dryRun = false,
-  ) {
+  async resendRenterCheckoutConfirmation(orderId: string, dryRun = false) {
     const order = await this.prisma.order.findFirst({
       where: { orderId },
       include: {
@@ -4890,24 +4956,25 @@ export class AdminService {
     };
   }
 
-  private mapAvailabilityRequestPerson(user: {
-    id: string;
-    name: string | null;
-    email: string | null;
-    profile?: {
-      avatar?: string | null;
-      phoneNumber?: string | null;
-      avatarUpload?: { url?: string | null } | null;
-    } | null;
-  } | null) {
+  private mapAvailabilityRequestPerson(
+    user: {
+      id: string;
+      name: string | null;
+      email: string | null;
+      profile?: {
+        avatar?: string | null;
+        phoneNumber?: string | null;
+        avatarUpload?: { url?: string | null } | null;
+      } | null;
+    } | null,
+  ) {
     if (!user) return null;
     return {
       id: user.id,
       name: user.name || 'Unknown',
       email: user.email,
       phone: user.profile?.phoneNumber ?? null,
-      avatar:
-        user.profile?.avatarUpload?.url ?? user.profile?.avatar ?? null,
+      avatar: user.profile?.avatarUpload?.url ?? user.profile?.avatar ?? null,
     };
   }
 
@@ -5089,7 +5156,11 @@ export class AdminService {
     const q = search?.trim();
     if (q) {
       where.AND = [
-        ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+        ...(Array.isArray(where.AND)
+          ? where.AND
+          : where.AND
+            ? [where.AND]
+            : []),
         {
           OR: [
             { id: { contains: q, mode: 'insensitive' } },
@@ -5425,15 +5496,13 @@ export class AdminService {
         title: user.name || user.email,
         subtitle: user.email,
         href: `/admin/[id]/users/${user.id}`,
-      }))
+      })),
     );
 
     // Search products (listings)
     const products = await this.prisma.product.findMany({
       where: {
-        OR: [
-          { name: { contains: searchQuery, mode: 'insensitive' } },
-        ],
+        OR: [{ name: { contains: searchQuery, mode: 'insensitive' } }],
       },
       take: itemLimit,
       select: {
@@ -5449,7 +5518,7 @@ export class AdminService {
         title: product.name,
         subtitle: 'Listing',
         href: `/admin/[id]/listings?productId=${product.id}`,
-      }))
+      })),
     );
 
     // Search orders
@@ -5475,7 +5544,7 @@ export class AdminService {
         title: `Order ${order.orderId.slice(0, 8)}`,
         subtitle: order.status,
         href: `/admin/[id]/orders?id=${order.id}`,
-      }))
+      })),
     );
 
     // Search disputes
@@ -5501,15 +5570,13 @@ export class AdminService {
         title: `Dispute ${dispute.id.slice(0, 8)}`,
         subtitle: dispute.status,
         href: `/admin/[id]/disputes?id=${dispute.id}`,
-      }))
+      })),
     );
 
     // Search reviews
     const reviews = await this.prisma.review.findMany({
       where: {
-        OR: [
-          { comment: { contains: searchQuery, mode: 'insensitive' } },
-        ],
+        OR: [{ comment: { contains: searchQuery, mode: 'insensitive' } }],
       },
       take: itemLimit,
       select: {
@@ -5526,15 +5593,13 @@ export class AdminService {
         title: `Review - ${review.rating} stars`,
         subtitle: review.comment ? review.comment.slice(0, 50) : 'No comment',
         href: `/admin/[id]/reviews?id=${review.id}`,
-      }))
+      })),
     );
 
     // Search availability requests
     const requests = await this.prisma.availabilityRequest.findMany({
       where: {
-        OR: [
-          { id: { contains: searchQuery, mode: 'insensitive' } },
-        ],
+        OR: [{ id: { contains: searchQuery, mode: 'insensitive' } }],
       },
       take: itemLimit,
       select: {
@@ -5550,7 +5615,7 @@ export class AdminService {
         title: `Request ${request.id.slice(0, 8)}`,
         subtitle: request.status,
         href: `/admin/[id]/requests?id=${request.id}`,
-      }))
+      })),
     );
 
     return {
