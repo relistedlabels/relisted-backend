@@ -37,7 +37,11 @@ const mockPrisma = {
   walletTransaction: { create: jest.fn() },
   user: { findUnique: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
   upload: { findUnique: jest.fn() },
-  availabilityRequest: { findUnique: jest.fn(), update: jest.fn() },
+  availabilityRequest: {
+    findUnique: jest.fn(),
+    findMany: jest.fn(),
+    update: jest.fn(),
+  },
   $transaction: jest.fn(),
 };
 
@@ -55,6 +59,159 @@ describe('ListersService — multi-lister return receipt', () => {
   const listerA = 'lister-a';
   const listerB = 'lister-b';
   const orderId = 'order-internal-id';
+
+  describe('getOrderById() platform fee summary', () => {
+    it('calculates rental commission on rent only, excluding cleaning and collateral', async () => {
+      const listerId = 'lister-detail';
+      mockPrisma.orderItem.findFirst.mockResolvedValue({ id: 'item-rental' });
+      mockPrisma.order.findUnique.mockResolvedValue({
+        id: orderId,
+        orderId: 'ORD-DETAIL',
+        createdAt: new Date('2026-09-01T00:00:00.000Z'),
+        status: OrderStatus.COMPLETED,
+        userId: 'renter-detail',
+        user: {
+          id: 'renter-detail',
+          name: 'Renter',
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
+          profile: null,
+        },
+        orderItems: [
+          {
+            id: 'item-rental',
+            productId: 'product-rental',
+            days: 1,
+            pricePerDay: 205,
+            cleaningFee: 4000,
+            product: {
+              id: 'product-rental',
+              curatorId: listerId,
+              name: 'Rental item',
+              measurement: 'M',
+              color: 'Black',
+              originalValue: 8000,
+              collateralPrice: 8000,
+              dailyPrice: 205,
+              listingType: 'RENTAL',
+              resalePrice: null,
+              attachments: { uploads: [] },
+            },
+          },
+        ],
+        rentals: [],
+        returnRequests: [],
+        shipments: [],
+        escrows: [
+          {
+            id: 'escrow-detail',
+            listerId,
+            status: 'LOCKED',
+            rentalAmount: 4205,
+            cleaningFee: 4000,
+            collateralAmount: 8000,
+            resaleAmount: 0,
+            platformFeeRate: 10,
+            platformFeeAmount: 0,
+          },
+        ],
+      });
+      mockPrisma.review.count.mockResolvedValue(0);
+      mockPrisma.availabilityRequest.findMany.mockResolvedValue([]);
+
+      const result = await service.getOrderById(
+        { id: listerId, sub: listerId } as any,
+        orderId,
+      );
+
+      expect(result.data.order.platformFee).toEqual({
+        ratePercent: 10,
+        base: 205,
+        amount: 20,
+        netEarnings: 4185,
+      });
+      expect(result.data.order.listerMerchandise).toEqual({
+        rentalSubtotal: 205,
+        cleaningFeesTotal: 4000,
+        resaleSubtotal: 0,
+        total: 4205,
+      });
+      expect(result.data.order.escrow).toMatchObject({
+        rentalFeeTotal: 205,
+        itemValueHeld: 8000,
+        totalHeld: 12205,
+      });
+    });
+
+    it('uses only resale proceeds as the resale fee base', async () => {
+      const listerId = 'lister-resale-detail';
+      mockPrisma.orderItem.findFirst.mockResolvedValue({ id: 'item-resale' });
+      mockPrisma.order.findUnique.mockResolvedValue({
+        id: orderId,
+        orderId: 'ORD-RESALE-DETAIL',
+        createdAt: new Date('2026-09-01T00:00:00.000Z'),
+        status: OrderStatus.COMPLETED,
+        userId: 'renter-detail',
+        user: {
+          id: 'renter-detail',
+          name: 'Renter',
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
+          profile: null,
+        },
+        orderItems: [
+          {
+            id: 'item-resale',
+            productId: 'product-resale',
+            days: 0,
+            pricePerDay: 0,
+            cleaningFee: 0,
+            product: {
+              id: 'product-resale',
+              curatorId: listerId,
+              name: 'Resale item',
+              measurement: 'M',
+              color: 'Blue',
+              originalValue: 8000,
+              collateralPrice: 0,
+              dailyPrice: 0,
+              listingType: 'RESALE',
+              resalePrice: 10000,
+              attachments: { uploads: [] },
+            },
+          },
+        ],
+        rentals: [],
+        returnRequests: [],
+        shipments: [],
+        escrows: [
+          {
+            id: 'escrow-resale-detail',
+            listerId,
+            status: 'LOCKED',
+            rentalAmount: 0,
+            cleaningFee: 0,
+            collateralAmount: 0,
+            resaleAmount: 10000,
+            platformFeeRate: 10,
+            platformFeeAmount: 0,
+          },
+        ],
+      });
+      mockPrisma.review.count.mockResolvedValue(0);
+      mockPrisma.availabilityRequest.findMany.mockResolvedValue([]);
+
+      const result = await service.getOrderById(
+        { id: listerId, sub: listerId } as any,
+        orderId,
+      );
+
+      expect(result.data.order.platformFee).toEqual({
+        ratePercent: 10,
+        base: 10000,
+        amount: 1000,
+        netEarnings: 9000,
+      });
+    });
+  });
 
   const baseOrder = {
     id: orderId,

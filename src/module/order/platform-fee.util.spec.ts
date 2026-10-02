@@ -46,22 +46,48 @@ describe('calculatePlatformFee', () => {
     ).toBe(0);
   });
 
-  it('includes cleaning fees in the commissionable rental base', () => {
-    expect(escrowPlatformFee(
-      {
-        platformFeeRate: 10,
-        platformFeeAmount: 0,
-        rentalAmount: 205,
-        cleaningFee: 0,
-      },
-      205,
-    )).toBe(20);
+  it('excludes cleaning fees from the commissionable rental base', () => {
+    const escrow = {
+      platformFeeRate: 10,
+      platformFeeAmount: 0,
+      rentalAmount: 4205,
+      cleaningFee: 4000,
+    };
+    expect(escrowRentalFeeBase(escrow)).toBe(205);
+    expect(escrowPlatformFee(escrow, escrowRentalFeeBase(escrow))).toBe(20);
   });
 
-  it('builds rental and return-confirmation fee bases', () => {
-    const escrow = { rentalAmount: 100, cleaningFee: 25, resaleAmount: 50 };
-    expect(escrowRentalFeeBase(escrow)).toBe(125);
-    expect(escrowFeeBaseOnReturnConfirm(escrow)).toBe(175);
+  it('excludes cleaning from rental fees and adds resale proceeds when applicable', () => {
+    const escrow = {
+      rentalAmount: 4205,
+      cleaningFee: 4000,
+      resaleAmount: 50,
+    };
+    expect(escrowRentalFeeBase(escrow)).toBe(205);
+    expect(escrowFeeBaseOnReturnConfirm(escrow)).toBe(255);
+  });
+
+  it('does not include collateral in the rental fee base', () => {
+    const escrow = {
+      rentalAmount: 4205,
+      cleaningFee: 4000,
+      collateralAmount: 8000,
+    };
+    expect(
+      escrowPlatformFee(
+        { platformFeeRate: 10, platformFeeAmount: 0 },
+        escrowRentalFeeBase(escrow),
+      ),
+    ).toBe(20);
+    expect(
+      escrowPlatformFee(
+        { platformFeeRate: 10, platformFeeAmount: 0 },
+        escrowFeeBaseOnReturnConfirm({
+          ...escrow,
+          resaleAmount: 10000,
+        }),
+      ),
+    ).toBe(1020);
   });
 
   it('adds a fee note only for positive fees', () => {
