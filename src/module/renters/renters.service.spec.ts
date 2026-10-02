@@ -456,6 +456,64 @@ describe('RentersService', () => {
     });
   });
 
+  describe('getAuthenticatedAvailabilityStatus()', () => {
+    it('routes an approved request to the normal checkout screen', async () => {
+      const request = {
+        id: 'req-1',
+        requesterId: mockUser.id,
+        status: 'ACCEPTED',
+        expiresAt: new Date(Date.now() + 60_000),
+        createdAt: new Date(),
+        productId: 'prod-1',
+        rentalDays: 3,
+        totalPrice: 15000,
+        startDate: new Date(),
+        endDate: new Date(),
+        product: { name: 'Dress', curator: { name: 'Lister' } },
+        requester: { email: mockUser.email, name: mockUser.name },
+      };
+      mockPrisma.availabilityRequest.findFirst
+        .mockResolvedValueOnce(request)
+        .mockResolvedValueOnce(request);
+
+      const result = await service.getAuthenticatedAvailabilityStatus(
+        'req-1',
+        mockUser.id,
+      );
+
+      expect(result.data.status).toBe('available');
+      expect(result.data.completeRentalUrl).toBe('/shop/cart/checkout');
+    });
+
+    it('keeps an unapproved request on the availability checking flow', async () => {
+      const request = {
+        id: 'req-1',
+        requesterId: mockUser.id,
+        status: 'PENDING',
+        expiresAt: new Date(Date.now() + 60_000),
+        createdAt: new Date(),
+        productId: 'prod-1',
+        rentalDays: 3,
+        totalPrice: 15000,
+        startDate: new Date(),
+        endDate: new Date(),
+        product: { name: 'Dress', curator: { name: 'Lister' } },
+        requester: { email: mockUser.email, name: mockUser.name },
+      };
+      mockPrisma.availabilityRequest.findFirst
+        .mockResolvedValueOnce(request)
+        .mockResolvedValueOnce(request);
+
+      const result = await service.getAuthenticatedAvailabilityStatus(
+        'req-1',
+        mockUser.id,
+      );
+
+      expect(result.data.status).toBe('checking');
+      expect(result.data.completeRentalUrl).toBeNull();
+    });
+  });
+
   describe('getOrders()', () => {
     it('should return renter orders', async () => {
       mockPrisma.order.findMany.mockResolvedValue([
