@@ -26,7 +26,12 @@ const mockPrisma = {
   orderItem: { findFirst: jest.fn() },
   returnRequest: { update: jest.fn() },
   dispute: { findFirst: jest.fn() },
-  product: { update: jest.fn() },
+  product: { update: jest.fn(), findMany: jest.fn() },
+  review: {
+    aggregate: jest.fn(),
+    count: jest.fn(),
+    findMany: jest.fn(),
+  },
   escrow: { update: jest.fn(), count: jest.fn() },
   wallet: { findUnique: jest.fn(), update: jest.fn(), upsert: jest.fn() },
   walletTransaction: { create: jest.fn() },
@@ -143,6 +148,60 @@ describe('ListersService — multi-lister return receipt', () => {
       id: listerA,
       email: 'a@test.com',
       name: 'Lister A',
+    });
+  });
+
+  describe('getPublicListerProfile()', () => {
+    it('returns only the lister city and does not query the full address', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'lister-1',
+        name: 'Lister',
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-02T00:00:00.000Z'),
+        isVerified: true,
+        profile: {
+          avatarUpload: { url: 'https://test/avatar.jpg' },
+          businessInfo: {
+            businessName: 'Test Boutique',
+            businessDescription: 'Test shop',
+          },
+          address: {
+            city: 'Lagos',
+            street: '12 Lister Road',
+            zipCode: '100001',
+          },
+        },
+        _count: {
+          products: 2,
+          curatorReviews: 1,
+        },
+      });
+      mockPrisma.review.aggregate.mockResolvedValue({
+        _avg: { rating: 4.5 },
+      });
+      mockPrisma.review.count.mockResolvedValue(1);
+      mockPrisma.product.findMany.mockResolvedValue([]);
+      mockPrisma.review.findMany.mockResolvedValue([]);
+
+      const result = await service.getPublicListerProfile('lister-1');
+      const user = result.data.user;
+
+      expect(user.location).toBe('Lagos');
+      expect(user.shopPolicies).toBeNull();
+      expect(user).not.toHaveProperty('street');
+      expect(user).not.toHaveProperty('zipCode');
+      expect(user).not.toHaveProperty('address');
+      expect(mockPrisma.user.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: expect.objectContaining({
+            profile: expect.objectContaining({
+              include: expect.objectContaining({
+                address: { select: { city: true } },
+              }),
+            }),
+          }),
+        }),
+      );
     });
   });
 

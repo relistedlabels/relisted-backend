@@ -133,6 +133,7 @@ export class NotificationService {
         case 'RETURN_DISPATCHED':
         case 'RETURN_PICKUP_SCHEDULED':
         case 'RETURN_REQUEST_SUBMITTED':
+        case 'LISTER_DISPATCH_BOOKED':
           await this.mailService.SendShippingUpdateMail(data);
           break;
         case 'SHIPMENT_IN_TRANSIT':

@@ -5608,7 +5608,11 @@ export class ListersService {
           include: {
             avatarUpload: { select: { url: true } },
             businessInfo: true,
-            address: true,
+            address: {
+              select: {
+                city: true,
+              },
+            },
           },
         },
         _count: {
@@ -5674,6 +5678,7 @@ export class ListersService {
           id: lister.id,
           name: lister.profile?.businessInfo?.businessName || lister.name,
           avatar: lister.profile?.avatarUpload?.url || null,
+          location: lister.profile?.address?.city || null,
           role: 'lister',
           bio: lister.profile?.businessInfo?.businessDescription || '', // Use description as bio
           shopDescription:
@@ -5685,12 +5690,7 @@ export class ListersService {
           isVerified: lister.isVerified,
           verificationDate: lister.updatedAt, // Approximate
           featured: false,
-          shopPolicies: {
-            returnPolicy: 'Full refund within 30 days of rental', // placeholder
-            deliveryTime: '2-3 business days',
-            cancellationPolicy:
-              'Free cancellation up to 48 hours before rental',
-          },
+          shopPolicies: null,
           featuredProducts: featuredProducts.map((p) => ({
             id: p.id,
             name: p.name,

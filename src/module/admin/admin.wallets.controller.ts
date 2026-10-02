@@ -6,9 +6,11 @@ import {
   Body,
   Query,
   Put,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guard/authGuard';
 import { RoleGuard } from '../auth/guard/roleGuard';
 import { Roles } from '../auth/decorator/roles.decorator';
@@ -73,10 +75,17 @@ export class AdminWalletsController {
     );
   }
 
-  @Post('export')
-  @ApiOperation({ summary: 'Export wallet data' })
-  async exportWallets() {
-    return this.adminService.exportWallets();
+  @Get('transactions/export')
+  @ApiOperation({ summary: 'Download wallet transactions as CSV' })
+  async exportTransactionsCsv(@Res() res: Response) {
+    const csv = await this.adminService.exportWalletTransactionsCsv();
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="relisted-transactions-${stamp}.csv"`,
+    );
+    res.send(csv);
   }
 
   @Put('escrow/:escrowId/release')

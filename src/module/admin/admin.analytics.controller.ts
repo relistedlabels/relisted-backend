@@ -24,6 +24,14 @@ export class AdminAnalyticsController {
     return this.adminService.getAnalyticsStats(timeframe, year, month);
   }
 
+  @Get('dashboard-overview')
+  @ApiOperation({
+    summary: 'Get needs-attention counts, today load, and recent activity',
+  })
+  async getDashboardOverview() {
+    return this.adminService.getDashboardOverview();
+  }
+
   @Get('rentals-revenue-trend')
   @ApiOperation({ summary: 'Get rentals and revenue trend over time' })
   async getRentalsRevenueTrend(
@@ -56,13 +64,33 @@ export class AdminAnalyticsController {
 
   @Get('top-curators')
   @ApiOperation({ summary: 'Get top curators' })
-  async getTopCurators(@Query('limit') limit?: string) {
-    return this.adminService.getTopCurators(limit ? parseInt(limit, 10) : 5);
+  async getTopCurators(
+    @Query('limit') limit?: string,
+    @Query('timeframe') timeframe?: string,
+    @Query('year') year?: string,
+    @Query('month') month?: string,
+  ) {
+    return this.adminService.getTopCurators(
+      limit ? parseInt(limit, 10) : 5,
+      timeframe,
+      year,
+      month,
+    );
   }
 
   @Get('top-items')
   @ApiOperation({ summary: 'Get top rented items' })
-  async getTopItems(@Query('limit') limit?: string) {
-    return this.adminService.getTopItems(limit ? parseInt(limit, 10) : 5);
+  async getTopItems(
+    @Query('limit') limit?: string,
+    @Query('timeframe') timeframe?: string,
+    @Query('year') year?: string,
+    @Query('month') month?: string,
+  ) {
+    return this.adminService.getTopItems(
+      limit ? parseInt(limit, 10) : 5,
+      timeframe,
+      year,
+      month,
+    );
   }
 }
