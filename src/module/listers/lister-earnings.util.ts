@@ -68,6 +68,7 @@ export async function sumListerPendingEscrow(
       cleaningFee: true,
       collateralAmount: true,
       resaleAmount: true,
+      platformFeeAmount: true,
       platformFeeRate: true,
     },
   });
@@ -81,10 +82,17 @@ export async function sumListerPendingEscrow(
     const rentalBase = Math.max(0, rental - cleaning);
     if (row.status === EscrowStatus.LOCKED) {
       total += rental + cleaning + collateral + resale;
-      total -= computePlatformFee(rentalBase + resale, row.platformFeeRate ?? 0);
+      total -= row.platformFeeAmount && row.platformFeeAmount > 0
+        ? row.platformFeeAmount
+        : computePlatformFee(
+            rentalBase + cleaning + resale,
+            row.platformFeeRate ?? 0,
+          );
     } else {
       total += cleaning + collateral + resale;
-      total -= computePlatformFee(resale, row.platformFeeRate ?? 0);
+      total -= row.platformFeeAmount && row.platformFeeAmount > 0
+        ? row.platformFeeAmount
+        : computePlatformFee(resale, row.platformFeeRate ?? 0);
     }
   }
   return total;

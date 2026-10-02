@@ -45,10 +45,9 @@ export function escrowPlatformFee(
 ): number {
   const persistedFee = Number(escrow.platformFeeAmount ?? 0);
   if (persistedFee > 0) return persistedFee;
-  return computePlatformFee(
-    fallbackBase,
-    Number(escrow.platformFeeRate ?? 0) || getListerPlatformFeePercent(),
-  );
+  const persistedRate = Number(escrow.platformFeeRate ?? 0);
+  if (persistedRate <= 0) return 0;
+  return computePlatformFee(fallbackBase, persistedRate);
 }
 
 export function platformFeeNoteSuffix(platformFee: number): string {

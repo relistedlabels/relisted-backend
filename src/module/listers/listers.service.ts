@@ -3107,15 +3107,20 @@ export class ListersService {
         availabilityRequests,
       ),
       platformFee:
-        listerEscrow && (listerEscrow.platformFeeRate ?? 0) > 0
+        listerEscrow &&
+        ((listerEscrow.platformFeeRate ?? 0) > 0 ||
+          (listerEscrow.platformFeeAmount ?? 0) > 0)
           ? (() => {
               const feeBase =
-                escrowFromDb!.rentalFeeTotal + escrowFromDb!.purchasePrice;
+                escrowFromDb!.rentalFeeTotal +
+                escrowFromDb!.cleaningFeeTotal +
+                escrowFromDb!.purchasePrice;
               const amount = escrowPlatformFee(listerEscrow, feeBase);
               return {
-                ratePercent: listerEscrow.platformFeeRate,
+                ratePercent: listerEscrow.platformFeeRate ?? 0,
                 amount,
-                netEarnings: merchandiseTotal - amount,
+                netEarnings:
+                  merchandiseTotal + escrowFromDb!.cleaningFeeTotal - amount,
               };
             })()
           : null,
@@ -3124,7 +3129,7 @@ export class ListersService {
             rentalSubtotal: escrowFromDb!.rentalFeeTotal,
             cleaningFeesTotal: escrowFromDb!.cleaningFeeTotal,
             resaleSubtotal: escrowFromDb!.purchasePrice,
-            total: merchandiseTotal,
+            total: merchandiseTotal + escrowFromDb!.cleaningFeeTotal,
           }
         : {
             rentalSubtotal: listerRentalSubtotal,

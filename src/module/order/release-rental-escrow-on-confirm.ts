@@ -34,7 +34,11 @@ export async function releaseRentalEscrowForListerOnConfirm(
 
   const platformFee = Math.min(
     escrow.rentalAmount,
-    escrowPlatformFee(escrow, escrowRentalFeeBase(escrow)),
+    escrowPlatformFee(
+      escrow,
+      escrowRentalFeeBase(escrow) +
+        Math.max(0, Number(escrow.cleaningFee ?? 0)),
+    ),
   );
   const releaseAmount = escrow.rentalAmount - platformFee;
   const hasResaleAmount = (escrow.resaleAmount || 0) > 0;
