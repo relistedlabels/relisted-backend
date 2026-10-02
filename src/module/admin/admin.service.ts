@@ -1,3 +1,9 @@
+import { listerEscrowResaleRemaining } from '../order/escrow-lister.util';
+import {
+  escrowPlatformFee,
+  escrowRentalFeeBase,
+  platformFeeNoteSuffix,
+} from '../order/platform-fee.util';
 import {
   Injectable,
   NotFoundException,
@@ -1373,7 +1379,20 @@ export class AdminService {
       );
     }
 
-    const listerPayoutToRelease = Math.max(0, payoutLocked - rawRefundAmount);
+    const grossListerPayout = Math.max(0, payoutLocked - rawRefundAmount);
+    // Commission applies to the rental/sale portion left after the refund; cleaning and
+    // collateral awarded to the lister are not commissionable.
+    const commissionableLocked =
+      (String(escrow.status) === 'LOCKED' ? escrowRentalFeeBase(escrow) : 0) +
+      listerEscrowResaleRemaining(escrow);
+    const platformFee = Math.min(
+      grossListerPayout,
+      escrowPlatformFee(
+        escrow,
+        Math.max(0, commissionableLocked - rawRefundAmount),
+      ),
+    );
+    const listerPayoutToRelease = grossListerPayout - platformFee;
 
     const lister = await this.prisma.user.findUnique({
       where: { id: escrow.listerId },
@@ -1436,7 +1455,7 @@ export class AdminService {
             amount: listerPayoutToRelease,
             type: 'MAIN',
             status: 'SUCCESS',
-            note: `Escrow payout released after dispute resolution for order ${order.orderId}`,
+            note: `Escrow payout released after dispute resolution for order ${order.orderId}${platformFeeNoteSuffix(platformFee)}`,
             orderId: order.id,
           },
         });
@@ -1532,7 +1551,13 @@ export class AdminService {
 
       await tx.escrow.update({
         where: { id: escrow.id },
-        data: { status: 'RELEASED' as any, releasedAt: new Date() },
+        data: {
+          status: 'RELEASED' as any,
+          releasedAt: new Date(),
+          ...(platformFee > 0
+            ? { platformFeeAmount: { increment: platformFee } }
+            : {}),
+        },
       });
 
       await markRentalsReturnedForOrder(tx, order.id);

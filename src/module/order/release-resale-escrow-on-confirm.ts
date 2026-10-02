@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client';
+import { escrowPlatformFee, platformFeeNoteSuffix } from './platform-fee.util';
 import { incrementClosetRevenueForListerPayout } from '../closet/closet-revenue.util';
 
 type Tx = Prisma.TransactionClient;
@@ -34,29 +35,31 @@ export async function releaseResaleEscrowForShipment(
   const remaining = Math.max(0, resaleCap - alreadyReleased);
   const payout = Math.min(releaseAmount, remaining);
   if (payout <= 0) return;
+  const platformFee = escrowPlatformFee(escrow, payout);
+  const netPayout = payout - platformFee;
 
   const listerWallet = await tx.wallet.upsert({
     where: { userId: listerId },
     create: {
       userId: listerId,
-      mainBalance: payout,
-      availableBalance: payout,
+      mainBalance: netPayout,
+      availableBalance: netPayout,
     },
     update: {
-      mainBalance: { increment: payout },
-      availableBalance: { increment: payout },
+      mainBalance: { increment: netPayout },
+      availableBalance: { increment: netPayout },
     },
   });
 
   await tx.walletTransaction.create({
     data: {
       walletId: listerWallet.id,
-      amount: payout,
+      amount: netPayout,
       type: 'MAIN',
       status: 'SUCCESS',
       note: isAuto
-        ? `Resale payment auto-released for order ${orderDisplayId}`
-        : `Resale payment released for order ${orderDisplayId}`,
+        ? `Resale payment auto-released for order ${orderDisplayId}${platformFeeNoteSuffix(platformFee)}`
+        : `Resale payment released for order ${orderDisplayId}${platformFeeNoteSuffix(platformFee)}`,
       orderId: orderInternalId,
     },
   });
@@ -67,13 +70,16 @@ export async function releaseResaleEscrowForShipment(
     where: { id: escrow.id },
     data: {
       resaleReleasedAmount: nextReleased,
+      ...(platformFee > 0
+        ? { platformFeeAmount: { increment: platformFee } }
+        : {}),
     },
   });
 
   await incrementClosetRevenueForListerPayout(tx, {
     orderId: orderInternalId,
     listerId,
-    amount: payout,
+    amount: netPayout,
     split: 'RESALE',
   });
 }
