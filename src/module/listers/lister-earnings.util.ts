@@ -1,4 +1,5 @@
 import { EscrowStatus, Prisma } from '@prisma/client';
+import { computePlatformFee } from '../order/platform-fee.util';
 import type { PrismaService } from 'src/services/prisma/prisma.service';
 
 /**
@@ -67,6 +68,7 @@ export async function sumListerPendingEscrow(
       cleaningFee: true,
       collateralAmount: true,
       resaleAmount: true,
+      platformFeeRate: true,
     },
   });
 
@@ -76,10 +78,13 @@ export async function sumListerPendingEscrow(
     const cleaning = row.cleaningFee ?? 0;
     const collateral = row.collateralAmount ?? 0;
     const resale = row.resaleAmount ?? 0;
+    const rentalBase = Math.max(0, rental - cleaning);
     if (row.status === EscrowStatus.LOCKED) {
       total += rental + cleaning + collateral + resale;
+      total -= computePlatformFee(rentalBase + resale, row.platformFeeRate ?? 0);
     } else {
       total += cleaning + collateral + resale;
+      total -= computePlatformFee(resale, row.platformFeeRate ?? 0);
     }
   }
   return total;

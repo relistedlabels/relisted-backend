@@ -1,4 +1,9 @@
 import {
+  escrowFeeBaseOnReturnConfirm,
+  escrowPlatformFee,
+  platformFeeNoteSuffix,
+} from '../order/platform-fee.util';
+import {
   Injectable,
   ForbiddenException,
   NotFoundException,
@@ -2287,8 +2292,16 @@ export class ListersService {
             }
           }
 
-          const totalListerPayout =
+          const grossListerPayout =
             listerEscrowPayoutOnReturnConfirm(listerEscrow);
+          const platformFee = Math.min(
+            grossListerPayout,
+            escrowPlatformFee(
+              listerEscrow,
+              escrowFeeBaseOnReturnConfirm(listerEscrow),
+            ),
+          );
+          const totalListerPayout = grossListerPayout - platformFee;
 
           if (totalListerPayout > 0) {
             console.log(
@@ -2313,7 +2326,7 @@ export class ListersService {
                 amount: totalListerPayout,
                 type: 'MAIN',
                 status: 'SUCCESS',
-                note: `Final payout released for completed order ${order.orderId} (Rental + Cleaning + Resale)`,
+                note: `Final payout released for completed order ${order.orderId} (Rental + Cleaning + Resale)${platformFeeNoteSuffix(platformFee)}`,
                 orderId: order.id,
               },
             });
@@ -2327,7 +2340,7 @@ export class ListersService {
             await incrementClosetRevenueForListerPayout(tx, {
               orderId: order.id,
               listerId: listerEscrow.listerId,
-              amount: closetCredit,
+              amount: Math.max(0, closetCredit - platformFee),
               split,
             });
           }
@@ -2337,6 +2350,9 @@ export class ListersService {
             data: {
               status: 'RELEASED',
               releasedAt: new Date(),
+              ...(platformFee > 0
+                ? { platformFeeAmount: { increment: platformFee } }
+                : {}),
             },
           });
         } else {
@@ -2413,8 +2429,17 @@ export class ListersService {
     }
 
     if (listerEscrow) {
-      const totalListerPayout =
+      const grossListerPayout =
         listerEscrowPayoutOnReturnConfirm(listerEscrow);
+      const totalListerPayout =
+        grossListerPayout -
+        Math.min(
+          grossListerPayout,
+          escrowPlatformFee(
+            listerEscrow,
+            escrowFeeBaseOnReturnConfirm(listerEscrow),
+          ),
+        );
       if (totalListerPayout > 0) {
         const lister = await this.prisma.user.findUnique({
           where: { id: listerEscrow.listerId },
@@ -3081,6 +3106,19 @@ export class ListersService {
         order,
         availabilityRequests,
       ),
+      platformFee:
+        listerEscrow && (listerEscrow.platformFeeRate ?? 0) > 0
+          ? (() => {
+              const feeBase =
+                escrowFromDb!.rentalFeeTotal + escrowFromDb!.purchasePrice;
+              const amount = escrowPlatformFee(listerEscrow, feeBase);
+              return {
+                ratePercent: listerEscrow.platformFeeRate,
+                amount,
+                netEarnings: merchandiseTotal - amount,
+              };
+            })()
+          : null,
       listerMerchandise: listerEscrow
         ? {
             rentalSubtotal: escrowFromDb!.rentalFeeTotal,

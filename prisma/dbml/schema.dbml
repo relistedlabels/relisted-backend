@@ -646,6 +646,8 @@ Table Escrow {
   collateralAmount Int [not null]
   cleaningFee Int [not null]
   status EscrowStatus [not null, default: 'LOCKED']
+  platformFeeRate Float [not null, default: 0, note: 'Lister commission % snapshotted at order creation (0 for orders placed before the fee went live).']
+  platformFeeAmount Int [not null, default: 0, note: 'Cumulative commission withheld from lister payouts on this escrow.']
   releasedAt DateTime
   createdAt DateTime [default: `now()`, not null]
   order Order [not null]

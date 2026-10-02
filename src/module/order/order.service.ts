@@ -1,3 +1,9 @@
+import {
+  escrowPlatformFee,
+  escrowRentalFeeBase,
+  getListerPlatformFeePercent,
+  platformFeeNoteSuffix,
+} from './platform-fee.util';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
@@ -3047,6 +3053,7 @@ export class OrderService {
                 collateralAmount: totalCollateralAmount,
                 cleaningFee: totalCleaningFee,
                 status: 'LOCKED',
+                platformFeeRate: getListerPlatformFeePercent(),
               },
             });
           } else if (isResaleOrder && !hasRentalItem) {
@@ -3071,6 +3078,7 @@ export class OrderService {
                 collateralAmount: 0,
                 cleaningFee: 0,
                 status: 'LOCKED',
+                platformFeeRate: getListerPlatformFeePercent(),
               },
             });
           } else {
@@ -3092,6 +3100,7 @@ export class OrderService {
                 collateralAmount: totalCollateralAmount,
                 cleaningFee: totalCleaningFee,
                 status: 'LOCKED',
+                platformFeeRate: getListerPlatformFeePercent(),
               },
             });
           }
@@ -3384,7 +3393,12 @@ export class OrderService {
    * - RENT_OR_RESALE orders: depends on actual transaction type and escrow state
    * - If escrow is PARTIALLY_RELEASED, rental was already released, so only release resale
    */
-  private calculateEscrowReleaseAmount(order: any, escrow: any): number {
+  private calculateEscrowRelease(
+    order: any,
+    escrow: any,
+  ): { amount: number; feeBase: number } {
+    const rentalBase = escrowRentalFeeBase(escrow);
+    const resale = escrow.resaleAmount ?? 0;
     const isRentalTransaction = order.orderItems.some(
       (item: any) => item.days > 0,
     );
@@ -3394,36 +3408,39 @@ export class OrderService {
     const isPartiallyReleased = escrow.status === 'PARTIALLY_RELEASED';
 
     if (order.listingType === 'RESALE') {
-      return escrow.resaleAmount ?? 0;
+      return { amount: resale, feeBase: resale };
     }
 
     if (order.listingType === 'RENTAL') {
-      return escrow.rentalAmount ?? 0;
+      return { amount: escrow.rentalAmount ?? 0, feeBase: rentalBase };
     }
 
     if (order.listingType === 'RENT_OR_RESALE') {
       if (isPartiallyReleased) {
         // Rental already released on delivery, only release resale now
-        return escrow.resaleAmount ?? 0;
+        return { amount: resale, feeBase: resale };
       }
 
       if (isRentalTransaction && isResaleTransaction) {
         // Mixed order: release both amounts
-        return (escrow.rentalAmount ?? 0) + (escrow.resaleAmount ?? 0);
+        return {
+          amount: (escrow.rentalAmount ?? 0) + resale,
+          feeBase: rentalBase + resale,
+        };
       }
 
       if (isRentalTransaction) {
         // Pure rental (no resale items)
-        return escrow.rentalAmount ?? 0;
+        return { amount: escrow.rentalAmount ?? 0, feeBase: rentalBase };
       }
 
       if (isResaleTransaction) {
         // Pure resale (no rental items)
-        return escrow.resaleAmount ?? 0;
+        return { amount: resale, feeBase: resale };
       }
     }
 
-    return 0;
+    return { amount: 0, feeBase: 0 };
   }
 
   /**
@@ -3681,11 +3698,20 @@ export class OrderService {
           }
 
           for (const escrow of escrows) {
-            const releaseAmount = this.calculateEscrowReleaseAmount(
-              order,
-              escrow,
+            const release = this.calculateEscrowRelease(order, escrow);
+            if (release.amount <= 0) continue;
+            const platformFee = Math.min(
+              release.amount,
+              escrowPlatformFee(escrow, release.feeBase),
             );
-            if (releaseAmount <= 0) continue;
+            const releaseAmount = release.amount - platformFee;
+
+            if (platformFee > 0) {
+              await tx.escrow.update({
+                where: { id: escrow.id },
+                data: { platformFeeAmount: { increment: platformFee } },
+              });
+            }
 
             const listerWallet = await tx.wallet.upsert({
               where: { userId: escrow.listerId },
@@ -3707,8 +3733,8 @@ export class OrderService {
                 type: 'MAIN',
                 status: 'SUCCESS',
                 note: isAuto
-                  ? `Payment auto-released after ${getResaleInspectionPeriodLabel()} inspection period for order ${order.orderId}`
-                  : `Payment released for resale order ${order.orderId}`,
+                  ? `Payment auto-released after ${getResaleInspectionPeriodLabel()} inspection period for order ${order.orderId}${platformFeeNoteSuffix(platformFee)}`
+                  : `Payment released for resale order ${order.orderId}${platformFeeNoteSuffix(platformFee)}`,
                 orderId: order.id,
               },
             });

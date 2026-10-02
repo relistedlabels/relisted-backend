@@ -674,6 +674,10 @@ model Escrow {
   collateralAmount     Int
   cleaningFee          Int
   status               EscrowStatus @default(LOCKED)
+  /// Lister commission % snapshotted at order creation (0 for orders placed before the fee went live).
+  platformFeeRate      Float        @default(0)
+  /// Cumulative commission withheld from lister payouts on this escrow.
+  platformFeeAmount    Int          @default(0)
   releasedAt       DateTime?
   createdAt        DateTime     @default(now())
   order            Order        @relation(fields: [orderId], references: [id])
