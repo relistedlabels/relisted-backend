@@ -727,7 +727,7 @@ Table NotificationSettings {
   id String [pk]
   userId String [unique, not null]
   emailAlertsEnabled Boolean [not null, default: true]
-  whatsappOptIn Boolean [not null, default: false]
+  whatsappOptIn Boolean [not null, default: true]
   emailAlertsCategories String[] [not null]
   smsUpdatesEnabled Boolean [not null, default: false]
   smsUpdatesCategories String[] [not null]
