@@ -8,7 +8,7 @@ import {
   normalizePhoneDigits,
   WhatsAppService,
 } from 'src/services/whatsapp/whatsapp.service';
-import { resolveApiPublicUrl } from 'src/config/app-urls';
+import { resolveApiPublicUrl, resolveClientUrl } from 'src/config/app-urls';
 
 export type TwilioWhatsAppInbound = {
   From?: string;
@@ -68,21 +68,15 @@ function parseListerReply(
   return null;
 }
 
-function parseCTAButton(
-  payload: TwilioWhatsAppInbound,
-): { action: 'start_return'; deepLink?: string } | null {
-  const buttonText = payload.ButtonText?.trim() || '';
-  const buttonPayload = payload.ButtonPayload?.trim() || '';
-  const body = payload.Body?.trim() || '';
-
-  if (
-    buttonText.toLowerCase() === 'start return' ||
-    buttonPayload.toLowerCase() === 'start return'
-  ) {
-    const deepLink = body || buttonPayload || buttonText;
-    return { action: 'start_return', deepLink: deepLink || undefined };
-  }
-  return null;
+function parseCTAButton(payload: TwilioWhatsAppInbound): boolean {
+  const candidates = [
+    payload.ButtonPayload,
+    payload.ButtonText,
+    payload.Body,
+  ];
+  return candidates.some(
+    (candidate) => candidate?.trim().toLowerCase() === 'start return',
+  );
 }
 
 const STOP_WORDS = new Set([
@@ -170,9 +164,8 @@ export class WhatsAppWebhookService {
       return;
     }
 
-    const ctaAction = parseCTAButton(payload);
-    if (ctaAction) {
-      await this.handleCTAButton(fromDigits, ctaAction);
+    if (parseCTAButton(payload)) {
+      await this.handleCTAButton(fromDigits);
       return;
     }
 
@@ -237,62 +230,67 @@ export class WhatsAppWebhookService {
     );
   }
 
-  private async handleCTAButton(
-    fromDigits: string,
-    ctaAction: { action: 'start_return'; deepLink?: string },
-  ): Promise<void> {
-    const profiles = await this.prisma.profile.findMany({
+  private async handleCTAButton(fromDigits: string): Promise<void> {
+    const matchingProfiles = await this.prisma.profile.findMany({
       where: { phoneNumber: { not: '' } },
       select: { userId: true, phoneNumber: true },
     });
-    const userProfile = profiles.find(
+    const profiles = matchingProfiles.filter(
       (row) => normalizePhoneDigits(row.phoneNumber) === fromDigits,
     );
-    if (!userProfile) {
-      this.logger.warn(`No profile matched WhatsApp CTA sender ${fromDigits}`);
+    if (profiles.length !== 1) {
+      this.logger.warn(
+        `Expected one profile for WhatsApp CTA sender ${fromDigits}; found ${profiles.length}`,
+      );
       return;
     }
+    const profile = profiles[0]!;
 
-    const user = await this.prisma.user.findUnique({
-      where: { id: userProfile.userId },
-      include: { profile: true },
-    });
-    if (!user) {
-      return;
-    }
-
-    const pendingReturn = await this.prisma.returnRequest.findFirst({
+    const pendingReturns = await this.prisma.returnRequest.findMany({
       where: {
-        order: {
-          userId: userProfile.userId,
-        },
-        status: { in: ['PENDING_PICKUP', 'IN_TRANSIT'] },
+        order: { userId: profile.userId },
+        status: 'PENDING_PICKUP',
       },
       orderBy: { createdAt: 'desc' },
-      select: { id: true, orderId: true, shipmentId: true },
+      select: {
+        order: { select: { orderId: true } },
+        shipmentId: true,
+      },
     });
-
+    const pendingReturn = pendingReturns[0];
     if (!pendingReturn) {
-      this.logger.log(`No pending return found for user ${userProfile.userId}`);
+      this.logger.log(`No pending return found for user ${profile.userId}`);
       return;
     }
 
-    const clientUrl = resolveApiPublicUrl() || process.env.CLIENT_URL || '';
-    const returnUrl =
-      ctaAction.deepLink ||
-      `${clientUrl}/renters/orders/${pendingReturn.orderId}/return`;
+    const clientUrl = resolveClientUrl();
+    if (!clientUrl) {
+      this.logger.error(
+        'Cannot handle WhatsApp return CTA because CLIENT_URL is not configured',
+      );
+      return;
+    }
+    const returnUrl = new URL('/renters/orders', clientUrl);
+    returnUrl.searchParams.set(
+      'orderId',
+      pendingReturn.order.orderId,
+    );
+    returnUrl.searchParams.set('startReturn', '1');
+    if (pendingReturn.shipmentId) {
+      returnUrl.searchParams.set('shipmentId', pendingReturn.shipmentId);
+    }
 
     await this.whatsappService.sendRenterReturnReminder({
-      toPhone: userProfile.phoneNumber,
-      renterName: user.name || 'there',
+      toPhone: profile.phoneNumber,
+      renterName: 'there',
       productName: 'your item',
       pickupLabel: 'scheduled',
-      orderId: pendingReturn.orderId,
-      startReturnUrl: returnUrl,
+      orderId: pendingReturn.order.orderId,
+      startReturnUrl: returnUrl.toString(),
     });
 
     this.logger.log(
-      `WhatsApp CTA processed for user ${userProfile.userId} (${pendingReturn.orderId})`,
+      `WhatsApp return CTA link sent to user ${profile.userId} for order ${pendingReturn.order.orderId}`,
     );
   }
 }
