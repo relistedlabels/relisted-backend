@@ -1,4 +1,4 @@
-import type { Escrow } from '@prisma/client';
+import { EscrowStatus, type Escrow } from '@prisma/client';
 
 export function getListerPlatformFeePercent(): number {
   const configuredRate = Number(process.env.LISTER_PLATFORM_FEE_PERCENT);
@@ -39,15 +39,40 @@ export function escrowFeeBaseOnReturnConfirm(
   return escrowRentalFeeBase(escrow) + Number(escrow.resaleAmount ?? 0);
 }
 
+/** Total fee due at the configured rate for the cumulative commissionable base. */
 export function escrowPlatformFee(
   escrow: Pick<Escrow, 'platformFeeRate' | 'platformFeeAmount'>,
-  fallbackBase: number,
+  cumulativeFeeBase: number,
 ): number {
-  const persistedFee = Number(escrow.platformFeeAmount ?? 0);
-  if (persistedFee > 0) return persistedFee;
   const persistedRate = Number(escrow.platformFeeRate ?? 0);
   if (persistedRate <= 0) return 0;
-  return computePlatformFee(fallbackBase, persistedRate);
+  return computePlatformFee(cumulativeFeeBase, persistedRate);
+}
+
+/** Fee still due after applying fees already withheld from prior escrow releases. */
+export function escrowPlatformFeeDue(
+  escrow: Pick<Escrow, 'platformFeeRate' | 'platformFeeAmount'>,
+  cumulativeFeeBase: number,
+): number {
+  return Math.max(
+    0,
+    escrowPlatformFee(escrow, cumulativeFeeBase) -
+      Math.max(0, Number(escrow.platformFeeAmount ?? 0)),
+  );
+}
+
+/** Commissionable base already released from this escrow. */
+export function escrowFeeBaseAlreadyReleased(
+  escrow: Pick<
+    Escrow,
+    'status' | 'rentalAmount' | 'cleaningFee' | 'resaleReleasedAmount'
+  >,
+): number {
+  const releasedRentalBase =
+    escrow.status === EscrowStatus.PARTIALLY_RELEASED
+      ? escrowRentalFeeBase(escrow)
+      : 0;
+  return releasedRentalBase + Math.max(0, escrow.resaleReleasedAmount ?? 0);
 }
 
 export function platformFeeNoteSuffix(platformFee: number): string {

@@ -1,7 +1,8 @@
 import type { Prisma } from '@prisma/client';
 import { incrementClosetRevenueForListerPayout } from '../closet/closet-revenue.util';
 import {
-  escrowPlatformFee,
+  escrowFeeBaseAlreadyReleased,
+  escrowPlatformFeeDue,
   escrowRentalFeeBase,
   platformFeeNoteSuffix,
 } from './platform-fee.util';
@@ -34,7 +35,10 @@ export async function releaseRentalEscrowForListerOnConfirm(
 
   const platformFee = Math.min(
     escrowRentalFeeBase(escrow),
-    escrowPlatformFee(escrow, escrowRentalFeeBase(escrow)),
+    escrowPlatformFeeDue(
+      escrow,
+      escrowFeeBaseAlreadyReleased(escrow) + escrowRentalFeeBase(escrow),
+    ),
   );
   const releaseAmount = Math.max(0, escrow.rentalAmount - platformFee);
   const hasResaleAmount = (escrow.resaleAmount || 0) > 0;
@@ -60,12 +64,12 @@ export async function releaseRentalEscrowForListerOnConfirm(
       status: 'SUCCESS',
       note:
         (isAuto
-        ? hasResaleAmount
-          ? `Rental payment auto-released after ${getRentalInspectionPeriodLabel()} inspection for order ${orderDisplayId} (resale pending buyer confirmation)`
-          : `Rental payment auto-released after inspection period for order ${orderDisplayId}`
-        : hasResaleAmount
-          ? `Rental payment released for order ${orderDisplayId} (resale amount pending buyer confirmation)`
-          : `Escrow release for order ${orderDisplayId}`) +
+          ? hasResaleAmount
+            ? `Rental payment auto-released after ${getRentalInspectionPeriodLabel()} inspection for order ${orderDisplayId} (resale pending buyer confirmation)`
+            : `Rental payment auto-released after inspection period for order ${orderDisplayId}`
+          : hasResaleAmount
+            ? `Rental payment released for order ${orderDisplayId} (resale amount pending buyer confirmation)`
+            : `Escrow release for order ${orderDisplayId}`) +
         platformFeeNoteSuffix(platformFee),
       orderId: orderInternalId,
     },

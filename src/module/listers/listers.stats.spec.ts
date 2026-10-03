@@ -101,6 +101,6 @@ describe('ListersService.getListerStats', () => {
 
     const result = await service.getListerStats(mockUser as any, 'month');
 
-    expect(result.data.pendingPayouts.amount).toBe(73000 + 19000);
+    expect(result.data.pendingPayouts.amount).toBe(69000 + 15000);
   });
 });
