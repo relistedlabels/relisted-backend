@@ -1919,7 +1919,7 @@ export class RentersService {
         requesterEmail: current.requester?.email ?? null,
         completeRentalUrl:
           publicStatus === 'available'
-            ? `${clientUrl}/shop/availability/available?requestId=${encodeURIComponent(current.id)}`
+            ? '/shop/cart/checkout'
             : null,
       },
     };
