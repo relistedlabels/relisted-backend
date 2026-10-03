@@ -6,6 +6,7 @@ Table User {
   id String [pk]
   email String [unique, not null]
   password String [not null]
+  passwordSetAt DateTime
   name String [not null]
   provider String
   isVerified Boolean [not null, default: false]
@@ -201,6 +202,7 @@ Table Product {
   productVerified Boolean [not null, default: false]
   quantity Int
   status ProductStatus [not null, default: 'PENDING']
+  deactivatedByBrandRemoval Boolean [not null, default: false]
   rejectionComment String
   material String
   collateralPrice Int
@@ -225,6 +227,7 @@ Table Brand {
   name String [not null]
   createdAt DateTime [default: `now()`, not null]
   userId String
+  isShopVisible Boolean [not null, default: false]
   isShopPrioritized Boolean [not null, default: false]
   shopPriorityOrder Int
   user User
@@ -465,6 +468,7 @@ Table Review {
   rating Int [not null]
   comment String
   rentalId String [unique, not null]
+  hiddenAt DateTime
   createdAt DateTime [default: `now()`, not null]
   updatedAt DateTime [not null]
   curator User [not null]
@@ -642,6 +646,8 @@ Table Escrow {
   collateralAmount Int [not null]
   cleaningFee Int [not null]
   status EscrowStatus [not null, default: 'LOCKED']
+  platformFeeRate Float [not null, default: 0, note: 'Lister commission % snapshotted at order creation (0 for orders placed before the fee went live).']
+  platformFeeAmount Int [not null, default: 0, note: 'Cumulative commission withheld from lister payouts on this escrow.']
   releasedAt DateTime
   createdAt DateTime [default: `now()`, not null]
   order Order [not null]
@@ -721,6 +727,7 @@ Table NotificationSettings {
   id String [pk]
   userId String [unique, not null]
   emailAlertsEnabled Boolean [not null, default: true]
+  whatsappOptIn Boolean [not null, default: false]
   emailAlertsCategories String[] [not null]
   smsUpdatesEnabled Boolean [not null, default: false]
   smsUpdatesCategories String[] [not null]
@@ -838,6 +845,7 @@ Table Shipment {
   returnDueReminder24hSentAt DateTime [note: 'Renter return reminder dedupe (per RETURN leg): ~24h before pickup window.']
   returnDueReminderMorningSentAt DateTime [note: 'Renter return reminder dedupe (per RETURN leg): morning-of pickup (Lagos).']
   returnRequestReminderState Json [note: 'Return-request completion nudges dedupe (per RETURN leg, no ReturnRequest yet).']
+  adminReturnRequestPastDueLastNotifiedAt DateTime [note: 'Admin alert dedupe: last past-due ping when renter has not submitted a return request (Lagos day).']
   dispatchAttempts Int [not null, default: 0]
   dispatchedAt DateTime
   buyerConfirmedAt DateTime [note: 'Buyer confirmed receipt for RESALE legs (releases resale payout for this shipment only).']

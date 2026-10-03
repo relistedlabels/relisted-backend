@@ -22,7 +22,7 @@ describe('dispatch-window-format', () => {
     }
   });
 
-  it('formatDateTimeLagos uses WAT on a UTC server', () => {
+  it('formatDateTimeLagos uses Lagos time on a UTC server', () => {
     expect(formatDateTimeLagos('2026-06-25T10:00:00.000Z')).toMatch(
       /Thu,?\s+25 Jun,?\s+11:00/,
     );
@@ -58,7 +58,7 @@ describe('dispatch-window-format', () => {
         new Date('2026-06-09T09:00:00+01:00'),
         new Date('2026-06-09T14:00:00+01:00'),
       ),
-    ).toBe('9th June, 9 am – 2 pm WAT');
+    ).toBe('9th June, 9 am – 2 pm');
   });
 
   it('formatOrdinalDay handles teens and regular ordinals', () => {

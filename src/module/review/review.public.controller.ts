@@ -1,24 +1,34 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 import { ReviewService } from './review.service';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 
 @ApiTags('Public - Reviews')
-@Controller('api/public/reviews')
+@Controller('api/public')
 export class ReviewsPublicController {
   constructor(private readonly reviewService: ReviewService) {}
 
-  @Get()
-  @ApiOperation({ summary: 'List all reviews (Public)' })
+  @Get('reviews')
+  @ApiOperation({ summary: 'List public reviews' })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 20 })
   @ApiQuery({ name: 'sort', required: false })
+  @ApiQuery({ name: 'minRating', required: false })
+  @ApiQuery({ name: 'productId', required: false })
+  @ApiQuery({ name: 'curatorId', required: false })
   @ApiResponse({
     status: 200,
     description: 'Reviews retrieved successfully',
   })
-  async findAll(@Query() query: any) {
-    // Reuse existing findAll or create a specific public method if needed
-    // Existing findAll takes queryDto which has basic filters
-    return this.reviewService.findAll(query);
+  async findAll(@Query() query: Record<string, unknown>) {
+    return this.reviewService.findPublicReviews(query);
+  }
+
+  @Get('products/:productId/reviews')
+  @ApiOperation({ summary: 'List reviews for a product (Public)' })
+  async findProductReviews(
+    @Param('productId') productId: string,
+    @Query() query: Record<string, unknown>,
+  ) {
+    return this.reviewService.findPublicProductReviews(productId, query);
   }
 }

@@ -73,6 +73,32 @@ function findListerBucketForCartItem(
   );
 }
 
+/** Resale lines may share a rental bucket outbound window when dispatch times match. */
+function purchaseDeliveryWindowFromBucket(
+  bucket: ListerOrderBucket | undefined,
+): string | null {
+  if (!bucket) return null;
+  return (
+    windowText(bucket.resaleWindow?.start, bucket.resaleWindow?.end) ??
+    windowText(bucket.outboundWindow?.start, bucket.outboundWindow?.end)
+  );
+}
+
+function purchaseDeliveryWindowFromOrderItem(
+  orderItem: LoadedOrderItem,
+): string | null {
+  return (
+    windowText(
+      orderItem.resaleShipment?.scheduledWindowStart,
+      orderItem.resaleShipment?.scheduledWindowEnd,
+    ) ??
+    windowText(
+      orderItem.outboundShipment?.scheduledWindowStart,
+      orderItem.outboundShipment?.scheduledWindowEnd,
+    )
+  );
+}
+
 /** Build renter confirmation lines at checkout (cart + dispatch windows in memory). */
 export function buildRenterCheckoutEmailLinesFromCheckout(
   eligibleItems: Array<{
@@ -127,10 +153,7 @@ export function buildRenterCheckoutEmailLinesFromCheckout(
         productName,
         imageUrl,
         lineType: 'purchase',
-        purchaseDeliveryWindowText: windowText(
-          bucket?.resaleWindow?.start,
-          bucket?.resaleWindow?.end,
-        ),
+        purchaseDeliveryWindowText: purchaseDeliveryWindowFromBucket(bucket),
       });
     }
   }
@@ -212,10 +235,7 @@ export function buildRenterCheckoutEmailLinesFromOrder(
         productName,
         imageUrl: oi.imageUrl ?? null,
         lineType: 'purchase',
-        purchaseDeliveryWindowText: windowText(
-          oi.resaleShipment?.scheduledWindowStart,
-          oi.resaleShipment?.scheduledWindowEnd,
-        ),
+        purchaseDeliveryWindowText: purchaseDeliveryWindowFromOrderItem(oi),
       });
     }
   }

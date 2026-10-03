@@ -1,5 +1,11 @@
 import type { Prisma } from '@prisma/client';
 import { incrementClosetRevenueForListerPayout } from '../closet/closet-revenue.util';
+import {
+  escrowFeeBaseAlreadyReleased,
+  escrowPlatformFeeDue,
+  escrowRentalFeeBase,
+  platformFeeNoteSuffix,
+} from './platform-fee.util';
 import { getRentalInspectionPeriodLabel } from './rental-delivery.util';
 
 type Tx = Prisma.TransactionClient;
@@ -27,7 +33,14 @@ export async function releaseRentalEscrowForListerOnConfirm(
   if (!escrow) return;
   if (escrow.status !== 'LOCKED' || !(escrow.rentalAmount || 0)) return;
 
-  const releaseAmount = escrow.rentalAmount;
+  const platformFee = Math.min(
+    escrowRentalFeeBase(escrow),
+    escrowPlatformFeeDue(
+      escrow,
+      escrowFeeBaseAlreadyReleased(escrow) + escrowRentalFeeBase(escrow),
+    ),
+  );
+  const releaseAmount = Math.max(0, escrow.rentalAmount - platformFee);
   const hasResaleAmount = (escrow.resaleAmount || 0) > 0;
 
   const listerWallet = await tx.wallet.upsert({
@@ -49,13 +62,15 @@ export async function releaseRentalEscrowForListerOnConfirm(
       amount: releaseAmount,
       type: 'MAIN',
       status: 'SUCCESS',
-      note: isAuto
-        ? hasResaleAmount
-          ? `Rental payment auto-released after ${getRentalInspectionPeriodLabel()} inspection for order ${orderDisplayId} (resale pending buyer confirmation)`
-          : `Rental payment auto-released after inspection period for order ${orderDisplayId}`
-        : hasResaleAmount
-          ? `Rental payment released for order ${orderDisplayId} (resale amount pending buyer confirmation)`
-          : `Escrow release for order ${orderDisplayId}`,
+      note:
+        (isAuto
+          ? hasResaleAmount
+            ? `Rental payment auto-released after ${getRentalInspectionPeriodLabel()} inspection for order ${orderDisplayId} (resale pending buyer confirmation)`
+            : `Rental payment auto-released after inspection period for order ${orderDisplayId}`
+          : hasResaleAmount
+            ? `Rental payment released for order ${orderDisplayId} (resale amount pending buyer confirmation)`
+            : `Escrow release for order ${orderDisplayId}`) +
+        platformFeeNoteSuffix(platformFee),
       orderId: orderInternalId,
     },
   });
@@ -65,6 +80,9 @@ export async function releaseRentalEscrowForListerOnConfirm(
     data: {
       status: 'PARTIALLY_RELEASED',
       releasedAt: null,
+      ...(platformFee > 0
+        ? { platformFeeAmount: { increment: platformFee } }
+        : {}),
     },
   });
 

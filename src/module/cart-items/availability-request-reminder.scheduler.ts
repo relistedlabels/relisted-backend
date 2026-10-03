@@ -5,16 +5,25 @@ import { PrismaService } from 'src/services/prisma/prisma.service';
 import { NotificationService } from 'src/services/notification/notification.service';
 import {
   applyAvailabilityRequestReminderState,
-  checkoutReminderCopy,
+  checkoutReminderBatchCopy,
   computeCheckoutReminderActions,
   computeExpiredListerReminderActions,
-  expiredListerReminderCopy,
+  expiredListerReminderBatchCopy,
   type AvailabilityReminderAction,
+  type CheckoutReminderItem,
+  type CheckoutReminderStage,
+  type ExpiredListerReminderItem,
+  type ExpiredListerReminderStage,
 } from './availability-request-reminder.util';
 import {
-  findActiveOrderProductRequesterPairs,
+  findSupersedingOrderProductRequesterPairs,
   isAvailabilityRequestSupersededByActiveOrder,
+  markSupersededAvailabilityRequestsOrdered,
 } from './fulfill-availability-for-checkout';
+import {
+  canListerActOnAvailabilityRequest,
+  isBusinessExpired,
+} from 'src/utils/availability-request-expiry.util';
 
 const AVAILABILITY_REMINDER_CRON =
   process.env.AVAILABILITY_REQUEST_REMINDER_CRON?.trim() || '*/5 * * * *';
@@ -24,6 +33,38 @@ const REMINDER_LOOKBACK_DAYS = Math.max(
   1,
   Number(process.env.AVAILABILITY_REQUEST_REMINDER_LOOKBACK_DAYS ?? 3),
 );
+
+type AcceptedRequest = {
+  id: string;
+  productId: string;
+  rentalDays: number | null;
+  approvedAt: Date | null;
+  reminderState: unknown;
+  product: { name: string } | null;
+  requester: { id: string; name: string | null; email: string | null } | null;
+  lister: { name: string | null } | null;
+};
+
+type ExpiredRequest = {
+  id: string;
+  productId: string;
+  rentalDays: number | null;
+  expiresAt: Date | null;
+  reminderState: unknown;
+  product: { name: string } | null;
+  requester: { id: string; name: string | null } | null;
+  lister: { id: string; name: string | null; email: string | null } | null;
+};
+
+type CheckoutBatchEntry = {
+  request: AcceptedRequest;
+  action: AvailabilityReminderAction & { track: 'checkout' };
+};
+
+type ExpiredListerBatchEntry = {
+  request: ExpiredRequest;
+  action: AvailabilityReminderAction & { track: 'expiredLister' };
+};
 
 @Injectable()
 export class AvailabilityRequestReminderScheduler {
@@ -52,6 +93,17 @@ export class AvailabilityRequestReminderScheduler {
 
   private requestType(rentalDays: number | null | undefined): 'purchase' | 'rental' {
     return (rentalDays ?? 0) === 0 ? 'purchase' : 'rental';
+  }
+
+  private checkoutBatchKey(requesterId: string, stage: CheckoutReminderStage) {
+    return `${requesterId}:${stage}`;
+  }
+
+  private expiredListerBatchKey(
+    listerId: string,
+    stage: ExpiredListerReminderStage,
+  ) {
+    return `${listerId}:${stage}`;
   }
 
   /** PENDING past expiresAt → EXPIRED so reminder queries stay honest. */
@@ -88,16 +140,57 @@ export class AvailabilityRequestReminderScheduler {
       orderBy: { approvedAt: 'asc' },
     });
 
+    const supersededPairs = await findSupersedingOrderProductRequesterPairs(
+      this.prisma,
+      accepted.map((request) => ({
+        productId: request.productId,
+        requesterId: request.requester?.id ?? '',
+      })),
+    );
+
+    if (supersededPairs.size > 0) {
+      await markSupersededAvailabilityRequestsOrdered(
+        this.prisma,
+        accepted.map((request) => ({
+          id: request.id,
+          productId: request.productId,
+          requesterId: request.requester?.id ?? '',
+        })),
+        supersededPairs,
+      );
+    }
+
+    const checkoutBatches = new Map<string, CheckoutBatchEntry[]>();
+
     for (const request of accepted) {
+      const requesterId = request.requester?.id ?? '';
+      if (
+        !requesterId ||
+        isAvailabilityRequestSupersededByActiveOrder(supersededPairs, {
+          productId: request.productId,
+          requesterId,
+        })
+      ) {
+        continue;
+      }
+
       const actions = computeCheckoutReminderActions(
         now,
         request.approvedAt,
         request.reminderState,
       );
       for (const action of actions) {
-        const ok = await this.sendCheckoutReminder(request, action, now);
-        if (ok) checkoutSent += 1;
+        if (action.track !== 'checkout') continue;
+        const key = this.checkoutBatchKey(requesterId, action.stage);
+        const batch = checkoutBatches.get(key) ?? [];
+        batch.push({ request, action });
+        checkoutBatches.set(key, batch);
       }
+    }
+
+    for (const batch of checkoutBatches.values()) {
+      const ok = await this.sendCheckoutReminderBatch(batch, now);
+      if (ok) checkoutSent += 1;
     }
 
     const expired = await this.prisma.availabilityRequest.findMany({
@@ -114,13 +207,15 @@ export class AvailabilityRequestReminderScheduler {
       orderBy: { expiresAt: 'asc' },
     });
 
-    const activeOrderPairs = await findActiveOrderProductRequesterPairs(
+    const activeOrderPairs = await findSupersedingOrderProductRequesterPairs(
       this.prisma,
       expired.map((request) => ({
         productId: request.productId,
         requesterId: request.requester?.id ?? '',
       })),
     );
+
+    const expiredListerBatches = new Map<string, ExpiredListerBatchEntry[]>();
 
     for (const request of expired) {
       if (
@@ -131,6 +226,12 @@ export class AvailabilityRequestReminderScheduler {
       ) {
         continue;
       }
+      if (
+        isBusinessExpired(request, now) ||
+        !canListerActOnAvailabilityRequest(request, now)
+      ) {
+        continue;
+      }
 
       const actions = computeExpiredListerReminderActions(
         now,
@@ -138,9 +239,18 @@ export class AvailabilityRequestReminderScheduler {
         request.reminderState,
       );
       for (const action of actions) {
-        const ok = await this.sendExpiredListerReminder(request, action, now);
-        if (ok) expiredListerSent += 1;
+        if (action.track !== 'expiredLister') continue;
+        if (!request.lister?.id) continue;
+        const key = this.expiredListerBatchKey(request.lister.id, action.stage);
+        const batch = expiredListerBatches.get(key) ?? [];
+        batch.push({ request, action });
+        expiredListerBatches.set(key, batch);
       }
+    }
+
+    for (const batch of expiredListerBatches.values()) {
+      const ok = await this.sendExpiredListerReminderBatch(batch, now);
+      if (ok) expiredListerSent += 1;
     }
 
     if (checkoutSent || expiredListerSent) {
@@ -150,138 +260,164 @@ export class AvailabilityRequestReminderScheduler {
     }
   }
 
-  private async sendCheckoutReminder(
-    request: {
-      id: string;
-      productId: string;
-      rentalDays: number | null;
-      reminderState: unknown;
-      product: { name: string } | null;
-      requester: { id: string; name: string | null; email: string | null } | null;
-      lister: { name: string | null } | null;
-    },
-    action: AvailabilityReminderAction,
+  private async sendCheckoutReminderBatch(
+    batch: CheckoutBatchEntry[],
     now: Date,
   ): Promise<boolean> {
-    if (action.track !== 'checkout') return false;
+    if (batch.length === 0) return false;
 
-    const productName = request.product?.name ?? 'this item';
-    const requestType = this.requestType(request.rentalDays);
-    const { title, message } = checkoutReminderCopy({
-      productName,
-      requestType,
-      stage: action.stage,
+    const requester = batch[0].request.requester;
+    if (!requester?.id) return false;
+
+    const stage = batch[0].action.stage;
+    const items: CheckoutReminderItem[] = batch.map(({ request }) => ({
+      productName: request.product?.name ?? 'this item',
+      requestType: this.requestType(request.rentalDays),
+      listerName: request.lister?.name || 'The curator',
+    }));
+    const { title, message, requestType } = checkoutReminderBatchCopy({
+      items,
+      stage,
     });
-    const email = request.requester?.email?.trim() || '';
+    const email = requester.email?.trim() || '';
     const cartLink = `${this.clientBase()}/shop/cart`;
+    const emailData =
+      items.length === 1
+        ? {
+            email,
+            userName: requester.name || 'there',
+            title,
+            listerName: items[0].listerName,
+            productName: items[0].productName,
+            requestType,
+            cartLink,
+            stage,
+          }
+        : {
+            email,
+            userName: requester.name || 'there',
+            title,
+            requestType,
+            cartLink,
+            stage,
+            items,
+          };
 
     try {
       await this.notification.createNotification({
-        userId: request.requester!.id,
+        userId: requester.id,
         title,
         message,
         type: 'AVAILABILITY_CHECKOUT_REMINDER',
         metadata: {
-          requestId: request.id,
-          productId: request.productId,
-          stage: action.stage,
+          batch: items.length > 1,
+          requestIds: batch.map(({ request }) => request.id),
+          productIds: batch.map(({ request }) => request.productId),
+          stage,
         },
         sendEmail: Boolean(email),
-        emailData: {
-          email,
-          userName: request.requester?.name || 'there',
-          listerName: request.lister?.name || 'The curator',
-          productName,
-          requestType,
-          cartLink,
-          stage: action.stage,
-        },
+        emailData,
       });
 
-      const nextState = applyAvailabilityRequestReminderState(
-        request.reminderState,
-        action,
-        now,
-      );
-      await this.prisma.availabilityRequest.update({
-        where: { id: request.id },
-        data: { reminderState: nextState },
-      });
-      request.reminderState = nextState;
+      for (const { request, action } of batch) {
+        const nextState = applyAvailabilityRequestReminderState(
+          request.reminderState,
+          action,
+          now,
+        );
+        await this.prisma.availabilityRequest.update({
+          where: { id: request.id },
+          data: { reminderState: nextState },
+        });
+        request.reminderState = nextState;
+      }
+
       return true;
     } catch (e) {
       this.logger.error(
-        `[AvailabilityReminders] checkout failed for ${request.id}: ${e}`,
+        `[AvailabilityReminders] checkout batch failed for ${requester.id}: ${e}`,
       );
       return false;
     }
   }
 
-  private async sendExpiredListerReminder(
-    request: {
-      id: string;
-      productId: string;
-      rentalDays: number | null;
-      reminderState: unknown;
-      product: { name: string } | null;
-      requester: { name: string | null } | null;
-      lister: { id: string; name: string | null; email: string | null } | null;
-    },
-    action: AvailabilityReminderAction,
+  private async sendExpiredListerReminderBatch(
+    batch: ExpiredListerBatchEntry[],
     now: Date,
   ): Promise<boolean> {
-    if (action.track !== 'expiredLister') return false;
-    if (!request.lister?.id) return false;
+    if (batch.length === 0) return false;
 
-    const productName = request.product?.name ?? 'this item';
-    const requestType = this.requestType(request.rentalDays);
-    const renterName = request.requester?.name || 'A renter';
-    const { title, message } = expiredListerReminderCopy({
-      productName,
-      requestType,
-      renterName,
-      stage: action.stage,
+    const lister = batch[0].request.lister;
+    if (!lister?.id) return false;
+
+    const stage = batch[0].action.stage;
+    const clientBase = this.clientBase();
+    const items: ExpiredListerReminderItem[] = batch.map(({ request }) => ({
+      productName: request.product?.name ?? 'this item',
+      requestType: this.requestType(request.rentalDays),
+      renterName: request.requester?.name || 'A renter',
+      orderLink: `${clientBase}/listers/orders/${request.id}`,
+    }));
+    const { title, message, requestType } = expiredListerReminderBatchCopy({
+      items,
+      stage,
     });
-    const email = request.lister.email?.trim() || '';
-    const orderLink = `${this.clientBase()}/listers/orders/${request.id}`;
+    const email = lister.email?.trim() || '';
+    const emailData =
+      items.length === 1
+        ? {
+            email,
+            listerName: lister.name || 'there',
+            title,
+            renterName: items[0].renterName,
+            productName: items[0].productName,
+            requestType,
+            orderLink: items[0].orderLink,
+            stage,
+          }
+        : {
+            email,
+            listerName: lister.name || 'there',
+            title,
+            requestType,
+            ordersLink: `${clientBase}/listers/orders`,
+            stage,
+            items,
+          };
 
     try {
       await this.notification.createNotification({
-        userId: request.lister.id,
+        userId: lister.id,
         title,
         message,
         type: 'AVAILABILITY_EXPIRED_LISTER_REMINDER',
         metadata: {
-          requestId: request.id,
-          productId: request.productId,
-          stage: action.stage,
+          batch: items.length > 1,
+          requestIds: batch.map(({ request }) => request.id),
+          productIds: batch.map(({ request }) => request.productId),
+          stage,
         },
         sendEmail: Boolean(email),
-        emailData: {
-          email,
-          listerName: request.lister.name || 'there',
-          renterName,
-          productName,
-          requestType,
-          orderLink,
-          stage: action.stage,
-        },
+        emailData,
       });
 
-      const nextState = applyAvailabilityRequestReminderState(
-        request.reminderState,
-        action,
-        now,
-      );
-      await this.prisma.availabilityRequest.update({
-        where: { id: request.id },
-        data: { reminderState: nextState },
-      });
-      request.reminderState = nextState;
+      for (const { request, action } of batch) {
+        const nextState = applyAvailabilityRequestReminderState(
+          request.reminderState,
+          action,
+          now,
+        );
+        await this.prisma.availabilityRequest.update({
+          where: { id: request.id },
+          data: { reminderState: nextState },
+        });
+        request.reminderState = nextState;
+      }
+
       return true;
     } catch (e) {
       this.logger.error(
-        `[AvailabilityReminders] expiredLister failed for ${request.id}: ${e}`,
+        `[AvailabilityReminders] expiredLister batch failed for ${lister.id}: ${e}`,
       );
       return false;
     }

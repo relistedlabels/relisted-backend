@@ -8,6 +8,10 @@ import { NotificationService } from 'src/services/notification/notification.serv
 import { MailService } from 'src/services/mail/mail.service';
 import { TopshipService } from 'src/services/topship/topship.service';
 import { ShipbubbleAddressCacheService } from 'src/services/shipbubble/shipbubble-address-cache.service';
+import { CartService } from '../cart-items/cart-items.service';
+import { AuthOtpTokenService } from 'src/services/auth-otp-token/auth-otp-token.service';
+import { AuthService } from '../auth/auth.service';
+import { WhatsAppService } from 'src/services/whatsapp/whatsapp.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { DisputeStatus, ItemCondition } from '@prisma/client';
 
@@ -45,6 +49,9 @@ const mockPrisma = {
   },
   virtualAccounts: {
     findMany: jest.fn(),
+  },
+  virtualAccount: {
+    findFirst: jest.fn(),
   },
   bankAccount: {
     findMany: jest.fn(),
@@ -140,6 +147,22 @@ const mockTopshipService = {};
 
 const mockShipbubbleAddressCache = {};
 
+const mockAuthOtpTokenService = {
+  createOtp: jest.fn().mockResolvedValue({ code: 'test-otp-token' }),
+  verifyOtp: jest.fn().mockResolvedValue(true),
+  findCode: jest.fn().mockResolvedValue({ email: 'req-1' }),
+};
+
+const mockAuthService = {
+  buildMagicLoginUrl: jest
+    .fn()
+    .mockResolvedValue('https://relisted.test/magic-login?token=test'),
+};
+
+const mockWhatsAppService = {
+  sendListerAvailabilityRequest: jest.fn().mockResolvedValue(false),
+};
+
 const mockUser = {
   id: 'renter-uuid',
   email: 'renter@test.com',
@@ -168,6 +191,10 @@ describe('RentersService', () => {
           provide: ShipbubbleAddressCacheService,
           useValue: mockShipbubbleAddressCache,
         },
+        { provide: CartService, useValue: {} },
+        { provide: AuthOtpTokenService, useValue: mockAuthOtpTokenService },
+        { provide: AuthService, useValue: mockAuthService },
+        { provide: WhatsAppService, useValue: mockWhatsAppService },
       ],
     }).compile();
     service = module.get<RentersService>(RentersService);
@@ -270,18 +297,23 @@ describe('RentersService', () => {
       expect(result.success).toBe(true);
     });
 
-    it('should create virtual account when BVN is provided', async () => {
+    it('should create virtual account when user has none', async () => {
       mockPrisma.user.update.mockResolvedValue({
         id: mockUser.id,
         name: 'Test',
         virtualAccounts: [],
-        profile: { bvn: '12345678901' },
+        profile: {},
+      });
+      mockPrisma.virtualAccount.findFirst.mockResolvedValue(null);
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: mockUser.id,
+        profile: {},
       });
       mockWemaService.createAccount.mockResolvedValue({
         vaNumber: '6980000000',
       });
 
-      await service.updateProfile(mockUser.id, { bvn: '12345678901' });
+      await service.updateProfile(mockUser.id, { fullName: 'Test' });
 
       expect(mockWemaService.createAccount).toHaveBeenCalled();
     });
@@ -382,7 +414,7 @@ describe('RentersService', () => {
       });
 
       expect(result.success).toBe(true);
-      expect(result.data.status).toBe('pending_lister_approval');
+      expect(result.data.status).toBe('checking_availability');
     });
   });
 
@@ -421,6 +453,64 @@ describe('RentersService', () => {
       await expect(
         service.confirmRentalRequest(mockUser.id, 'req-1', {}),
       ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('getAuthenticatedAvailabilityStatus()', () => {
+    it('routes an approved request to the normal checkout screen', async () => {
+      const request = {
+        id: 'req-1',
+        requesterId: mockUser.id,
+        status: 'ACCEPTED',
+        expiresAt: new Date(Date.now() + 60_000),
+        createdAt: new Date(),
+        productId: 'prod-1',
+        rentalDays: 3,
+        totalPrice: 15000,
+        startDate: new Date(),
+        endDate: new Date(),
+        product: { name: 'Dress', curator: { name: 'Lister' } },
+        requester: { email: mockUser.email, name: mockUser.name },
+      };
+      mockPrisma.availabilityRequest.findFirst
+        .mockResolvedValueOnce(request)
+        .mockResolvedValueOnce(request);
+
+      const result = await service.getAuthenticatedAvailabilityStatus(
+        'req-1',
+        mockUser.id,
+      );
+
+      expect(result.data.status).toBe('available');
+      expect(result.data.completeRentalUrl).toBe('/shop/cart/checkout');
+    });
+
+    it('keeps an unapproved request on the availability checking flow', async () => {
+      const request = {
+        id: 'req-1',
+        requesterId: mockUser.id,
+        status: 'PENDING',
+        expiresAt: new Date(Date.now() + 60_000),
+        createdAt: new Date(),
+        productId: 'prod-1',
+        rentalDays: 3,
+        totalPrice: 15000,
+        startDate: new Date(),
+        endDate: new Date(),
+        product: { name: 'Dress', curator: { name: 'Lister' } },
+        requester: { email: mockUser.email, name: mockUser.name },
+      };
+      mockPrisma.availabilityRequest.findFirst
+        .mockResolvedValueOnce(request)
+        .mockResolvedValueOnce(request);
+
+      const result = await service.getAuthenticatedAvailabilityStatus(
+        'req-1',
+        mockUser.id,
+      );
+
+      expect(result.data.status).toBe('checking');
+      expect(result.data.completeRentalUrl).toBeNull();
     });
   });
 
@@ -1160,14 +1250,12 @@ describe('RentersService', () => {
 
       expect(result.success).toBe(true);
       expect(result.data.verifications.validId.status).toBe('verified');
-      expect(result.data.verifications.bvn.status).toBe('verified');
     });
 
     it('should return not_verified when no id document uploaded', async () => {
       mockPrisma.profile.findUnique.mockResolvedValue({
         userId: mockUser.id,
         idDocumentUpload: null,
-        bvn: null,
         idDocumentStatus: 'NOT_UPLOADED',
       });
 
@@ -1175,7 +1263,6 @@ describe('RentersService', () => {
 
       expect(result.success).toBe(true);
       expect(result.data.verifications.validId.status).toBe('not_verified');
-      expect(result.data.verifications.bvn.status).toBe('not_verified');
     });
   });
 });

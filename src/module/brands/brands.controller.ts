@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Delete,
+  UseGuards,
 } from '@nestjs/common';
 import { BrandsService } from './brands.service';
 import { CreateBrandDto } from './dto/create-brand.dto';
@@ -23,7 +24,10 @@ import {
   ApiForbiddenResponse,
   ApiNotFoundResponse,
 } from '@nestjs/swagger';
-import { Brand } from '@prisma/client';
+import { Role } from '@prisma/client';
+import { JwtAuthGuard } from '../auth/guard/authGuard';
+import { RoleGuard } from '../auth/guard/roleGuard';
+import { Roles } from '../auth/decorator/roles.decorator';
 
 @ApiTags('Brands')
 @ApiBearerAuth()
@@ -32,52 +36,26 @@ import { Brand } from '@prisma/client';
 export class BrandsController {
   constructor(private readonly brandsService: BrandsService) {}
 
-  
   @Post()
-  @ApiOperation({ summary: 'Create a new brand' })
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Create a new brand (admin only)' })
   @ApiBody({ type: CreateBrandDto })
   @ApiResponse({
     status: 201,
     description: 'Brand created successfully',
-    schema: {
-      example: {
-        id: 'uuid',
-        name: 'Nike',
-        userId: 'uuid',
-        fullText: 'Nike',
-        createdAt: '2026-01-28T12:00:00.000Z',
-      },
-    },
   })
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  @ApiForbiddenResponse({ description: 'Admin access required' })
   create(@Body() dto: CreateBrandDto, @AuthUser() user: userEntity) {
     return this.brandsService.create(dto, user);
   }
 
- 
   @Get()
   @ApiOperation({ summary: 'Get all brands' })
   @ApiResponse({
     status: 200,
     description: 'List of all brands',
-    schema: {
-      example: [
-        {
-          id: 'uuid',
-          name: 'Nike',
-          userId: 'uuid',
-          fullText: 'Nike',
-          createdAt: '2026-01-28T12:00:00.000Z',
-        },
-        {
-          id: 'uuid',
-          name: 'Adidas',
-          userId: 'uuid',
-          fullText: 'Adidas',
-          createdAt: '2026-01-28T12:05:00.000Z',
-        },
-      ],
-    },
   })
   findAll() {
     return this.brandsService.findAll();
@@ -88,46 +66,32 @@ export class BrandsController {
   @ApiResponse({
     status: 200,
     description: 'User brands fetched successfully',
-    
-    schema: {
-      example: [
-        {
-          id: 'uuid',
-          name: 'Nike',
-          userId: 'uuid',
-          fullText: 'Nike',
-          createdAt: '2026-01-28T12:00:00.000Z',
-        },
-      ],
-    },
   })
   findMyBrands(@AuthUser() user: userEntity) {
     return this.brandsService.findByUser(user.id);
   }
 
-  
+  @Get(':id/delete-impact')
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Get listing count before deleting a brand' })
+  @ApiParam({ name: 'id', description: 'Brand ID', example: 'uuid' })
+  getDeleteImpact(@Param('id') id: string) {
+    return this.brandsService.getDeleteImpact(id);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get brand by ID' })
   @ApiParam({ name: 'id', description: 'Brand ID', example: 'uuid' })
   @ApiResponse({
     status: 200,
     description: 'Brand fetched successfully',
-    schema: {
-      example: {
-        id: 'uuid',
-        name: 'Nike',
-        userId: 'uuid',
-        fullText: 'Nike',
-        createdAt: '2026-01-28T12:00:00.000Z',
-      },
-    },
   })
   @ApiNotFoundResponse({ description: 'Brand not found' })
   findOne(@Param('id') id: string) {
     return this.brandsService.findOne(id);
   }
 
-  
   @Patch(':id')
   @ApiOperation({ summary: 'Update a brand' })
   @ApiParam({ name: 'id', description: 'Brand ID', example: 'uuid' })
@@ -135,16 +99,6 @@ export class BrandsController {
   @ApiResponse({
     status: 200,
     description: 'Brand updated successfully',
-    schema: {
-      example: {
-        id: 'uuid',
-        name: 'Updated Brand Name',
-        userId: 'uuid',
-        fullText: 'Updated Brand Name',
-        createdAt: '2026-01-28T12:00:00.000Z',
-        updatedAt: '2026-01-28T12:10:00.000Z',
-      },
-    },
   })
   @ApiForbiddenResponse({
     description: 'You do not own this brand',
@@ -158,18 +112,12 @@ export class BrandsController {
     return this.brandsService.update(id, dto, user);
   }
 
-  
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a brand' })
   @ApiParam({ name: 'id', description: 'Brand ID', example: 'uuid' })
   @ApiResponse({
     status: 200,
     description: 'Brand deleted successfully',
-    schema: {
-      example: {
-        message: 'Brand deleted successfully',
-      },
-    },
   })
   @ApiForbiddenResponse({
     description: 'You do not own this brand or you are not an admin',

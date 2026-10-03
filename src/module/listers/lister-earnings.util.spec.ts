@@ -1,7 +1,9 @@
+import { EscrowStatus } from '@prisma/client';
 import {
   buildListerEarningsWalletWhere,
   groupListerEarningsByMonth,
   LISTER_EARNINGS_WALLET_NOTE_FRAGMENTS,
+  sumListerPendingEscrow,
 } from './lister-earnings.util';
 
 describe('lister-earnings.util', () => {
@@ -24,9 +26,7 @@ describe('lister-earnings.util', () => {
     expect(where.amount).toEqual({ gt: 0 });
     expect(where.wallet).toEqual({ userId: 'lister-1' });
     expect(where.createdAt).toEqual({ gte: start, lte: end });
-    expect(where.OR).toHaveLength(
-      LISTER_EARNINGS_WALLET_NOTE_FRAGMENTS.length,
-    );
+    expect(where.OR).toHaveLength(LISTER_EARNINGS_WALLET_NOTE_FRAGMENTS.length);
   });
 
   it('groupListerEarningsByMonth sums revenue and distinct orders', () => {
@@ -56,5 +56,38 @@ describe('lister-earnings.util', () => {
     expect(grouped[4].revenue).toBe(10000);
     expect(grouped[4].orders).toBe(1);
     expect(grouped[7].revenue).toBe(0);
+  });
+
+  it('subtracts only fees due on the remaining escrow balance', async () => {
+    const findMany = jest.fn().mockResolvedValue([
+      {
+        status: EscrowStatus.PARTIALLY_RELEASED,
+        rentalAmount: 110_000,
+        cleaningFee: 10_000,
+        collateralAmount: 0,
+        resaleAmount: 20_000,
+        resaleReleasedAmount: 0,
+        platformFeeAmount: 10_000,
+        platformFeeRate: 10,
+      },
+      {
+        status: EscrowStatus.LOCKED,
+        rentalAmount: 0,
+        cleaningFee: 0,
+        collateralAmount: 0,
+        resaleAmount: 100_000,
+        resaleReleasedAmount: 10_000,
+        platformFeeAmount: 1_000,
+        platformFeeRate: 10,
+      },
+    ]);
+    const prisma = {
+      walletTransaction: {},
+      escrow: { findMany },
+    } as unknown as Parameters<typeof sumListerPendingEscrow>[0];
+
+    await expect(sumListerPendingEscrow(prisma, 'lister-1')).resolves.toBe(
+      99_000,
+    );
   });
 });

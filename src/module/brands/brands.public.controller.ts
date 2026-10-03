@@ -1,4 +1,4 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get, NotFoundException, Param } from '@nestjs/common';
 import { BrandsService } from './brands.service';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 
@@ -14,7 +14,7 @@ export class BrandsPublicController {
     description: 'Brands retrieved successfully',
   })
   async findAll() {
-    return this.brandsService.findAll();
+    return this.brandsService.findAllVisible();
   }
 
   @Get(':id')
@@ -28,6 +28,10 @@ export class BrandsPublicController {
     description: 'Brand not found',
   })
   async findOne(@Param('id') id: string) {
-    return this.brandsService.findOne(id);
+    const brand = await this.brandsService.findOne(id);
+    if (!brand.isShopVisible) {
+      throw new NotFoundException('Brand not found');
+    }
+    return brand;
   }
 }

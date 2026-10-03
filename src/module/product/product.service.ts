@@ -33,13 +33,21 @@ import { MailService } from 'src/services/mail/mail.service';
 import { fetchAdminAlertRecipients } from '../shipment/shipment-admin-alert-recipients';
 import { assertProductAttachmentUploads } from 'src/utils/validate-product-attachment-uploads';
 import { getShopSalePhase } from '../shop-sale/shop-sale.util';
-import { applyProductListFilters } from './product-list-filters.util';
+import {
+  applyProductListFilters,
+  normalizeCsv,
+} from './product-list-filters.util';
 import { buildProductKeywordSearchWhere } from './product-keyword-search.util';
+import {
+  buildSimilarProductCandidateWhere,
+  rankProductsBySimilarity,
+} from './product-similarity.util';
 import {
   buildAdminPickerScopeWhere,
   buildProductListScopeWhere,
   collectProductFilterOptions,
 } from './product-list-scope.util';
+import { ShopSettingsService } from '../shop-settings/shop-settings.service';
 
 @Injectable()
 export class ProductService {
@@ -48,6 +56,7 @@ export class ProductService {
     @Inject(forwardRef(() => ClosetService))
     private readonly closetService: ClosetService,
     private readonly mailService: MailService,
+    private readonly shopSettings: ShopSettingsService,
   ) {}
 
   async create(dto: CreateProductDto, user: userEntity) {
@@ -156,14 +165,22 @@ export class ProductService {
         }
       }
       if (brandId) {
-        const brandExists = await this.prisma.brand.findUnique({
-          where: { id: brandId },
-          select: { id: true },
+        const userRecord = await this.prisma.user.findUnique({
+          where: { id: user.id },
+          select: { role: true },
         });
-        if (!brandExists) {
-          throw new BadRequestException(
-            'Invalid brand selected. Please choose a brand from the list.',
-          );
+        if (userRecord?.role !== 'ADMIN') {
+          await this.shopSettings.assertBrandIsVisible(brandId);
+        } else {
+          const brandExists = await this.prisma.brand.findUnique({
+            where: { id: brandId },
+            select: { id: true },
+          });
+          if (!brandExists) {
+            throw new BadRequestException(
+              'Invalid brand selected. Please choose a brand from the list.',
+            );
+          }
         }
       }
 
@@ -335,30 +352,60 @@ export class ProductService {
       }
 
       // 2. Build orderBy
+      const listingTypes = new Set(normalizeCsv(query.listingType));
+      const prefersResalePrice =
+        listingTypes.has('RESALE') && !listingTypes.has('RENTAL');
+      const prefersRentalPrice =
+        listingTypes.has('RENTAL') && !listingTypes.has('RESALE');
+
       let orderBy: any = { createdAt: 'desc' }; // Default: newest
       if (query.sort) {
         switch (query.sort) {
+          case 'newest':
+            orderBy = { createdAt: 'desc' };
+            break;
           case 'oldest':
             orderBy = { createdAt: 'asc' };
             break;
           case 'price_low':
-            // For RESALE products, sort by resalePrice; for RENTAL, sort by dailyPrice
-            orderBy = [
-              { dailyPrice: 'asc' as const },
-              { resalePrice: 'asc' as const },
-            ];
+            orderBy = prefersResalePrice
+              ? [
+                  { resalePrice: 'asc' as const },
+                  { dailyPrice: 'asc' as const },
+                ]
+              : prefersRentalPrice
+                ? [
+                    { dailyPrice: 'asc' as const },
+                    { resalePrice: 'asc' as const },
+                  ]
+                : [
+                    { dailyPrice: 'asc' as const },
+                    { resalePrice: 'asc' as const },
+                  ];
             break;
           case 'price_high':
-            // For RESALE products, sort by resalePrice; for RENTAL, sort by dailyPrice
-            orderBy = [
-              { dailyPrice: 'desc' as const },
-              { resalePrice: 'desc' as const },
-            ];
+            orderBy = prefersResalePrice
+              ? [
+                  { resalePrice: 'desc' as const },
+                  { dailyPrice: 'desc' as const },
+                ]
+              : prefersRentalPrice
+                ? [
+                    { dailyPrice: 'desc' as const },
+                    { resalePrice: 'desc' as const },
+                  ]
+                : [
+                    { dailyPrice: 'desc' as const },
+                    { resalePrice: 'desc' as const },
+                  ];
             break;
           case 'popular':
-            // If we have a viewCount or similar, we can sort by it.
-            // For now fallback to newest if not available.
-            orderBy = { favourites: { _count: 'desc' } };
+            // Paid activity first, then saves, then recency.
+            orderBy = [
+              { items: { _count: 'desc' as const } },
+              { favourites: { _count: 'desc' as const } },
+              { createdAt: 'desc' as const },
+            ];
             break;
           case 'rating':
             orderBy = { reviews: { _avg: { rating: 'desc' } } };
@@ -366,7 +413,8 @@ export class ProductService {
         }
       }
 
-      const applyShopBrandPriority = !inClosetListContext;
+      const userChoseSort = Boolean(query.sort && query.sort !== 'newest');
+      const applyShopBrandPriority = !inClosetListContext && !userChoseSort;
       const brandPriorityOrder = [
         { brand: { isShopPrioritized: 'desc' as const } },
         { brand: { shopPriorityOrder: 'asc' as const } },
@@ -920,6 +968,122 @@ export class ProductService {
     }
   }
 
+  async getSimilarProducts(id: string, limit = 20) {
+    try {
+      const parsedLimit = Math.min(Math.max(Number(limit) || 20, 1), 40);
+      const source = await this.prisma.product.findUnique({
+        where: { id },
+        include: {
+          tags: { select: { id: true, name: true } },
+        },
+      });
+
+      if (!source) {
+        throw new NotFoundException(`Product with ID ${id} not found`);
+      }
+
+      const scopeWhere = await buildProductListScopeWhere(this.prisma, {
+        closetId: source.closetId ?? undefined,
+        onlyWithCloset: Boolean(source.closetId),
+        excludeStagingCurator: true,
+      });
+
+      const stagingCuratorId =
+        process.env.STAGING_INTERNAL_CURATOR_ID ??
+        '7d172d18-daad-46cd-ab6d-8d8af28c0b16';
+
+      const baseWhere: any = {
+        AND: [
+          scopeWhere,
+          { id: { not: source.id } },
+          { NOT: { curatorId: stagingCuratorId } },
+        ],
+      };
+
+      const candidateSignals = buildSimilarProductCandidateWhere(source);
+      const candidatePoolSize = Math.max(parsedLimit * 8, 80);
+
+      const productInclude = {
+        brand: {
+          select: { id: true, name: true },
+        },
+        category: {
+          select: { id: true, name: true },
+        },
+        tags: {
+          select: { id: true, name: true },
+        },
+        attachments: {
+          include: {
+            uploads: {
+              orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+              select: { id: true, url: true, displayOrder: true },
+            },
+          },
+        },
+        closet: {
+          select: { id: true, name: true, slug: true, imageUrl: true },
+        },
+      };
+
+      let candidates = await this.prisma.product.findMany({
+        where:
+          candidateSignals.length > 0
+            ? {
+                AND: [...baseWhere.AND, { OR: candidateSignals }],
+              }
+            : baseWhere,
+        take: candidatePoolSize,
+        orderBy: { createdAt: 'desc' },
+        include: productInclude,
+      });
+
+      if (candidates.length < parsedLimit) {
+        const existingIds = new Set([
+          source.id,
+          ...candidates.map((product) => product.id),
+        ]);
+        const fallbackCandidates = await this.prisma.product.findMany({
+          where: baseWhere,
+          take: candidatePoolSize,
+          orderBy: { createdAt: 'desc' },
+          include: productInclude,
+        });
+
+        candidates = [
+          ...candidates,
+          ...fallbackCandidates.filter(
+            (product) => !existingIds.has(product.id),
+          ),
+        ];
+      }
+
+      const rankedProducts = rankProductsBySimilarity(
+        source,
+        candidates,
+        parsedLimit,
+      );
+
+      return {
+        success: true,
+        message: 'Similar products retrieved successfully',
+        data: {
+          products: rankedProducts,
+        },
+      };
+    } catch (error) {
+      console.error('Get similar products error:', error);
+
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+
+      throw new InternalServerErrorException(
+        'Failed to retrieve similar products',
+      );
+    }
+  }
+
   // Approve product (Admin only) - replaces verifyProduct
   async approveProduct(id: string, user: userEntity) {
     try {
@@ -1176,8 +1340,22 @@ export class ProductService {
         if (dto.brandId === null || dto.brandId === '') {
           updateData.brand = { disconnect: true };
         } else {
+          const nextBrandId = String(dto.brandId).trim();
+          if (!isAdmin) {
+            await this.shopSettings.assertBrandIsVisible(nextBrandId);
+          } else {
+            const brandExists = await this.prisma.brand.findUnique({
+              where: { id: nextBrandId },
+              select: { id: true },
+            });
+            if (!brandExists) {
+              throw new BadRequestException(
+                'Invalid brand selected. Please choose a brand from the list.',
+              );
+            }
+          }
           updateData.brand = {
-            connect: { id: String(dto.brandId).trim() },
+            connect: { id: nextBrandId },
           };
         }
       } else {

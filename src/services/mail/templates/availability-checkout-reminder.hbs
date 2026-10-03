@@ -43,30 +43,36 @@
             border-radius: 5px;
             display: inline-block;
         }
-
-        .steps {
-            background: #f8f9fa;
-            padding: 12px 16px;
-            border-radius: 8px;
-            margin: 16px 0;
-        }
     </style>
 </head>
 
 <body>
     <div class="container">
         <div class="header">
-            <h2>{{#if (eq requestType 'purchase')}}Complete your purchase{{else}}Complete your rental{{/if}}</h2>
+            <h2>{{title}}</h2>
         </div>
         <div class="content">
             <p>Hello {{userName}},</p>
+            {{#if items}}
+            {{#if (eq stage "30m")}}
+            <p>These approved items are waiting in your cart. Check out soon to lock them in.</p>
+            {{else}}
+            <p>Last reminder: check out before you lose these items.</p>
+            {{/if}}
+            <ul>
+                {{#each items}}
+                <li><strong>{{productName}}</strong></li>
+                {{/each}}
+            </ul>
+            {{else}}
             <p>{{listerName}} already approved your {{#if (eq requestType 'purchase')}}purchase{{else}}rental{{/if}} request for <strong>{{productName}}</strong>.</p>
             {{#if (eq stage "30m")}}
             <p>Open your cart and check out to lock it in before it slips away.</p>
             {{else}}
-            <p>Last reminder: check out now so you do not lose this item.</p>
+            <p>Last reminder: check out for <strong>{{productName}}</strong> before you lose it.</p>
             {{/if}}
-            <p><a href="{{cartLink}}" class="button">Open cart &amp; check out</a></p>
+            {{/if}}
+            <p><a href="{{cartLink}}" class="button">Open cart and check out</a></p>
         </div>
         <div class="footer">
             <p>&copy; {{currentYear}} Relisted. All rights reserved.</p>

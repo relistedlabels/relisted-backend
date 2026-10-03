@@ -1,3 +1,10 @@
+import { listerEscrowResaleRemaining } from '../order/escrow-lister.util';
+import {
+  escrowFeeBaseAlreadyReleased,
+  escrowPlatformFeeDue,
+  escrowRentalFeeBase,
+  platformFeeNoteSuffix,
+} from '../order/platform-fee.util';
 import {
   Injectable,
   NotFoundException,
@@ -14,6 +21,7 @@ import {
   Prisma,
   ProductStatus,
   Role,
+  ShipmentStatus,
   ShipmentType,
   WalletTransactionStatus,
 } from '@prisma/client';
@@ -25,7 +33,10 @@ import {
   orderHasCompletedReturnRequest,
 } from '../order/mark-rentals-returned.util';
 import { formatAdminReturnRequest } from '../order/admin-return-request.format';
-import { LIVE_SHOP_STATUSES, ADMIN_ACTIVE_LISTING_STATUSES } from '../product/product-list-scope.util';
+import {
+  LIVE_SHOP_STATUSES,
+  ADMIN_ACTIVE_LISTING_STATUSES,
+} from '../product/product-list-scope.util';
 import {
   applyProductListFilters,
   type ProductListFilterInput,
@@ -36,7 +47,7 @@ import {
 } from 'src/utils/product-attachment-upload-order';
 import { ADMIN_ORDER_ANALYTICS_CUTOFF } from 'src/constants/admin-analytics';
 import {
-  buildProductionWalletTransactionWhere,
+  buildAdminWalletTransactionWhere,
   buildWalletStatsOrderWhere,
   buildWalletStatsUserWhere,
   getStagingInternalCuratorId,
@@ -56,6 +67,16 @@ import { buildRenterCheckoutEmailLinesFromOrder } from '../order/renter-checkout
 import { cancelConfirmedOrderInTransaction } from '../order/cancel-confirmed-order.util';
 import { notifyAdminsOrderCancelled } from '../order/order-cancel-admin-notify.util';
 import { ProductAvailabilityNotifyService } from 'src/services/product-availability-notify/product-availability-notify.service';
+
+type DashboardActivityKind =
+  | 'rental_request'
+  | 'purchase_request'
+  | 'listing_review'
+  | 'order_placed'
+  | 'order_completed'
+  | 'dispute_opened'
+  | 'withdrawal_requested'
+  | 'payout_released';
 
 @Injectable()
 export class AdminService {
@@ -94,13 +115,17 @@ export class AdminService {
   private getEscrowPayoutRefundCap(escrow: any): number {
     const st = String(escrow?.status ?? '');
     const rental = Math.max(0, Number(escrow?.rentalAmount || 0));
-    const cleaning = Math.max(0, Number(escrow?.cleaningFee || 0));
     const resale = Math.max(0, Number(escrow?.resaleAmount || 0));
+    const resaleReleased = Math.max(
+      0,
+      Number(escrow?.resaleReleasedAmount || 0),
+    );
+    const resaleRemaining = Math.max(0, resale - resaleReleased);
     if (st === 'LOCKED') {
-      return rental + resale;
+      return rental + resaleRemaining;
     }
     if (st === 'PARTIALLY_RELEASED') {
-      return cleaning + resale;
+      return resaleRemaining;
     }
     return 0;
   }
@@ -211,6 +236,108 @@ export class AdminService {
     };
   }
 
+  private resolvePreviousOrderAnalyticsDateRange(
+    timeframe: string,
+    year?: string,
+    month?: string,
+  ): { gte: Date; lte: Date } | null {
+    if (timeframe === 'year' && year) {
+      const selectedYear = Number(year);
+      const previousYear = selectedYear - 1;
+      if (!Number.isInteger(previousYear)) return null;
+      const range = this.resolveOrderAnalyticsDateRange(
+        'year',
+        String(previousYear),
+      );
+      const selected = this.buildAnalyticsDateRange(
+        'year',
+        String(previousYear),
+      );
+      if (!selected.lte || selected.lte < ADMIN_ORDER_ANALYTICS_CUTOFF) {
+        return null;
+      }
+      const now = new Date();
+      const lte =
+        selectedYear === now.getUTCFullYear()
+          ? new Date(
+              Date.UTC(
+                previousYear,
+                now.getUTCMonth(),
+                now.getUTCDate(),
+                now.getUTCHours(),
+                now.getUTCMinutes(),
+                now.getUTCSeconds(),
+                now.getUTCMilliseconds(),
+              ),
+            )
+          : selected.lte;
+      if (lte < ADMIN_ORDER_ANALYTICS_CUTOFF) return null;
+      return { ...range, lte };
+    }
+
+    if (timeframe === 'month' && year && month) {
+      const selectedYear = Number(year);
+      const selectedMonth = Number(month);
+      if (
+        !Number.isInteger(selectedYear) ||
+        !Number.isInteger(selectedMonth) ||
+        selectedMonth < 1 ||
+        selectedMonth > 12
+      ) {
+        return null;
+      }
+      const previousDate = new Date(
+        Date.UTC(selectedYear, selectedMonth - 2, 1),
+      );
+      const previousYear = String(previousDate.getUTCFullYear());
+      const previousMonth = String(previousDate.getUTCMonth() + 1);
+      const selected = this.buildAnalyticsDateRange(
+        'month',
+        previousYear,
+        previousMonth,
+      );
+      if (!selected.lte || selected.lte < ADMIN_ORDER_ANALYTICS_CUTOFF) {
+        return null;
+      }
+      const now = new Date();
+      const lte =
+        selectedYear === now.getUTCFullYear() &&
+        selectedMonth === now.getUTCMonth() + 1
+          ? new Date(
+              Date.UTC(
+                previousDate.getUTCFullYear(),
+                previousDate.getUTCMonth(),
+                Math.min(
+                  now.getUTCDate(),
+                  new Date(
+                    Date.UTC(
+                      previousDate.getUTCFullYear(),
+                      previousDate.getUTCMonth() + 1,
+                      0,
+                    ),
+                  ).getUTCDate(),
+                ),
+                now.getUTCHours(),
+                now.getUTCMinutes(),
+                now.getUTCSeconds(),
+                now.getUTCMilliseconds(),
+              ),
+            )
+          : selected.lte;
+      if (lte < ADMIN_ORDER_ANALYTICS_CUTOFF) return null;
+      return {
+        ...this.resolveOrderAnalyticsDateRange(
+          'month',
+          previousYear,
+          previousMonth,
+        ),
+        lte,
+      };
+    }
+
+    return null;
+  }
+
   /**
    * Gross order revenue (sum of `totalAmountPaid`), same as admin overview
    * analytics and rentals-revenue trend charts.
@@ -273,19 +400,23 @@ export class AdminService {
     status: string;
     rentalAmount: number;
     resaleAmount?: number | null;
+    resaleReleasedAmount?: number | null;
     collateralAmount: number;
     cleaningFee: number;
   }): number {
     const rental = escrow.rentalAmount || 0;
     const resale = escrow.resaleAmount || 0;
     const collateral = escrow.collateralAmount || 0;
-    const cleaning = escrow.cleaningFee || 0;
+    const resaleRemaining = Math.max(
+      0,
+      resale - (escrow.resaleReleasedAmount ?? 0),
+    );
 
     if (escrow.status === 'LOCKED') {
-      return rental + resale + collateral + cleaning;
+      return rental + resaleRemaining + collateral;
     }
     if (escrow.status === 'PARTIALLY_RELEASED') {
-      return resale + collateral + cleaning;
+      return resaleRemaining + collateral;
     }
     return 0;
   }
@@ -333,6 +464,7 @@ export class AdminService {
       totalRevenue,
       activeListings,
       activeDisputes,
+      ordersWithDisputes,
       activeUsers,
       deliveryOrders,
     ] = await Promise.all([
@@ -350,6 +482,12 @@ export class AdminService {
           status: { in: [DisputeStatus.PENDING, DisputeStatus.IN_REVIEW] },
         },
       }),
+      this.prisma.order.count({
+        where: {
+          ...orderWhere,
+          disputes: { some: {} },
+        },
+      }),
       this.prisma.user.count({
         where: this.buildActiveUserWhere(selectedRange, hasDateRange),
       }),
@@ -362,6 +500,36 @@ export class AdminService {
         select: { dispatchedAt: true, deliveredAt: true },
       }),
     ]);
+
+    const previousRange = this.resolvePreviousOrderAnalyticsDateRange(
+      timeframe,
+      year,
+      month,
+    );
+    const previousPeriod = previousRange
+      ? await Promise.all([
+          this.prisma.order.count({
+            where: {
+              status: {
+                notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED],
+              },
+              createdAt: previousRange,
+            },
+          }),
+          this.prisma.order.aggregate({
+            where: {
+              status: {
+                notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED],
+              },
+              createdAt: previousRange,
+            },
+            _sum: { totalAmountPaid: true },
+          }),
+        ]).then(([orders, revenue]) => ({
+          orders,
+          revenue: revenue._sum.totalAmountPaid ?? 0,
+        }))
+      : null;
 
     let avgDeliveryTime = 0;
     let avgDeliveryTimeMinutes = 0;
@@ -389,6 +557,9 @@ export class AdminService {
       data: {
         totalOrders,
         totalRevenue,
+        previousPeriod,
+        ordersWithDisputes,
+        disputeRate: totalOrders > 0 ? ordersWithDisputes / totalOrders : 0,
         activeListings,
         activeDisputes,
         activeUsers,
@@ -402,6 +573,372 @@ export class AdminService {
     };
   }
 
+  /** Africa/Lagos is fixed UTC+1 (no DST): calendar-day range containing `now`. */
+  private lagosDayRange(now = new Date()): { gte: Date; lt: Date } {
+    const shifted = new Date(now.getTime() + 60 * 60 * 1000);
+    const start =
+      Date.UTC(
+        shifted.getUTCFullYear(),
+        shifted.getUTCMonth(),
+        shifted.getUTCDate(),
+      ) -
+      60 * 60 * 1000;
+    return {
+      gte: new Date(start),
+      lt: new Date(start + 24 * 60 * 60 * 1000),
+    };
+  }
+
+  private static SHIPMENT_IN_FLIGHT_STATUSES: ShipmentStatus[] = [
+    'PENDING',
+    'DISPATCHING',
+    'DISPATCH_FAILED',
+    'DISPATCHED',
+    'IN_TRANSIT',
+  ];
+
+  async getDashboardOverview() {
+    await this.expireStalePendingAvailabilityRequests();
+
+    const now = new Date();
+    const day = this.lagosDayRange(now);
+    const inFlight = AdminService.SHIPMENT_IN_FLIGHT_STATUSES;
+    const activeReturnOrderStatuses = [
+      OrderStatus.ACTIVE,
+      OrderStatus.RETURN_DUE,
+    ];
+
+    const [
+      newListingReviews,
+      availabilityRequests,
+      listersNotResponding,
+      disputesPending,
+      withdrawalRequests,
+      returnsOverdueNoRequest,
+      returnsOverdueMissedPickup,
+      rentalsGoingOut,
+      returnsExpected,
+      deliveriesToday,
+      ordersAwaitingFulfilment,
+    ] = await Promise.all([
+      this.prisma.product.count({ where: { status: ProductStatus.PENDING } }),
+      this.prisma.availabilityRequest.count({
+        where: { status: AvailabilityStatus.PENDING },
+      }),
+      this.prisma.availabilityRequest.count({
+        where: { status: AvailabilityStatus.EXPIRED },
+      }),
+      this.prisma.dispute.count({
+        where: {
+          status: { in: [DisputeStatus.PENDING, DisputeStatus.IN_REVIEW] },
+        },
+      }),
+      this.prisma.withdrawalRequest.count({
+        where: {
+          status: {
+            in: ['pending', 'PENDING', 'approved', 'APPROVED'],
+          },
+        },
+      }),
+      this.prisma.order.count({
+        where: {
+          returnDueAt: { lt: now },
+          status: { in: activeReturnOrderStatuses },
+          returnRequests: { none: {} },
+        },
+      }),
+      this.prisma.returnRequest.count({
+        where: {
+          status: { in: ['PENDING_PICKUP'] },
+          pickupWindowEnd: { lt: now },
+        },
+      }),
+      this.prisma.shipment.count({
+        where: {
+          type: ShipmentType.OUTBOUND,
+          scheduledDate: { gte: day.gte, lt: day.lt },
+          status: { in: inFlight },
+        },
+      }),
+      this.prisma.shipment.count({
+        where: {
+          type: ShipmentType.RETURN,
+          scheduledDate: { gte: day.gte, lt: day.lt },
+          status: { in: inFlight },
+        },
+      }),
+      this.prisma.shipment.count({
+        where: {
+          scheduledDate: { gte: day.gte, lt: day.lt },
+          status: { in: inFlight },
+        },
+      }),
+      this.prisma.shipment.count({
+        where: {
+          type: { in: [ShipmentType.OUTBOUND, ShipmentType.RESALE] },
+          scheduledDate: { lt: day.lt },
+          status: { in: ['PENDING', 'DISPATCHING', 'DISPATCH_FAILED'] },
+        },
+      }),
+    ]);
+
+    const recentActivity = await this.buildRecentActivity();
+
+    return {
+      success: true,
+      data: {
+        needsAttention: {
+          newListingReviews,
+          availabilityRequests,
+          listersNotResponding,
+          returnOverdue: returnsOverdueNoRequest + returnsOverdueMissedPickup,
+          deliveriesToday,
+          disputesPending,
+          withdrawalRequests,
+        },
+        today: {
+          rentalsGoingOut,
+          returnsExpected,
+          ordersAwaitingFulfilment,
+        },
+        recentActivity,
+        generatedAt: now.toISOString(),
+      },
+    };
+  }
+
+  private static ACTIVITY_SOURCE_LIMIT = 5;
+
+  private async buildRecentActivity(): Promise<
+    Array<{
+      id: string;
+      kind: DashboardActivityKind;
+      title: string;
+      detail: string;
+      amount: number | null;
+      createdAt: string;
+    }>
+  > {
+    const limit = AdminService.ACTIVITY_SOURCE_LIMIT;
+    const payoutReleaseWhere: Prisma.WalletTransactionWhereInput = {
+      amount: { gt: 0 },
+      status: WalletTransactionStatus.SUCCESS,
+      wallet: { user: { role: Role.LISTER } },
+      OR: [
+        {
+          note: {
+            contains: 'Payment released for completed',
+            mode: 'insensitive',
+          },
+        },
+        {
+          note: {
+            contains: 'Rental payment released for order',
+            mode: 'insensitive',
+          },
+        },
+        { note: { contains: 'Escrow release for order', mode: 'insensitive' } },
+        {
+          note: {
+            contains: 'Final payout released for completed order',
+            mode: 'insensitive',
+          },
+        },
+        {
+          note: {
+            contains: 'Escrow payout released after dispute resolution',
+            mode: 'insensitive',
+          },
+        },
+        {
+          note: {
+            contains: 'Resale payment auto-released for order',
+            mode: 'insensitive',
+          },
+        },
+        {
+          note: {
+            contains: 'Resale payment released for order',
+            mode: 'insensitive',
+          },
+        },
+        {
+          note: {
+            contains: 'Payment auto-released after',
+            mode: 'insensitive',
+          },
+        },
+        {
+          note: {
+            contains: 'Payment released for resale order',
+            mode: 'insensitive',
+          },
+        },
+      ],
+    };
+
+    const [
+      requests,
+      recentOrders,
+      completedOrders,
+      recentDisputes,
+      recentWithdrawals,
+      pendingProducts,
+      payoutReleases,
+    ] = await Promise.all([
+      this.prisma.availabilityRequest.findMany({
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          rentalDays: true,
+          createdAt: true,
+          product: { select: { name: true } },
+          requester: { select: { name: true } },
+        },
+      }),
+      this.prisma.order.findMany({
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, orderId: true, createdAt: true },
+      }),
+      this.prisma.order.findMany({
+        take: limit,
+        orderBy: { updatedAt: 'desc' },
+        where: { status: OrderStatus.COMPLETED },
+        select: { id: true, orderId: true, updatedAt: true },
+      }),
+      this.prisma.dispute.findMany({
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          disputeId: true,
+          issueCategory: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.withdrawalRequest.findMany({
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          reference: true,
+          amount: true,
+          createdAt: true,
+          user: { select: { name: true } },
+        },
+      }),
+      this.prisma.product.findMany({
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        where: { status: ProductStatus.PENDING },
+        select: { id: true, name: true, createdAt: true },
+      }),
+      this.prisma.walletTransaction.findMany({
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        where: payoutReleaseWhere,
+        select: {
+          id: true,
+          amount: true,
+          createdAt: true,
+          wallet: { select: { user: { select: { name: true } } } },
+        },
+      }),
+    ]);
+
+    const items: Array<{
+      id: string;
+      kind: DashboardActivityKind;
+      title: string;
+      detail: string;
+      amount: number | null;
+      createdAt: string;
+    }> = [];
+
+    for (const row of requests) {
+      const isRental = (row.rentalDays ?? 0) > 0;
+      items.push({
+        id: `request-${row.id}`,
+        kind: isRental ? 'rental_request' : 'purchase_request',
+        title: isRental ? 'New rental request' : 'New purchase request',
+        detail: [row.product?.name, row.requester?.name]
+          .filter(Boolean)
+          .join(' · '),
+        amount: null,
+        createdAt: row.createdAt.toISOString(),
+      });
+    }
+    for (const row of pendingProducts) {
+      items.push({
+        id: `listing-${row.id}`,
+        kind: 'listing_review',
+        title: 'New listing needs review',
+        detail: row.name,
+        amount: null,
+        createdAt: row.createdAt.toISOString(),
+      });
+    }
+    for (const row of recentOrders) {
+      items.push({
+        id: `order-${row.id}`,
+        kind: 'order_placed',
+        title: 'New order',
+        detail: row.orderId,
+        amount: null,
+        createdAt: row.createdAt.toISOString(),
+      });
+    }
+    for (const row of completedOrders) {
+      items.push({
+        id: `order-done-${row.id}`,
+        kind: 'order_completed',
+        title: 'Order completed',
+        detail: row.orderId,
+        amount: null,
+        createdAt: row.updatedAt.toISOString(),
+      });
+    }
+    for (const row of recentDisputes) {
+      items.push({
+        id: `dispute-${row.id}`,
+        kind: 'dispute_opened',
+        title: 'New dispute',
+        detail: [row.disputeId, row.issueCategory].filter(Boolean).join(' · '),
+        amount: null,
+        createdAt: row.createdAt.toISOString(),
+      });
+    }
+    for (const row of recentWithdrawals) {
+      items.push({
+        id: `withdrawal-${row.id}`,
+        kind: 'withdrawal_requested',
+        title: 'Withdrawal request',
+        detail: row.user?.name ?? row.reference,
+        amount: row.amount,
+        createdAt: row.createdAt.toISOString(),
+      });
+    }
+    for (const row of payoutReleases) {
+      items.push({
+        id: `payout-${row.id}`,
+        kind: 'payout_released',
+        title: 'Payout released',
+        detail: row.wallet?.user?.name ? `To ${row.wallet.user.name}` : '',
+        amount: row.amount,
+        createdAt: row.createdAt.toISOString(),
+      });
+    }
+
+    return items
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      )
+      .slice(0, 10);
+  }
+
   async getRentalsRevenueTrend(
     timeframe: string,
     year?: string,
@@ -413,11 +950,26 @@ export class AdminService {
       month,
     );
     const now = new Date();
-    const rangeEnd =
+    const requestedEnd =
       orderRange.lte ??
       new Date(
-        Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999),
+        Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth() + 1,
+          0,
+          23,
+          59,
+          59,
+          999,
+        ),
       );
+    const rangeEnd =
+      (timeframe === 'year' && Number(year) === now.getUTCFullYear()) ||
+      (timeframe === 'month' &&
+        Number(year) === now.getUTCFullYear() &&
+        Number(month) === now.getUTCMonth() + 1)
+        ? new Date(Math.min(requestedEnd.getTime(), now.getTime()))
+        : requestedEnd;
     const rangeStart = orderRange.gte;
 
     const orders = await this.prisma.order.findMany({
@@ -428,26 +980,47 @@ export class AdminService {
       select: { createdAt: true, totalAmountPaid: true },
     });
 
-    const monthKeys: string[] = [];
-    const cursor = new Date(
-      Date.UTC(rangeStart.getUTCFullYear(), rangeStart.getUTCMonth(), 1),
-    );
-    const endCursor = new Date(
-      Date.UTC(rangeEnd.getUTCFullYear(), rangeEnd.getUTCMonth(), 1),
-    );
+    const isDaily = timeframe === 'month';
+    const bucketStarts: Date[] = [];
+    const cursor = isDaily
+      ? new Date(
+          Date.UTC(
+            rangeStart.getUTCFullYear(),
+            rangeStart.getUTCMonth(),
+            rangeStart.getUTCDate(),
+          ),
+        )
+      : new Date(
+          Date.UTC(rangeStart.getUTCFullYear(), rangeStart.getUTCMonth(), 1),
+        );
+    const endCursor = isDaily
+      ? new Date(
+          Date.UTC(
+            rangeEnd.getUTCFullYear(),
+            rangeEnd.getUTCMonth(),
+            rangeEnd.getUTCDate(),
+          ),
+        )
+      : new Date(
+          Date.UTC(rangeEnd.getUTCFullYear(), rangeEnd.getUTCMonth(), 1),
+        );
     while (cursor <= endCursor) {
-      const key = `${cursor.getUTCFullYear()}-${String(cursor.getUTCMonth() + 1).padStart(2, '0')}`;
-      monthKeys.push(key);
-      cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+      bucketStarts.push(new Date(cursor));
+      if (isDaily) cursor.setUTCDate(cursor.getUTCDate() + 1);
+      else cursor.setUTCMonth(cursor.getUTCMonth() + 1);
     }
 
+    const getBucketKey = (date: Date) =>
+      isDaily
+        ? `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
+        : `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
     const buckets = new Map<string, { orders: number; revenue: number }>();
-    for (const key of monthKeys) {
-      buckets.set(key, { orders: 0, revenue: 0 });
+    for (const start of bucketStarts) {
+      buckets.set(getBucketKey(start), { orders: 0, revenue: 0 });
     }
 
     for (const order of orders) {
-      const key = `${order.createdAt.getUTCFullYear()}-${String(order.createdAt.getUTCMonth() + 1).padStart(2, '0')}`;
+      const key = getBucketKey(order.createdAt);
       const bucket = buckets.get(key);
       if (bucket) {
         bucket.orders += 1;
@@ -455,27 +1028,20 @@ export class AdminService {
       }
     }
 
-    const monthLabels = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-
-    const trend = monthKeys.map((key) => {
-      const [, m] = key.split('-');
-      const monthIndex = parseInt(m, 10) - 1;
+    const trend = bucketStarts.map((start) => {
+      const key = getBucketKey(start);
+      const monthLabel = start.toLocaleString('en-US', {
+        month: 'short',
+        timeZone: 'UTC',
+      });
+      const label = isDaily
+        ? `${monthLabel} ${start.getUTCDate()}`
+        : timeframe === 'all_time'
+          ? `${monthLabel} ${start.getUTCFullYear()}`
+          : monthLabel;
       const bucket = buckets.get(key) ?? { orders: 0, revenue: 0 };
       return {
-        month: monthLabels[monthIndex] ?? key,
+        month: label,
         orders: bucket.orders,
         revenue: bucket.revenue,
       };
@@ -492,77 +1058,233 @@ export class AdminService {
   }
 
   async getCategoryBreakdown(timeframe: string, year?: string, month?: string) {
-    const categories = await this.prisma.productCategory.findMany({
-      include: { _count: { select: { products: true } } },
-    });
+    const requestRange = this.buildAnalyticsDateRange(timeframe, year, month);
+    const productScope: Prisma.ProductWhereInput = {
+      isActive: true,
+      productVerified: true,
+      status: { in: LIVE_SHOP_STATUSES },
+    };
+    const [categories, listingCounts, requestedProducts] = await Promise.all([
+      this.prisma.productCategory.findMany({
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      }),
+      this.prisma.product.groupBy({
+        by: ['categoryId'],
+        where: { ...productScope, categoryId: { not: null } },
+        _count: { _all: true },
+      }),
+      this.prisma.availabilityRequest.groupBy({
+        by: ['productId'],
+        where: { createdAt: requestRange },
+        _count: { _all: true },
+      }),
+    ]);
 
-    const total =
-      categories.reduce((sum, cat) => sum + cat._count.products, 0) || 1;
+    const requestedProductIds = requestedProducts.map((row) => row.productId);
+    const requestedProductCategories =
+      requestedProductIds.length > 0
+        ? await this.prisma.product.findMany({
+            where: { id: { in: requestedProductIds } },
+            select: { id: true, categoryId: true },
+          })
+        : [];
+    const productCategoryMap = new Map(
+      requestedProductCategories.map((product) => [
+        product.id,
+        product.categoryId,
+      ]),
+    );
+    const activeByCategory = new Map(
+      listingCounts
+        .filter((row) => row.categoryId)
+        .map((row) => [row.categoryId!, row._count._all]),
+    );
+    const requestsByCategory = new Map<string, number>();
+    for (const request of requestedProducts) {
+      const categoryId = productCategoryMap.get(request.productId);
+      if (categoryId) {
+        requestsByCategory.set(
+          categoryId,
+          (requestsByCategory.get(categoryId) ?? 0) + request._count._all,
+        );
+      }
+    }
 
     return {
       success: true,
-      data: categories.map((cat) => ({
-        category: cat.name,
-        value: cat._count.products,
-        percentage: Math.round((cat._count.products / total) * 100),
+      data: categories.map((category) => ({
+        category: category.name,
+        activeListings: activeByCategory.get(category.id) ?? 0,
+        availabilityRequests: requestsByCategory.get(category.id) ?? 0,
       })),
     };
   }
 
   async getRevenueByCategory(timeframe: string, year?: string, month?: string) {
-    // Mocked for chart
+    const dateRange = this.resolveOrderAnalyticsDateRange(
+      timeframe,
+      year,
+      month,
+    );
+    const rentalsByProduct = await this.prisma.rental.groupBy({
+      by: ['productId'],
+      where: {
+        createdAt: dateRange,
+        order: {
+          status: { notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED] },
+        },
+      },
+      _sum: { totalAmount: true },
+    });
+    const productIds = rentalsByProduct.map((rental) => rental.productId);
+    const products =
+      productIds.length > 0
+        ? await this.prisma.product.findMany({
+            where: { id: { in: productIds } },
+            select: { id: true, category: { select: { name: true } } },
+          })
+        : [];
+    const productCategoryMap = new Map(
+      products.map((product) => [product.id, product.category?.name ?? null]),
+    );
+    const revenueByCategory = new Map<string, number>();
+    for (const rental of rentalsByProduct) {
+      const category = productCategoryMap.get(rental.productId);
+      if (category) {
+        revenueByCategory.set(
+          category,
+          (revenueByCategory.get(category) ?? 0) +
+            (rental._sum.totalAmount ?? 0),
+        );
+      }
+    }
+    const revenue = [...revenueByCategory].map(([category, amount]) => ({
+      category,
+      amount,
+    }));
+
     return {
       success: true,
-      data: [
-        { category: 'Dresses', revenue: 15000 },
-        { category: 'Bags', revenue: 8000 },
-        { category: 'Shoes', revenue: 5000 },
-      ],
+      data: {
+        revenue,
+        totalRevenue: revenue.reduce((sum, row) => sum + row.amount, 0),
+        timeframe,
+      },
     };
   }
 
-  async getTopCurators(limit: number) {
-    const topCurators = await this.prisma.user.findMany({
-      where: { role: 'LISTER' },
-      take: limit,
-      include: {
-        profile: true,
-        _count: { select: { products: true, rentalsCurated: true } },
+  async getTopCurators(
+    limit: number,
+    timeframe = 'all_time',
+    year?: string,
+    month?: string,
+  ) {
+    const dateRange = this.resolveOrderAnalyticsDateRange(
+      timeframe,
+      year,
+      month,
+    );
+    const rentalCounts = await this.prisma.rental.groupBy({
+      by: ['curatorId'],
+      where: {
+        createdAt: dateRange,
+        order: {
+          status: { notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED] },
+        },
       },
-      orderBy: { rentalsCurated: { _count: 'desc' } },
+      _count: { _all: true },
+      _sum: { totalAmount: true },
+      orderBy: { _count: { id: 'desc' } },
+      take: Math.min(Math.max(limit, 1), 50),
     });
+    const listerIds = rentalCounts.map((row) => row.curatorId);
+    const listers =
+      listerIds.length > 0
+        ? await this.prisma.user.findMany({
+            where: { id: { in: listerIds }, role: Role.LISTER },
+            select: {
+              id: true,
+              name: true,
+              profile: { select: { avatarUploadId: true } },
+              _count: { select: { products: true } },
+            },
+          })
+        : [];
+    const listerMap = new Map(listers.map((lister) => [lister.id, lister]));
 
     return {
       success: true,
-      data: topCurators.map((user) => ({
-        id: user.id,
-        name: user.name,
-        avatar: user.profile?.avatarUploadId || null,
-        totalRentals: user._count.rentalsCurated,
-        totalProducts: user._count.products,
-      })),
+      data: rentalCounts.flatMap((row) => {
+        const lister = listerMap.get(row.curatorId);
+        return lister
+          ? [
+              {
+                id: lister.id,
+                name: lister.name,
+                avatar: lister.profile?.avatarUploadId ?? null,
+                totalRentals: row._count._all,
+                totalProducts: lister._count.products,
+                revenue: row._sum.totalAmount ?? 0,
+              },
+            ]
+          : [];
+      }),
     };
   }
 
-  async getTopItems(limit: number) {
-    const topProducts = await this.prisma.product.findMany({
-      take: limit,
-      include: {
-        _count: { select: { rentals: true } },
-        brand: true,
+  async getTopItems(
+    limit: number,
+    timeframe = 'all_time',
+    year?: string,
+    month?: string,
+  ) {
+    const dateRange = this.resolveOrderAnalyticsDateRange(
+      timeframe,
+      year,
+      month,
+    );
+    const rentalCounts = await this.prisma.rental.groupBy({
+      by: ['productId'],
+      where: {
+        createdAt: dateRange,
+        order: {
+          status: { notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED] },
+        },
       },
-      orderBy: { rentals: { _count: 'desc' } },
+      _count: { _all: true },
+      _sum: { totalAmount: true },
+      orderBy: { _count: { id: 'desc' } },
+      take: Math.min(Math.max(limit, 1), 50),
     });
+    const productIds = rentalCounts.map((row) => row.productId);
+    const products =
+      productIds.length > 0
+        ? await this.prisma.product.findMany({
+            where: { id: { in: productIds } },
+            select: { id: true, name: true, brand: { select: { name: true } } },
+          })
+        : [];
+    const productMap = new Map(
+      products.map((product) => [product.id, product]),
+    );
 
     return {
       success: true,
-      data: topProducts.map((prod) => ({
-        id: prod.id,
-        name: prod.name,
-        brand: prod.brand?.name,
-        rentalsCount: prod._count.rentals,
-        dailyPrice: prod.dailyPrice,
-      })),
+      data: rentalCounts.flatMap((row) => {
+        const product = productMap.get(row.productId);
+        return product
+          ? [
+              {
+                id: product.id,
+                name: product.name,
+                brand: product.brand?.name ?? null,
+                rentalsCount: row._count._all,
+                earnings: row._sum.totalAmount ?? 0,
+              },
+            ]
+          : [];
+      }),
     };
   }
 
@@ -1373,7 +2095,21 @@ export class AdminService {
       );
     }
 
-    const listerPayoutToRelease = Math.max(0, payoutLocked - rawRefundAmount);
+    const grossListerPayout = Math.max(0, payoutLocked - rawRefundAmount);
+    // Commission applies to the rental/sale portion left after the refund; cleaning and
+    // collateral awarded to the lister are not commissionable.
+    const commissionableLocked =
+      (String(escrow.status) === 'LOCKED' ? escrowRentalFeeBase(escrow) : 0) +
+      listerEscrowResaleRemaining(escrow);
+    const platformFee = Math.min(
+      grossListerPayout,
+      escrowPlatformFeeDue(
+        escrow,
+        escrowFeeBaseAlreadyReleased(escrow) +
+          Math.max(0, commissionableLocked - rawRefundAmount),
+      ),
+    );
+    const listerPayoutToRelease = grossListerPayout - platformFee;
 
     const lister = await this.prisma.user.findUnique({
       where: { id: escrow.listerId },
@@ -1394,11 +2130,12 @@ export class AdminService {
           where: { userId: order.userId },
           create: {
             userId: order.userId,
-            mainBalance: 0,
+            mainBalance: rawRefundAmount,
             availableBalance: rawRefundAmount,
             collateralBalance: 0,
           },
           update: {
+            mainBalance: { increment: rawRefundAmount },
             availableBalance: { increment: rawRefundAmount },
           },
         });
@@ -1436,7 +2173,7 @@ export class AdminService {
             amount: listerPayoutToRelease,
             type: 'MAIN',
             status: 'SUCCESS',
-            note: `Escrow payout released after dispute resolution for order ${order.orderId}`,
+            note: `Escrow payout released after dispute resolution for order ${order.orderId}${platformFeeNoteSuffix(platformFee)}`,
             orderId: order.id,
           },
         });
@@ -1532,7 +2269,13 @@ export class AdminService {
 
       await tx.escrow.update({
         where: { id: escrow.id },
-        data: { status: 'RELEASED' as any, releasedAt: new Date() },
+        data: {
+          status: 'RELEASED' as any,
+          releasedAt: new Date(),
+          ...(platformFee > 0
+            ? { platformFeeAmount: { increment: platformFee } }
+            : {}),
+        },
       });
 
       await markRentalsReturnedForOrder(tx, order.id);
@@ -1568,7 +2311,8 @@ export class AdminService {
     const clientUrl = process.env.CLIENT_URL || '';
     const resolutionDetailsText = (data.resolutionDetails ?? '').trim();
 
-    const renterWalletCreditTotal = rawRefundAmount + collateralReturnedToRenter;
+    const renterWalletCreditTotal =
+      rawRefundAmount + collateralReturnedToRenter;
     const listerWalletCreditTotal =
       listerPayoutToRelease + collateralWithheldToLister;
 
@@ -1757,9 +2501,9 @@ export class AdminService {
           SELECT COALESCE(SUM(
             CASE
               WHEN e.status = 'LOCKED' THEN
-                e."rentalAmount" + COALESCE(e."resaleAmount", 0) + e."collateralAmount" + e."cleaningFee"
+                e."rentalAmount" + COALESCE(e."resaleAmount", 0) + e."cleaningFee"
               WHEN e.status = 'PARTIALLY_RELEASED' THEN
-                COALESCE(e."resaleAmount", 0) + e."collateralAmount" + e."cleaningFee"
+                COALESCE(e."resaleAmount", 0) + e."cleaningFee"
               ELSE 0
             END
           ), 0)::bigint AS total
@@ -1806,14 +2550,66 @@ export class AdminService {
     const platformServiceFees = serviceFeeSum._sum.serviceFee || 0;
     const totalVatCollected = vatSum._sum.vatAmount || 0;
 
+    const now = new Date();
+    const monthStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+    );
+    const prevMonthStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1),
+    );
+
+    const buildMonthFinanceMetrics = async (from: Date, to: Date) => {
+      const [revenueAgg, completedCount, payoutsAgg, feesAgg, vatAgg] =
+        await Promise.all([
+          this.prisma.order.aggregate({
+            where: {
+              status: { notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED] },
+              createdAt: { gte: from, lt: to },
+            },
+            _sum: { totalAmountPaid: true },
+          }),
+          this.prisma.order.count({
+            where: {
+              status: OrderStatus.COMPLETED,
+              createdAt: { gte: from, lt: to },
+            },
+          }),
+          this.prisma.walletTransaction.aggregate({
+            where: {
+              ...listerEscrowReleaseWhere,
+              createdAt: { gte: from, lt: to },
+            },
+            _sum: { amount: true },
+          }),
+          this.prisma.order.aggregate({
+            where: { ...orderFeeWhere, createdAt: { gte: from, lt: to } },
+            _sum: { serviceFee: true },
+          }),
+          this.prisma.order.aggregate({
+            where: { ...orderFeeWhere, createdAt: { gte: from, lt: to } },
+            _sum: { vatAmount: true },
+          }),
+        ]);
+      return {
+        revenue: revenueAgg._sum.totalAmountPaid ?? 0,
+        completedOrders: completedCount,
+        payoutsToListers: payoutsAgg._sum.amount || 0,
+        serviceFees: feesAgg._sum.serviceFee || 0,
+        vat: vatAgg._sum.vatAmount || 0,
+      };
+    };
+
+    const [currentMonth, previousMonth] = await Promise.all([
+      buildMonthFinanceMetrics(monthStart, now),
+      buildMonthFinanceMetrics(prevMonthStart, monthStart),
+    ]);
+
     return {
       success: true,
       data: {
-        totalWalletBalance:
-          (walletSums._sum.mainBalance || 0) +
-          (walletSums._sum.collateralBalance || 0),
+        totalWalletBalance: walletSums._sum.mainBalance || 0,
         totalEscrowBalance: totalEscrowLocked,
-        /** Renter collateral held in wallets (wallet.collateralBalance), not order escrow */
+        /** Renter collateral is held in wallet balances and excluded from escrow total. */
         totalCollateralLocked,
         totalReleasedToListers: releasedToListers._sum.amount || 0,
         /** @deprecated Use totalReleasedToListers; kept for older admin clients */
@@ -1821,6 +2617,16 @@ export class AdminService {
         platformEarnings: platformServiceFees,
         platformServiceFees,
         totalVatCollected,
+        monthComparison: {
+          currentMonth: {
+            ...currentMonth,
+            monthStart: monthStart.toISOString(),
+          },
+          previousMonth: {
+            ...previousMonth,
+            monthStart: prevMonthStart.toISOString(),
+          },
+        },
         orderAnalyticsCutoff: cutoff.toISOString(),
         excludesTestAccounts: true,
       },
@@ -1848,14 +2654,37 @@ export class AdminService {
         skip,
         take: limit,
         orderBy: { updatedAt: 'desc' },
-        include: { user: { select: { name: true, email: true } } },
+        include: {
+          user: {
+            select: {
+              name: true,
+              email: true,
+              role: true,
+              profile: {
+                select: {
+                  avatarUpload: { select: { url: true } },
+                },
+              },
+            },
+          },
+        },
       }),
     ]);
+
+    const mappedWallets = wallets.map((wallet) => ({
+      ...wallet,
+      user: {
+        name: wallet.user.name,
+        email: wallet.user.email,
+        role: wallet.user.role,
+        avatar: wallet.user.profile?.avatarUpload?.url ?? null,
+      },
+    }));
 
     return {
       success: true,
       data: {
-        wallets,
+        wallets: mappedWallets,
         pagination: this.buildListPagination(total, page, limit),
       },
     };
@@ -1906,7 +2735,9 @@ export class AdminService {
       });
       const userIds = matchingUsers.map((u) => u.id);
       where.OR = [
-        { order: { orderId: { contains: trimmedSearch, mode: 'insensitive' } } },
+        {
+          order: { orderId: { contains: trimmedSearch, mode: 'insensitive' } },
+        },
         ...(userIds.length > 0
           ? [{ listerId: { in: userIds } }, { renterId: { in: userIds } }]
           : []),
@@ -1980,32 +2811,21 @@ export class AdminService {
 
   async releaseEscrow(
     escrowId: string,
-    data: { amount?: number; note: string },
+    _data: { amount?: number; note: string },
   ) {
     const escrow = await this.prisma.escrow.findUnique({
       where: { id: escrowId },
     });
     if (!escrow) throw new NotFoundException('Escrow not found');
 
-    const updated = await this.prisma.escrow.update({
-      where: { id: escrowId },
-      data: {
-        status: 'RELEASED',
-        releasedAt: new Date(),
-        // Real implementation would transfer funds here
-      },
-    });
-
-    return {
-      success: true,
-      message: 'Escrow funds released successfully',
-      data: updated,
-    };
+    throw new BadRequestException(
+      'Manual escrow release is unavailable because wallet transfer and ledger posting are not implemented.',
+    );
   }
 
   async getAllWalletTransactions(page: number, limit: number, search?: string) {
     const skip = (page - 1) * limit;
-    const baseWhere = buildProductionWalletTransactionWhere();
+    const baseWhere = buildAdminWalletTransactionWhere();
     const trimmedSearch = search?.trim();
 
     const where: Prisma.WalletTransactionWhereInput = trimmedSearch
@@ -2069,11 +2889,40 @@ export class AdminService {
     };
   }
 
-  async exportWallets() {
-    return {
-      success: true,
-      data: { message: 'Wallets exported successfully' },
+  async exportWalletTransactionsCsv(): Promise<string> {
+    const where = buildAdminWalletTransactionWhere();
+    const transactions = await this.prisma.walletTransaction.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: 10000,
+      include: {
+        wallet: { select: { user: { select: { name: true, email: true } } } },
+      },
+    });
+
+    const escapeCsv = (value: unknown): string => {
+      const s = String(value ?? '');
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
+
+    const header =
+      'Transaction ID,Date,User,Email,Type,Status,Amount (NGN),Note';
+    const rows = transactions.map((t) =>
+      [
+        t.id,
+        t.createdAt.toISOString(),
+        t.wallet?.user?.name ?? '',
+        t.wallet?.user?.email ?? '',
+        t.type ?? '',
+        t.status,
+        String(t.amount),
+        t.note ?? '',
+      ]
+        .map(escapeCsv)
+        .join(','),
+    );
+
+    return [header, ...rows].join('\n');
   }
 
   async getAllWithdrawals(
@@ -2086,7 +2935,7 @@ export class AdminService {
     const where: any = {};
 
     if (status && status !== 'ALL') {
-      where.status = status;
+      where.status = { equals: status, mode: 'insensitive' };
     }
 
     if (search) {
@@ -2916,7 +3765,11 @@ export class AdminService {
       : ProductStatus.UNAVAILABLE;
 
     const allowedStatuses = isAvailable
-      ? [...ADMIN_ACTIVE_LISTING_STATUSES, ProductStatus.UNAVAILABLE, ProductStatus.REJECTED]
+      ? [
+          ...ADMIN_ACTIVE_LISTING_STATUSES,
+          ProductStatus.UNAVAILABLE,
+          ProductStatus.REJECTED,
+        ]
       : ADMIN_ACTIVE_LISTING_STATUSES;
 
     const result = await this.prisma.product.updateMany({
@@ -3038,10 +3891,13 @@ export class AdminService {
         where: {
           status: {
             in: [
+              OrderStatus.PROCESSING,
+              OrderStatus.ACCEPTED,
               OrderStatus.CONFIRMED,
               OrderStatus.IN_TRANSIT,
-              OrderStatus.DELIVERED,
               OrderStatus.ACTIVE,
+              OrderStatus.RETURN_DUE,
+              OrderStatus.RETURNED,
             ],
           },
         },
@@ -3158,6 +4014,14 @@ export class AdminService {
             include: {
               product: {
                 include: {
+                  attachments: {
+                    include: {
+                      uploads: {
+                        orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+                        take: 1,
+                      },
+                    },
+                  },
                   curator: {
                     include: { profile: { include: { avatarUpload: true } } },
                   },
@@ -3194,9 +4058,7 @@ export class AdminService {
       const totalAmount =
         Number.isFinite(paid) && paid > 0
           ? paid
-          : rental?.totalAmount ||
-            rentalLineTotal + resaleLineTotal ||
-            0;
+          : rental?.totalAmount || rentalLineTotal + resaleLineTotal || 0;
 
       // Determine curator (from rental or first order item)
       const curatorUser = rental?.curator || o.orderItems[0]?.product?.curator;
@@ -3233,6 +4095,13 @@ export class AdminService {
             }
           : null,
         items: o.orderItems.length,
+        itemPreview: o.orderItems[0]?.product
+          ? {
+              name: o.orderItems[0].product.name,
+              image:
+                o.orderItems[0].product.attachments?.uploads?.[0]?.url ?? null,
+            }
+          : null,
         total: totalAmount,
         status: displayStatus,
         returnDue: o.returnDueAt
@@ -3388,8 +4257,8 @@ export class AdminService {
         const subtotal = isResaleLine
           ? (oi.resaleListerAmount ?? oi.product?.resalePrice ?? 0)
           : (oi.rentalFee ??
-              (oi.pricePerDay ?? oi.product?.dailyPrice ?? 0) * (oi.days ?? 0)) +
-            (oi.cleaningFee ?? 0);
+              (oi.pricePerDay ?? oi.product?.dailyPrice ?? 0) *
+                (oi.days ?? 0)) + (oi.cleaningFee ?? 0);
         return {
           id: oi.id,
           productId: oi.productId,
@@ -3402,9 +4271,7 @@ export class AdminService {
           collateralFee: oi.collateralFee ?? 0,
           listingType: oi.product?.listingType ?? null,
           subtotal,
-          rentalStart: rental?.startDate
-            ? formatDate(rental.startDate)
-            : null,
+          rentalStart: rental?.startDate ? formatDate(rental.startDate) : null,
           rentalEnd: rental?.endDate ? formatDate(rental.endDate) : null,
         };
       }),
@@ -3519,6 +4386,7 @@ export class AdminService {
       where: { orderId },
       include: {
         user: { select: { id: true, email: true, name: true } },
+        orderItems: { select: { product: { select: { name: true } } } },
         escrows: {
           select: {
             id: true,
@@ -3636,6 +4504,13 @@ export class AdminService {
           renterName: order.user?.name || 'Customer',
           renterEmail: order.user?.email?.trim() || 'unknown',
           listerNames,
+          productNames: [
+            ...new Set(
+              (order.orderItems ?? [])
+                .map((ol) => ol.product?.name?.trim())
+                .filter((name): name is string => Boolean(name)),
+            ),
+          ],
           refundAmount: result.refundAmount,
           reason,
           cancelledAt,
@@ -3663,10 +4538,7 @@ export class AdminService {
   }
 
   /** Resend renter checkout confirmation email (email only, no in-app notification). */
-  async resendRenterCheckoutConfirmation(
-    orderId: string,
-    dryRun = false,
-  ) {
+  async resendRenterCheckoutConfirmation(orderId: string, dryRun = false) {
     const order = await this.prisma.order.findFirst({
       where: { orderId },
       include: {
@@ -4084,24 +4956,25 @@ export class AdminService {
     };
   }
 
-  private mapAvailabilityRequestPerson(user: {
-    id: string;
-    name: string | null;
-    email: string | null;
-    profile?: {
-      avatar?: string | null;
-      phoneNumber?: string | null;
-      avatarUpload?: { url?: string | null } | null;
-    } | null;
-  } | null) {
+  private mapAvailabilityRequestPerson(
+    user: {
+      id: string;
+      name: string | null;
+      email: string | null;
+      profile?: {
+        avatar?: string | null;
+        phoneNumber?: string | null;
+        avatarUpload?: { url?: string | null } | null;
+      } | null;
+    } | null,
+  ) {
     if (!user) return null;
     return {
       id: user.id,
       name: user.name || 'Unknown',
       email: user.email,
       phone: user.profile?.phoneNumber ?? null,
-      avatar:
-        user.profile?.avatarUpload?.url ?? user.profile?.avatar ?? null,
+      avatar: user.profile?.avatarUpload?.url ?? user.profile?.avatar ?? null,
     };
   }
 
@@ -4283,7 +5156,11 @@ export class AdminService {
     const q = search?.trim();
     if (q) {
       where.AND = [
-        ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+        ...(Array.isArray(where.AND)
+          ? where.AND
+          : where.AND
+            ? [where.AND]
+            : []),
         {
           OR: [
             { id: { contains: q, mode: 'insensitive' } },
@@ -4572,6 +5449,179 @@ export class AdminService {
         reactivated,
         status: active.status,
         expiresAt: active.expiresAt,
+      },
+    };
+  }
+
+  async adminSearch(query: string, limit: number = 10) {
+    const searchQuery = query.toLowerCase().trim();
+    if (!searchQuery) {
+      return {
+        success: true,
+        data: { results: [] },
+      };
+    }
+
+    type SearchResult = {
+      id: string;
+      type: 'order' | 'user' | 'listing' | 'dispute' | 'review' | 'request';
+      title: string;
+      subtitle?: string;
+      href: string;
+    };
+
+    const results: SearchResult[] = [];
+    const itemLimit = Math.ceil(limit / 6);
+
+    // Search users
+    const users = await this.prisma.user.findMany({
+      where: {
+        OR: [
+          { name: { contains: searchQuery, mode: 'insensitive' } },
+          { email: { contains: searchQuery, mode: 'insensitive' } },
+        ],
+      },
+      take: itemLimit,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+      },
+    });
+
+    results.push(
+      ...users.map((user) => ({
+        id: user.id,
+        type: 'user' as const,
+        title: user.name || user.email,
+        subtitle: user.email,
+        href: `/admin/[id]/users/${user.id}`,
+      })),
+    );
+
+    // Search products (listings)
+    const products = await this.prisma.product.findMany({
+      where: {
+        OR: [{ name: { contains: searchQuery, mode: 'insensitive' } }],
+      },
+      take: itemLimit,
+      select: {
+        id: true,
+        name: true,
+      },
+    });
+
+    results.push(
+      ...products.map((product) => ({
+        id: product.id,
+        type: 'listing' as const,
+        title: product.name,
+        subtitle: 'Listing',
+        href: `/admin/[id]/listings?productId=${product.id}`,
+      })),
+    );
+
+    // Search orders
+    const orders = await this.prisma.order.findMany({
+      where: {
+        OR: [
+          { orderId: { contains: searchQuery, mode: 'insensitive' } },
+          { id: { contains: searchQuery, mode: 'insensitive' } },
+        ],
+      },
+      take: itemLimit,
+      select: {
+        id: true,
+        orderId: true,
+        status: true,
+      },
+    });
+
+    results.push(
+      ...orders.map((order) => ({
+        id: order.id,
+        type: 'order' as const,
+        title: `Order ${order.orderId.slice(0, 8)}`,
+        subtitle: order.status,
+        href: `/admin/[id]/orders?id=${order.id}`,
+      })),
+    );
+
+    // Search disputes
+    const disputes = await this.prisma.dispute.findMany({
+      where: {
+        OR: [
+          { id: { contains: searchQuery, mode: 'insensitive' } },
+          { description: { contains: searchQuery, mode: 'insensitive' } },
+        ],
+      },
+      take: itemLimit,
+      select: {
+        id: true,
+        status: true,
+        description: true,
+      },
+    });
+
+    results.push(
+      ...disputes.map((dispute) => ({
+        id: dispute.id,
+        type: 'dispute' as const,
+        title: `Dispute ${dispute.id.slice(0, 8)}`,
+        subtitle: dispute.status,
+        href: `/admin/[id]/disputes?id=${dispute.id}`,
+      })),
+    );
+
+    // Search reviews
+    const reviews = await this.prisma.review.findMany({
+      where: {
+        OR: [{ comment: { contains: searchQuery, mode: 'insensitive' } }],
+      },
+      take: itemLimit,
+      select: {
+        id: true,
+        rating: true,
+        comment: true,
+      },
+    });
+
+    results.push(
+      ...reviews.map((review) => ({
+        id: review.id,
+        type: 'review' as const,
+        title: `Review - ${review.rating} stars`,
+        subtitle: review.comment ? review.comment.slice(0, 50) : 'No comment',
+        href: `/admin/[id]/reviews?id=${review.id}`,
+      })),
+    );
+
+    // Search availability requests
+    const requests = await this.prisma.availabilityRequest.findMany({
+      where: {
+        OR: [{ id: { contains: searchQuery, mode: 'insensitive' } }],
+      },
+      take: itemLimit,
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+
+    results.push(
+      ...requests.map((request) => ({
+        id: request.id,
+        type: 'request' as const,
+        title: `Request ${request.id.slice(0, 8)}`,
+        subtitle: request.status,
+        href: `/admin/[id]/requests?id=${request.id}`,
+      })),
+    );
+
+    return {
+      success: true,
+      data: {
+        results: results.slice(0, limit),
       },
     };
   }

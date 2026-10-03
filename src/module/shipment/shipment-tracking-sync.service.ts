@@ -8,6 +8,7 @@ import { syncOrderStatusFromShipments } from 'src/module/order/order-shipment-st
 import { fetchAdminAlertRecipients } from 'src/module/shipment/shipment-admin-alert-recipients';
 import { buildAdminShipmentsPageUrl } from 'src/module/shipment/build-admin-shipments-page-url';
 import { shipmentLegLabel } from 'src/module/shipment/shipment-leg-label.util';
+import { productNamesFromManualShipment } from 'src/module/shipment/manual-fulfillment-email.util';
 import { notifyListersForReturnLeg } from './shipment-lister-return-notifications';
 import { sendShipmentLegStatusNotification } from './shipment-status-notifications';
 import {
@@ -288,6 +289,21 @@ export class ShipmentTrackingSyncService {
     const adminShipmentUrl =
       buildAdminShipmentsPageUrl({ shipmentId: shipment.id }) || undefined;
 
+    const itemRows = await this.prisma.shipment.findUnique({
+      where: { id: shipment.id },
+      select: {
+        type: true,
+        orderItemsOutbound: { select: { product: { select: { name: true } } } },
+        orderItemsReturn: { select: { product: { select: { name: true } } } },
+        orderItemsResale: { select: { product: { select: { name: true } } } },
+      },
+    });
+    const productNames = itemRows
+      ? productNamesFromManualShipment(itemRows)
+      : [];
+    const renterName = order?.user?.name?.trim() || undefined;
+    const renterEmail = order?.user?.email?.trim() || undefined;
+
     for (const admin of admins) {
       await this.notification.createNotification({
         userId: admin.id,
@@ -310,6 +326,9 @@ export class ShipmentTrackingSyncService {
           to: admin.email.trim(),
           humanOrderId,
           legLabel,
+          renterName,
+          renterEmail,
+          productNames,
           providerStatus,
           providerMessage: tracking.message,
           providerLabel,

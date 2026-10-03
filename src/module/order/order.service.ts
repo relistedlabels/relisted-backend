@@ -1,3 +1,10 @@
+import {
+  escrowFeeBaseAlreadyReleased,
+  escrowPlatformFeeDue,
+  escrowRentalFeeBase,
+  getListerPlatformFeePercent,
+  platformFeeNoteSuffix,
+} from './platform-fee.util';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
@@ -35,6 +42,7 @@ import { userEntity } from '../auth/auth.types';
 import { addDays, addMinutes, startOfDay } from 'date-fns';
 import { NotificationService } from 'src/services/notification/notification.service';
 import { DEFAULT_CLEANING_FEE_NGN } from 'src/constants/rental-pricing';
+import { calculatePlatformFee } from './platform-fee.util';
 import { buildRenterCheckoutEmailLinesFromCheckout } from './renter-checkout-confirmation-email.util';
 import {
   closetSplitKindForResaleOrderConfirm,
@@ -73,6 +81,8 @@ import {
   ReturnPickupAddressDto,
 } from './dto/create-order.dto';
 import {
+  applyRangeMapToData,
+  availabilityRequestWindowFieldMap,
   DispatchWindowRange,
   DispatchWindowRangeMap,
   DispatchWindowType,
@@ -84,6 +94,10 @@ import {
   parseDispatchWindowFromInput,
 } from 'src/utils/dispatch-windows';
 import {
+  refreshAvailabilityDispatchForCheckout,
+} from 'src/utils/availability-request-expiry.util';
+import { fulfillAvailabilityRequestsForCheckout } from '../cart-items/fulfill-availability-for-checkout';
+import {
   isRelistedDispatchShippingTier,
   RELISTED_DISPATCH_FALLBACK_SHIPMENT_KOBO,
   RELISTED_DISPATCH_SHIPPING_LABEL,
@@ -91,7 +105,13 @@ import {
 import { fetchAdminAlertRecipients } from 'src/module/shipment/shipment-admin-alert-recipients';
 import { buildAdminShipmentsPageUrl } from 'src/module/shipment/build-admin-shipments-page-url';
 import { shipmentLegLabel } from 'src/module/shipment/shipment-leg-label.util';
+import {
+  formatManualShipmentWindow,
+  manualFulfillmentShipmentEmailSelect,
+  productNamesFromManualShipment,
+} from 'src/module/shipment/manual-fulfillment-email.util';
 import { MailService } from 'src/services/mail/mail.service';
+import { notifyAdminsNewOrder } from './notify-admins-new-order.util';
 import {
   PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
   firstProductAttachmentImageUrlFromUploads,
@@ -202,8 +222,11 @@ export class OrderService {
       select: {
         id: true,
         cartItemId: true,
+        rentalDays: true,
+        totalPrice: true,
         startDate: true,
         endDate: true,
+        createdAt: true,
         outboundWindowStart: true,
         outboundWindowEnd: true,
         returnWindowStart: true,
@@ -219,18 +242,49 @@ export class OrderService {
     for (const item of items) {
       const request = acceptedMap.get(item.id);
       if (!request) continue;
-      const dispatchWindows = this.buildDispatchWindowRangeMap(request);
-      await this.ensureAvailabilityRequestWindowActive(
-        item,
-        request,
-        dispatchWindows,
+
+      const listingType = item.product?.listingType;
+      const isResaleItem =
+        item.days === 0 &&
+        (listingType === 'RESALE' || listingType === 'RENT_OR_RESALE');
+      const unitPrice = isResaleItem
+        ? Number(item.product?.resalePrice ?? request.totalPrice ?? 0)
+        : Number(item.product?.dailyPrice ?? 0);
+
+      const refresh = refreshAvailabilityDispatchForCheckout(
+        {
+          ...(request as any),
+          rentalDays: request.rentalDays ?? item.days ?? 0,
+        },
+        unitPrice,
         now,
       );
+
+      let activeRequest = request;
+      if (refresh.rescheduled) {
+        const windowData = applyRangeMapToData(
+          refresh.map,
+          availabilityRequestWindowFieldMap,
+        );
+        activeRequest = await this.prisma.availabilityRequest.update({
+          where: { id: request.id },
+          data: {
+            startDate: refresh.startDate,
+            endDate: refresh.endDate,
+            totalPrice: refresh.totalPrice,
+            ...windowData,
+          },
+        });
+      }
+
       enriched.push({
         ...item,
-        startDate: request.startDate,
-        endDate: request.endDate,
-        dispatchWindows,
+        startDate: activeRequest.startDate,
+        endDate: activeRequest.endDate,
+        totalPrice: activeRequest.totalPrice,
+        dispatchWindows: refresh.map,
+        dispatchRescheduled: refresh.rescheduled,
+        dispatchRescheduleSummary: refresh.rescheduledOutboundSummary,
       });
     }
 
@@ -257,44 +311,6 @@ export class OrderService {
     assign('RESALE', request.resaleWindowStart, request.resaleWindowEnd);
 
     return map;
-  }
-
-  private async ensureAvailabilityRequestWindowActive(
-    item: any,
-    request: any,
-    dispatchWindows: DispatchWindowRangeMap,
-    now: Date,
-  ) {
-    const listingType = item.product?.listingType;
-    const isRentalItem =
-      item.days > 0 &&
-      (listingType === 'RENTAL' || listingType === 'RENT_OR_RESALE');
-    const isResaleItem =
-      item.days === 0 &&
-      (listingType === 'RESALE' || listingType === 'RENT_OR_RESALE');
-
-    const required: DispatchWindowType[] = [];
-    if (isRentalItem) {
-      required.push('OUTBOUND', 'RETURN');
-    }
-    if (isResaleItem) {
-      required.push('RESALE');
-    }
-
-    for (const type of required) {
-      const window = dispatchWindows[type];
-      if (!window || isWindowExpired(window, now)) {
-        await this.prisma.availabilityRequest.update({
-          where: { id: request.id },
-          data: { status: 'EXPIRED' },
-        });
-        bad(
-          `The approved ${type.toLowerCase()} dispatch window for ${
-            item.product?.name || 'this item'
-          } has expired. Please submit a new availability request.`,
-        );
-      }
-    }
   }
 
   private resolveDispatchWindow(
@@ -646,6 +662,15 @@ export class OrderService {
         ? legLabels[0]
         : `${count} legs (${legLabels.slice(0, 3).join(', ')}${count > 3 ? ', ...' : ''})`;
 
+    const shipmentRows = await this.prisma.shipment.findMany({
+      where: { id: { in: shipmentIds } },
+      select: manualFulfillmentShipmentEmailSelect,
+    });
+    const shipmentById = new Map(shipmentRows.map((row) => [row.id, row]));
+    const renterName = shipmentRows[0]?.order?.user?.name?.trim() || undefined;
+    const renterEmail =
+      shipmentRows[0]?.order?.user?.email?.trim() || undefined;
+
     for (const admin of admins) {
       await this.notificationService.createNotification({
         userId: admin.id,
@@ -661,14 +686,23 @@ export class OrderService {
 
     for (const admin of admins) {
       if (!admin.email?.trim()) continue;
-      const shipmentsPayload = manualShipments.map((s) => ({
-        legLabel: shipmentLegLabel(s.type),
-        adminShipmentUrl: buildAdminShipmentsPageUrl({ shipmentId: s.id }) || '',
-      }));
+      const shipmentsPayload = manualShipments.map((s) => {
+        const row = shipmentById.get(s.id);
+        return {
+          legLabel: shipmentLegLabel(s.type),
+          productNames: row ? productNamesFromManualShipment(row) : [],
+          windowLabel: row ? formatManualShipmentWindow(row) : '',
+          deliveryLocation: row?.deliveryLocation?.trim() || undefined,
+          adminShipmentUrl:
+            buildAdminShipmentsPageUrl({ shipmentId: s.id }) || '',
+        };
+      });
       try {
         await this.mailService.sendAdminManualFulfillmentShipmentAlert({
           to: admin.email.trim(),
           humanOrderId,
+          renterName,
+          renterEmail,
           shipments: shipmentsPayload,
         });
       } catch (mailErr: any) {
@@ -1462,7 +1496,7 @@ export class OrderService {
           collateralAmount = 0;
           cleaningFee = 0;
           vatAmount = Math.round(item.product.resalePrice * 0.075);
-          serviceCharge = Math.round(item.product.resalePrice * 0.1);
+          serviceCharge = calculatePlatformFee(item.product.resalePrice);
           listerPurchaseTotal += item.product.resalePrice;
           listerRentalTotal += 0; // No rental fee for resale
         } else {
@@ -1477,7 +1511,7 @@ export class OrderService {
             ) || 0;
           cleaningFee = DEFAULT_CLEANING_FEE_NGN;
           vatAmount = Math.round(rentalAmount * 0.075);
-          serviceCharge = Math.round(rentalAmount * 0.1);
+          serviceCharge = calculatePlatformFee(rentalAmount);
           listerRentalTotal += rentalAmount;
         }
 
@@ -1988,10 +2022,20 @@ export class OrderService {
     const baselineGrandTotal =
       itemTotalsBase + baselineShippingTotal + globalServiceChargeTotal + globalVatTotal;
 
+    const dispatchReschedules = eligibleItems
+      .filter((item) => item.dispatchRescheduled)
+      .map((item) => ({
+        cartItemId: item.id,
+        productName: item.product?.name,
+        outboundSummary: item.dispatchRescheduleSummary,
+        priceUnchanged: true,
+      }));
+
     return {
       success: true,
       message: 'Checkout summary calculated successfully',
       data: {
+        dispatchReschedules,
         summary: {
           rentalTotal: globalRentalTotal,
           collateralTotal: globalCollateralTotal,
@@ -2219,7 +2263,7 @@ export class OrderService {
           collateralAmount = 0;
           cleaningFee = 0;
           vatAmount = Math.round(item.product.resalePrice * 0.075);
-          serviceCharge = Math.round(item.product.resalePrice * 0.1);
+          serviceCharge = calculatePlatformFee(item.product.resalePrice);
           itemTotal = item.product.resalePrice + vatAmount + serviceCharge;
         } else if (item.product.listingType === 'RENT_OR_RESALE') {
           // RENT_OR_RESALE flow: can be either rental or resale based on context
@@ -2235,7 +2279,7 @@ export class OrderService {
               ) || 0;
             cleaningFee = DEFAULT_CLEANING_FEE_NGN;
             vatAmount = Math.round(rentalAmount * 0.075);
-            serviceCharge = Math.round(rentalAmount * 0.1);
+            serviceCharge = calculatePlatformFee(rentalAmount);
             itemTotal =
               rentalAmount +
               collateralAmount +
@@ -2254,7 +2298,7 @@ export class OrderService {
             collateralAmount = 0;
             cleaningFee = 0;
             vatAmount = Math.round(item.product.resalePrice * 0.075);
-            serviceCharge = Math.round(item.product.resalePrice * 0.1);
+            serviceCharge = calculatePlatformFee(item.product.resalePrice);
             itemTotal = item.product.resalePrice + vatAmount + serviceCharge;
           }
         } else {
@@ -2272,7 +2316,7 @@ export class OrderService {
             ) || 0;
           cleaningFee = DEFAULT_CLEANING_FEE_NGN;
           vatAmount = Math.round(rentalAmount * 0.075);
-          serviceCharge = Math.round(rentalAmount * 0.1);
+          serviceCharge = calculatePlatformFee(rentalAmount);
           itemTotal =
             rentalAmount +
             collateralAmount +
@@ -3011,6 +3055,7 @@ export class OrderService {
                 collateralAmount: totalCollateralAmount,
                 cleaningFee: totalCleaningFee,
                 status: 'LOCKED',
+                platformFeeRate: getListerPlatformFeePercent(),
               },
             });
           } else if (isResaleOrder && !hasRentalItem) {
@@ -3035,6 +3080,7 @@ export class OrderService {
                 collateralAmount: 0,
                 cleaningFee: 0,
                 status: 'LOCKED',
+                platformFeeRate: getListerPlatformFeePercent(),
               },
             });
           } else {
@@ -3056,6 +3102,7 @@ export class OrderService {
                 collateralAmount: totalCollateralAmount,
                 cleaningFee: totalCleaningFee,
                 status: 'LOCKED',
+                platformFeeRate: getListerPlatformFeePercent(),
               },
             });
           }
@@ -3111,6 +3158,12 @@ export class OrderService {
             });
           }
         }
+
+        await fulfillAvailabilityRequestsForCheckout(tx, {
+          requesterId: user.id,
+          cartItemIds: eligibleItems.map((item: any) => item.id),
+          productIds: eligibleItems.map((item: any) => item.product.id),
+        });
       });
 
     for (const row of shipmentDispatchPlan) {
@@ -3256,6 +3309,32 @@ export class OrderService {
           },
         });
       }
+
+      const listerNames = [...notifyMergedByLister.values()]
+        .map((row) => row.items[0]?.product?.curator?.name?.trim())
+        .filter((name): name is string => !!name);
+
+      await notifyAdminsNewOrder(
+        this.prisma,
+        this.notificationService,
+        this.mailService,
+        {
+          orderId: order.id,
+          humanOrderId: order.orderId,
+          renterName: user.name || 'Customer',
+          renterEmail: user.email?.trim() || 'unknown',
+          listerNames,
+          itemCount: eligibleItems.length,
+          productNames: [
+            ...new Set(
+              eligibleItems
+                .map((item) => item.product?.name?.trim())
+                .filter((name): name is string => Boolean(name)),
+            ),
+          ],
+          totalAmount: grandTotal,
+        },
+      );
     } catch (notifyErr) {
       console.error('[Checkout] Error sending checkout notifications:', notifyErr);
     }
@@ -3316,7 +3395,12 @@ export class OrderService {
    * - RENT_OR_RESALE orders: depends on actual transaction type and escrow state
    * - If escrow is PARTIALLY_RELEASED, rental was already released, so only release resale
    */
-  private calculateEscrowReleaseAmount(order: any, escrow: any): number {
+  private calculateEscrowRelease(
+    order: any,
+    escrow: any,
+  ): { amount: number; feeBase: number } {
+    const rentalBase = escrowRentalFeeBase(escrow);
+    const resale = escrow.resaleAmount ?? 0;
     const isRentalTransaction = order.orderItems.some(
       (item: any) => item.days > 0,
     );
@@ -3326,36 +3410,39 @@ export class OrderService {
     const isPartiallyReleased = escrow.status === 'PARTIALLY_RELEASED';
 
     if (order.listingType === 'RESALE') {
-      return escrow.resaleAmount ?? 0;
+      return { amount: resale, feeBase: resale };
     }
 
     if (order.listingType === 'RENTAL') {
-      return escrow.rentalAmount ?? 0;
+      return { amount: escrow.rentalAmount ?? 0, feeBase: rentalBase };
     }
 
     if (order.listingType === 'RENT_OR_RESALE') {
       if (isPartiallyReleased) {
         // Rental already released on delivery, only release resale now
-        return escrow.resaleAmount ?? 0;
+        return { amount: resale, feeBase: resale };
       }
 
       if (isRentalTransaction && isResaleTransaction) {
         // Mixed order: release both amounts
-        return (escrow.rentalAmount ?? 0) + (escrow.resaleAmount ?? 0);
+        return {
+          amount: (escrow.rentalAmount ?? 0) + resale,
+          feeBase: rentalBase + resale,
+        };
       }
 
       if (isRentalTransaction) {
         // Pure rental (no resale items)
-        return escrow.rentalAmount ?? 0;
+        return { amount: escrow.rentalAmount ?? 0, feeBase: rentalBase };
       }
 
       if (isResaleTransaction) {
         // Pure resale (no rental items)
-        return escrow.resaleAmount ?? 0;
+        return { amount: resale, feeBase: resale };
       }
     }
 
-    return 0;
+    return { amount: 0, feeBase: 0 };
   }
 
   /**
@@ -3613,11 +3700,23 @@ export class OrderService {
           }
 
           for (const escrow of escrows) {
-            const releaseAmount = this.calculateEscrowReleaseAmount(
-              order,
-              escrow,
+            const release = this.calculateEscrowRelease(order, escrow);
+            if (release.amount <= 0) continue;
+            const platformFee = Math.min(
+              release.amount,
+              escrowPlatformFeeDue(
+                escrow,
+                escrowFeeBaseAlreadyReleased(escrow) + release.feeBase,
+              ),
             );
-            if (releaseAmount <= 0) continue;
+            const releaseAmount = release.amount - platformFee;
+
+            if (platformFee > 0) {
+              await tx.escrow.update({
+                where: { id: escrow.id },
+                data: { platformFeeAmount: { increment: platformFee } },
+              });
+            }
 
             const listerWallet = await tx.wallet.upsert({
               where: { userId: escrow.listerId },
@@ -3639,8 +3738,8 @@ export class OrderService {
                 type: 'MAIN',
                 status: 'SUCCESS',
                 note: isAuto
-                  ? `Payment auto-released after ${getResaleInspectionPeriodLabel()} inspection period for order ${order.orderId}`
-                  : `Payment released for resale order ${order.orderId}`,
+                  ? `Payment auto-released after ${getResaleInspectionPeriodLabel()} inspection period for order ${order.orderId}${platformFeeNoteSuffix(platformFee)}`
+                  : `Payment released for resale order ${order.orderId}${platformFeeNoteSuffix(platformFee)}`,
                 orderId: order.id,
               },
             });

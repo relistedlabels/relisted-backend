@@ -1,4 +1,10 @@
 import {
+  escrowFeeBaseOnReturnConfirm,
+  escrowPlatformFee,
+  escrowPlatformFeeDue,
+  platformFeeNoteSuffix,
+} from '../order/platform-fee.util';
+import {
   Injectable,
   ForbiddenException,
   NotFoundException,
@@ -10,8 +16,11 @@ import {
   MESSAGE_CHAT_UPLOADS_ORDER_BY,
   PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
 } from 'src/utils/product-attachment-upload-order';
-import { userEntity } from '../auth/auth.types';
+import { Auth_Otp_Token_Subject, userEntity } from '../auth/auth.types';
+import { AuthOtpTokenService } from 'src/services/auth-otp-token/auth-otp-token.service';
+import { AuthService } from '../auth/auth.service';
 import {
+  AvailabilityStatus,
   DisputeStatus,
   ListingType,
   Message,
@@ -19,6 +28,11 @@ import {
   ProductStatus,
   Role,
 } from '@prisma/client';
+import { isAvailabilityRequestSupersededByActiveOrder } from '../cart-items/fulfill-availability-for-checkout';
+import {
+  normalizePhoneNumber,
+  normalizePhoneOrThrow,
+} from 'src/utils/phone';
 import {
   differenceInSeconds,
   subMonths,
@@ -39,6 +53,19 @@ import {
   DispatchWindowRangeMap,
   DispatchWindowType,
 } from 'src/utils/dispatch-windows';
+import {
+  businessRemainingSeconds,
+  canListerActOnAvailabilityRequest,
+  canListerApproveAvailabilityRequest,
+  canListerNotifyRenterAfterDispatchWindow,
+  computeBusinessExpiresAt,
+  dispatchWindowDataForAvailabilityApproval,
+  formatDispatchWindowSummaryFromRequest,
+  isBusinessExpired,
+  isPrimaryDispatchWindowExpired,
+  isResponseSlaExpired,
+  responseSlaRemainingSeconds,
+} from 'src/utils/availability-request-expiry.util';
 import {
   closetCreditForReturnReceiptEscrow,
   incrementClosetRevenueForListerPayout,
@@ -231,6 +258,8 @@ export class ListersService {
     private readonly mailService: MailService,
     private readonly uploadService: UploadService,
     private readonly productAvailabilityNotifyService: ProductAvailabilityNotifyService,
+    private readonly authOtpTokenService: AuthOtpTokenService,
+    private readonly authService: AuthService,
   ) {}
 
   private buildExternalTrackingUrl(trackingNumber: string) {
@@ -418,7 +447,7 @@ export class ListersService {
     }
   }
 
-  /** PENDING + past expiresAt should read as EXPIRED so lists and approve/reject stay honest. */
+  /** Response SLA elapsed → EXPIRED (still approvable until business dates pass). */
   private async expireStalePendingAvailabilityRequests(listerId: string) {
     await this.prisma.availabilityRequest.updateMany({
       where: {
@@ -428,6 +457,89 @@ export class ListersService {
       },
       data: { status: 'EXPIRED' },
     });
+  }
+
+  /**
+   * ACCEPTED requests whose renter already paid should not stay on "awaiting payment".
+   * Backfill ORDERED when an active order exists for the same product + renter.
+   */
+  private async reconcileAcceptedAvailabilityRequestsForLister(
+    listerId: string,
+  ): Promise<void> {
+    const accepted = await this.prisma.availabilityRequest.findMany({
+      where: { listerId, status: 'ACCEPTED' },
+      select: { id: true, productId: true, requesterId: true },
+    });
+    if (accepted.length === 0) return;
+
+    const productIds = [...new Set(accepted.map((row) => row.productId))];
+    const requesterIds = [...new Set(accepted.map((row) => row.requesterId))];
+    const paidOrders = await this.prisma.order.findMany({
+      where: {
+        userId: { in: requesterIds },
+        status: { notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED] },
+        orderItems: {
+          some: {
+            productId: { in: productIds },
+            product: { curatorId: listerId },
+          },
+        },
+      },
+      select: {
+        userId: true,
+        orderItems: { select: { productId: true } },
+      },
+    });
+
+    const paidPairs = new Set<string>();
+    for (const order of paidOrders) {
+      for (const item of order.orderItems) {
+        paidPairs.add(`${item.productId}:${order.userId}`);
+      }
+    }
+
+    const supersededIds = accepted
+      .filter((row) =>
+        isAvailabilityRequestSupersededByActiveOrder(paidPairs, row),
+      )
+      .map((row) => row.id);
+    if (supersededIds.length === 0) return;
+
+    await this.prisma.availabilityRequest.updateMany({
+      where: { id: { in: supersededIds }, status: 'ACCEPTED' },
+      data: { status: 'ORDERED' },
+    });
+  }
+
+  private formatAvailabilityRequestActionFields(
+    req: {
+      status: string;
+      rentalDays: number | null;
+      startDate: Date | null;
+      endDate?: Date | null;
+      resaleWindowEnd: Date | null;
+      createdAt: Date;
+      expiresAt: Date;
+    } & Record<string, unknown>,
+  ) {
+    const now = new Date();
+    const canAct = canListerActOnAvailabilityRequest(req, now);
+    const canApprove = canListerApproveAvailabilityRequest(req, now);
+    const canNotifyRenter = canListerNotifyRenterAfterDispatchWindow(req, now);
+    const dispatchWindowExpired = isPrimaryDispatchWindowExpired(req, now);
+    const responseExpired = isResponseSlaExpired(req, now);
+    const businessExpired = isBusinessExpired(req, now);
+    return {
+      canAct,
+      canApprove,
+      canNotifyRenter,
+      dispatchWindowExpired,
+      responseExpired,
+      businessExpired,
+      businessExpiresAt: computeBusinessExpiresAt(req).toISOString(),
+      responseSlaRemainingSeconds: responseSlaRemainingSeconds(req, now),
+      businessRemainingSeconds: businessRemainingSeconds(req, now),
+    };
   }
 
   /** GET /api/listers/orders - returns AvailabilityRequests for pending, Orders for ongoing/completed */
@@ -440,6 +552,7 @@ export class ListersService {
   ) {
     try {
       await this.expireStalePendingAvailabilityRequests(user.id);
+      await this.reconcileAcceptedAvailabilityRequestsForLister(user.id);
 
       const skip = (page - 1) * limit;
       const targetStatus = status?.toLowerCase() || 'all';
@@ -449,12 +562,16 @@ export class ListersService {
 
       // 1. Fetch pending requests (AvailabilityRequests)
       if (['all', 'pending', 'pending_approval'].includes(targetStatus)) {
+        const pendingWhere = {
+          listerId: user.id,
+          status: {
+            in: [AvailabilityStatus.PENDING, AvailabilityStatus.EXPIRED],
+          },
+        };
         const [pendingCount, pendingReqs] = await Promise.all([
-          this.prisma.availabilityRequest.count({
-            where: { listerId: user.id, status: 'PENDING' },
-          }),
+          this.prisma.availabilityRequest.count({ where: pendingWhere }),
           this.prisma.availabilityRequest.findMany({
-            where: { listerId: user.id, status: 'PENDING' },
+            where: pendingWhere,
             include: {
               product: {
                 select: {
@@ -490,22 +607,28 @@ export class ListersService {
         });
         const userMap = new Map(users.map((u) => [u.id, u]));
 
-        const formattedPending = pendingReqs.map((r) => {
+        const formattedPending = pendingReqs
+          .filter((r) => canListerActOnAvailabilityRequest(r))
+          .map((r) => {
           const u = userMap.get(r.requesterId);
-          const diff = Math.max(
-            0,
-            Math.floor((new Date(r.expiresAt).getTime() - Date.now()) / 1000),
-          );
+          const action = this.formatAvailabilityRequestActionFields(r);
+          const responseExpired = action.responseExpired;
           return {
             id: r.id, // Using request ID
             orderNumber: `REQ-${r.id.slice(0, 8)}`,
             createdAt: r.createdAt.toISOString(),
             expiresAt: r.expiresAt.toISOString(),
-            timeRemainingSeconds: diff,
-            status: 'pending_approval',
-            statusLabel: 'Pending Approval',
-            statusColor: '#FFF3E0',
-            statusTextColor: '#E65100',
+            businessExpiresAt: action.businessExpiresAt,
+            timeRemainingSeconds: action.responseSlaRemainingSeconds,
+            businessRemainingSeconds: action.businessRemainingSeconds,
+            responseSlaExpired: responseExpired,
+            businessExpired: action.businessExpired,
+            status: responseExpired ? 'expired' : 'pending_approval',
+            statusLabel: responseExpired
+              ? 'Awaiting your approval'
+              : 'Pending Approval',
+            statusColor: responseExpired ? '#ECEFF1' : '#FFF3E0',
+            statusTextColor: responseExpired ? '#546E7A' : '#E65100',
             itemCount: 1,
             totalAmount: r.totalPrice || 0,
             currency: CURRENCY,
@@ -535,19 +658,24 @@ export class ListersService {
                 returnDue: r.endDate
                   ? new Date(r.endDate).toISOString().split('T')[0]
                   : null,
-                status: 'pending_approval',
-                statusLabel: 'Pending Approval',
+                status: responseExpired ? 'expired' : 'pending_approval',
+                statusLabel: responseExpired
+                  ? 'Awaiting your approval'
+                  : 'Pending Approval',
               },
             ],
-            canApprove: diff > 0,
-            canReject: diff > 0,
-            approvalRequired: true,
+            canApprove: action.canApprove,
+            canNotifyRenter: action.canNotifyRenter,
+            dispatchWindowExpired: action.dispatchWindowExpired,
+            canReject: action.canAct,
+            approvalRequired: action.canAct,
             approvalExpiredAt: r.expiresAt.toISOString(),
+            availabilityStatus: r.status,
           };
         });
 
         allItems = [...allItems, ...formattedPending];
-        total += pendingCount;
+        total += formattedPending.length;
       }
 
       // 1b. ACCEPTED availability — lister approved; renter has not paid / no Order row yet
@@ -784,10 +912,12 @@ export class ListersService {
                 statusLabel: meta.label,
               },
             ],
-            canApprove: r.status === 'EXPIRED',
-            canReject: r.status === 'EXPIRED',
-            approvalRequired: r.status === 'EXPIRED',
+            canApprove: false,
+            canReject: false,
+            approvalRequired: false,
             approvalExpiredAt: r.expiresAt.toISOString(),
+            businessExpiresAt: computeBusinessExpiresAt(r).toISOString(),
+            businessExpired: isBusinessExpired(r),
             availabilityStatus: r.status,
           };
         });
@@ -906,14 +1036,31 @@ export class ListersService {
       });
 
       if (req && req.listerId === user.id) {
-        // return formatted request as order detail
+        await this.expireStalePendingAvailabilityRequests(user.id);
+        const refreshed = await this.prisma.availabilityRequest.findUnique({
+          where: { id: orderId },
+          include: {
+            product: {
+              include: {
+                attachments: {
+                  include: {
+                    uploads: {
+                      orderBy: PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        });
+        const detailReq = refreshed ?? req;
         const u = await this.prisma.user.findUnique({
           where: { id: req.requesterId },
           include: { profile: { include: { avatarUpload: true } } },
         });
         return {
           success: true,
-          data: { order: this.formatRequestDetail(req, u) },
+          data: { order: this.formatRequestDetail(detailReq, u) },
         };
       }
 
@@ -1011,10 +1158,7 @@ export class ListersService {
   }
 
   private formatRequestDetail(req: any, user: any) {
-    const diff = Math.max(
-      0,
-      Math.floor((new Date(req.expiresAt).getTime() - Date.now()) / 1000),
-    );
+    const action = this.formatAvailabilityRequestActionFields(req);
     const statusMeta: Record<
       string,
       {
@@ -1047,11 +1191,15 @@ export class ListersService {
         step: 'rejected',
       },
       EXPIRED: {
-        status: 'expired',
-        label: 'Expired',
+        status: action.canAct ? 'expired' : 'expired',
+        label: action.canAct
+          ? 'Awaiting your approval'
+          : action.businessExpired
+            ? 'Dates passed'
+            : 'Expired',
         color: '#ECEFF1',
         textColor: '#546E7A',
-        step: 'expired',
+        step: action.canAct ? 'pending_approval' : 'expired',
       },
       CANCELLED_BY_RENTER: {
         status: 'cancelled_by_renter',
@@ -1067,7 +1215,11 @@ export class ListersService {
       orderNumber: `REQ-${req.id.slice(0, 8)}`,
       createdAt: req.createdAt.toISOString(),
       expiresAt: req.expiresAt.toISOString(),
-      timeRemainingSeconds: diff,
+      businessExpiresAt: action.businessExpiresAt,
+      timeRemainingSeconds: action.responseSlaRemainingSeconds,
+      businessRemainingSeconds: action.businessRemainingSeconds,
+      responseSlaExpired: action.responseExpired,
+      businessExpired: action.businessExpired,
       availabilityStatus: req.status,
       status: meta.status,
       statusLabel: meta.label,
@@ -1109,9 +1261,11 @@ export class ListersService {
           statusLabel: meta.label,
         },
       ],
-      canApprove: req.status === 'PENDING' || req.status === 'EXPIRED',
-      canReject: req.status === 'PENDING' || req.status === 'EXPIRED',
-      approvalRequired: req.status === 'PENDING' || req.status === 'EXPIRED',
+      canApprove: action.canApprove,
+      canNotifyRenter: action.canNotifyRenter,
+      dispatchWindowExpired: action.dispatchWindowExpired,
+      canReject: action.canAct,
+      approvalRequired: action.canAct,
       approvalExpiredAt: req.expiresAt.toISOString(),
       rejectionReason: req.rejectionReason ?? null,
       dispatchWindows: this.formatDispatchWindowsFromRequest(req),
@@ -1372,6 +1526,72 @@ export class ListersService {
     }
   }
 
+  /** GET /api/public/lister-response/:token?action=accept|reject */
+  async respondToAvailabilityViaToken(
+    token: string,
+    action: 'accept' | 'reject',
+  ) {
+    if (!token?.trim()) {
+      throw new BadRequestException('Response token is required');
+    }
+    if (action !== 'accept' && action !== 'reject') {
+      throw new BadRequestException('action must be accept or reject');
+    }
+
+    const tokenRow = await this.authOtpTokenService.findCode(token.trim());
+    if (!tokenRow) {
+      throw new BadRequestException('Invalid response link');
+    }
+
+    const valid = await this.authOtpTokenService.verifyOtp(
+      {
+        code: token.trim(),
+        subject: Auth_Otp_Token_Subject.LISTER_AVAILABILITY_RESPONSE,
+      },
+      true,
+    );
+    if (!valid) {
+      throw new BadRequestException('Invalid or expired response link');
+    }
+
+    const requestId = tokenRow.email;
+    const request = await this.prisma.availabilityRequest.findUnique({
+      where: { id: requestId },
+      include: { product: { select: { name: true } } },
+    });
+    if (!request) {
+      throw new NotFoundException('Availability request not found');
+    }
+
+    const lister = await this.prisma.user.findUnique({
+      where: { id: tokenRow.userId },
+    });
+    if (!lister) {
+      throw new NotFoundException('Lister not found');
+    }
+
+    const listerUser = { ...lister, sub: lister.id } as userEntity;
+    const requestType: 'purchase' | 'rental' =
+      request.rentalDays === 0 ? 'purchase' : 'rental';
+
+    const result =
+      action === 'accept'
+        ? await this.approveOrder(listerUser, requestId)
+        : await this.rejectOrder(listerUser, requestId, {
+            reason: 'Not available for these dates',
+          });
+
+    return {
+      ...result,
+      responseMeta: {
+        outcome: action === 'accept' ? 'accepted' : 'rejected',
+        requestId,
+        productName: request.product?.name ?? '',
+        requestType,
+      },
+    };
+  }
+
   /** POST /api/listers/orders/:orderId/approve
    *  Approve an AvailabilityRequest (Pending order)
    */
@@ -1390,31 +1610,51 @@ export class ListersService {
         throw new ForbiddenException('You do not have access to this request');
       }
 
-      if (
-        !['PENDING', 'EXPIRED'].includes(request.status) ||
-        !request.expiresAt
-      ) {
+      if (!canListerActOnAvailabilityRequest(request)) {
         throw new ForbiddenException(
-          'Request is not in a state that can be approved',
+          isBusinessExpired(request)
+            ? 'These dates have passed. This request can no longer be approved.'
+            : 'Request is not in a state that can be approved',
         );
       }
+
+      if (isPrimaryDispatchWindowExpired(request as any)) {
+        throw new BadRequestException(
+          'The renter\'s delivery window has passed. Notify the renter so they can send a new request.',
+        );
+      }
+
+      const now = new Date();
+      const windowData = dispatchWindowDataForAvailabilityApproval(
+        request as any,
+      );
 
       const updated = await this.prisma.availabilityRequest.update({
         where: { id: orderId },
         data: {
           status: 'ACCEPTED',
-          approvedAt: new Date(),
+          approvedAt: now,
+          ...windowData,
         },
       });
 
       // Notify Renter
       const isPurchaseRequest = request.rentalDays === 0;
+      const renterEmail = (request as any).requester?.email as string;
+      const checkoutRedirect = '/shop/cart/checkout';
+      const magicLoginLink = renterEmail
+        ? await this.authService.buildMagicLoginUrl(
+            request.requesterId,
+            renterEmail,
+            checkoutRedirect,
+            24 * 60,
+          )
+        : `${process.env.CLIENT_URL}${checkoutRedirect}`;
+
       await this.notificationService.createNotification({
         userId: request.requesterId,
-        title: isPurchaseRequest
-          ? 'Purchase Request Approved'
-          : 'Rental Request Approved',
-        message: `Good news! Your ${isPurchaseRequest ? 'purchase' : 'rental'} request for ${(request as any).product?.name} has been approved. Please proceed to payment.`,
+        title: "It's available!",
+        message: `${(request as any).product?.name} is available for your dates. Complete your rental when you are ready.`,
         type: 'RENTAL_RESPONSE',
         metadata: {
           requestId: request.id,
@@ -1423,14 +1663,20 @@ export class ListersService {
         },
         sendEmail: true,
         emailData: {
-          email: (request as any).requester?.email,
+          email: renterEmail,
           userName: (request as any).requester?.name,
           productName: (request as any).product?.name,
           status: 'accepted',
           requestId: request.id,
           reason: notes || 'No additional notes provided.',
-          checkoutLink: `${process.env.CLIENT_URL}/shop/cart/checkout`,
+          checkoutLink: magicLoginLink,
           requestType: isPurchaseRequest ? 'purchase' : 'rental',
+          outboundWindowSummary: isPurchaseRequest
+            ? formatDispatchWindowSummaryFromRequest(request as any, 'RESALE')
+            : formatDispatchWindowSummaryFromRequest(request as any, 'OUTBOUND'),
+          returnWindowSummary: isPurchaseRequest
+            ? null
+            : formatDispatchWindowSummaryFromRequest(request as any, 'RETURN'),
         },
       });
 
@@ -1450,7 +1696,11 @@ export class ListersService {
         },
       };
     } catch (e) {
-      if (e instanceof NotFoundException || e instanceof ForbiddenException) {
+      if (
+        e instanceof NotFoundException ||
+        e instanceof ForbiddenException ||
+        e instanceof BadRequestException
+      ) {
         throw e;
       }
       console.error('approveOrder error:', e);
@@ -1480,12 +1730,11 @@ export class ListersService {
         throw new ForbiddenException('You do not have access to this request');
       }
 
-      if (
-        !['PENDING', 'EXPIRED'].includes(request.status) ||
-        !request.expiresAt
-      ) {
+      if (!canListerActOnAvailabilityRequest(request)) {
         throw new ForbiddenException(
-          'Request is not in a state that can be rejected',
+          isBusinessExpired(request)
+            ? 'These dates have passed. This request can no longer be declined.'
+            : 'Request is not in a state that can be rejected',
         );
       }
 
@@ -1574,9 +1823,14 @@ export class ListersService {
       if (request.listerId !== user.id) {
         throw new ForbiddenException('You do not have access to this request');
       }
-      if (request.status !== 'EXPIRED') {
+      if (!['PENDING', 'EXPIRED'].includes(request.status)) {
         throw new BadRequestException(
-          'Reminders can only be sent for expired availability requests.',
+          'Reminders can only be sent for open availability requests.',
+        );
+      }
+      if (!canListerNotifyRenterAfterDispatchWindow(request as any)) {
+        throw new BadRequestException(
+          'Notify the renter only after their chosen delivery window has passed.',
         );
       }
 
@@ -1584,11 +1838,12 @@ export class ListersService {
       const isPurchaseRequest = (request.rentalDays ?? 0) === 0;
       const listerName = user.name || 'The curator';
       const renterEmail = request.requester?.email?.trim() || '';
-      const cartBase = (
+      const clientBase = (
         process.env.CLIENT_URL ||
         process.env.FRONTEND_URL ||
         'http://localhost:3000'
       ).replace(/\/$/, '');
+      const listingLink = `${clientBase}/shop/product-details/${request.productId}`;
       const emailData = {
         email: renterEmail,
         userName: request.requester?.name || 'there',
@@ -1596,22 +1851,15 @@ export class ListersService {
         productName,
         intent,
         requestType: isPurchaseRequest ? 'purchase' : 'rental',
-        cartLink: `${cartBase}/shop/cart`,
+        listingLink,
+        cartLink: `${clientBase}/shop/cart`,
       };
 
-      const title =
-        intent === 'rerequest'
-          ? isPurchaseRequest
-            ? 'Curator asked you to send a new purchase request'
-            : 'Curator asked you to send a new rental request'
-          : isPurchaseRequest
-            ? 'Curator says the item may still be available'
-            : 'Curator says the rental may still be available';
+      const title = isPurchaseRequest
+        ? 'This item may still be available'
+        : 'This rental may still be available';
 
-      const message =
-        intent === 'rerequest'
-          ? `${listerName} could not respond in time earlier. If you still want ${productName}, open your cart and tap Request approval again.`
-          : `${listerName} is ready when you are. If you still want ${productName}, open your cart and send a new availability request.`;
+      const message = `${listerName} says ${productName} may still be available. Open the listing to check availability with a new delivery time.`;
 
       await this.notificationService.createNotification({
         userId: request.requesterId,
@@ -2045,8 +2293,16 @@ export class ListersService {
             }
           }
 
-          const totalListerPayout =
+          const grossListerPayout =
             listerEscrowPayoutOnReturnConfirm(listerEscrow);
+          const platformFee = Math.min(
+            grossListerPayout,
+            escrowPlatformFeeDue(
+              listerEscrow,
+              escrowFeeBaseOnReturnConfirm(listerEscrow),
+            ),
+          );
+          const totalListerPayout = grossListerPayout - platformFee;
 
           if (totalListerPayout > 0) {
             console.log(
@@ -2071,7 +2327,7 @@ export class ListersService {
                 amount: totalListerPayout,
                 type: 'MAIN',
                 status: 'SUCCESS',
-                note: `Final payout released for completed order ${order.orderId} (Rental + Cleaning + Resale)`,
+                note: `Final payout released for completed order ${order.orderId} (Rental + Cleaning + Resale)${platformFeeNoteSuffix(platformFee)}`,
                 orderId: order.id,
               },
             });
@@ -2085,7 +2341,7 @@ export class ListersService {
             await incrementClosetRevenueForListerPayout(tx, {
               orderId: order.id,
               listerId: listerEscrow.listerId,
-              amount: closetCredit,
+              amount: Math.max(0, closetCredit - platformFee),
               split,
             });
           }
@@ -2095,6 +2351,9 @@ export class ListersService {
             data: {
               status: 'RELEASED',
               releasedAt: new Date(),
+              ...(platformFee > 0
+                ? { platformFeeAmount: { increment: platformFee } }
+                : {}),
             },
           });
         } else {
@@ -2171,8 +2430,17 @@ export class ListersService {
     }
 
     if (listerEscrow) {
-      const totalListerPayout =
+      const grossListerPayout =
         listerEscrowPayoutOnReturnConfirm(listerEscrow);
+      const totalListerPayout =
+        grossListerPayout -
+        Math.min(
+          grossListerPayout,
+          escrowPlatformFeeDue(
+            listerEscrow,
+            escrowFeeBaseOnReturnConfirm(listerEscrow),
+          ),
+        );
       if (totalListerPayout > 0) {
         const lister = await this.prisma.user.findUnique({
           where: { id: listerEscrow.listerId },
@@ -2496,6 +2764,7 @@ export class ListersService {
 
   private async getOrdersSummary(curatorId: string) {
     await this.expireStalePendingAvailabilityRequests(curatorId);
+    await this.reconcileAcceptedAvailabilityRequestsForLister(curatorId);
 
     const [pendingApprovalCount, awaitingPaymentCount] = await Promise.all([
       this.prisma.availabilityRequest.count({
@@ -2725,8 +2994,8 @@ export class ListersService {
       ? listerEscrowDisplaySummary(listerEscrow)
       : null;
     const merchandiseTotal = listerEscrow
-      ? (listerEscrow.rentalAmount ?? 0) + (listerEscrow.resaleAmount ?? 0)
-      : listerRentalSubtotal + listerCleaningFeesTotal + listerResaleSubtotal;
+      ? escrowFromDb!.rentalFeeTotal + escrowFromDb!.purchasePrice
+      : listerRentalSubtotal + listerResaleSubtotal;
     const displayTotalAmount = listerEscrow
       ? merchandiseTotal
       : totalAmount;
@@ -2838,12 +3107,30 @@ export class ListersService {
         order,
         availabilityRequests,
       ),
+      platformFee:
+        listerEscrow &&
+        ((listerEscrow.platformFeeRate ?? 0) > 0 ||
+          (listerEscrow.platformFeeAmount ?? 0) > 0)
+          ? (() => {
+              const feeBase =
+                escrowFromDb!.rentalFeeTotal +
+                escrowFromDb!.purchasePrice;
+              const amount = escrowPlatformFee(listerEscrow, feeBase);
+              return {
+                ratePercent: listerEscrow.platformFeeRate ?? 0,
+                base: feeBase,
+                amount,
+                netEarnings:
+                  merchandiseTotal + escrowFromDb!.cleaningFeeTotal - amount,
+              };
+            })()
+          : null,
       listerMerchandise: listerEscrow
         ? {
             rentalSubtotal: escrowFromDb!.rentalFeeTotal,
             cleaningFeesTotal: escrowFromDb!.cleaningFeeTotal,
             resaleSubtotal: escrowFromDb!.purchasePrice,
-            total: merchandiseTotal,
+            total: merchandiseTotal + escrowFromDb!.cleaningFeeTotal,
           }
         : {
             rentalSubtotal: listerRentalSubtotal,
@@ -4316,11 +4603,19 @@ export class ListersService {
     }
 
     const phoneToSet = body.phone !== undefined ? body.phone : body.phoneNumber;
-    const emergencyContactData =
+    let emergencyContactData =
       body.emergencyContact || body.emergencyContacts;
+    if (emergencyContactData?.phoneNumber) {
+      emergencyContactData = {
+        ...emergencyContactData,
+        phoneNumber: normalizePhoneOrThrow(emergencyContactData.phoneNumber),
+      };
+    }
 
     const profileUpdate: any = {};
-    if (phoneToSet !== undefined) profileUpdate.phoneNumber = phoneToSet;
+    if (phoneToSet !== undefined) {
+      profileUpdate.phoneNumber = normalizePhoneOrThrow(phoneToSet);
+    }
     if (body.bvn !== undefined) profileUpdate.bvn = body.bvn;
     if (body.nin !== undefined) profileUpdate.nin = body.nin;
 
@@ -4823,7 +5118,16 @@ export class ListersService {
       updateData.businessEmail = body.businessEmail.trim();
     }
     if (body.businessPhone !== undefined) {
-      updateData.businessPhone = body.businessPhone.trim() || null;
+      const trimmedBusinessPhone = body.businessPhone.trim();
+      if (!trimmedBusinessPhone) {
+        updateData.businessPhone = null;
+      } else {
+        const normalized = normalizePhoneNumber(trimmedBusinessPhone);
+        if (!normalized) {
+          throw new BadRequestException('Enter a valid Nigerian phone number.');
+        }
+        updateData.businessPhone = normalized;
+      }
     }
     if (
       body.businessAddress !== undefined &&
@@ -5153,7 +5457,7 @@ export class ListersService {
     const data = {
       name: body.fullName,
       email: body.email?.trim() || null,
-      phoneNumber: body.phone,
+      phoneNumber: normalizePhoneOrThrow(body.phone),
       relationship: body.relationship,
       city: (body.city ?? '').trim(),
       state: (body.state ?? '').trim(),
@@ -5310,7 +5614,11 @@ export class ListersService {
           include: {
             avatarUpload: { select: { url: true } },
             businessInfo: true,
-            address: true,
+            address: {
+              select: {
+                city: true,
+              },
+            },
           },
         },
         _count: {
@@ -5324,9 +5632,13 @@ export class ListersService {
 
     if (!lister) throw new NotFoundException('Lister not found');
 
+    const visibleReviewWhere = { curatorId: lister.id, hiddenAt: null };
     const ratingAgg = await this.prisma.review.aggregate({
-      where: { curatorId: lister.id },
+      where: visibleReviewWhere,
       _avg: { rating: true },
+    });
+    const visibleReviewCount = await this.prisma.review.count({
+      where: visibleReviewWhere,
     });
 
     // Get featured products (e.g. recent 5 available)
@@ -5352,7 +5664,7 @@ export class ListersService {
 
     // Get recent reviews
     const recentReviews = await this.prisma.review.findMany({
-      where: { curatorId: lister.id },
+      where: visibleReviewWhere,
       take: 2,
       orderBy: { createdAt: 'desc' },
       include: {
@@ -5372,23 +5684,19 @@ export class ListersService {
           id: lister.id,
           name: lister.profile?.businessInfo?.businessName || lister.name,
           avatar: lister.profile?.avatarUpload?.url || null,
+          location: lister.profile?.address?.city || null,
           role: 'lister',
           bio: lister.profile?.businessInfo?.businessDescription || '', // Use description as bio
           shopDescription:
             lister.profile?.businessInfo?.businessDescription || '',
           rating: Math.round((ratingAgg._avg.rating || 0) * 10) / 10,
-          reviewCount: lister._count.curatorReviews,
+          reviewCount: visibleReviewCount,
           itemCount: lister._count.products,
           joined: lister.createdAt,
           isVerified: lister.isVerified,
           verificationDate: lister.updatedAt, // Approximate
           featured: false,
-          shopPolicies: {
-            returnPolicy: 'Full refund within 30 days of rental', // placeholder
-            deliveryTime: '2-3 business days',
-            cancellationPolicy:
-              'Free cancellation up to 48 hours before rental',
-          },
+          shopPolicies: null,
           featuredProducts: featuredProducts.map((p) => ({
             id: p.id,
             name: p.name,
@@ -5495,8 +5803,7 @@ export class ListersService {
 
     const where = {
       curatorId: userId,
-      // Only show reviews for completed rentals? Or all reviews?
-      // Assuming all public reviews are okay
+      hiddenAt: null,
     };
 
     const [reviews, total] = await Promise.all([

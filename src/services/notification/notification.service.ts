@@ -1,12 +1,21 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
+import {
+  WhatsAppOutbound,
+  WhatsAppService,
+} from '../whatsapp/whatsapp.service';
+
+export const NOTIFICATION_LIST_DEFAULT_LIMIT = 30;
+export const NOTIFICATION_LIST_MAX_LIMIT = 50;
+export const NOTIFICATION_DEFAULT_DAYS = 30;
 
 @Injectable()
 export class NotificationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mailService: MailService,
+    private readonly whatsappService: WhatsAppService,
   ) {}
 
   async createNotification(dto: {
@@ -17,6 +26,7 @@ export class NotificationService {
     metadata?: any;
     sendEmail?: boolean;
     emailData?: any;
+    whatsapp?: WhatsAppOutbound;
   }) {
     const { userId, title, message, type, metadata, sendEmail, emailData } =
       dto;
@@ -32,7 +42,12 @@ export class NotificationService {
       },
     });
 
-    // 2. Handle Email if requested
+    // 2. Handle WhatsApp if requested
+    if (dto.whatsapp) {
+      await this.dispatchWhatsApp(dto.whatsapp);
+    }
+
+    // 3. Handle Email if requested
     if (sendEmail) {
       if (
         type === 'DISPUTE_CREATED' ||
@@ -54,6 +69,22 @@ export class NotificationService {
     }
 
     return notification;
+  }
+
+  private async dispatchWhatsApp(outbound: WhatsAppOutbound) {
+    switch (outbound.kind) {
+      case 'lister_availability':
+        await this.whatsappService.sendListerAvailabilityRequest(
+          outbound.params,
+        );
+        break;
+      case 'lister_purchase':
+        await this.whatsappService.sendListerPurchaseRequest(outbound.params);
+        break;
+      case 'renter_return_reminder':
+        await this.whatsappService.sendRenterReturnReminder(outbound.params);
+        break;
+    }
   }
 
   private async triggerEmail(type: string, data: any) {
@@ -102,6 +133,7 @@ export class NotificationService {
         case 'RETURN_DISPATCHED':
         case 'RETURN_PICKUP_SCHEDULED':
         case 'RETURN_REQUEST_SUBMITTED':
+        case 'LISTER_DISPATCH_BOOKED':
           await this.mailService.SendShippingUpdateMail(data);
           break;
         case 'SHIPMENT_IN_TRANSIT':
@@ -165,17 +197,79 @@ export class NotificationService {
     }
   }
 
-  async markAsRead(notificationId: string) {
+  private getSinceDate(days: number) {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    return since;
+  }
+
+  async markAsRead(notificationId: string, userId: string) {
+    const notification = await this.prisma.notification.findFirst({
+      where: { id: notificationId, userId },
+    });
+    if (!notification) {
+      throw new NotFoundException('Notification not found');
+    }
     return this.prisma.notification.update({
       where: { id: notificationId },
       data: { isRead: true },
     });
   }
 
-  async getUserNotifications(userId: string) {
-    return this.prisma.notification.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
+  async markAllAsRead(userId: string, days = NOTIFICATION_DEFAULT_DAYS) {
+    const since = this.getSinceDate(days);
+    const result = await this.prisma.notification.updateMany({
+      where: { userId, isRead: false, createdAt: { gte: since } },
+      data: { isRead: true },
     });
+    return result.count;
+  }
+
+  async getUnreadCount(userId: string, days = NOTIFICATION_DEFAULT_DAYS) {
+    const since = this.getSinceDate(days);
+    return this.prisma.notification.count({
+      where: { userId, isRead: false, createdAt: { gte: since } },
+    });
+  }
+
+  async getUserNotifications(
+    userId: string,
+    options?: { limit?: number; page?: number; days?: number },
+  ) {
+    const limit = Math.min(
+      options?.limit ?? NOTIFICATION_LIST_DEFAULT_LIMIT,
+      NOTIFICATION_LIST_MAX_LIMIT,
+    );
+    const page = Math.max(options?.page ?? 1, 1);
+    const days = options?.days ?? NOTIFICATION_DEFAULT_DAYS;
+    const since = this.getSinceDate(days);
+
+    const where = {
+      userId,
+      createdAt: { gte: since },
+    };
+
+    const [items, total, unreadCount] = await Promise.all([
+      this.prisma.notification.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.notification.count({ where }),
+      this.prisma.notification.count({
+        where: { ...where, isRead: false },
+      }),
+    ]);
+
+    return {
+      items,
+      total,
+      unreadCount,
+      page,
+      limit,
+      days,
+      hasMore: page * limit < total,
+    };
   }
 }

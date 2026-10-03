@@ -10,6 +10,8 @@ import { ListersPublicController } from './listers.public.controller';
 import { ListersWalletController } from './listers.wallet.controller';
 import { WemaServiceService } from 'src/services/wema-service/wema-service.service';
 import { ProductAvailabilityNotifyModule } from 'src/services/product-availability-notify/product-availability-notify.module';
+import { AuthOtpTokenModule } from 'src/services/auth-otp-token/auth-otp-token.module';
+import { ListersAvailabilityPublicController } from './listers.availability-public.controller';
 
 @Module({
   imports: [
@@ -18,13 +20,16 @@ import { ProductAvailabilityNotifyModule } from 'src/services/product-availabili
     ProfileModule,
     UploadModule,
     ProductAvailabilityNotifyModule,
+    AuthOtpTokenModule,
   ],
   controllers: [
     ListersController,
     IssueCategoriesController,
     ListersPublicController,
     ListersWalletController,
+    ListersAvailabilityPublicController,
   ],
   providers: [ListersService, WemaServiceService],
+  exports: [ListersService],
 })
 export class ListersModule {}

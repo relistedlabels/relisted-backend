@@ -59,17 +59,19 @@
 <body>
     <div class="container">
         <div class="header">
-            <h2>{{#if emailHeading}}{{emailHeading}}{{else}}Shipping Update{{/if}}</h2>
+            <h2>{{#if emailHeading}}{{emailHeading}}{{else}}Shipping update{{/if}}</h2>
         </div>
         <div class="content">
             <p>Hello {{userName}},</p>
-            <p>There is an update on your order <strong>{{orderId}}</strong>.</p>
-            <p><strong>{{status}}</strong></p>
+            {{#if emailHeading}}
+            <p>{{emailHeading}} (order {{orderId}}).</p>
+            {{else}}
+            <p>Order <strong>{{orderId}}</strong> is now <strong>{{status}}</strong>.</p>
+            {{/if}}
 
             {{#if pickupWindowSummary}}
             <div class="info-box">
-                <p><strong>Scheduled pickup window</strong></p>
-                <p>{{pickupWindowSummary}}</p>
+                <p><strong>Pickup window:</strong> {{pickupWindowSummary}}</p>
             </div>
             {{/if}}
 
@@ -78,26 +80,20 @@
             {{/if}}
 
             {{#if trackingUrl}}
-            <div class="info-box">
-                <p><strong>Tracking link</strong></p>
-                <p><a href="{{trackingUrl}}" target="_blank" rel="noopener noreferrer">Open tracking page</a></p>
-            </div>
-            {{/if}}
-
+            <p style="margin-top:12px;"><a href="{{trackingUrl}}" target="_blank" rel="noopener noreferrer">Track shipment</a></p>
+            {{else}}
             {{#if trackingNumber}}
             <div class="info-box">
-                <p><strong>📦 Tracking Information</strong></p>
-                <p><strong>Tracking Number:</strong> {{trackingNumber}}</p>
-                {{#unless trackingUrl}}
+                <p><strong>Tracking number:</strong> {{trackingNumber}}</p>
                 {{#if trackingProviderLabel}}
-                <p><em>Copy your tracking number above and look it up on the {{trackingProviderLabel}} tracking page.</em></p>
+                <p style="margin-top:8px;font-size:14px;color:#555;">Look it up on the {{trackingProviderLabel}} tracking page.</p>
                 {{/if}}
-                {{/unless}}
             </div>
+            {{/if}}
             {{/if}}
 
             {{#if estimatedDelivery}}
-            <p><strong>Estimated Delivery:</strong> {{estimatedDelivery}}</p>
+            <p><strong>Estimated delivery:</strong> {{estimatedDelivery}}</p>
             {{/if}}
 
             {{#if orderPageUrl}}
@@ -105,8 +101,6 @@
                 <a href="{{orderPageUrl}}" class="cta" target="_blank" rel="noopener noreferrer">{{#if ctaLabel}}{{ctaLabel}}{{else}}View order{{/if}}</a>
             </p>
             {{/if}}
-
-            <p>Thank you for choosing Relisted!</p>
         </div>
         <div class="footer">
             <p>&copy; {{currentYear}} Relisted. All rights reserved.</p>

@@ -5,6 +5,7 @@ import { ProductService } from './product.service';
 import { PrismaService } from 'src/services/prisma/prisma.service';
 import { ClosetService } from '../closet/closet.service';
 import { MailService } from 'src/services/mail/mail.service';
+import { ShopSettingsService } from '../shop-settings/shop-settings.service';
 import { ADMIN_ACTIVE_LISTING_STATUSES } from './product-list-scope.util';
 
 const mockPrisma = {
@@ -20,6 +21,9 @@ const mockPrisma = {
 
 const mockClosetService = {};
 const mockMailService = { sendMail: jest.fn() };
+const mockShopSettingsService = {
+  assertBrandIsVisible: jest.fn(),
+};
 
 describe('ProductService revenue guards', () => {
   let service: ProductService;
@@ -36,6 +40,7 @@ describe('ProductService revenue guards', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: ClosetService, useValue: mockClosetService },
         { provide: MailService, useValue: mockMailService },
+        { provide: ShopSettingsService, useValue: mockShopSettingsService },
       ],
     }).compile();
 

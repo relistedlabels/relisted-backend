@@ -11,14 +11,14 @@ function requesterRoleLabel(role: string): string {
   return role;
 }
 
-function adminWalletsLink(): string {
+function adminWithdrawalsLink(): string {
   const origin = (
     process.env.CLIENT_URL ||
     process.env.FRONTEND_URL ||
     'http://localhost:3000'
   ).replace(/\/$/, '');
   const segment = process.env.ADMIN_SECRET_SEGMENT?.trim() || 'k340eol21';
-  return `${origin}/admin/${segment}/wallets`;
+  return `${origin}/admin/${segment}/withdrawal-requests`;
 }
 
 /** In-app + email alert when a renter or lister submits a withdrawal request. */
@@ -56,7 +56,7 @@ export async function notifyAdminsNewWithdrawalRequest(
     return;
   }
 
-  const adminLink = adminWalletsLink();
+  const adminLink = adminWithdrawalsLink();
   const amountLabel = `NGN ${input.amount.toLocaleString()}`;
   const roleLabel = requesterRoleLabel(user.role);
 
@@ -65,7 +65,7 @@ export async function notifyAdminsNewWithdrawalRequest(
       await notificationService.createNotification({
         userId: admin.id,
         title: 'New withdrawal request',
-        message: `${user.name} requested ${amountLabel} (${input.reference}). Review it under Wallets, Withdrawals in admin.`,
+        message: `${user.name} requested ${amountLabel} (${input.reference}). Review it under Withdrawal Requests in admin.`,
         type: 'ADMIN_WITHDRAWAL_REQUEST',
         metadata: {
           withdrawalId: input.withdrawalId,

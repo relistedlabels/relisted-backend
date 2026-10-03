@@ -11,9 +11,12 @@ import { AdminClosetsController } from './admin.closets.controller';
 import { AdminAvailabilityRequestsController } from './admin.availability-requests.controller';
 import { PrismaModule } from '../../services/prisma/prisma.module';
 import { ProductAvailabilityNotifyModule } from '../../services/product-availability-notify/product-availability-notify.module';
+import { ReviewModule } from '../review/review.module';
+import { AdminReviewsController } from './admin.reviews.controller';
+import { AdminSearchController } from './admin.search.controller';
 
 @Module({
-  imports: [PrismaModule, ProductAvailabilityNotifyModule],
+  imports: [PrismaModule, ProductAvailabilityNotifyModule, ReviewModule],
   controllers: [
     AdminAnalyticsController,
     AdminUsersController,
@@ -24,6 +27,8 @@ import { ProductAvailabilityNotifyModule } from '../../services/product-availabi
     AdminProductsController,
     AdminClosetsController,
     AdminAvailabilityRequestsController,
+    AdminReviewsController,
+    AdminSearchController,
   ],
   providers: [AdminService],
   exports: [AdminService],

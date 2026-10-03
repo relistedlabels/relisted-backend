@@ -5,7 +5,9 @@ import { join } from 'path';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
+import { warnIfEmailLinkEnvMissing } from './config/app-urls';
 import { isLocalFileUploadMode } from './config/upload-mode';
+import { registerLocalUploadStatic } from './utils/local-upload-static';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { inspect } from 'util';
@@ -242,6 +244,7 @@ async function bootstrap() {
   const enableHttpAccessLog =
     !leanLogs || process.env.HTTP_ENABLE_ACCESS_LOG === 'true';
   logShippingFulfillmentConfig();
+  warnIfEmailLinkEnvMissing();
   if (!leanLogs) {
     console.log('Database:', redactDatabaseUrl(process.env.DATABASE_URL));
   }
@@ -256,9 +259,12 @@ async function bootstrap() {
   if (isLocalFileUploadMode()) {
     const localDir = join(process.cwd(), 'uploads', 'local');
     await mkdir(localDir, { recursive: true });
-    app.useStaticAssets(localDir, { prefix: '/local-uploads/' });
+    registerLocalUploadStatic(app);
     console.log(
       `📁 Local file uploads enabled: files under ./uploads/local, served at GET /local-uploads/`,
+    );
+    console.log(
+      `   Missing files fall back to assets/local-upload-placeholder.png`,
     );
     console.log(`   Public URLs use API_PUBLIC_URL=${process.env.API_PUBLIC_URL ?? '(default localhost:' + (process.env.PORT ?? '4000') + ')'}`);
   }
@@ -284,6 +290,7 @@ async function bootstrap() {
       if (
         allowedOrigins.includes(origin) ||
         origin.startsWith('http://localhost') ||
+        origin.startsWith('http://127.0.0.1') ||
         origin.endsWith('.vercel.app')
       ) {
         return callback(null, true);

@@ -14,6 +14,7 @@ import { formatDispatchWindowLagos } from 'src/module/shipment/dispatch-window-f
 import { buildShippingEmailTrackingFields } from 'src/module/shipment/shipment-tracking-url.util';
 import { shipmentLegLabel } from 'src/module/shipment/shipment-leg-label.util';
 import { returnRequestExistsForShipment } from 'src/module/order/return-request-leg.util';
+import { notifyListerOfDispatchBooking } from 'src/module/shipment/shipment-lister-dispatch-booked';
 
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAYS_MS = [
@@ -280,17 +281,29 @@ export class ShipmentDispatchProcessor {
     let message: string;
     let notificationType: string;
     let status: string;
+    let emailSubject: string;
+    let emailHeading: string;
+    let extraNote: string;
+    let pickupWindowSummary: string | undefined;
 
     if (isResale) {
-      title = '🚚 Your purchase is on its way!';
-      message = `Your item is being dispatched. Track here: ${result.providerTrackingUrl ?? 'Tracking link coming soon'}`;
+      title = '📦 Your purchase delivery is booked';
+      message = `Your delivery is booked with the courier. You’ll get another update when it’s on the way. Track here: ${result.providerTrackingUrl ?? 'Tracking link coming soon'}`;
       notificationType = 'SHIPMENT_DISPATCHED';
-      status = 'Dispatched';
+      status = 'Booked for dispatch (pickup not started yet)';
+      emailSubject = 'Your purchase delivery is booked';
+      emailHeading = 'Delivery booked with courier';
+      extraNote =
+        'The courier is booked. The rider may not have picked up the item yet. You’ll get another update once it’s on the way.';
     } else if (isOutbound) {
-      title = '🚚 Your rental is on its way!';
-      message = `Your item is being dispatched. Track here: ${result.providerTrackingUrl ?? 'Tracking link coming soon'}`;
+      title = '📦 Your rental delivery is booked';
+      message = `Your delivery is booked with the courier. You’ll get another update when it’s on the way. Track here: ${result.providerTrackingUrl ?? 'Tracking link coming soon'}`;
       notificationType = 'SHIPMENT_DISPATCHED';
-      status = 'Dispatched';
+      status = 'Booked for dispatch (pickup not started yet)';
+      emailSubject = 'Your rental delivery is booked';
+      emailHeading = 'Delivery booked with courier';
+      extraNote =
+        'The courier is booked. The rider may not have picked up the item yet. You’ll get another update once it’s on the way.';
     } else if (isReturn) {
       const wStart = shipment.scheduledWindowStart
         ? new Date(shipment.scheduledWindowStart)
@@ -298,14 +311,20 @@ export class ShipmentDispatchProcessor {
       const wEnd = shipment.scheduledWindowEnd
         ? new Date(shipment.scheduledWindowEnd)
         : null;
-      const windowLine =
-        wStart && wEnd
-          ? ` Pickup window: ${formatDispatchWindowLagos(wStart, wEnd)}.`
-          : '';
+      if (wStart && wEnd) {
+        pickupWindowSummary = formatDispatchWindowLagos(wStart, wEnd);
+        extraNote =
+          'The carrier is booked for this window. The rider may not have picked up yet. Watch for an in-transit update next.';
+      } else {
+        extraNote =
+          'Have your item ready for pickup. You’ll get another update when collection starts or when the parcel is in transit.';
+      }
       title = '📦 Return booked. Get your item ready.';
-      message = `Your return is booked with the carrier.${windowLine} Have the package ready during your pickup window. You’ll get another update when the rider collects it or when it’s on the way to the lister.`;
+      message = `Your return is booked with the carrier.${pickupWindowSummary ? ` Pickup window: ${pickupWindowSummary}.` : ''} Have the package ready during your pickup window. You’ll get another update when the rider collects it or when it’s on the way to the lister.`;
       notificationType = 'RETURN_DISPATCHED';
       status = 'Scheduled for dispatch (pickup not started yet)';
+      emailSubject = 'Your return is booked. Have your item ready.';
+      emailHeading = 'Return booked with courier';
     } else {
       return; // Unknown shipment type
     }
@@ -338,29 +357,26 @@ export class ShipmentDispatchProcessor {
         status,
         ...trackingFields,
         estimatedDelivery: undefined,
-        ...(isReturn &&
-        shipment.scheduledWindowStart &&
-        shipment.scheduledWindowEnd
-          ? {
-              emailSubject: 'Your return is booked. Have your item ready.',
-              emailHeading: 'Return booked with courier',
-              pickupWindowSummary: formatDispatchWindowLagos(
-                new Date(shipment.scheduledWindowStart),
-                new Date(shipment.scheduledWindowEnd),
-              ),
-              extraNote:
-                'The carrier is booked for this window. The rider may not have picked up yet. Watch for an in-transit update next.',
-            }
-          : isReturn
-            ? {
-                emailSubject: 'Your return is booked. Have your item ready.',
-                emailHeading: 'Return booked with courier',
-                extraNote:
-                  'Have your item ready for pickup. You’ll get another update when collection starts or when the parcel is in transit.',
-              }
-            : {}),
+        emailSubject,
+        emailHeading,
+        extraNote,
+        ...(pickupWindowSummary ? { pickupWindowSummary } : {}),
       },
     });
+
+    if (isOutbound || isResale) {
+      try {
+        await notifyListerOfDispatchBooking(
+          this.prisma,
+          this.notification,
+          shipment,
+        );
+      } catch (listerErr: any) {
+        this.logger.warn(
+          `[Worker] Lister dispatch-booked notification failed for shipment ${shipment.id}: ${listerErr?.message ?? listerErr}`,
+        );
+      }
+    }
   }
 
   private async notifyAdminOfFailure(shipment: any, errorMessage: string) {
@@ -368,6 +384,15 @@ export class ShipmentDispatchProcessor {
       buildAdminShipmentsPageUrl({ shipmentId: shipment.id }) || '';
     const humanOrderId = shipment.order?.orderId ?? 'Unknown order';
     const legLabel = shipmentLegLabel(shipment.type);
+    const renterName = shipment.order?.user?.name?.trim() || undefined;
+    const renterEmail = shipment.order?.user?.email?.trim() || undefined;
+    const productNames: string[] = [
+      ...new Set<string>(
+        (shipment.order?.orderItems ?? [])
+          .map((row: any) => row?.product?.name?.trim())
+          .filter((name: any) => Boolean(name)),
+      ),
+    ];
 
     const admins = await fetchAdminAlertRecipients(this.prisma);
     if (admins.length === 0) {
@@ -400,6 +425,9 @@ export class ShipmentDispatchProcessor {
           to: admin.email.trim(),
           humanOrderId,
           legLabel,
+          renterName,
+          renterEmail,
+          productNames,
           scheduledDate: shipment.scheduledDate,
           errorMessage,
           redispatchUrl,

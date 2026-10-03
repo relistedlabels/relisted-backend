@@ -6,6 +6,8 @@ import { PrismaModule } from 'src/services/prisma/prisma.module';
 import { AuthModule } from '../auth/auth.module';
 import { RentalModule } from '../rental/rental.module';
 import { ClosetModule } from '../closet/closet.module';
+import { ShopSettingsModule } from '../shop-settings/shop-settings.module';
+import { SiteFeaturesModule } from '../site-features/site-features.module';
 
 @Module({
   imports: [
@@ -13,6 +15,8 @@ import { ClosetModule } from '../closet/closet.module';
     AuthModule,
     forwardRef(() => RentalModule),
     forwardRef(() => ClosetModule),
+    ShopSettingsModule,
+    SiteFeaturesModule,
   ],
   controllers: [ProductController, ProductPublicController],
   providers: [ProductService],

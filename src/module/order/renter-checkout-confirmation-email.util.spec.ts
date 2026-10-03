@@ -51,6 +51,37 @@ describe('renter-checkout-confirmation-email.util', () => {
     expect(lines[0].returnPickupWindowText).toBeTruthy();
   });
 
+  it('uses rental outbound window for purchase lines in a merged bucket', () => {
+    const obStart = new Date('2026-06-09T10:00:00+01:00');
+    const obEnd = new Date('2026-06-09T14:00:00+01:00');
+
+    const lines = buildRenterCheckoutEmailLinesFromCheckout(
+      [
+        {
+          id: 'ci-purchase',
+          days: 0,
+          product: {
+            name: 'Silk top',
+            listingType: 'RESALE',
+          },
+        },
+      ],
+      [
+        {
+          bucketMode: 'RENTAL',
+          outboundWindow: { start: obStart, end: obEnd },
+          returnWindow: null,
+          resaleWindow: null,
+          items: [{ id: 'ci-purchase' }],
+        },
+      ],
+    );
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.lineType).toBe('purchase');
+    expect(lines[0]?.purchaseDeliveryWindowText).toBeTruthy();
+  });
+
   it('builds purchase lines from persisted order items', () => {
     const lines = buildRenterCheckoutEmailLinesFromOrder(
       [
@@ -75,5 +106,24 @@ describe('renter-checkout-confirmation-email.util', () => {
         purchaseDeliveryWindowText: expect.any(String),
       }),
     ]);
+  });
+
+  it('falls back to outbound shipment window for merged resale order items', () => {
+    const lines = buildRenterCheckoutEmailLinesFromOrder(
+      [
+        {
+          days: 0,
+          imageUrl: 'https://cdn.example.com/top.jpg',
+          product: { name: 'Silk top', listingType: 'RESALE' },
+          outboundShipment: {
+            scheduledWindowStart: new Date('2026-06-09T10:00:00+01:00'),
+            scheduledWindowEnd: new Date('2026-06-09T14:00:00+01:00'),
+          },
+        },
+      ],
+      [],
+    );
+
+    expect(lines[0]?.purchaseDeliveryWindowText).toBeTruthy();
   });
 });

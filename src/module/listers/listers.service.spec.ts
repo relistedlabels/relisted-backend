@@ -6,6 +6,14 @@ import { NotificationService } from 'src/services/notification/notification.serv
 import { MailService } from 'src/services/mail/mail.service';
 import { UploadService } from '../upload/upload.service';
 import { ProductAvailabilityNotifyService } from 'src/services/product-availability-notify/product-availability-notify.service';
+import { AuthService } from '../auth/auth.service';
+import { AuthOtpTokenService } from 'src/services/auth-otp-token/auth-otp-token.service';
+
+const mockAuthService = {
+  buildMagicLoginUrl: jest
+    .fn()
+    .mockResolvedValue('https://app.test/auth/magic-link?token=test'),
+};
 import {
   BadRequestException,
   ForbiddenException,
@@ -18,13 +26,22 @@ const mockPrisma = {
   orderItem: { findFirst: jest.fn() },
   returnRequest: { update: jest.fn() },
   dispute: { findFirst: jest.fn() },
-  product: { update: jest.fn() },
+  product: { update: jest.fn(), findMany: jest.fn() },
+  review: {
+    aggregate: jest.fn(),
+    count: jest.fn(),
+    findMany: jest.fn(),
+  },
   escrow: { update: jest.fn(), count: jest.fn() },
   wallet: { findUnique: jest.fn(), update: jest.fn(), upsert: jest.fn() },
   walletTransaction: { create: jest.fn() },
   user: { findUnique: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
   upload: { findUnique: jest.fn() },
-  availabilityRequest: { findUnique: jest.fn(), update: jest.fn() },
+  availabilityRequest: {
+    findUnique: jest.fn(),
+    findMany: jest.fn(),
+    update: jest.fn(),
+  },
   $transaction: jest.fn(),
 };
 
@@ -42,6 +59,159 @@ describe('ListersService — multi-lister return receipt', () => {
   const listerA = 'lister-a';
   const listerB = 'lister-b';
   const orderId = 'order-internal-id';
+
+  describe('getOrderById() platform fee summary', () => {
+    it('calculates rental commission on rent only, excluding cleaning and collateral', async () => {
+      const listerId = 'lister-detail';
+      mockPrisma.orderItem.findFirst.mockResolvedValue({ id: 'item-rental' });
+      mockPrisma.order.findUnique.mockResolvedValue({
+        id: orderId,
+        orderId: 'ORD-DETAIL',
+        createdAt: new Date('2026-09-01T00:00:00.000Z'),
+        status: OrderStatus.COMPLETED,
+        userId: 'renter-detail',
+        user: {
+          id: 'renter-detail',
+          name: 'Renter',
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
+          profile: null,
+        },
+        orderItems: [
+          {
+            id: 'item-rental',
+            productId: 'product-rental',
+            days: 1,
+            pricePerDay: 205,
+            cleaningFee: 4000,
+            product: {
+              id: 'product-rental',
+              curatorId: listerId,
+              name: 'Rental item',
+              measurement: 'M',
+              color: 'Black',
+              originalValue: 8000,
+              collateralPrice: 8000,
+              dailyPrice: 205,
+              listingType: 'RENTAL',
+              resalePrice: null,
+              attachments: { uploads: [] },
+            },
+          },
+        ],
+        rentals: [],
+        returnRequests: [],
+        shipments: [],
+        escrows: [
+          {
+            id: 'escrow-detail',
+            listerId,
+            status: 'LOCKED',
+            rentalAmount: 4205,
+            cleaningFee: 4000,
+            collateralAmount: 8000,
+            resaleAmount: 0,
+            platformFeeRate: 10,
+            platformFeeAmount: 0,
+          },
+        ],
+      });
+      mockPrisma.review.count.mockResolvedValue(0);
+      mockPrisma.availabilityRequest.findMany.mockResolvedValue([]);
+
+      const result = await service.getOrderById(
+        { id: listerId, sub: listerId } as any,
+        orderId,
+      );
+
+      expect(result.data.order.platformFee).toEqual({
+        ratePercent: 10,
+        base: 205,
+        amount: 20,
+        netEarnings: 4185,
+      });
+      expect(result.data.order.listerMerchandise).toEqual({
+        rentalSubtotal: 205,
+        cleaningFeesTotal: 4000,
+        resaleSubtotal: 0,
+        total: 4205,
+      });
+      expect(result.data.order.escrow).toMatchObject({
+        rentalFeeTotal: 205,
+        itemValueHeld: 8000,
+        totalHeld: 12205,
+      });
+    });
+
+    it('uses only resale proceeds as the resale fee base', async () => {
+      const listerId = 'lister-resale-detail';
+      mockPrisma.orderItem.findFirst.mockResolvedValue({ id: 'item-resale' });
+      mockPrisma.order.findUnique.mockResolvedValue({
+        id: orderId,
+        orderId: 'ORD-RESALE-DETAIL',
+        createdAt: new Date('2026-09-01T00:00:00.000Z'),
+        status: OrderStatus.COMPLETED,
+        userId: 'renter-detail',
+        user: {
+          id: 'renter-detail',
+          name: 'Renter',
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
+          profile: null,
+        },
+        orderItems: [
+          {
+            id: 'item-resale',
+            productId: 'product-resale',
+            days: 0,
+            pricePerDay: 0,
+            cleaningFee: 0,
+            product: {
+              id: 'product-resale',
+              curatorId: listerId,
+              name: 'Resale item',
+              measurement: 'M',
+              color: 'Blue',
+              originalValue: 8000,
+              collateralPrice: 0,
+              dailyPrice: 0,
+              listingType: 'RESALE',
+              resalePrice: 10000,
+              attachments: { uploads: [] },
+            },
+          },
+        ],
+        rentals: [],
+        returnRequests: [],
+        shipments: [],
+        escrows: [
+          {
+            id: 'escrow-resale-detail',
+            listerId,
+            status: 'LOCKED',
+            rentalAmount: 0,
+            cleaningFee: 0,
+            collateralAmount: 0,
+            resaleAmount: 10000,
+            platformFeeRate: 10,
+            platformFeeAmount: 0,
+          },
+        ],
+      });
+      mockPrisma.review.count.mockResolvedValue(0);
+      mockPrisma.availabilityRequest.findMany.mockResolvedValue([]);
+
+      const result = await service.getOrderById(
+        { id: listerId, sub: listerId } as any,
+        orderId,
+      );
+
+      expect(result.data.order.platformFee).toEqual({
+        ratePercent: 10,
+        base: 10000,
+        amount: 1000,
+        netEarnings: 9000,
+      });
+    });
+  });
 
   const baseOrder = {
     id: orderId,
@@ -115,6 +285,8 @@ describe('ListersService — multi-lister return receipt', () => {
           provide: ProductAvailabilityNotifyService,
           useValue: mockProductAvailabilityNotify,
         },
+        { provide: AuthService, useValue: mockAuthService },
+        { provide: AuthOtpTokenService, useValue: {} },
       ],
     }).compile();
     service = module.get<ListersService>(ListersService);
@@ -133,6 +305,60 @@ describe('ListersService — multi-lister return receipt', () => {
       id: listerA,
       email: 'a@test.com',
       name: 'Lister A',
+    });
+  });
+
+  describe('getPublicListerProfile()', () => {
+    it('returns only the lister city and does not query the full address', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'lister-1',
+        name: 'Lister',
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        updatedAt: new Date('2026-01-02T00:00:00.000Z'),
+        isVerified: true,
+        profile: {
+          avatarUpload: { url: 'https://test/avatar.jpg' },
+          businessInfo: {
+            businessName: 'Test Boutique',
+            businessDescription: 'Test shop',
+          },
+          address: {
+            city: 'Lagos',
+            street: '12 Lister Road',
+            zipCode: '100001',
+          },
+        },
+        _count: {
+          products: 2,
+          curatorReviews: 1,
+        },
+      });
+      mockPrisma.review.aggregate.mockResolvedValue({
+        _avg: { rating: 4.5 },
+      });
+      mockPrisma.review.count.mockResolvedValue(1);
+      mockPrisma.product.findMany.mockResolvedValue([]);
+      mockPrisma.review.findMany.mockResolvedValue([]);
+
+      const result = await service.getPublicListerProfile('lister-1');
+      const user = result.data.user;
+
+      expect(user.location).toBe('Lagos');
+      expect(user.shopPolicies).toBeNull();
+      expect(user).not.toHaveProperty('street');
+      expect(user).not.toHaveProperty('zipCode');
+      expect(user).not.toHaveProperty('address');
+      expect(mockPrisma.user.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: expect.objectContaining({
+            profile: expect.objectContaining({
+              include: expect.objectContaining({
+                address: { select: { city: true } },
+              }),
+            }),
+          }),
+        }),
+      );
     });
   });
 
@@ -307,6 +533,10 @@ describe('ListersService.approveOrder', () => {
 
   const lister = { id: 'lister-1', name: 'Ada', email: 'l@test.com' };
   const requestId = 'req-approve-1';
+  const futureOutboundStart = new Date(Date.now() + 2 * 3600000);
+  const futureOutboundEnd = new Date(Date.now() + 3 * 3600000);
+  const futureReturnStart = new Date(Date.now() + 5 * 86400000);
+  const futureReturnEnd = new Date(Date.now() + 5 * 86400000 + 3600000);
 
   const pendingRequest = {
     id: requestId,
@@ -315,7 +545,15 @@ describe('ListersService.approveOrder', () => {
     productId: 'prod-1',
     rentalDays: 3,
     status: 'PENDING',
+    startDate: new Date('2026-10-15T00:00:00+01:00'),
+    endDate: new Date('2026-10-17T00:00:00+01:00'),
+    resaleWindowEnd: null,
+    createdAt: new Date(),
     expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+    outboundWindowStart: futureOutboundStart,
+    outboundWindowEnd: futureOutboundEnd,
+    returnWindowStart: futureReturnStart,
+    returnWindowEnd: futureReturnEnd,
     product: { name: 'Silk dress' },
     requester: { email: 'renter@test.com', name: 'Renter' },
   };
@@ -336,6 +574,8 @@ describe('ListersService.approveOrder', () => {
           provide: ProductAvailabilityNotifyService,
           useValue: mockProductAvailabilityNotify,
         },
+        { provide: AuthService, useValue: mockAuthService },
+        { provide: AuthOtpTokenService, useValue: {} },
       ],
     }).compile();
     service = module.get<ListersService>(ListersService);
@@ -391,12 +631,14 @@ describe('ListersService.approveOrder', () => {
     expect(mockNotificationService.createNotification).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 'renter-1',
-        title: 'Rental Request Approved',
+        title: "It's available!",
         type: 'RENTAL_RESPONSE',
         emailData: expect.objectContaining({
           status: 'accepted',
           reason: 'Looks good',
-          checkoutLink: 'https://app.relisted.test/shop/cart/checkout',
+          checkoutLink: 'https://app.test/auth/magic-link?token=test',
+          outboundWindowSummary: expect.any(String),
+          returnWindowSummary: expect.any(String),
         }),
       }),
     );
@@ -409,6 +651,19 @@ describe('ListersService.approveOrder', () => {
         notes: 'Looks good',
       }),
     });
+  });
+
+  it('rejects approve when the renter delivery window has passed', async () => {
+    mockPrisma.availabilityRequest.findUnique.mockResolvedValue({
+      ...pendingRequest,
+      outboundWindowStart: new Date(Date.now() - 3 * 3600000),
+      outboundWindowEnd: new Date(Date.now() - 2 * 3600000),
+    });
+
+    await expect(
+      service.approveOrder(lister as never, requestId),
+    ).rejects.toThrow(BadRequestException);
+    expect(mockPrisma.availabilityRequest.update).not.toHaveBeenCalled();
   });
 });
 
@@ -445,6 +700,8 @@ describe('ListersService.rejectOrder', () => {
           provide: ProductAvailabilityNotifyService,
           useValue: mockProductAvailabilityNotify,
         },
+        { provide: AuthService, useValue: mockAuthService },
+        { provide: AuthOtpTokenService, useValue: {} },
       ],
     }).compile();
     service = module.get<ListersService>(ListersService);
@@ -545,6 +802,8 @@ describe('ListersService.rejectReturn', () => {
           provide: ProductAvailabilityNotifyService,
           useValue: mockProductAvailabilityNotify,
         },
+        { provide: AuthService, useValue: mockAuthService },
+        { provide: AuthOtpTokenService, useValue: {} },
       ],
     }).compile();
     service = module.get<ListersService>(ListersService);

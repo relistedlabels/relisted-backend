@@ -16,6 +16,10 @@ import { RentersNotificationsController } from './renters.notifications.controll
 import { RentersProductNotifyController } from './renters.product-notify.controller';
 import { WemaServiceService } from '../../services/wema-service/wema-service.service';
 import { ProductAvailabilityNotifyModule } from '../../services/product-availability-notify/product-availability-notify.module';
+import { CartItemsModule } from '../cart-items/cart-items.module';
+import { AuthOtpTokenModule } from '../../services/auth-otp-token/auth-otp-token.module';
+import { AuthModule } from '../auth/auth.module';
+import { RentersAvailabilityPublicController } from './renters.availability-public.controller';
 
 @Module({
   imports: [
@@ -24,8 +28,12 @@ import { ProductAvailabilityNotifyModule } from '../../services/product-availabi
     BullModule.registerQueue({ name: 'shipment-dispatch' }),
     ShipbubbleModule,
     ProductAvailabilityNotifyModule,
+    CartItemsModule,
+    AuthOtpTokenModule,
+    AuthModule,
   ],
   controllers: [
+    RentersAvailabilityPublicController,
     RentersDashboardController,
     RentersProfileController,
     RentersWalletController,

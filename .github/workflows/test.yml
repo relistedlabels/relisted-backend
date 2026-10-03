@@ -2,9 +2,10 @@ name: Tests
 
 on:
   push:
-    branches: [main, master, backendmain]
+    branches: [main, master, backendmain, staging]
   pull_request:
     branches: [main, master, backendmain, staging]
+  workflow_dispatch:
 
 concurrency:
   group: tests-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -30,6 +31,9 @@ jobs:
 
       - name: Generate Prisma client
         run: pnpm prisma generate
+
+      - name: Build
+        run: pnpm build
 
       - name: Unit tests
         run: pnpm test

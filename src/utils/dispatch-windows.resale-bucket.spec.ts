@@ -1,6 +1,7 @@
 import { differenceInMinutes } from 'date-fns';
 import {
   buildDefaultDispatchWindow,
+  DEFAULT_DISPATCH_WINDOW_MINUTES,
   getLagosCalendarDateKey,
   mergeDispatchWindowRanges,
   MIN_DISPATCH_WINDOW_MINUTES,
@@ -14,12 +15,14 @@ describe('resale shipment bucketing helpers', () => {
     expect(getLagosCalendarDateKey(d)).toBe('2026-05-15');
   });
 
-  it('buildDefaultDispatchWindow uses a 60-minute slot by default', () => {
+  it('buildDefaultDispatchWindow uses a 2-hour slot by default', () => {
     const future = new Date();
     future.setDate(future.getDate() + 3);
     future.setHours(0, 0, 0, 0);
     const { start, end } = buildDefaultDispatchWindow(future);
-    expect(differenceInMinutes(end, start)).toBe(MIN_DISPATCH_WINDOW_MINUTES);
+    expect(differenceInMinutes(end, start)).toBe(
+      DEFAULT_DISPATCH_WINDOW_MINUTES,
+    );
   });
 
   it('parseDispatchWindowFromInput accepts 1pm–2pm Lagos window', () => {
@@ -44,7 +47,7 @@ describe('resale shipment bucketing helpers', () => {
     expect(rescheduled).toBe(true);
     expect(window.end.getTime()).toBeGreaterThan(Date.now());
     expect(differenceInMinutes(window.end, window.start)).toBe(
-      MIN_DISPATCH_WINDOW_MINUTES,
+      DEFAULT_DISPATCH_WINDOW_MINUTES,
     );
   });
 

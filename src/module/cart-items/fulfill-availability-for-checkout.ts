@@ -41,6 +41,17 @@ export async function fulfillAvailabilityRequestsForCheckout(
   }
 
   if (uniqueProductIds.length > 0) {
+    await tx.availabilityRequest.updateMany({
+      where: {
+        requesterId,
+        productId: { in: uniqueProductIds },
+        status: 'ACCEPTED',
+      },
+      data: { status: 'ORDERED' },
+    });
+  }
+
+  if (uniqueProductIds.length > 0) {
     const now = new Date();
     await tx.availabilityRequest.deleteMany({
       where: {
@@ -59,15 +70,23 @@ type ActiveOrderLookupClient = {
   order: Pick<PrismaClient['order'], 'findMany'>;
 };
 
-export async function findActiveOrderProductRequesterPairs(
-  prisma: ActiveOrderLookupClient,
+function buildOrderProductRequesterPairSet(
   pairs: Array<{ productId: string; requesterId: string }>,
-): Promise<Set<string>> {
+): Map<string, { productId: string; requesterId: string }> {
   const uniquePairs = new Map<string, { productId: string; requesterId: string }>();
   for (const pair of pairs) {
     if (!pair.productId || !pair.requesterId) continue;
     uniquePairs.set(`${pair.productId}:${pair.requesterId}`, pair);
   }
+  return uniquePairs;
+}
+
+async function findOrderProductRequesterPairs(
+  prisma: ActiveOrderLookupClient,
+  pairs: Array<{ productId: string; requesterId: string }>,
+  statuses: OrderStatus[] | { notIn: OrderStatus[] },
+): Promise<Set<string>> {
+  const uniquePairs = buildOrderProductRequesterPairSet(pairs);
   if (uniquePairs.size === 0) return new Set();
 
   const productIds = [...new Set([...uniquePairs.values()].map((p) => p.productId))];
@@ -78,7 +97,7 @@ export async function findActiveOrderProductRequesterPairs(
   const orders = await prisma.order.findMany({
     where: {
       userId: { in: requesterIds },
-      status: { in: ACTIVE_RENTAL_ORDER_STATUSES },
+      status: Array.isArray(statuses) ? { in: statuses } : statuses,
       orderItems: { some: { productId: { in: productIds } } },
     },
     select: {
@@ -87,14 +106,50 @@ export async function findActiveOrderProductRequesterPairs(
     },
   });
 
-  const active = new Set<string>();
+  const matched = new Set<string>();
   for (const order of orders) {
     for (const item of order.orderItems) {
       const key = `${item.productId}:${order.userId}`;
-      if (uniquePairs.has(key)) active.add(key);
+      if (uniquePairs.has(key)) matched.add(key);
     }
   }
-  return active;
+  return matched;
+}
+
+/** In-flight rental or resale order (item still with renter or return pending). */
+export async function findActiveOrderProductRequesterPairs(
+  prisma: ActiveOrderLookupClient,
+  pairs: Array<{ productId: string; requesterId: string }>,
+): Promise<Set<string>> {
+  return findOrderProductRequesterPairs(prisma, pairs, ACTIVE_RENTAL_ORDER_STATUSES);
+}
+
+/** Any paid order for the product (includes completed); used to stop checkout reminders. */
+export async function findSupersedingOrderProductRequesterPairs(
+  prisma: ActiveOrderLookupClient,
+  pairs: Array<{ productId: string; requesterId: string }>,
+): Promise<Set<string>> {
+  return findOrderProductRequesterPairs(prisma, pairs, {
+    notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED],
+  });
+}
+
+export async function markSupersededAvailabilityRequestsOrdered(
+  tx: Pick<Prisma.TransactionClient, 'availabilityRequest'>,
+  pairs: Array<{ id: string; productId: string; requesterId: string }>,
+  supersededKeys: Set<string>,
+): Promise<number> {
+  const ids = pairs
+    .filter((row) =>
+      isAvailabilityRequestSupersededByActiveOrder(supersededKeys, row),
+    )
+    .map((row) => row.id);
+  if (ids.length === 0) return 0;
+  const result = await tx.availabilityRequest.updateMany({
+    where: { id: { in: ids }, status: 'ACCEPTED' },
+    data: { status: 'ORDERED' },
+  });
+  return result.count;
 }
 
 export function isAvailabilityRequestSupersededByActiveOrder(

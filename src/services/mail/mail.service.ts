@@ -26,6 +26,7 @@ import {
   OrderCancelledDto,
 } from './mail.type';
 import { Auth_Otp_Token_Subject } from '../../module/auth/auth.types';
+import { resolveOrderConfirmationMailSubject } from './order-confirmation-mail.util';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { existsSync, readFileSync } from 'fs';
@@ -140,6 +141,29 @@ export class MailService {
     return Boolean(process.env.MAIL_HOST?.trim());
   }
 
+  private buildEmailButtonRow(
+    buttons: Array<{
+      href: string;
+      label: string;
+      background?: string;
+      color?: string;
+      border?: string;
+    }>,
+    margin = '20px 0',
+  ): string {
+    const cells = buttons
+      .map((btn, index) => {
+        const isLast = index === buttons.length - 1;
+        const paddingRight = isLast ? '0' : '12px';
+        const background = btn.background ?? '#111827';
+        const color = btn.color ?? '#ffffff';
+        const border = btn.border ? `border:${btn.border};` : '';
+        return `<td style="padding:0 ${paddingRight} 12px 0;vertical-align:top;"><a href="${btn.href}" target="_blank" rel="noopener noreferrer" style="display:inline-block;background:${background};color:${color};text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;font-family:Arial,sans-serif;font-size:15px;${border}">${btn.label}</a></td>`;
+      })
+      .join('');
+    return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:${margin};border-collapse:separate;border-spacing:0;"><tr>${cells}</tr></table>`;
+  }
+
   /**
    * Prefer Resend when RESEND_API_KEY is set. On Resend failure, send the same HTML via
    * nodemailer when MAIL_HOST is set (e.g. Gmail smtp.gmail.com).
@@ -215,6 +239,27 @@ export class MailService {
     });
   }
 
+  async SendMagicLinkMail(dto: {
+    email: string;
+    name: string;
+    year: number;
+    magicLink: string;
+    expiryMinutes: number;
+  }) {
+    const { email, ...rest } = dto;
+    const subject = Auth_Otp_Token_Subject.MAGIC_LINK_LOGIN;
+    if (this.devBypass) {
+      await this.handleDevBypass('magic-link', subject, rest, email);
+      return;
+    }
+    await this.deliverMail({
+      to: email,
+      template: './magic-link',
+      subject,
+      context: rest,
+    });
+  }
+
   async SendVerficationMail(dto: VerificationDto) {
     const { email, ...rest } = dto;
     const subject = rest.adminMfa
@@ -239,9 +284,7 @@ export class MailService {
     const { email, ...rest } = dto;
     console.log(`[EMAIL] Sending confirm-order to ${email}`);
 
-    const subject = dto.listerNewOrderConfirmed
-      ? Auth_Otp_Token_Subject.LISTER_ORDER_PLACED
-      : Auth_Otp_Token_Subject.CONFIRM_ORDER;
+    const subject = resolveOrderConfirmationMailSubject(dto);
 
     if (this.devBypass) {
       await this.handleDevBypass('confirm-order', subject, rest, email);
@@ -466,7 +509,7 @@ export class MailService {
     if (this.devBypass) {
       await this.handleDevBypass(
         'lister-return-in-transit',
-        'Return is on its way to you',
+        'Return on its way to you',
         rest,
         email,
       );
@@ -488,7 +531,7 @@ export class MailService {
     if (this.devBypass) {
       await this.handleDevBypass(
         'lister-return-delivered-confirm',
-        'Confirm return receipt. Order almost complete.',
+        'Confirm return receipt. Finish this rental.',
         rest,
         email,
       );
@@ -551,7 +594,7 @@ export class MailService {
     if (this.devBypass) {
       await this.handleDevBypass(
         'return-completed',
-        'Return Completed',
+        'Return completed',
         rest,
         email,
       );
@@ -561,7 +604,7 @@ export class MailService {
     await this.deliverMail({
       to: email,
       template: './return-completed',
-      subject: 'Return Completed',
+      subject: 'Return completed',
       context: rest,
     });
   }
@@ -677,9 +720,6 @@ export class MailService {
         <a href="${threadLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">
           Open message thread
         </a>
-        <div style="margin-top:10px;font-size:12px;color:#6b7280;">
-          If the button doesn't work, open: <span style="color:#111827;">${threadLink}</span>
-        </div>
       </div>`
           : ''
       }
@@ -703,6 +743,9 @@ export class MailService {
     to: string;
     humanOrderId: string;
     legLabel: string;
+    renterName?: string;
+    renterEmail?: string;
+    productNames?: string[];
     scheduledDate: Date;
     errorMessage: string;
     redispatchUrl: string;
@@ -711,10 +754,20 @@ export class MailService {
       to,
       humanOrderId,
       legLabel,
+      renterName,
+      renterEmail,
+      productNames,
       scheduledDate,
       errorMessage,
       redispatchUrl,
     } = dto;
+    const safe = (s: string) => s.replace(/</g, '');
+    const itemLabel =
+      !productNames || productNames.length === 0
+        ? 'Item not linked yet'
+        : productNames.length === 1
+          ? safe(productNames[0])
+          : safe(productNames.join(', '));
     console.log(
       `[EMAIL] Sending admin dispatch failure alert to ${to} (order ${humanOrderId}, ${legLabel})`,
     );
@@ -738,16 +791,29 @@ export class MailService {
     <div style="padding:20px;">
       <p style="margin:0 0 16px;color:#374151;">A shipment dispatch has failed after 3 retry attempts. Manual action is required.</p>
       <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
-        <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
-          <div style="min-width:220px;">
+        <div style="color:#111827;word-break:break-word;overflow-wrap:anywhere;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Order</div>
-            <div style="font-weight:600;">${humanOrderId}</div>
+            <div style="font-weight:600;">${safe(humanOrderId)}</div>
           </div>
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Item</div>
+            <div style="font-weight:600;">${itemLabel}</div>
+          </div>
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Leg</div>
-            <div style="font-weight:600;">${legLabel}</div>
+            <div style="font-weight:600;">${safe(legLabel)}</div>
           </div>
-          <div style="min-width:220px;">
+          ${
+            renterName || renterEmail
+              ? `<div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Renter</div>
+            ${renterName ? `<div style="font-weight:600;">${safe(renterName)}</div>` : ''}
+            ${renterEmail ? `<div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(renterEmail)}</div>` : ''}
+          </div>`
+              : ''
+          }
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Scheduled Date</div>
             <div style="font-weight:600;">${scheduledDateStr}</div>
           </div>
@@ -759,11 +825,8 @@ export class MailService {
       </div>
       <div style="margin-top:18px;">
         <a href="${redispatchUrl}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">
-          View Shipment & Redispatch
+          View shipment and redispatch
         </a>
-        <div style="margin-top:10px;font-size:12px;color:#6b7280;">
-          If the button doesn't work, open: <span style="color:#111827;">${redispatchUrl}</span>
-        </div>
       </div>
     </div>
   </div>
@@ -784,27 +847,75 @@ export class MailService {
   async sendAdminManualFulfillmentShipmentAlert(dto: {
     to: string;
     humanOrderId: string;
+    renterName?: string;
+    renterEmail?: string;
     shipments: Array<{
       legLabel: string;
+      productNames: string[];
+      windowLabel: string;
+      deliveryLocation?: string;
       adminShipmentUrl: string;
     }>;
   }) {
-    const { to, humanOrderId, shipments } = dto;
+    const { to, humanOrderId, renterName, renterEmail, shipments } = dto;
+    const safe = (s: string) => s.replace(/</g, '');
     console.log(
       `[EMAIL] Sending admin manual fulfillment alert to ${to} for order ${humanOrderId} (${shipments.length} leg(s))`,
     );
 
-    const rows = shipments
+    const renterBlock =
+      renterName || renterEmail
+        ? `<div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Renter</div>
+            ${
+              renterName
+                ? `<div style="font-weight:600;color:#111827;">${safe(renterName)}</div>`
+                : ''
+            }
+            ${
+              renterEmail
+                ? `<div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(renterEmail)}</div>`
+                : ''
+            }
+          </div>`
+        : '';
+
+    const legBlocks = shipments
       .map((s) => {
+        const itemLabel =
+          s.productNames.length === 0
+            ? 'Item not linked yet'
+            : s.productNames.length === 1
+              ? safe(s.productNames[0])
+              : safe(s.productNames.join(', '));
         const link = s.adminShipmentUrl
-          ? `<a href="${s.adminShipmentUrl}" style="color:#1d4ed8;font-weight:600;">Open</a>`
+          ? `<div style="margin-top:12px;">
+              <a href="${s.adminShipmentUrl}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:8px 12px;border-radius:8px;font-weight:600;font-size:13px;">
+                Open in admin
+              </a>
+            </div>`
           : '';
-        return `<tr>
-          <td style="padding:10px 12px;border-bottom:1px solid #eef0f5;vertical-align:top;">
-            <div style="font-weight:600;color:#111827;">${s.legLabel}</div>
-          </td>
-          <td style="padding:10px 12px;border-bottom:1px solid #eef0f5;text-align:right;vertical-align:middle;">${link}</td>
-        </tr>`;
+        const locationBlock = s.deliveryLocation
+          ? `<div style="margin-top:10px;">
+              <div style="font-size:12px;color:#6b7280;">Location</div>
+              <div style="font-weight:600;color:#111827;">${safe(s.deliveryLocation)}</div>
+            </div>`
+          : '';
+        return `<div style="padding:14px 16px;border-bottom:1px solid #eef0f5;">
+          <div style="font-weight:700;color:#111827;">${safe(s.legLabel)}</div>
+          <div style="margin-top:12px;color:#111827;word-break:break-word;overflow-wrap:anywhere;">
+            <div style="margin:0 0 12px 0;max-width:100%;">
+              <div style="font-size:12px;color:#6b7280;">Item</div>
+              <div style="font-weight:600;">${itemLabel}</div>
+            </div>
+            <div style="margin:0 0 12px 0;max-width:100%;">
+              <div style="font-size:12px;color:#6b7280;">Delivery window</div>
+              <div style="font-weight:600;">${safe(s.windowLabel || 'Not scheduled')}</div>
+            </div>
+          </div>
+          ${locationBlock}
+          ${link}
+        </div>`;
       })
       .join('');
 
@@ -817,19 +928,16 @@ export class MailService {
     <div style="padding:20px;">
       <p style="margin:0 0 16px;color:#374151;line-height:1.5;">This order uses <strong>Relisted dispatch</strong>. No carrier is booked automatically for these legs. Arrange pickup or delivery yourself, then open each shipment below and click <strong>Mark dispatched</strong> when it is on the way.</p>
       <div style="border:1px solid #eef0f5;border-radius:10px;overflow:hidden;background:#fbfbfe;">
-        <div style="padding:12px 16px;border-bottom:1px solid #eef0f5;background:#f3f4f6;">
-          <div style="font-size:12px;color:#6b7280;">Order</div>
-          <div style="font-weight:700;color:#111827;">${humanOrderId}</div>
+        <div style="padding:14px 16px;border-bottom:1px solid #eef0f5;background:#f3f4f6;">
+          <div style="color:#111827;word-break:break-word;overflow-wrap:anywhere;">
+            <div style="margin:0 0 12px 0;max-width:100%;">
+              <div style="font-size:12px;color:#6b7280;">Order</div>
+              <div style="font-weight:700;">${safe(humanOrderId)}</div>
+            </div>
+            ${renterBlock}
+          </div>
         </div>
-        <table style="width:100%;border-collapse:collapse;font-size:14px;">
-          <thead>
-            <tr style="background:#fafafa;">
-              <th style="text-align:left;padding:8px 12px;font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;">Leg</th>
-              <th style="text-align:right;padding:8px 12px;font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;">Admin</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
+        ${legBlocks}
       </div>
     </div>
   </div>
@@ -851,10 +959,118 @@ export class MailService {
     });
   }
 
+  async sendAdminReturnRequestPastDueAlert(dto: {
+    email: string;
+    adminName: string;
+    humanOrderId: string;
+    productName: string;
+    renterName: string;
+    renterEmail: string;
+    listerName: string;
+    windowLabel: string;
+    daysPastDue: number;
+    adminLink?: string;
+  }) {
+    const {
+      email,
+      adminName,
+      humanOrderId,
+      productName,
+      renterName,
+      renterEmail,
+      listerName,
+      windowLabel,
+      daysPastDue,
+      adminLink,
+    } = dto;
+
+    const safe = (s: string) => s.replace(/</g, '');
+    const dayLabel =
+      daysPastDue === 1 ? '1 day overdue' : `${daysPastDue} days overdue`;
+    const subject = `Follow up: overdue return request (${humanOrderId})`;
+
+    console.log(
+      `[EMAIL] Sending admin overdue return request alert to ${email} for order ${humanOrderId}`,
+    );
+
+    const linkBlock = adminLink
+      ? `<div style="margin-top:18px;">
+        <a href="${adminLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">
+          View order in admin
+        </a>
+        <div style="margin-top:10px;font-size:12px;color:#6b7280;">
+          If the button does not work, open: <span style="color:#111827;word-break:break-all;overflow-wrap:anywhere;">${adminLink}</span>
+        </div>
+      </div>`
+      : '';
+
+    const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f6f7fb;padding:24px;">
+  <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
+    <div style="padding:18px 20px;background:#b91c1c;color:#ffffff;">
+      <div style="font-size:14px;opacity:0.95;">Relisted Admin</div>
+      <div style="font-size:18px;font-weight:700;margin-top:6px;">Overdue return request</div>
+    </div>
+    <div style="padding:20px;">
+      <p style="margin:0 0 12px;color:#374151;">Hello ${safe(adminName || 'Admin')},</p>
+      <p style="margin:0 0 16px;color:#374151;line-height:1.5;">The return pickup window for this order has passed and the renter has <strong>not submitted a return request</strong>. Please follow up so pickup can be scheduled.</p>
+      <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
+        <div style="color:#111827;word-break:break-word;overflow-wrap:anywhere;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Order</div>
+            <div style="font-weight:600;">${safe(humanOrderId)}</div>
+          </div>
+          <div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Status</div>
+            <div style="font-weight:600;">${safe(dayLabel)}</div>
+          </div>
+          <div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Item</div>
+            <div style="font-weight:600;">${safe(productName)}</div>
+          </div>
+          <div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Renter</div>
+            <div style="font-weight:600;">${safe(renterName)}</div>
+            <div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(renterEmail)}</div>
+          </div>
+          <div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Lister</div>
+            <div style="font-weight:600;">${safe(listerName)}</div>
+          </div>
+        </div>
+        ${
+          windowLabel
+            ? `<div style="margin-top:12px;">
+          <div style="font-size:12px;color:#6b7280;">Pickup window</div>
+          <div style="font-weight:600;">${safe(windowLabel)}</div>
+        </div>`
+            : ''
+        }
+      </div>
+      ${linkBlock}
+    </div>
+  </div>
+</div>`;
+
+    if (this.devBypass) {
+      await this.handleDevBypassHtml(subject, html, email);
+      return;
+    }
+
+    await this.deliverMail({
+      to: email,
+      subject,
+      html,
+    });
+  }
+
   async sendAdminManualFulfillmentDueReminder(dto: {
     to: string;
     humanOrderId: string;
     legLabel: string;
+    renterName?: string;
+    renterEmail?: string;
+    productNames: string[];
+    deliveryLocation?: string;
     adminShipmentUrl: string;
     reminderKind: '24_hours' | 'morning_of';
     dueSummary: string;
@@ -863,10 +1079,21 @@ export class MailService {
       to,
       humanOrderId,
       legLabel,
+      renterName,
+      renterEmail,
+      productNames,
+      deliveryLocation,
       adminShipmentUrl,
       reminderKind,
       dueSummary,
     } = dto;
+    const safe = (s: string) => s.replace(/</g, '');
+    const itemLabel =
+      productNames.length === 0
+        ? 'Item not linked yet'
+        : productNames.length === 1
+          ? safe(productNames[0])
+          : safe(productNames.join(', '));
 
     const headline =
       reminderKind === '24_hours'
@@ -887,7 +1114,7 @@ export class MailService {
           Open shipment in admin
         </a>
         <div style="margin-top:10px;font-size:12px;color:#6b7280;">
-          If the button does not work, open: <span style="color:#111827;">${adminShipmentUrl}</span>
+          If the button does not work, open: <span style="color:#111827;word-break:break-all;overflow-wrap:anywhere;">${adminShipmentUrl}</span>
         </div>
       </div>`
       : '';
@@ -901,20 +1128,41 @@ export class MailService {
     <div style="padding:20px;">
       <p style="margin:0 0 16px;color:#374151;line-height:1.5;">A <strong>Relisted dispatch</strong> leg is still <strong>pending</strong> and is coming up. Arrange pickup or delivery, then click <strong>Mark dispatched</strong> when it is on the way.</p>
       <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
-        <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
-          <div style="min-width:200px;">
+        <div style="color:#111827;word-break:break-word;overflow-wrap:anywhere;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Order</div>
-            <div style="font-weight:600;">${humanOrderId}</div>
+            <div style="font-weight:600;">${safe(humanOrderId)}</div>
           </div>
-          <div style="min-width:200px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Leg</div>
-            <div style="font-weight:600;">${legLabel}</div>
+            <div style="font-weight:600;">${safe(legLabel)}</div>
           </div>
+          <div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Item</div>
+            <div style="font-weight:600;">${itemLabel}</div>
+          </div>
+          ${
+            renterName || renterEmail
+              ? `<div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Renter</div>
+            ${renterName ? `<div style="font-weight:600;">${safe(renterName)}</div>` : ''}
+            ${renterEmail ? `<div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(renterEmail)}</div>` : ''}
+          </div>`
+              : ''
+          }
         </div>
         <div style="margin-top:12px;">
-          <div style="font-size:12px;color:#6b7280;">Scheduled window</div>
-          <div style="font-weight:600;">${dueSummary}</div>
+          <div style="font-size:12px;color:#6b7280;">Delivery window</div>
+          <div style="font-weight:600;">${safe(dueSummary)}</div>
         </div>
+        ${
+          deliveryLocation
+            ? `<div style="margin-top:12px;">
+          <div style="font-size:12px;color:#6b7280;">Location</div>
+          <div style="font-weight:600;">${safe(deliveryLocation)}</div>
+        </div>`
+            : ''
+        }
       </div>
       ${linkBlock}
     </div>
@@ -937,6 +1185,9 @@ export class MailService {
     to: string;
     humanOrderId: string;
     legLabel: string;
+    renterName?: string;
+    renterEmail?: string;
+    productNames?: string[];
     providerStatus: string;
     providerMessage?: string;
     providerLabel?: string;
@@ -947,12 +1198,22 @@ export class MailService {
       to,
       humanOrderId,
       legLabel,
+      renterName,
+      renterEmail,
+      productNames,
       providerStatus,
       providerMessage,
       providerLabel = 'carrier',
       trackingUrl,
       adminShipmentUrl,
     } = dto;
+    const safe = (s: string) => s.replace(/</g, '');
+    const itemLabel =
+      !productNames || productNames.length === 0
+        ? null
+        : productNames.length === 1
+          ? safe(productNames[0])
+          : safe(productNames.join(', '));
 
     console.log(
       `[EMAIL] Sending admin shipment cancellation alert to ${to} for order ${humanOrderId} (${legLabel})`,
@@ -962,46 +1223,72 @@ export class MailService {
   <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
     <div style="padding:18px 20px;background:#b91c1c;color:#ffffff;">
       <div style="font-size:14px;opacity:0.9;">Relisted Admin Alert</div>
-      <div style="font-size:18px;font-weight:700;margin-top:6px;">🚨 Shipment cancelled by ${providerLabel}</div>
+      <div style="font-size:18px;font-weight:700;margin-top:6px;">🚨 Shipment cancelled by ${safe(providerLabel)}</div>
     </div>
     <div style="padding:20px;">
-      <p style="margin:0 0 16px;color:#374151;">${providerLabel} reported that this shipment has been cancelled. Please review and take action.</p>
+      <p style="margin:0 0 16px;color:#374151;">${safe(providerLabel)} reported that this shipment has been cancelled. Please review and take action.</p>
       <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
-        <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
-          <div style="min-width:220px;">
+        <div style="color:#111827;word-break:break-word;overflow-wrap:anywhere;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Order</div>
-            <div style="font-weight:600;">${humanOrderId}</div>
+            <div style="font-weight:600;">${safe(humanOrderId)}</div>
           </div>
-          <div style="min-width:220px;">
+          ${
+            itemLabel
+              ? `<div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Item</div>
+            <div style="font-weight:600;">${itemLabel}</div>
+          </div>`
+              : ''
+          }
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Leg</div>
-            <div style="font-weight:600;">${legLabel}</div>
+            <div style="font-weight:600;">${safe(legLabel)}</div>
           </div>
-          <div style="min-width:220px;">
+          ${
+            renterName || renterEmail
+              ? `<div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Renter</div>
+            ${renterName ? `<div style="font-weight:600;">${safe(renterName)}</div>` : ''}
+            ${renterEmail ? `<div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(renterEmail)}</div>` : ''}
+          </div>`
+              : ''
+          }
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Provider Status</div>
-            <div style="font-weight:600;">${providerStatus}</div>
+            <div style="font-weight:600;">${safe(providerStatus)}</div>
           </div>
         </div>
         ${
           providerMessage
             ? `<div style="margin-top:12px;">
           <div style="font-size:12px;color:#6b7280;">Provider Message</div>
-          <div style="margin-top:6px;color:#111827;line-height:1.45;white-space:pre-wrap;">${providerMessage}</div>
+          <div style="margin-top:6px;color:#111827;line-height:1.45;white-space:pre-wrap;">${safe(providerMessage)}</div>
         </div>`
             : ''
         }
       </div>
-      <div style="margin-top:18px;display:flex;gap:12px;flex-wrap:wrap;">
-        ${
-          adminShipmentUrl
-            ? `<a href="${adminShipmentUrl}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">View in Admin</a>`
-            : ''
-        }
-        ${
-          trackingUrl
-            ? `<a href="${trackingUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">${providerLabel} tracking</a>`
-            : ''
-        }
-      </div>
+      ${
+        adminShipmentUrl || trackingUrl
+          ? this.buildEmailButtonRow(
+              [
+                ...(adminShipmentUrl
+                  ? [{ href: adminShipmentUrl, label: 'View in Admin' }]
+                  : []),
+                ...(trackingUrl
+                  ? [
+                      {
+                        href: trackingUrl,
+                        label: `${providerLabel} tracking`,
+                        background: '#2563eb',
+                      },
+                    ]
+                  : []),
+              ],
+              '18px 0 0',
+            )
+          : ''
+      }
     </div>
   </div>
 </div>`;
@@ -1025,6 +1312,7 @@ export class MailService {
     renterName: string;
     renterEmail: string;
     listerSummary: string;
+    productNames?: string[];
     refundAmountFormatted: string;
     reason: string;
     cancelledAt: string;
@@ -1037,6 +1325,7 @@ export class MailService {
       renterName,
       renterEmail,
       listerSummary,
+      productNames,
       refundAmountFormatted,
       reason,
       cancelledAt,
@@ -1060,25 +1349,33 @@ export class MailService {
       <p style="margin:0 0 12px;color:#374151;">Hello ${safe(adminName || 'Admin')},</p>
       <p style="margin:0 0 16px;color:#374151;line-height:1.5;">An order was cancelled from the admin panel. The renter was refunded to their wallet and both parties were notified.</p>
       <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
-        <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
-          <div style="min-width:220px;">
+        <div style="color:#111827;word-break:break-word;overflow-wrap:anywhere;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Order</div>
             <div style="font-weight:600;">${safe(humanOrderId)}</div>
           </div>
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Refund</div>
             <div style="font-weight:600;">NGN ${safe(refundAmountFormatted)}</div>
           </div>
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Renter</div>
             <div style="font-weight:600;">${safe(renterName)}</div>
             <div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(renterEmail)}</div>
           </div>
-          <div style="min-width:220px;">
+          ${
+            productNames && productNames.length > 0
+              ? `<div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Item(s)</div>
+            <div style="font-weight:600;">${safe(productNames.join(', '))}</div>
+          </div>`
+              : ''
+          }
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Lister(s)</div>
             <div style="font-weight:600;">${safe(listerSummary)}</div>
           </div>
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Cancelled at</div>
             <div style="font-weight:600;">${safe(cancelledLabel)}</div>
           </div>
@@ -1107,6 +1404,187 @@ export class MailService {
       subject: `Order cancelled: ${humanOrderId}`,
       html,
     });
+  }
+
+  async sendAdminNewOrderAlert(dto: {
+    email: string;
+    adminName: string;
+    humanOrderId: string;
+    renterName: string;
+    renterEmail: string;
+    listerSummary: string;
+    itemCount: number;
+    productNames?: string[];
+    totalAmountFormatted: string;
+    adminLink?: string;
+  }) {
+    const {
+      email,
+      adminName,
+      humanOrderId,
+      renterName,
+      renterEmail,
+      listerSummary,
+      itemCount,
+      productNames,
+      totalAmountFormatted,
+      adminLink,
+    } = dto;
+
+    const safe = (s: string) => s.replace(/</g, '');
+    const itemLabel =
+      productNames && productNames.length > 0
+        ? safe(productNames.join(', '))
+        : itemCount === 1
+          ? '1 item'
+          : `${itemCount} items`;
+
+    console.log(
+      `[EMAIL] Sending admin new order alert to ${email} for order ${humanOrderId}`,
+    );
+
+    const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f6f7fb;padding:24px;">
+  <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
+    <div style="padding:18px 20px;background:#111827;color:#ffffff;">
+      <div style="font-size:14px;opacity:0.9;">Relisted Admin</div>
+      <div style="font-size:18px;font-weight:700;margin-top:6px;">New order</div>
+    </div>
+    <div style="padding:20px;">
+      <p style="margin:0 0 12px;color:#374151;">Hello ${safe(adminName || 'Admin')},</p>
+      <p style="margin:0 0 16px;color:#374151;line-height:1.5;">A renter completed checkout. Review the order in admin.</p>
+      <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
+        <div style="color:#111827;word-break:break-word;overflow-wrap:anywhere;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Order</div>
+            <div style="font-weight:600;">${safe(humanOrderId)}</div>
+          </div>
+          <div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Total</div>
+            <div style="font-weight:600;">NGN ${safe(totalAmountFormatted)}</div>
+          </div>
+          <div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Items</div>
+            <div style="font-weight:600;">${safe(itemLabel)}</div>
+          </div>
+          <div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Renter</div>
+            <div style="font-weight:600;">${safe(renterName)}</div>
+            <div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(renterEmail)}</div>
+          </div>
+          <div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Lister(s)</div>
+            <div style="font-weight:600;">${safe(listerSummary)}</div>
+          </div>
+        </div>
+      </div>
+      ${
+        adminLink
+          ? `<div style="margin-top:18px;"><a href="${adminLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">View order in admin</a></div>`
+          : ''
+      }
+    </div>
+  </div>
+</div>`;
+
+    if (this.devBypass) {
+      await this.handleDevBypassHtml('Admin New Order Alert', html, email);
+      return;
+    }
+
+    await this.deliverMail({
+      to: email,
+      subject: `New order: ${humanOrderId}`,
+      html,
+    });
+  }
+
+  async sendAdminInhouseRentalRequestAlert(dto: {
+    email: string;
+    adminName: string;
+    requestKind: string;
+    productName: string;
+    renterName: string;
+    renterEmail?: string;
+    rentalDays: number;
+    totalAmountFormatted: string;
+    startDate?: string;
+    endDate?: string;
+    adminLink?: string;
+  }) {
+    const {
+      email,
+      adminName,
+      requestKind,
+      productName,
+      renterName,
+      renterEmail,
+      rentalDays,
+      totalAmountFormatted,
+      startDate,
+      endDate,
+      adminLink,
+    } = dto;
+
+    const safe = (s: string) => s.replace(/</g, '');
+    const isPurchase = requestKind.includes('purchase');
+    const subject = isPurchase
+      ? `New inhouse purchase enquiry: ${productName}`
+      : `New inhouse rental enquiry: ${productName}`;
+
+    console.log(
+      `[EMAIL] Sending admin inhouse rental request alert to ${email} for ${productName}`,
+    );
+
+    const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f6f7fb;padding:24px;">
+  <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
+    <div style="padding:18px 20px;background:#111827;color:#ffffff;">
+      <div style="font-size:14px;opacity:0.9;">Relisted Admin</div>
+      <div style="font-size:18px;font-weight:700;margin-top:6px;">New inhouse ${safe(requestKind)}</div>
+    </div>
+    <div style="padding:20px;">
+      <p style="margin:0 0 12px;color:#374151;">Hello ${safe(adminName || 'Admin')},</p>
+      <p style="margin:0 0 16px;color:#374151;line-height:1.5;">A customer submitted a ${safe(requestKind)} on the inhouse lister account. The lister was emailed as usual.</p>
+      <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
+        <div style="color:#111827;word-break:break-word;overflow-wrap:anywhere;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Item</div>
+            <div style="font-weight:600;">${safe(productName)}</div>
+          </div>
+          <div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Customer</div>
+            <div style="font-weight:600;">${safe(renterName)}</div>
+            ${renterEmail ? `<div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(renterEmail)}</div>` : ''}
+          </div>
+          ${
+            !isPurchase
+              ? `<div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Dates</div>
+            <div style="font-weight:600;">${safe(startDate || 'N/A')} – ${safe(endDate || 'N/A')}</div>
+            <div style="font-size:13px;color:#6b7280;margin-top:4px;">${rentalDays} day(s)</div>
+          </div>`
+              : ''
+          }
+          <div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Estimated total</div>
+            <div style="font-weight:600;">NGN ${safe(totalAmountFormatted)}</div>
+          </div>
+        </div>
+      </div>
+      ${
+        adminLink
+          ? `<div style="margin-top:18px;"><a href="${adminLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">View request in admin</a></div>`
+          : ''
+      }
+    </div>
+  </div>
+</div>`;
+
+    if (this.devBypass) {
+      await this.handleDevBypassHtml(subject, html, email);
+      return;
+    }
+
+    await this.deliverMail({ to: email, subject, html });
   }
 
   async sendProductAvailableNotifyEmail(dto: {
@@ -1305,38 +1783,14 @@ export class MailService {
       <p style="margin:0 0 12px;color:#374151;">Hi ${safeName},</p>
       <p style="margin:0 0 16px;color:#374151;">
         ${is24Hour
-          ? `Your return pickup for <strong>${safeProduct}</strong> is scheduled within the next 24 hours.`
-          : `Your return pickup for <strong>${safeProduct}</strong> is scheduled for today.`
+          ? `Return pickup for <strong>${safeProduct}</strong> is within 24 hours (${dueDate}). Please have your item packed and ready for collection.`
+          : `Return pickup for <strong>${safeProduct}</strong> is scheduled for today (${dueDate}). Please keep your item ready for the carrier.`
         }
       </p>
-      <div style="background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:12px;margin:16px 0;">
-        <p style="margin:0;color:#9a3412;font-weight:600;">Important:</p>
-        <p style="margin:8px 0 0;color:#7c2d12;">
-          You must complete your return request in the app first. If the return request is not completed, your return pickup will not happen.
-        </p>
-      </div>
-      <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;margin:16px 0;">
-        <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">Order ID</div>
-        <div style="font-weight:600;color:#111827;">${orderId}</div>
-        <div style="font-size:12px;color:#6b7280;margin:16px 0 4px;">Pickup Date</div>
-        <div style="font-weight:600;color:#111827;">${dueDate}</div>
-      </div>
+      <p style="margin:0 0 16px;color:#374151;"><strong>Order:</strong> ${orderId}</p>
       <div style="margin:20px 0;">
-        <a href="${orderLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">View Order</a>
-        <div style="margin-top:10px;font-size:12px;color:#6b7280;">
-          If the button doesn't work, open: <span style="color:#111827;">${orderLink}</span>
-        </div>
+        <a href="${orderLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">View order</a>
       </div>
-      <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin:16px 0;">
-        <p style="margin:0 0 8px;color:#374151;font-weight:600;">How to complete your return request:</p>
-        <ol style="margin:0;padding-left:20px;color:#374151;font-size:14px;">
-          <li style="margin-bottom:6px;">Open your order using the button above</li>
-          <li style="margin-bottom:6px;">Go to the "Ready to Return?" section</li>
-          <li style="margin-bottom:6px;">Tap <strong>"Start Return Process"</strong></li>
-          <li>Upload current-condition photos and submit</li>
-        </ol>
-      </div>
-      <p style="margin:16px 0 0;color:#374151;">Please ensure your item is ready for return pickup during the scheduled window to avoid any issues.</p>
     </div>
   </div>
 </div>`;
@@ -1417,26 +1871,8 @@ export class MailService {
         ${windowBlock}
       </div>
       ${collateralBlock}
-      <div style="background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:12px;margin:16px 0;">
-        <p style="margin:0;color:#9a3412;font-weight:600;">You must complete your return request</p>
-        <p style="margin:8px 0 0;color:#7c2d12;font-size:14px;">
-          A rider will not be sent automatically. Open your order, tap <strong>Start Return Process</strong>, upload photos, and submit. Only then can we book pickup with the carrier.
-        </p>
-      </div>
       <div style="margin:20px 0;">
-        <a href="${orderLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">View Order & Start Return</a>
-        <div style="margin-top:10px;font-size:12px;color:#6b7280;">
-          If the button doesn't work, open: <span style="color:#111827;">${orderLink}</span>
-        </div>
-      </div>
-      <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin:16px 0;">
-        <p style="margin:0 0 8px;color:#374151;font-weight:600;">How to complete your return:</p>
-        <ol style="margin:0;padding-left:20px;color:#374151;font-size:14px;">
-          <li style="margin-bottom:6px;">Open your order using the button above</li>
-          <li style="margin-bottom:6px;">Go to the "Ready to Return?" section</li>
-          <li style="margin-bottom:6px;">Tap <strong>"Start Return Process"</strong></li>
-          <li>Upload current-condition photos and submit</li>
-        </ol>
+        <a href="${orderLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">View order and start return</a>
       </div>
       ${copy.footer ? `<p style="margin:16px 0 0;color:#dc2626;font-weight:600;">${copy.footer}</p>` : ''}
     </div>
@@ -1486,21 +1922,21 @@ export class MailService {
       <p style="margin:0 0 12px;color:#374151;">Hello ${safe(adminName || 'Admin')},</p>
       <p style="margin:0 0 16px;color:#374151;line-height:1.5;">A user submitted a withdrawal request that needs review. Open <strong>Payments & balances</strong>, then the <strong>Withdrawals</strong> tab to approve, reject, or mark as paid.</p>
       <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
-        <div style="display:flex;gap:12px;flex-wrap:wrap;color:#111827;">
-          <div style="min-width:220px;">
+        <div style="color:#111827;word-break:break-word;overflow-wrap:anywhere;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Reference</div>
             <div style="font-weight:600;">${safe(reference)}</div>
           </div>
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Amount</div>
             <div style="font-weight:600;">${amountStr}</div>
           </div>
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Requested by</div>
             <div style="font-weight:600;">${safe(requesterName)} (${safe(requesterRole)})</div>
             <div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(requesterEmail)}</div>
           </div>
-          <div style="min-width:220px;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
             <div style="font-size:12px;color:#6b7280;">Bank account</div>
             <div style="font-weight:600;">${safe(bankName)}</div>
             <div style="font-size:13px;color:#111827;margin-top:4px;font-family:ui-monospace,monospace;">${safe(accountNumber)}</div>
@@ -1511,7 +1947,7 @@ export class MailService {
       <div style="margin-top:18px;">
         <a href="${adminLink}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:600;">Review in admin</a>
         <div style="margin-top:10px;font-size:12px;color:#6b7280;">
-          If the button does not work, open: <span style="color:#111827;">${adminLink}</span>
+          If the button does not work, open: <span style="color:#111827;word-break:break-all;overflow-wrap:anywhere;">${adminLink}</span>
         </div>
       </div>
     </div>
@@ -1566,8 +2002,19 @@ export class MailService {
         <div style="font-weight:600;color:#111827;">${amountStr}</div>
       </div>
       <div style="margin:20px 0;">
-        <a href="${walletUrl}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;margin-right:8px;margin-bottom:8px;">Open wallet</a>
-        <a href="${orderLink}" style="display:inline-block;background:#ffffff;color:#111827;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;border:1px solid #d1d5db;margin-bottom:8px;">View order</a>
+        ${this.buildEmailButtonRow(
+          [
+            { href: walletUrl, label: 'Open wallet' },
+            {
+              href: orderLink,
+              label: 'View order',
+              background: '#ffffff',
+              color: '#111827',
+              border: '1px solid #d1d5db',
+            },
+          ],
+          '0',
+        )}
         <div style="margin-top:10px;font-size:12px;color:#6b7280;">
           Wallet: <a href="${walletUrl}" style="color:#111827;">${walletUrl}</a><br/>
           Order: <span style="color:#111827;">${orderLink}</span>

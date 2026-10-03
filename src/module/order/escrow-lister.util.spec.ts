@@ -12,7 +12,7 @@ describe('escrow-lister.util', () => {
     resaleReleasedAmount: 0,
   };
 
-  it('pays rental+resale when LOCKED (cleaning already in rentalAmount)', () => {
+  it('pays rental+resale when LOCKED (cleaning is included in rentalAmount)', () => {
     expect(
       listerEscrowPayoutOnReturnConfirm({ ...base, status: 'LOCKED' }),
     ).toBe(7500);

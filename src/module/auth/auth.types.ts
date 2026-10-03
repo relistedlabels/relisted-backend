@@ -6,7 +6,8 @@ import { IsEmail, IsEnum, IsOptional, IsString } from 'class-validator';
 export const Auth_Otp_Token_Subject = {
   Verify_Email: 'verify email',
   RESET_PASSWORD: 'RESET Password',
-  CONFIRM_ORDER: 'Verify Order ',
+  CONFIRM_ORDER: 'Order confirmed on Relisted',
+  ORDER_AWAITING_APPROVAL: 'Order awaiting your approval on Relisted',
   LISTER_ORDER_PLACED: 'New order on Relisted',
   Admin_MFA: 'Your admin login code',
   RENTAL_REQUEST: 'New Rental Request',
@@ -24,6 +25,9 @@ export const Auth_Otp_Token_Subject = {
   SHIPPING_UPDATE: 'Shipping Status Update',
   ORDER_CANCELLED: 'Your order was cancelled',
   ORDER_CANCELLED_LISTER: 'An order was cancelled',
+  AVAILABILITY_STATUS: 'Availability request status',
+  LISTER_AVAILABILITY_RESPONSE: 'Lister availability response',
+  MAGIC_LINK_LOGIN: 'Sign in to Relisted',
 };
 
 export class registerDto {
@@ -91,6 +95,23 @@ export class ResendVerificationEmail {
   @ApiProperty()
   @IsEmail()
   email: string;
+}
+
+export class requestMagicLinkDto {
+  @ApiProperty()
+  @IsEmail()
+  email: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  redirect?: string;
+}
+
+export class consumeMagicLinkDto {
+  @ApiProperty()
+  @IsString()
+  code: string;
 }
 
 export class verifyAdminMfaDto {
