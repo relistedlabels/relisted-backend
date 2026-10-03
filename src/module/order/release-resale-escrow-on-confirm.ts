@@ -1,5 +1,9 @@
 import type { Prisma } from '@prisma/client';
-import { escrowPlatformFee, platformFeeNoteSuffix } from './platform-fee.util';
+import {
+  escrowFeeBaseAlreadyReleased,
+  escrowPlatformFeeDue,
+  platformFeeNoteSuffix,
+} from './platform-fee.util';
 import { incrementClosetRevenueForListerPayout } from '../closet/closet-revenue.util';
 
 type Tx = Prisma.TransactionClient;
@@ -35,7 +39,10 @@ export async function releaseResaleEscrowForShipment(
   const remaining = Math.max(0, resaleCap - alreadyReleased);
   const payout = Math.min(releaseAmount, remaining);
   if (payout <= 0) return;
-  const platformFee = escrowPlatformFee(escrow, payout);
+  const platformFee = escrowPlatformFeeDue(
+    escrow,
+    escrowFeeBaseAlreadyReleased(escrow) + payout,
+  );
   const netPayout = payout - platformFee;
 
   const listerWallet = await tx.wallet.upsert({

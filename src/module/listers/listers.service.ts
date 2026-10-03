@@ -1,6 +1,7 @@
 import {
   escrowFeeBaseOnReturnConfirm,
   escrowPlatformFee,
+  escrowPlatformFeeDue,
   platformFeeNoteSuffix,
 } from '../order/platform-fee.util';
 import {
@@ -2296,7 +2297,7 @@ export class ListersService {
             listerEscrowPayoutOnReturnConfirm(listerEscrow);
           const platformFee = Math.min(
             grossListerPayout,
-            escrowPlatformFee(
+            escrowPlatformFeeDue(
               listerEscrow,
               escrowFeeBaseOnReturnConfirm(listerEscrow),
             ),
@@ -2435,7 +2436,7 @@ export class ListersService {
         grossListerPayout -
         Math.min(
           grossListerPayout,
-          escrowPlatformFee(
+          escrowPlatformFeeDue(
             listerEscrow,
             escrowFeeBaseOnReturnConfirm(listerEscrow),
           ),

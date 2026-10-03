@@ -24,6 +24,7 @@ const mockPrisma: any = {
     create: jest.fn(),
   },
   escrow: {
+    findUnique: jest.fn(),
     update: jest.fn(),
   },
   order: {
@@ -167,6 +168,57 @@ describe('AdminService', () => {
     });
   });
 
+  describe('releaseEscrow', () => {
+    it('does not mark escrow released without implementing the wallet transfer', async () => {
+      mockPrisma.escrow.findUnique.mockResolvedValue({
+        id: 'escrow-1',
+        status: 'LOCKED',
+      });
+
+      await expect(
+        service.releaseEscrow('escrow-1', { amount: 1000, note: 'manual' }),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(mockPrisma.escrow.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('admin escrow amount accounting', () => {
+    it('does not add cleaning twice or include resale already released', () => {
+      expect(
+        service['getEscrowLockedAmount']({
+          status: 'LOCKED',
+          rentalAmount: 5500,
+          resaleAmount: 2000,
+          resaleReleasedAmount: 0,
+          collateralAmount: 10000,
+          cleaningFee: 500,
+        }),
+      ).toBe(17500);
+
+      expect(
+        service['getEscrowLockedAmount']({
+          status: 'PARTIALLY_RELEASED',
+          rentalAmount: 5500,
+          resaleAmount: 2000,
+          resaleReleasedAmount: 1000,
+          collateralAmount: 10000,
+          cleaningFee: 500,
+        }),
+      ).toBe(11000);
+
+      expect(
+        service['getEscrowPayoutRefundCap']({
+          status: 'PARTIALLY_RELEASED',
+          rentalAmount: 5500,
+          resaleAmount: 2000,
+          resaleReleasedAmount: 1000,
+          cleaningFee: 500,
+        }),
+      ).toBe(1000);
+    });
+  });
+
   describe('resolveDisputeAndSettle', () => {
     it('settles collateral and notifies renter and lister', async () => {
       mockPrisma.dispute.findUnique.mockResolvedValue({
@@ -185,7 +237,7 @@ describe('AdminService', () => {
               renterId: 'renter-1',
               status: 'LOCKED',
               collateralAmount: 1000,
-              rentalAmount: 0,
+              rentalAmount: 2000,
               cleaningFee: 0,
               resaleAmount: 0,
             },
@@ -208,6 +260,7 @@ describe('AdminService', () => {
 
       const res = await service.resolveDisputeAndSettle('dispute-db-1', {
         resolutionDetails: 'Resolved',
+        refundAmount: 500,
         collateralWithheldToLister: 300,
       });
 
@@ -231,7 +284,21 @@ describe('AdminService', () => {
         }),
       );
 
-      expect(mockPrisma.walletTransaction.create).toHaveBeenCalledTimes(3);
+      expect(mockPrisma.wallet.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'renter-1' },
+          create: expect.objectContaining({
+            mainBalance: 500,
+            availableBalance: 500,
+          }),
+          update: {
+            mainBalance: { increment: 500 },
+            availableBalance: { increment: 500 },
+          },
+        }),
+      );
+
+      expect(mockPrisma.walletTransaction.create).toHaveBeenCalledTimes(5);
       expect(mockPrisma.escrow.update).toHaveBeenCalled();
       expect(mockNotificationService.createNotification).toHaveBeenCalledTimes(
         2,

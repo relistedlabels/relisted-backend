@@ -1,5 +1,8 @@
 import { EscrowStatus, Prisma } from '@prisma/client';
-import { computePlatformFee } from '../order/platform-fee.util';
+import {
+  escrowFeeBaseAlreadyReleased,
+  escrowPlatformFeeDue,
+} from '../order/platform-fee.util';
 import type { PrismaService } from 'src/services/prisma/prisma.service';
 
 /**
@@ -27,9 +30,7 @@ export function buildListerEarningsWalletWhere(
     status: 'SUCCESS',
     amount: { gt: 0 },
     wallet: { userId: listerId },
-    ...(range
-      ? { createdAt: { gte: range.start, lte: range.end } }
-      : {}),
+    ...(range ? { createdAt: { gte: range.start, lte: range.end } } : {}),
     OR: LISTER_EARNINGS_WALLET_NOTE_FRAGMENTS.map((fragment) => ({
       note: { contains: fragment, mode: 'insensitive' as const },
     })),
@@ -51,7 +52,7 @@ export async function sumListerEarningsWalletCredits(
 }
 
 /**
- * Remaining escrow held for a lister (rental + cleaning + collateral + resale still locked).
+ * Remaining escrow held for a lister (rental amount already includes cleaning).
  */
 export async function sumListerPendingEscrow(
   prisma: PrismaLike,
@@ -68,6 +69,7 @@ export async function sumListerPendingEscrow(
       cleaningFee: true,
       collateralAmount: true,
       resaleAmount: true,
+      resaleReleasedAmount: true,
       platformFeeAmount: true,
       platformFeeRate: true,
     },
@@ -79,21 +81,21 @@ export async function sumListerPendingEscrow(
     const cleaning = row.cleaningFee ?? 0;
     const collateral = row.collateralAmount ?? 0;
     const resale = row.resaleAmount ?? 0;
+    const resaleRemaining = Math.max(
+      0,
+      resale - (row.resaleReleasedAmount ?? 0),
+    );
     const rentalBase = Math.max(0, rental - cleaning);
+    let pendingFeeBase: number;
     if (row.status === EscrowStatus.LOCKED) {
-      total += rental + cleaning + collateral + resale;
-      total -= row.platformFeeAmount && row.platformFeeAmount > 0
-        ? row.platformFeeAmount
-        : computePlatformFee(
-            rentalBase + cleaning + resale,
-            row.platformFeeRate ?? 0,
-          );
+      total += rental + collateral + resaleRemaining;
+      pendingFeeBase =
+        escrowFeeBaseAlreadyReleased(row) + rentalBase + resaleRemaining;
     } else {
-      total += cleaning + collateral + resale;
-      total -= row.platformFeeAmount && row.platformFeeAmount > 0
-        ? row.platformFeeAmount
-        : computePlatformFee(resale, row.platformFeeRate ?? 0);
+      total += collateral + resaleRemaining;
+      pendingFeeBase = escrowFeeBaseAlreadyReleased(row) + resaleRemaining;
     }
+    total -= escrowPlatformFeeDue(row, pendingFeeBase);
   }
   return total;
 }

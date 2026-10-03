@@ -1,6 +1,7 @@
 import { listerEscrowResaleRemaining } from '../order/escrow-lister.util';
 import {
-  escrowPlatformFee,
+  escrowFeeBaseAlreadyReleased,
+  escrowPlatformFeeDue,
   escrowRentalFeeBase,
   platformFeeNoteSuffix,
 } from '../order/platform-fee.util';
@@ -114,13 +115,17 @@ export class AdminService {
   private getEscrowPayoutRefundCap(escrow: any): number {
     const st = String(escrow?.status ?? '');
     const rental = Math.max(0, Number(escrow?.rentalAmount || 0));
-    const cleaning = Math.max(0, Number(escrow?.cleaningFee || 0));
     const resale = Math.max(0, Number(escrow?.resaleAmount || 0));
+    const resaleReleased = Math.max(
+      0,
+      Number(escrow?.resaleReleasedAmount || 0),
+    );
+    const resaleRemaining = Math.max(0, resale - resaleReleased);
     if (st === 'LOCKED') {
-      return rental + resale;
+      return rental + resaleRemaining;
     }
     if (st === 'PARTIALLY_RELEASED') {
-      return cleaning + resale;
+      return resaleRemaining;
     }
     return 0;
   }
@@ -395,19 +400,23 @@ export class AdminService {
     status: string;
     rentalAmount: number;
     resaleAmount?: number | null;
+    resaleReleasedAmount?: number | null;
     collateralAmount: number;
     cleaningFee: number;
   }): number {
     const rental = escrow.rentalAmount || 0;
     const resale = escrow.resaleAmount || 0;
     const collateral = escrow.collateralAmount || 0;
-    const cleaning = escrow.cleaningFee || 0;
+    const resaleRemaining = Math.max(
+      0,
+      resale - (escrow.resaleReleasedAmount ?? 0),
+    );
 
     if (escrow.status === 'LOCKED') {
-      return rental + resale + collateral + cleaning;
+      return rental + resaleRemaining + collateral;
     }
     if (escrow.status === 'PARTIALLY_RELEASED') {
-      return resale + collateral + cleaning;
+      return resaleRemaining + collateral;
     }
     return 0;
   }
@@ -2094,9 +2103,10 @@ export class AdminService {
       listerEscrowResaleRemaining(escrow);
     const platformFee = Math.min(
       grossListerPayout,
-      escrowPlatformFee(
+      escrowPlatformFeeDue(
         escrow,
-        Math.max(0, commissionableLocked - rawRefundAmount),
+        escrowFeeBaseAlreadyReleased(escrow) +
+          Math.max(0, commissionableLocked - rawRefundAmount),
       ),
     );
     const listerPayoutToRelease = grossListerPayout - platformFee;
@@ -2120,11 +2130,12 @@ export class AdminService {
           where: { userId: order.userId },
           create: {
             userId: order.userId,
-            mainBalance: 0,
+            mainBalance: rawRefundAmount,
             availableBalance: rawRefundAmount,
             collateralBalance: 0,
           },
           update: {
+            mainBalance: { increment: rawRefundAmount },
             availableBalance: { increment: rawRefundAmount },
           },
         });
@@ -2800,27 +2811,16 @@ export class AdminService {
 
   async releaseEscrow(
     escrowId: string,
-    data: { amount?: number; note: string },
+    _data: { amount?: number; note: string },
   ) {
     const escrow = await this.prisma.escrow.findUnique({
       where: { id: escrowId },
     });
     if (!escrow) throw new NotFoundException('Escrow not found');
 
-    const updated = await this.prisma.escrow.update({
-      where: { id: escrowId },
-      data: {
-        status: 'RELEASED',
-        releasedAt: new Date(),
-        // Real implementation would transfer funds here
-      },
-    });
-
-    return {
-      success: true,
-      message: 'Escrow funds released successfully',
-      data: updated,
-    };
+    throw new BadRequestException(
+      'Manual escrow release is unavailable because wallet transfer and ledger posting are not implemented.',
+    );
   }
 
   async getAllWalletTransactions(page: number, limit: number, search?: string) {

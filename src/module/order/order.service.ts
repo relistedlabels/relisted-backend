@@ -1,5 +1,6 @@
 import {
-  escrowPlatformFee,
+  escrowFeeBaseAlreadyReleased,
+  escrowPlatformFeeDue,
   escrowRentalFeeBase,
   getListerPlatformFeePercent,
   platformFeeNoteSuffix,
@@ -3703,7 +3704,10 @@ export class OrderService {
             if (release.amount <= 0) continue;
             const platformFee = Math.min(
               release.amount,
-              escrowPlatformFee(escrow, release.feeBase),
+              escrowPlatformFeeDue(
+                escrow,
+                escrowFeeBaseAlreadyReleased(escrow) + release.feeBase,
+              ),
             );
             const releaseAmount = release.amount - platformFee;
 
