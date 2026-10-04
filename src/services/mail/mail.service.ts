@@ -43,6 +43,8 @@ import { formatShopSaleNotifyEmailBodyHtml } from '../../module/shop-sale/shop-s
 export class MailService {
   private readonly logger = new Logger(MailService.name);
   private readonly devBypass = process.env.DEV_EMAIL_BYPASS === 'true';
+  private readonly reminderEmailsEnabled =
+    process.env.REMINDER_EMAILS_ENABLED !== 'false';
   private readonly emailOutputDir = join(process.cwd(), 'dev-emails');
 
   constructor(
@@ -139,6 +141,14 @@ export class MailService {
 
   private isSmtpConfigured(): boolean {
     return Boolean(process.env.MAIL_HOST?.trim());
+  }
+
+  private skipReminderEmail(): boolean {
+    if (this.reminderEmailsEnabled) return false;
+    this.logger.log(
+      'Skipping reminder email because REMINDER_EMAILS_ENABLED is false.',
+    );
+    return true;
   }
 
   private buildEmailButtonRow(
@@ -379,6 +389,7 @@ export class MailService {
   async sendAvailabilityRequestReminderMail(
     dto: AvailabilityRequestReminderDto,
   ) {
+    if (this.skipReminderEmail()) return;
     const { email, intent, requestType, ...rest } = dto;
     const subject =
       intent === 'rerequest'
@@ -412,6 +423,7 @@ export class MailService {
   async sendAvailabilityCheckoutReminderMail(
     dto: AvailabilityCheckoutReminderDto,
   ) {
+    if (this.skipReminderEmail()) return;
     const { email, ...rest } = dto;
     const subject = Auth_Otp_Token_Subject.AVAILABILITY_CHECKOUT_REMINDER;
     console.log(`[EMAIL] Sending availability-checkout-reminder to ${email}`);
@@ -437,6 +449,7 @@ export class MailService {
   async sendAvailabilityExpiredListerReminderMail(
     dto: AvailabilityExpiredListerReminderDto,
   ) {
+    if (this.skipReminderEmail()) return;
     const { email, ...rest } = dto;
     const subject = Auth_Otp_Token_Subject.AVAILABILITY_EXPIRED_LISTER_REMINDER;
     console.log(
@@ -1075,6 +1088,7 @@ export class MailService {
     reminderKind: '24_hours' | 'morning_of';
     dueSummary: string;
   }) {
+    if (this.skipReminderEmail()) return;
     const {
       to,
       humanOrderId,
@@ -1765,6 +1779,7 @@ export class MailService {
   }
 
   async sendReturnDueReminderMail(dto: ReturnDueReminderDto) {
+    if (this.skipReminderEmail()) return;
     const { email, userName, orderId, orderLink, dueDate, productName, reminderType } = dto;
     const is24Hour = reminderType === '24_hours';
     const subject = is24Hour
@@ -1808,6 +1823,7 @@ export class MailService {
   }
 
   async sendReturnRequestReminderMail(dto: ReturnRequestReminderDto) {
+    if (this.skipReminderEmail()) return;
     const {
       email,
       userName,
