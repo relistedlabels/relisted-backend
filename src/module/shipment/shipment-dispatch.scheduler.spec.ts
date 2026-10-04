@@ -54,6 +54,9 @@ describe('ShipmentDispatchScheduler.dispatchDueShipments', () => {
         where: expect.objectContaining({ status: 'PENDING' }),
       }),
     );
+    expect(
+      findMany.mock.calls[0][0].where.OR[0].scheduledWindowStart.lte,
+    ).toEqual(expect.any(Date));
     expect(updateMany).toHaveBeenCalledTimes(2);
     expect(mockQueue.add).toHaveBeenCalledTimes(1);
     expect(mockQueue.add).toHaveBeenCalledWith(

@@ -49,10 +49,6 @@ const PAST_DUE_RETURN_REQUEST_REMINDER_TYPES =
     'past_due_evening',
   ]);
 
-const DISPATCH_CRON_LOOKAHEAD_MINUTES = Number(
-  process.env.DISPATCH_CRON_LOOKAHEAD_MINUTES ?? 59,
-);
-
 /** Hours after `pickupWindowEnd` before we email listers (carrier tracking often lags). */
 const LISTER_RETURN_WINDOW_PASSED_GRACE_HOURS = Number(
   process.env.LISTER_RETURN_WINDOW_PASSED_GRACE_HOURS ?? 6,
@@ -109,9 +105,9 @@ export class ShipmentDispatchScheduler {
 
   /**
    * Runs on the configured cadence (defaults to hourly) in Africa/Lagos time.
-   * Scans for pending shipments whose dispatch window starts within the lookahead
-   * horizon (defaults to 0 minutes, meaning at/after start) and locks + enqueues
-   * each one exactly once.
+   * Scans for pending shipments whose dispatch window has started and locks +
+   * enqueues each one exactly once. Carrier booking can trigger a rider pickup,
+   * so do not book shipments ahead of their scheduled window.
    * `scheduledWindowStart` / `scheduledWindowEnd` are Relisted-only; the worker maps
    * them to Topship’s single `pickupDate` when booking, not as partner-facing windows.
    */
@@ -119,9 +115,8 @@ export class ShipmentDispatchScheduler {
   async dispatchDueShipments() {
     const now = new Date();
     const today = startOfDay(now);
-    const lookaheadCutoff = addMinutes(now, DISPATCH_CRON_LOOKAHEAD_MINUTES);
     this.logger.log(
-      `[Cron] Running dispatch window scan. Now=${now.toISOString()}, lookahead=${lookaheadCutoff.toISOString()}`,
+      `[Cron] Running dispatch window scan. Now=${now.toISOString()}`,
     );
 
     const due = await this.prisma.shipment.findMany({
@@ -131,7 +126,7 @@ export class ShipmentDispatchScheduler {
         OR: [
           {
             scheduledWindowStart: {
-              lte: lookaheadCutoff,
+              lte: now,
             },
           },
           {
