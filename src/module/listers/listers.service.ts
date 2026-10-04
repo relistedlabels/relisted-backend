@@ -97,6 +97,7 @@ import {
 } from '../order/lister-order-scope.util';
 import { notifyAdminsNewWithdrawalRequest } from '../wallet/withdrawal-admin-notify.util';
 import { formatRentalBoundaryDateLagos } from '../shipment/dispatch-window-format';
+import { getListerReturnInspectionCutoffDate } from '../order/rental-delivery.util';
 
 const CURRENCY = 'NGN';
 
@@ -2107,6 +2108,48 @@ export class ListersService {
     }
   }
 
+  /** Auto-confirms delivered return legs after the lister inspection period. */
+  async autoConfirmDeliveredReturnRequests(): Promise<{ processed: number }> {
+    const cutoff = getListerReturnInspectionCutoffDate();
+    const candidates = await this.prisma.returnRequest.findMany({
+      where: {
+        status: 'PENDING_PICKUP',
+        shipment: {
+          is: {
+            type: 'RETURN',
+            status: 'COMPLETED',
+            updatedAt: { lte: cutoff },
+            listerId: { not: null },
+          },
+        },
+      },
+      select: {
+        orderId: true,
+        shipment: { select: { listerId: true } },
+      },
+    });
+
+    let processed = 0;
+    for (const candidate of candidates) {
+      const listerId = candidate.shipment?.listerId;
+      if (!listerId) continue;
+
+      try {
+        await this.confirmReturnReceipt(listerId, candidate.orderId, {
+          actualCondition: 'GOOD',
+        });
+        processed++;
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(
+          `[ListersService] Automatic return receipt confirmation failed for order ${candidate.orderId}: ${message}`,
+        );
+      }
+    }
+
+    return { processed };
+  }
+
   /** POST /api/listers/orders/:orderId/confirm-return-receipt */
   async confirmReturnReceipt(
     listerId: string,
@@ -2200,8 +2243,11 @@ export class ListersService {
         `[ListersService] Starting transaction to confirm return for order ${orderId}`,
       );
       const result = await this.prisma.$transaction(async (tx) => {
-        const updatedReturn = await tx.returnRequest.update({
-          where: { id: listerReturnRequest.id },
+        const returnUpdate = await tx.returnRequest.updateMany({
+          where: {
+            id: listerReturnRequest.id,
+            status: { not: 'COMPLETED' },
+          },
           data: {
             status: 'COMPLETED',
             deliveredAt: new Date(),
@@ -2210,6 +2256,15 @@ export class ListersService {
             listerConfirmationImages,
           },
         });
+        if (returnUpdate.count === 0) {
+          throw new BadRequestException('Return already confirmed');
+        }
+        const updatedReturn = await tx.returnRequest.findUnique({
+          where: { id: listerReturnRequest.id },
+        });
+        if (!updatedReturn) {
+          throw new NotFoundException('Return request not found');
+        }
         console.log(
           `[ListersService] Return request updated to COMPLETED for order ${orderId}`,
         );

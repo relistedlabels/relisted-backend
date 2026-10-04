@@ -30,6 +30,7 @@ describe('ShipmentDispatchScheduler.dispatchDueShipments', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
   }
 
@@ -54,6 +55,9 @@ describe('ShipmentDispatchScheduler.dispatchDueShipments', () => {
         where: expect.objectContaining({ status: 'PENDING' }),
       }),
     );
+    expect(
+      findMany.mock.calls[0][0].where.OR[0].scheduledWindowStart.lte,
+    ).toEqual(expect.any(Date));
     expect(updateMany).toHaveBeenCalledTimes(2);
     expect(mockQueue.add).toHaveBeenCalledTimes(1);
     expect(mockQueue.add).toHaveBeenCalledWith(
@@ -83,6 +87,7 @@ describe('ShipmentDispatchScheduler.recoverStaleDispatching', () => {
     const scheduler = new ShipmentDispatchScheduler(
       { shipment: { updateMany } } as never,
       mockQueue as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -133,6 +138,7 @@ describe('ShipmentDispatchScheduler.pollTrackingStatus', () => {
       {} as never,
       {} as never,
       mockTrackingSync as never,
+      {} as never,
       {} as never,
     );
   }
@@ -243,6 +249,7 @@ describe('ShipmentDispatchScheduler.sendRenterReturnDueReminders', () => {
       { add: jest.fn() } as never,
       {} as never,
       mockNotification as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -635,6 +642,7 @@ describe('ShipmentDispatchScheduler inspection auto-release crons', () => {
       {} as never,
       {} as never,
       { autoCompleteDeliveredResaleOrders } as never,
+      {} as never,
     );
 
     await scheduler.autoReleaseResaleAfterInspectionPeriod();
@@ -654,10 +662,31 @@ describe('ShipmentDispatchScheduler inspection auto-release crons', () => {
       {} as never,
       {} as never,
       { autoConfirmDeliveredRentalOrders } as never,
+      {} as never,
     );
 
     await scheduler.autoConfirmRentalAfterInspectionPeriod();
 
     expect(autoConfirmDeliveredRentalOrders).toHaveBeenCalled();
+  });
+
+  it('delegates lister return auto-confirm to ListersService', async () => {
+    const autoConfirmDeliveredReturnRequests = jest
+      .fn()
+      .mockResolvedValue({ processed: 1 });
+    const scheduler = new ShipmentDispatchScheduler(
+      {} as never,
+      { add: jest.fn() } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { autoConfirmDeliveredReturnRequests } as never,
+    );
+
+    await scheduler.autoConfirmListerReturnAfterInspectionPeriod();
+
+    expect(autoConfirmDeliveredReturnRequests).toHaveBeenCalled();
   });
 });

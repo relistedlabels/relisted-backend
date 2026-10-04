@@ -4996,16 +4996,11 @@ export class RentersService {
       order,
     );
 
-    const dispatchLookaheadMinutes = Number(
-      process.env.DISPATCH_CRON_LOOKAHEAD_MINUTES ?? 59,
-    );
     const now = new Date();
-    const shouldBookImmediately =
-      pickupWindow.start.getTime() <=
-      addMinutes(now, dispatchLookaheadMinutes).getTime();
+    const shouldBookImmediately = pickupWindow.start.getTime() <= now.getTime();
 
     console.log(
-      `[RentersService] Return pickup window start=${pickupWindow.start.toISOString()}, lookahead=${dispatchLookaheadMinutes}m, dispatch after submit: ${shouldBookImmediately}`,
+      `[RentersService] Return pickup window start=${pickupWindow.start.toISOString()}, dispatch after submit: ${shouldBookImmediately}`,
     );
 
     const pickupScheduledAt: Date | null = pickupWindow.start;
@@ -5186,7 +5181,7 @@ export class RentersService {
             ? `Your original return window had passed, so we scheduled the next available pickup: ${rescheduledPickupSummary}. ${renterLegNote}`
             : shouldBookImmediately
               ? `We are booking your return with the checkout carrier now. ${renterLegNote}`
-              : `Shipping was paid at checkout. We will confirm pickup before your window. ${renterLegNote}`,
+              : `Shipping was paid at checkout. We will book your return with the carrier when your pickup window begins. ${renterLegNote}`,
       },
     });
 

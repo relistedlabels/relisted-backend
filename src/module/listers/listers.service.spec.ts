@@ -24,7 +24,7 @@ import { OrderStatus } from '@prisma/client';
 const mockPrisma = {
   order: { findUnique: jest.fn(), update: jest.fn() },
   orderItem: { findFirst: jest.fn() },
-  returnRequest: { update: jest.fn() },
+  returnRequest: { findMany: jest.fn(), update: jest.fn() },
   dispute: { findFirst: jest.fn() },
   product: { update: jest.fn(), findMany: jest.fn() },
   review: {
@@ -140,6 +140,19 @@ describe('ListersService — multi-lister return receipt', () => {
         itemValueHeld: 8000,
         totalHeld: 12205,
       });
+    });
+
+    it('does not release escrow if another confirmation already completed the return', async () => {
+      mockPrisma.order.findUnique.mockResolvedValue(baseOrder);
+      const { escrowUpdates } = mockTransaction(0, 0);
+
+      await expect(
+        service.confirmReturnReceipt(listerA, orderId, {
+          actualCondition: 'GOOD',
+        }),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(escrowUpdates).toHaveLength(0);
     });
 
     it('uses only resale proceeds as the resale fee base', async () => {
@@ -301,11 +314,46 @@ describe('ListersService — multi-lister return receipt', () => {
     mockPrisma.wallet.upsert.mockResolvedValue({ id: 'wallet-lister' });
     mockPrisma.walletTransaction.create.mockResolvedValue({});
     mockPrisma.product.update.mockResolvedValue({});
+    mockPrisma.returnRequest.findMany.mockResolvedValue([]);
     mockPrisma.user.findUnique.mockResolvedValue({
       id: listerA,
       email: 'a@test.com',
       name: 'Lister A',
     });
+  });
+
+  it('auto-confirms delivered returns after the inspection cutoff', async () => {
+    mockPrisma.returnRequest.findMany.mockResolvedValue([
+      {
+        orderId,
+        shipment: { listerId: listerA },
+      },
+    ]);
+    const confirmReturnReceipt = jest
+      .spyOn(service, 'confirmReturnReceipt')
+      .mockResolvedValue({} as never);
+
+    const result = await service.autoConfirmDeliveredReturnRequests();
+
+    expect(result).toEqual({ processed: 1 });
+    expect(mockPrisma.returnRequest.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: 'PENDING_PICKUP',
+          shipment: {
+            is: expect.objectContaining({
+              type: 'RETURN',
+              status: 'COMPLETED',
+              updatedAt: { lte: expect.any(Date) },
+            }),
+          },
+        }),
+      }),
+    );
+    expect(confirmReturnReceipt).toHaveBeenCalledWith(listerA, orderId, {
+      actualCondition: 'GOOD',
+    });
+    confirmReturnReceipt.mockRestore();
   });
 
   describe('getPublicListerProfile()', () => {
@@ -362,7 +410,10 @@ describe('ListersService — multi-lister return receipt', () => {
     });
   });
 
-  function mockTransaction(pendingEscrowsAfter: number) {
+  function mockTransaction(
+    pendingEscrowsAfter: number,
+    returnUpdateCount = 1,
+  ) {
     const escrowUpdates: Array<{ where: { id: string } }> = [];
     const orderStatusUpdates: OrderStatus[] = [];
     const productUpdates: string[] = [];
@@ -370,7 +421,10 @@ describe('ListersService — multi-lister return receipt', () => {
     mockPrisma.$transaction.mockImplementation(async (cb) => {
       const tx = {
         returnRequest: {
-          update: jest.fn().mockResolvedValue({
+          updateMany: jest
+            .fn()
+            .mockResolvedValue({ count: returnUpdateCount }),
+          findUnique: jest.fn().mockResolvedValue({
             id: 'rr-a',
             status: 'COMPLETED',
             listerCondition: 'GOOD',
@@ -460,13 +514,14 @@ describe('ListersService — multi-lister return receipt', () => {
     mockPrisma.$transaction.mockImplementation(async (cb) => {
       const tx = {
         returnRequest: {
-          update: jest.fn().mockImplementation(({ where }) => {
+          updateMany: jest.fn().mockImplementation(({ where }) => {
             updatedReturnId = where.id;
-            return {
-              id: where.id,
-              status: 'COMPLETED',
-              listerCondition: 'GOOD',
-            };
+            return { count: 1 };
+          }),
+          findUnique: jest.fn().mockResolvedValue({
+            id: 'rr-b',
+            status: 'COMPLETED',
+            listerCondition: 'GOOD',
           }),
         },
         dispute: { findFirst: jest.fn().mockResolvedValue(null) },

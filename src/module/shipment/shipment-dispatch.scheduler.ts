@@ -23,6 +23,7 @@ import {
   productNamesFromManualShipment,
 } from 'src/module/shipment/manual-fulfillment-email.util';
 import { OrderService } from 'src/module/order/order.service';
+import { ListersService } from 'src/module/listers/listers.service';
 import {
   findReturnRequestForLister,
   listerDisplayName,
@@ -48,10 +49,6 @@ const PAST_DUE_RETURN_REQUEST_REMINDER_TYPES =
     'past_due_afternoon',
     'past_due_evening',
   ]);
-
-const DISPATCH_CRON_LOOKAHEAD_MINUTES = Number(
-  process.env.DISPATCH_CRON_LOOKAHEAD_MINUTES ?? 59,
-);
 
 /** Hours after `pickupWindowEnd` before we email listers (carrier tracking often lags). */
 const LISTER_RETURN_WINDOW_PASSED_GRACE_HOURS = Number(
@@ -79,6 +76,8 @@ const RESALE_INSPECTION_RELEASE_CRON_SCHEDULE =
   process.env.RESALE_INSPECTION_RELEASE_CRON?.trim() || '0 * * * *';
 const RENTAL_INSPECTION_CONFIRM_CRON_SCHEDULE =
   process.env.RENTAL_INSPECTION_CONFIRM_CRON?.trim() || '*/5 * * * *';
+const LISTER_RETURN_INSPECTION_CRON_SCHEDULE =
+  process.env.LISTER_RETURN_INSPECTION_CRON?.trim() || '*/5 * * * *';
 const RETURN_REQUEST_REMINDER_CRON_SCHEDULE =
   process.env.RETURN_REQUEST_REMINDER_CRON?.trim() || '* * * * *';
 
@@ -105,13 +104,14 @@ export class ShipmentDispatchScheduler {
     private readonly mail: MailService,
     private readonly trackingSync: ShipmentTrackingSyncService,
     private readonly orderService: OrderService,
+    private readonly listersService: ListersService,
   ) {}
 
   /**
    * Runs on the configured cadence (defaults to hourly) in Africa/Lagos time.
-   * Scans for pending shipments whose dispatch window starts within the lookahead
-   * horizon (defaults to 0 minutes, meaning at/after start) and locks + enqueues
-   * each one exactly once.
+   * Scans for pending shipments whose dispatch window has started and locks +
+   * enqueues each one exactly once. Carrier booking can trigger a rider pickup,
+   * so do not book shipments ahead of their scheduled window.
    * `scheduledWindowStart` / `scheduledWindowEnd` are Relisted-only; the worker maps
    * them to Topship’s single `pickupDate` when booking, not as partner-facing windows.
    */
@@ -119,9 +119,8 @@ export class ShipmentDispatchScheduler {
   async dispatchDueShipments() {
     const now = new Date();
     const today = startOfDay(now);
-    const lookaheadCutoff = addMinutes(now, DISPATCH_CRON_LOOKAHEAD_MINUTES);
     this.logger.log(
-      `[Cron] Running dispatch window scan. Now=${now.toISOString()}, lookahead=${lookaheadCutoff.toISOString()}`,
+      `[Cron] Running dispatch window scan. Now=${now.toISOString()}`,
     );
 
     const due = await this.prisma.shipment.findMany({
@@ -131,7 +130,7 @@ export class ShipmentDispatchScheduler {
         OR: [
           {
             scheduledWindowStart: {
-              lte: lookaheadCutoff,
+              lte: now,
             },
           },
           {
@@ -1034,6 +1033,27 @@ export class ShipmentDispatchScheduler {
     } catch (err: any) {
       this.logger.error(
         `[RentalInspection] Auto-confirm failed: ${err?.message ?? err}`,
+      );
+    }
+  }
+
+  /** Auto-confirms delivered returns after the lister inspection period. */
+  @Cron(LISTER_RETURN_INSPECTION_CRON_SCHEDULE, {
+    timeZone: 'Africa/Lagos',
+  })
+  async autoConfirmListerReturnAfterInspectionPeriod() {
+    try {
+      const result =
+        await this.listersService.autoConfirmDeliveredReturnRequests();
+      if (result.processed > 0) {
+        this.logger.log(
+          `[ListerReturnInspection] Auto-confirmed ${result.processed} return receipt(s)`,
+        );
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `[ListerReturnInspection] Auto-confirm failed: ${message}`,
       );
     }
   }
