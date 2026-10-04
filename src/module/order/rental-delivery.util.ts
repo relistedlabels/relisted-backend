@@ -111,6 +111,14 @@ export function getListerReturnInspectionPeriodLabel(): string {
   return `${hours} hours`;
 }
 
+export function getListerReturnInspectionCutoffDate(): Date {
+  const cutoff = new Date();
+  cutoff.setTime(
+    cutoff.getTime() - getListerReturnInspectionHours() * 60 * 60 * 1000,
+  );
+  return cutoff;
+}
+
 function formatInspectionPeriodLabel(hours: number): string {
   if (hours === 1) return '1 hour';
   if (hours < 24) return `${hours} hours`;

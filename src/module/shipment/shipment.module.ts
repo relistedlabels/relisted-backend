@@ -14,6 +14,7 @@ import { TopshipModule } from 'src/services/topship/topship.module';
 import { ChowdeckRelayModule } from 'src/services/chowdeck-relay/chowdeck-relay.module';
 import { ShipbubbleModule } from 'src/services/shipbubble/shipbubble.module';
 import { TshipModule } from 'src/services/tship/tship.module';
+import { ListersModule } from '../listers/listers.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { TshipModule } from 'src/services/tship/tship.module';
     ChowdeckRelayModule,
     ShipbubbleModule,
     TshipModule,
+    ListersModule,
   ],
   controllers: [ShipmentController],
   providers: [
