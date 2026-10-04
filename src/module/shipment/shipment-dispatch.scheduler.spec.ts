@@ -30,6 +30,7 @@ describe('ShipmentDispatchScheduler.dispatchDueShipments', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
   }
 
@@ -91,6 +92,7 @@ describe('ShipmentDispatchScheduler.recoverStaleDispatching', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
 
     await scheduler.recoverStaleDispatching();
@@ -136,6 +138,7 @@ describe('ShipmentDispatchScheduler.pollTrackingStatus', () => {
       {} as never,
       {} as never,
       mockTrackingSync as never,
+      {} as never,
       {} as never,
     );
   }
@@ -246,6 +249,7 @@ describe('ShipmentDispatchScheduler.sendRenterReturnDueReminders', () => {
       { add: jest.fn() } as never,
       {} as never,
       mockNotification as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -638,6 +642,7 @@ describe('ShipmentDispatchScheduler inspection auto-release crons', () => {
       {} as never,
       {} as never,
       { autoCompleteDeliveredResaleOrders } as never,
+      {} as never,
     );
 
     await scheduler.autoReleaseResaleAfterInspectionPeriod();
@@ -657,10 +662,31 @@ describe('ShipmentDispatchScheduler inspection auto-release crons', () => {
       {} as never,
       {} as never,
       { autoConfirmDeliveredRentalOrders } as never,
+      {} as never,
     );
 
     await scheduler.autoConfirmRentalAfterInspectionPeriod();
 
     expect(autoConfirmDeliveredRentalOrders).toHaveBeenCalled();
+  });
+
+  it('delegates lister return auto-confirm to ListersService', async () => {
+    const autoConfirmDeliveredReturnRequests = jest
+      .fn()
+      .mockResolvedValue({ processed: 1 });
+    const scheduler = new ShipmentDispatchScheduler(
+      {} as never,
+      { add: jest.fn() } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { autoConfirmDeliveredReturnRequests } as never,
+    );
+
+    await scheduler.autoConfirmListerReturnAfterInspectionPeriod();
+
+    expect(autoConfirmDeliveredReturnRequests).toHaveBeenCalled();
   });
 });

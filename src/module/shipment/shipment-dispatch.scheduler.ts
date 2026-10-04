@@ -23,6 +23,7 @@ import {
   productNamesFromManualShipment,
 } from 'src/module/shipment/manual-fulfillment-email.util';
 import { OrderService } from 'src/module/order/order.service';
+import { ListersService } from 'src/module/listers/listers.service';
 import {
   findReturnRequestForLister,
   listerDisplayName,
@@ -75,6 +76,8 @@ const RESALE_INSPECTION_RELEASE_CRON_SCHEDULE =
   process.env.RESALE_INSPECTION_RELEASE_CRON?.trim() || '0 * * * *';
 const RENTAL_INSPECTION_CONFIRM_CRON_SCHEDULE =
   process.env.RENTAL_INSPECTION_CONFIRM_CRON?.trim() || '*/5 * * * *';
+const LISTER_RETURN_INSPECTION_CRON_SCHEDULE =
+  process.env.LISTER_RETURN_INSPECTION_CRON?.trim() || '*/5 * * * *';
 const RETURN_REQUEST_REMINDER_CRON_SCHEDULE =
   process.env.RETURN_REQUEST_REMINDER_CRON?.trim() || '* * * * *';
 
@@ -101,6 +104,7 @@ export class ShipmentDispatchScheduler {
     private readonly mail: MailService,
     private readonly trackingSync: ShipmentTrackingSyncService,
     private readonly orderService: OrderService,
+    private readonly listersService: ListersService,
   ) {}
 
   /**
@@ -1029,6 +1033,27 @@ export class ShipmentDispatchScheduler {
     } catch (err: any) {
       this.logger.error(
         `[RentalInspection] Auto-confirm failed: ${err?.message ?? err}`,
+      );
+    }
+  }
+
+  /** Auto-confirms delivered returns after the lister inspection period. */
+  @Cron(LISTER_RETURN_INSPECTION_CRON_SCHEDULE, {
+    timeZone: 'Africa/Lagos',
+  })
+  async autoConfirmListerReturnAfterInspectionPeriod() {
+    try {
+      const result =
+        await this.listersService.autoConfirmDeliveredReturnRequests();
+      if (result.processed > 0) {
+        this.logger.log(
+          `[ListerReturnInspection] Auto-confirmed ${result.processed} return receipt(s)`,
+        );
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `[ListerReturnInspection] Auto-confirm failed: ${message}`,
       );
     }
   }
