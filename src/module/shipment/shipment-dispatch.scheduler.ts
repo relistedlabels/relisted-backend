@@ -396,8 +396,8 @@ export class ShipmentDispatchScheduler {
   }
 
   /**
-   * Nudge renters to complete their return request before the RETURN window opens,
-   * then a once-daily past-due alert (8 AM Lagos) if the window passes with no request.
+   * Remind renters the night before and morning of the RETURN window,
+   * then send a once-daily past-due alert if the window passes with no request.
    */
   @Cron(RETURN_REQUEST_REMINDER_CRON_SCHEDULE, {
     timeZone: 'Africa/Lagos',
@@ -498,7 +498,7 @@ export class ShipmentDispatchScheduler {
       const collateralAtRisk = listerEscrow?.collateralAmount ?? 0;
 
       const prePickupWhatsAppTypes = new Set<string>([
-        '24_hours_before',
+        'night_before',
         'morning_of',
       ]);
       let whatsappPayload: WhatsAppOutbound | null = null;

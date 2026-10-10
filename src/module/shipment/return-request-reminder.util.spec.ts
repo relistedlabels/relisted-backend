@@ -6,6 +6,7 @@ import {
 } from './return-request-reminder.util';
 
 const config = {
+  preWindowNightHour: 20,
   preWindowMorningHour: 8,
   pastDueMorningHour: 8,
   pastDueAfternoonHour: 14,
@@ -45,18 +46,41 @@ function lagosLocal(
 }
 
 describe('computeReturnRequestReminderActions', () => {
-  it('fires 24_hours_before when window is ~24h away on a different Lagos day', () => {
-    const start = lagosLocal(2026, 6, 10, 14);
-    const now = lagosLocal(2026, 6, 9, 14);
+  it('fires night_before at or after 8 PM Lagos on the day before the window', () => {
+    const start = lagosLocal(2026, 6, 10, 9);
+    const now = lagosLocal(2026, 6, 9, 20);
     const actions = computeReturnRequestReminderActions(
       now,
       baseLeg({
         scheduledWindowStart: start,
-        scheduledWindowEnd: lagosLocal(2026, 6, 10, 17),
+        scheduledWindowEnd: lagosLocal(2026, 6, 10, 11),
       }),
       config,
     );
-    expect(actions.map((a) => a.type)).toContain('24_hours_before');
+    expect(actions.map((a) => a.type)).toContain('night_before');
+  });
+
+  it('does not fire a reminder 24 hours before or two days early', () => {
+    const start = lagosLocal(2026, 6, 10, 9);
+    const leg = baseLeg({
+      scheduledWindowStart: start,
+      scheduledWindowEnd: lagosLocal(2026, 6, 10, 11),
+    });
+
+    expect(
+      computeReturnRequestReminderActions(
+        lagosLocal(2026, 6, 9, 9),
+        leg,
+        config,
+      ),
+    ).toEqual([]);
+    expect(
+      computeReturnRequestReminderActions(
+        lagosLocal(2026, 6, 8, 20),
+        leg,
+        config,
+      ),
+    ).toEqual([]);
   });
 
   it('fires morning_of on window day at or after 8 AM Lagos', () => {
