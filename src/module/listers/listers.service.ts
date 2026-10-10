@@ -29,10 +29,7 @@ import {
   Role,
 } from '@prisma/client';
 import { isAvailabilityRequestSupersededByActiveOrder } from '../cart-items/fulfill-availability-for-checkout';
-import {
-  normalizePhoneNumber,
-  normalizePhoneOrThrow,
-} from 'src/utils/phone';
+import { normalizePhoneNumber, normalizePhoneOrThrow } from 'src/utils/phone';
 import {
   differenceInSeconds,
   subMonths,
@@ -1125,9 +1122,7 @@ export class ListersService {
       });
       if (!order) throw new NotFoundException('Order not found');
       const productIds = [
-        ...new Set(
-          order.orderItems.map((oi: any) => String(oi.productId)),
-        ),
+        ...new Set(order.orderItems.map((oi: any) => String(oi.productId))),
       ] as string[];
       const availabilityRequests =
         productIds.length > 0
@@ -1621,7 +1616,7 @@ export class ListersService {
 
       if (isPrimaryDispatchWindowExpired(request as any)) {
         throw new BadRequestException(
-          'The renter\'s delivery window has passed. Notify the renter so they can send a new request.',
+          "The renter's delivery window has passed. Notify the renter so they can send a new request.",
         );
       }
 
@@ -1674,7 +1669,10 @@ export class ListersService {
           requestType: isPurchaseRequest ? 'purchase' : 'rental',
           outboundWindowSummary: isPurchaseRequest
             ? formatDispatchWindowSummaryFromRequest(request as any, 'RESALE')
-            : formatDispatchWindowSummaryFromRequest(request as any, 'OUTBOUND'),
+            : formatDispatchWindowSummaryFromRequest(
+                request as any,
+                'OUTBOUND',
+              ),
           returnWindowSummary: isPurchaseRequest
             ? null
             : formatDispatchWindowSummaryFromRequest(request as any, 'RETURN'),
@@ -1991,10 +1989,7 @@ export class ListersService {
         },
       });
 
-      if (
-        mapped === OrderStatus.CANCELLED ||
-        mapped === OrderStatus.REJECTED
-      ) {
+      if (mapped === OrderStatus.CANCELLED || mapped === OrderStatus.REJECTED) {
         for (const item of order.orderItems as { productId: string }[]) {
           await this.productAvailabilityNotifyService.notifyWatchersProductAvailable(
             item.productId,
@@ -2076,6 +2071,7 @@ export class ListersService {
             orderId: updated.orderId,
             status: ORDER_STATUS_TO_LABEL[updated.status],
             productName: firstProduct?.name || 'Your Item',
+            itemSummary: firstProduct?.name || 'Your Item',
             trackingNumber: updated.trackingNumber || 'N/A',
             estimatedDelivery: updated.estimatedDeliveryDate
               ? formatRentalBoundaryDateLagos(updated.estimatedDeliveryDate)
@@ -2172,6 +2168,7 @@ export class ListersService {
             include: {
               product: {
                 select: {
+                  name: true,
                   curatorId: true,
                   listingType: true,
                 },
@@ -2196,6 +2193,11 @@ export class ListersService {
           'No return request found for your items on this order',
         );
       }
+      const itemSummary =
+        order.orderItems
+          .map((item) => item.product?.name?.trim())
+          .filter((name): name is string => Boolean(name))
+          .join(', ') || 'your rental item';
 
       const listerEscrow = order.escrows?.find((e) => e.listerId === listerId);
       if (listerEscrow?.status === 'RELEASED') {
@@ -2580,6 +2582,7 @@ export class ListersService {
             disputeLink: `${process.env.CLIENT_URL || ''}/renters/dispute`,
             collateralWithheldToLister: 0,
             collateralReturnedToRenter: 0,
+            itemSummary,
           },
         });
       } else {
@@ -2599,6 +2602,7 @@ export class ListersService {
             collateralReleased: result.collateralReleased,
             walletUrl: `${process.env.CLIENT_URL}/renters/wallet`,
             platformName: 'Relisted',
+            itemSummary,
           },
         });
         console.log(
@@ -2639,6 +2643,10 @@ export class ListersService {
           returnRequests: true,
           shipments: { select: { id: true, type: true, listerId: true } },
           user: true,
+          orderItems: {
+            where: orderItemsForListerWhere(user.id),
+            select: { product: { select: { name: true } } },
+          },
         },
       });
 
@@ -2658,6 +2666,11 @@ export class ListersService {
       }
 
       const returnRequestId = listerRr.id;
+      const itemSummary =
+        order.orderItems
+          .map((item) => item.product.name.trim())
+          .filter(Boolean)
+          .join(', ') || 'your rental item';
 
       const result = await this.prisma.$transaction(async (tx) => {
         const updatedReturnRequest = await tx.returnRequest.update({
@@ -2676,7 +2689,7 @@ export class ListersService {
       await this.notificationService.createNotification({
         userId: order.userId,
         title: 'Return Confirmed',
-        message: `The lister has confirmed your return for order ${order.orderId}`,
+        message: `The lister has confirmed your return of ${itemSummary}.`,
         type: 'RETURN_CONFIRMED',
         metadata: { orderId: order.id },
         sendEmail: true,
@@ -2685,6 +2698,7 @@ export class ListersService {
           userName: order.user?.name,
           orderId: order.orderId,
           status: 'Return Confirmed',
+          itemSummary,
         },
       });
 
@@ -3019,8 +3033,7 @@ export class ListersService {
             oi.product?.listingType === 'RENT_OR_RESALE');
         if (isResaleItem) return sum;
         return (
-          sum +
-          (oi.pricePerDay ?? oi.product?.dailyPrice ?? 0) * (oi.days ?? 0)
+          sum + (oi.pricePerDay ?? oi.product?.dailyPrice ?? 0) * (oi.days ?? 0)
         );
       },
       0,
@@ -3042,8 +3055,9 @@ export class ListersService {
 
     const listerEscrow =
       listerId && order.escrows?.length
-        ? order.escrows.find((e: { listerId: string }) => e.listerId === listerId) ??
-          order.escrows[0]
+        ? (order.escrows.find(
+            (e: { listerId: string }) => e.listerId === listerId,
+          ) ?? order.escrows[0])
         : null;
     const escrowFromDb = listerEscrow
       ? listerEscrowDisplaySummary(listerEscrow)
@@ -3051,9 +3065,7 @@ export class ListersService {
     const merchandiseTotal = listerEscrow
       ? escrowFromDb!.rentalFeeTotal + escrowFromDb!.purchasePrice
       : listerRentalSubtotal + listerResaleSubtotal;
-    const displayTotalAmount = listerEscrow
-      ? merchandiseTotal
-      : totalAmount;
+    const displayTotalAmount = listerEscrow ? merchandiseTotal : totalAmount;
     const listerListingType =
       listerId && order.orderItems?.length
         ? listerOrderListingTypeFromItems(order.orderItems)
@@ -3168,8 +3180,7 @@ export class ListersService {
           (listerEscrow.platformFeeAmount ?? 0) > 0)
           ? (() => {
               const feeBase =
-                escrowFromDb!.rentalFeeTotal +
-                escrowFromDb!.purchasePrice;
+                escrowFromDb!.rentalFeeTotal + escrowFromDb!.purchasePrice;
               const amount = escrowPlatformFee(listerEscrow, feeBase);
               return {
                 ratePercent: listerEscrow.platformFeeRate ?? 0,
@@ -3306,10 +3317,7 @@ export class ListersService {
     return dispatchWindows;
   }
 
-  private mergeOrderDispatchWindows(
-    order: any,
-    availabilityRequests?: any[],
-  ) {
+  private mergeOrderDispatchWindows(order: any, availabilityRequests?: any[]) {
     const fromShipments = this.formatDispatchWindowsFromShipments(order);
     if (fromShipments.length > 0) return fromShipments;
     if (!availabilityRequests?.length) return [];
@@ -3383,8 +3391,7 @@ export class ListersService {
     out.sort(
       (a, b) =>
         orderRank(a.type) - orderRank(b.type) ||
-        new Date(a.window.start).getTime() -
-          new Date(b.window.start).getTime(),
+        new Date(a.window.start).getTime() - new Date(b.window.start).getTime(),
     );
     return out;
   }
@@ -3405,9 +3412,14 @@ export class ListersService {
       baseDate: string;
     }> = [];
 
-    for (const type of ['OUTBOUND', 'RETURN', 'RESALE'] as DispatchWindowType[]) {
+    for (const type of [
+      'OUTBOUND',
+      'RETURN',
+      'RESALE',
+    ] as DispatchWindowType[]) {
       const shipment = byType.get(type);
-      if (!shipment?.scheduledWindowStart || !shipment?.scheduledWindowEnd) continue;
+      if (!shipment?.scheduledWindowStart || !shipment?.scheduledWindowEnd)
+        continue;
 
       const baseDate = shipment.scheduledDate
         ? new Date(shipment.scheduledDate)
@@ -3706,13 +3718,21 @@ export class ListersService {
           userId: true,
           rentals: { select: { curatorId: true } },
           orderItems: {
-            select: { product: { select: { curatorId: true } } },
+            select: { product: { select: { curatorId: true, name: true } } },
           },
         },
       });
       if (!order) {
         throw new NotFoundException('Order not found');
       }
+      const itemSummary =
+        [
+          ...new Set(
+            order.orderItems
+              .map((item) => item.product?.name?.trim())
+              .filter((name): name is string => Boolean(name)),
+          ),
+        ].join(', ') || 'the item';
 
       // Lister-only ownership check – order must involve this curator
       const isAdmin = user.role === Role.ADMIN;
@@ -3723,11 +3743,7 @@ export class ListersService {
         (item: any) => item.product?.curatorId === user.id,
       );
 
-      if (
-        !isAdmin &&
-        !isCuratorOnAnyRental &&
-        !isCuratorOnAnyOrderItem
-      ) {
+      if (!isAdmin && !isCuratorOnAnyRental && !isCuratorOnAnyOrderItem) {
         throw new ForbiddenException(
           'You can only raise disputes for your own rentals',
         );
@@ -3824,7 +3840,7 @@ export class ListersService {
         await this.notificationService.createNotification({
           userId: renterUser.id,
           title: 'New Dispute Created',
-          message: `A dispute has been created for order ${order.orderId}.`,
+          message: `A dispute has been created for ${itemSummary}.`,
           type: 'DISPUTE_STATUS',
           metadata: {
             disputeId: created.disputeId,
@@ -3838,6 +3854,7 @@ export class ListersService {
             userName: renterUser.name,
             disputeId: created.disputeId,
             orderId: order.orderId,
+            itemSummary,
             status: 'created',
             category: created.issueCategory,
             description: created.description,
@@ -4076,8 +4093,7 @@ export class ListersService {
       uploadedBy: u.userId,
     }));
     const totalSizeMb =
-      uploads.reduce((sum: number, u: any) => sum + u.size, 0) /
-      (1024 * 1024);
+      uploads.reduce((sum: number, u: any) => sum + u.size, 0) / (1024 * 1024);
 
     return {
       success: true,
@@ -4658,8 +4674,7 @@ export class ListersService {
     }
 
     const phoneToSet = body.phone !== undefined ? body.phone : body.phoneNumber;
-    let emergencyContactData =
-      body.emergencyContact || body.emergencyContacts;
+    let emergencyContactData = body.emergencyContact || body.emergencyContacts;
     if (emergencyContactData?.phoneNumber) {
       emergencyContactData = {
         ...emergencyContactData,

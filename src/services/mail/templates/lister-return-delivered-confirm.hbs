@@ -71,7 +71,8 @@
         </div>
         <div class="content">
             <p>Hello {{curatorName}},</p>
-            <p>The return for order <strong>{{orderNumber}}</strong> was delivered. Confirm receipt in the app to complete the order and release funds.</p>
+            <p>The return{{#if itemSummary}} for <strong>{{itemSummary}}</strong>{{/if}} was delivered. Confirm receipt in the app to complete the order and release funds.</p>
+            <p style="font-size:12px;color:#777;">Order reference: {{orderNumber}}</p>
 
             {{#if returnItems}}
             {{#each returnItems}}

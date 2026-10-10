@@ -219,6 +219,9 @@ export class ShipmentDispatchScheduler {
         type: true,
         pricingTier: true,
         providerTrackingUrl: true,
+        orderItemsOutbound: { select: { product: { select: { name: true } } } },
+        orderItemsReturn: { select: { product: { select: { name: true } } } },
+        orderItemsResale: { select: { product: { select: { name: true } } } },
         order: {
           select: {
             id: true,
@@ -369,7 +372,7 @@ export class ShipmentDispatchScheduler {
       await this.notification.createNotification({
         userId: listerId,
         title: 'Return pickup window has ended',
-        message: `The scheduled return window for order ${ord.orderId} (${itemSummary}) has passed and we have not marked the return as delivered yet. If you have not received the item, coordinate with the renter; otherwise confirm receipt on your order page when it arrives.`,
+        message: `The scheduled return window for ${itemSummary} has passed and we have not marked the return as delivered yet. If you have not received the item, coordinate with the renter; otherwise confirm receipt on your order page when it arrives.`,
         type: 'LISTER_RETURN_WINDOW_PASSED',
         metadata: {
           orderId: ord.id,

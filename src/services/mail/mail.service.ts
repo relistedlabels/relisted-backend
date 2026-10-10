@@ -57,7 +57,10 @@ export class MailService {
 
     // Register custom helpers
     Handlebars.registerHelper('eq', (v1, v2) => v1 === v2);
-    Handlebars.registerHelper('gt', (a: unknown, b: unknown) => Number(a) > Number(b));
+    Handlebars.registerHelper(
+      'gt',
+      (a: unknown, b: unknown) => Number(a) > Number(b),
+    );
     Handlebars.registerHelper('formatDateTime', (isoString: string) =>
       formatDateTimeLagos(isoString),
     );
@@ -199,9 +202,7 @@ export class MailService {
         );
         throw err;
       }
-      this.logger.warn(
-        `Resend failed, sending via SMTP fallback. ${message}`,
-      );
+      this.logger.warn(`Resend failed, sending via SMTP fallback. ${message}`);
       await this.mailerService.sendMail({ to, subject, html });
     }
   }
@@ -233,11 +234,7 @@ export class MailService {
         templateName,
         mail.context ?? {},
       );
-      await this.sendViaResendWithSmtpFallback(
-        mail.to,
-        mail.subject,
-        html,
-      );
+      await this.sendViaResendWithSmtpFallback(mail.to, mail.subject, html);
       return;
     }
 
@@ -585,7 +582,7 @@ export class MailService {
     if (this.devBypass) {
       await this.handleDevBypass(
         'return-initiated',
-        `Return started. Order ${rest.orderId}.`,
+        `Return started: ${rest.itemSummary || 'your item'}.`,
         rest,
         email,
       );
@@ -595,7 +592,7 @@ export class MailService {
     await this.deliverMail({
       to: email,
       template: './return-initiated',
-      subject: `Return started. Order ${rest.orderId}.`,
+      subject: `Return started: ${rest.itemSummary || 'your item'}`,
       context: rest,
     });
   }
@@ -1110,9 +1107,7 @@ export class MailService {
           : safe(productNames.join(', '));
 
     const headline =
-      reminderKind === '24_hours'
-        ? 'Due within 24 hours'
-        : 'Due today (Lagos)';
+      reminderKind === '24_hours' ? 'Due within 24 hours' : 'Due today (Lagos)';
     const subject =
       reminderKind === '24_hours'
         ? `Reminder: manual dispatch within 24h (${humanOrderId})`
@@ -1308,7 +1303,11 @@ export class MailService {
 </div>`;
 
     if (this.devBypass) {
-      await this.handleDevBypassHtml('Admin Shipment Cancelled Alert', html, to);
+      await this.handleDevBypassHtml(
+        'Admin Shipment Cancelled Alert',
+        html,
+        to,
+      );
       return;
     }
 
@@ -1409,7 +1408,11 @@ export class MailService {
 </div>`;
 
     if (this.devBypass) {
-      await this.handleDevBypassHtml('Admin Order Cancelled Alert', html, email);
+      await this.handleDevBypassHtml(
+        'Admin Order Cancelled Alert',
+        html,
+        email,
+      );
       return;
     }
 
@@ -1780,7 +1783,15 @@ export class MailService {
 
   async sendReturnDueReminderMail(dto: ReturnDueReminderDto) {
     if (this.skipReminderEmail()) return;
-    const { email, userName, orderId, orderLink, dueDate, productName, reminderType } = dto;
+    const {
+      email,
+      userName,
+      orderId,
+      orderLink,
+      dueDate,
+      productName,
+      reminderType,
+    } = dto;
     const is24Hour = reminderType === '24_hours';
     const subject = is24Hour
       ? 'Your rental return pickup is scheduled soon'
@@ -1797,7 +1808,8 @@ export class MailService {
     <div style="padding:20px;">
       <p style="margin:0 0 12px;color:#374151;">Hi ${safeName},</p>
       <p style="margin:0 0 16px;color:#374151;">
-        ${is24Hour
+        ${
+          is24Hour
           ? `Return pickup for <strong>${safeProduct}</strong> is within 24 hours (${dueDate}). Please have your item packed and ready for collection.`
           : `Return pickup for <strong>${safeProduct}</strong> is scheduled for today (${dueDate}). Please keep your item ready for the carrier.`
         }
@@ -1926,7 +1938,9 @@ export class MailService {
     const amountStr = `NGN ${Number(amount).toLocaleString()}`;
     const subject = `New withdrawal request: ${reference}`;
 
-    console.log(`[EMAIL] Sending admin withdrawal alert to ${email} (${reference})`);
+    console.log(
+      `[EMAIL] Sending admin withdrawal alert to ${email} (${reference})`,
+    );
 
     const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f6f7fb;padding:24px;">
   <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
@@ -1979,12 +1993,19 @@ export class MailService {
   }
 
   async sendEscrowReleaseNotification(dto: EscrowReleaseNotificationDto) {
-    const { email, userName, orderId, orderLink, amountReleased, userType, productName } = dto;
+    const {
+      email,
+      userName,
+      orderId,
+      orderLink,
+      amountReleased,
+      userType,
+      productName,
+    } = dto;
     const isRenter = userType === 'renter';
-    const clientBase = (process.env.CLIENT_URL || 'https://relisted.com').replace(
-      /\/$/,
-      '',
-    );
+    const clientBase = (
+      process.env.CLIENT_URL || 'https://relisted.com'
+    ).replace(/\/$/, '');
     const walletUrl =
       dto.walletUrl ||
       `${clientBase}/${isRenter ? 'renters' : 'listers'}/wallet`;
@@ -2006,7 +2027,8 @@ export class MailService {
     <div style="padding:20px;">
       <p style="margin:0 0 12px;color:#374151;">Hi ${safeName},</p>
       <p style="margin:0 0 16px;color:#374151;">
-        ${isRenter
+        ${
+          isRenter
           ? `Your collateral for <strong>${safeProduct}</strong> has been returned and is now available in your wallet.`
           : `The rental for <strong>${safeProduct}</strong> is complete. Your earnings (rental fee and cleaning fee, where applicable) have been credited to your wallet.`
         }

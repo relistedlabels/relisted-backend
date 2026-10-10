@@ -55,7 +55,8 @@
         </div>
         <div class="content">
             <p>Hello {{curatorName}},</p>
-            <p>The carrier has picked up the renter&apos;s return for order <strong>{{orderNumber}}</strong>. It is now <strong>in transit</strong> to your address.</p>
+            <p>The carrier has picked up the renter&apos;s return{{#if itemSummary}} for <strong>{{itemSummary}}</strong>{{/if}}. It is now <strong>in transit</strong> to your address.</p>
+            <p style="font-size:12px;color:#777;">Order reference: {{orderNumber}}</p>
 
             {{#if trackingNumber}}
             <p><strong>Tracking reference:</strong> {{trackingNumber}}</p>
