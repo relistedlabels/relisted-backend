@@ -83,7 +83,8 @@
         </div>
         <div class="content">
             <p>Hello {{curatorName}},</p>
-            <p>Carrier tracking shows the return for order <strong>{{orderNumber}}</strong> has been <strong>delivered</strong> (to you or your designated address). Please confirm in the app so we can settle the rental.</p>
+            <p>Carrier tracking shows the return{{#if itemSummary}} for <strong>{{itemSummary}}</strong>{{/if}} was delivered (to you or your designated address). Please confirm in the app so we can settle the rental.</p>
+            <p style="font-size:12px;color:#777;">Order reference: {{orderNumber}}</p>
 
             {{#if returnItems}}
             {{#each returnItems}}

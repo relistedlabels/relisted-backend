@@ -2056,6 +2056,9 @@ export class AdminService {
             user: true,
             escrows: true,
             returnRequests: true,
+            orderItems: {
+              select: { product: { select: { name: true } } },
+            },
           },
         },
       },
@@ -2064,6 +2067,18 @@ export class AdminService {
     if (!dispute) throw new NotFoundException('Dispute not found');
     const order: any = (dispute as any).order;
     if (!order) throw new NotFoundException('Order not found');
+    const itemSummary =
+      [
+        ...new Set(
+          (order.orderItems ?? [])
+            .map((item: { product?: { name?: string | null } | null }) =>
+              item.product?.name?.trim(),
+            )
+            .filter((name: string | undefined): name is string =>
+              Boolean(name),
+            ),
+        ),
+      ].join(', ') || 'your item';
     const escrow = this.pickOrderEscrow(order);
     if (!escrow) throw new BadRequestException('Escrow not found');
     const escrowStatus = escrow.status as string;
@@ -2336,6 +2351,7 @@ export class AdminService {
           email: order.user.email,
           userName: order.user.name,
           orderId: order.orderId,
+          itemSummary,
           disputeId: dispute.disputeId,
           status: 'resolved',
           disputeRecipient: 'renter',
@@ -2370,6 +2386,7 @@ export class AdminService {
           email: lister.email,
           userName: lister.name,
           orderId: order.orderId,
+          itemSummary,
           disputeId: dispute.disputeId,
           status: 'resolved',
           disputeRecipient: 'lister',
@@ -2419,7 +2436,7 @@ export class AdminService {
 
   /* WALLETS & ESCROW */
 
-  async getWalletStats() {
+  async getWalletStats(fromInput?: string, toInput?: string) {
     const orderFeeWhere = buildWalletStatsOrderWhere();
     const walletUserWhere = buildWalletStatsUserWhere();
     const stagingCuratorId = getStagingInternalCuratorId();
@@ -2491,6 +2508,7 @@ export class AdminService {
       releasedToListers,
       serviceFeeSum,
       vatSum,
+      listerPlatformFeeSum,
     ] = await Promise.all([
       this.prisma.wallet.aggregate({
         where: { user: walletUserWhere },
@@ -2543,65 +2561,137 @@ export class AdminService {
         where: orderFeeWhere,
         _sum: { vatAmount: true },
       }),
+      this.prisma.escrow.aggregate({
+        where: { order: orderFeeWhere },
+        _sum: { platformFeeAmount: true },
+      }),
     ]);
 
     const totalEscrowLocked = Number(escrowLockedRows[0]?.total ?? 0);
     const totalCollateralLocked = walletSums._sum.collateralBalance || 0;
     const platformServiceFees = serviceFeeSum._sum.serviceFee || 0;
+    const listerPlatformFees = listerPlatformFeeSum._sum.platformFeeAmount || 0;
     const totalVatCollected = vatSum._sum.vatAmount || 0;
 
     const now = new Date();
-    const monthStart = new Date(
+    const defaultFrom = new Date(
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
     );
-    const prevMonthStart = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1),
-    );
+    const from = fromInput ? new Date(fromInput) : defaultFrom;
+    const to = toInput ? new Date(toInput) : now;
+    if (
+      Number.isNaN(from.getTime()) ||
+      Number.isNaN(to.getTime()) ||
+      from >= to
+    ) {
+      throw new BadRequestException('A valid start and end date are required');
+    }
+    if (!!fromInput !== !!toInput) {
+      throw new BadRequestException('Both start and end dates are required');
+    }
+    const periodLength = to.getTime() - from.getTime();
+    const previousFrom = new Date(from.getTime() - periodLength);
+    const previousTo = from;
 
-    const buildMonthFinanceMetrics = async (from: Date, to: Date) => {
-      const [revenueAgg, completedCount, payoutsAgg, feesAgg, vatAgg] =
-        await Promise.all([
+    const buildPeriodFinanceMetrics = async (
+      periodFrom: Date,
+      periodTo: Date,
+    ) => {
+      const periodOrderWhere: Prisma.OrderWhereInput = {
+        ...orderFeeWhere,
+        createdAt: { gte: periodFrom, lt: periodTo },
+      };
+      const [
+        revenueAgg,
+        completedCount,
+        feesAgg,
+        vatAgg,
+        listerFeesAgg,
+        payoutRows,
+      ] = await Promise.all([
           this.prisma.order.aggregate({
             where: {
-              status: { notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED] },
-              createdAt: { gte: from, lt: to },
+              ...periodOrderWhere,
             },
             _sum: { totalAmountPaid: true },
           }),
           this.prisma.order.count({
             where: {
+              ...periodOrderWhere,
               status: OrderStatus.COMPLETED,
-              createdAt: { gte: from, lt: to },
             },
-          }),
-          this.prisma.walletTransaction.aggregate({
-            where: {
-              ...listerEscrowReleaseWhere,
-              createdAt: { gte: from, lt: to },
-            },
-            _sum: { amount: true },
           }),
           this.prisma.order.aggregate({
-            where: { ...orderFeeWhere, createdAt: { gte: from, lt: to } },
+            where: periodOrderWhere,
             _sum: { serviceFee: true },
           }),
           this.prisma.order.aggregate({
-            where: { ...orderFeeWhere, createdAt: { gte: from, lt: to } },
+            where: periodOrderWhere,
             _sum: { vatAmount: true },
           }),
+          this.prisma.escrow.aggregate({
+            where: { order: periodOrderWhere },
+            _sum: { platformFeeAmount: true },
+          }),
+          this.prisma.$queryRaw<
+            Array<{
+              role: string;
+              pendingAmount: bigint;
+              paidAmount: bigint;
+            }>
+          >(Prisma.sql`
+            SELECT
+              u.role::text AS role,
+              COALESCE(SUM(wr.amount) FILTER (
+                WHERE LOWER(wr.status) IN ('pending', 'approved')
+              ), 0)::bigint AS "pendingAmount",
+              COALESCE(SUM(wr.amount) FILTER (
+                WHERE LOWER(wr.status) = 'paid'
+                  AND COALESCE(wr."paidDate", wr."updatedAt") >= ${periodFrom}
+                  AND COALESCE(wr."paidDate", wr."updatedAt") < ${periodTo}
+              ), 0)::bigint AS "paidAmount"
+            FROM "WithdrawalRequest" wr
+            INNER JOIN "User" u ON u.id = wr."userId"
+            WHERE u.role IN ('LISTER', 'RENTER')
+              AND u.id <> ${stagingCuratorId}
+              AND u.email NOT ILIKE '%mailtrap%'
+              AND u.email NOT ILIKE '%@example.com'
+              AND u.email NOT ILIKE 'test@%'
+              AND u.email NOT ILIKE '%@test.%'
+              AND (
+                LOWER(wr.status) IN ('pending', 'approved')
+                OR
+                (LOWER(wr.status) = 'paid'
+                  AND COALESCE(wr."paidDate", wr."updatedAt") >= ${periodFrom}
+                  AND COALESCE(wr."paidDate", wr."updatedAt") < ${periodTo})
+              )
+            GROUP BY u.role
+          `),
         ]);
+      const pendingPayouts = { listers: 0, renters: 0 };
+      const paidPayouts = { listers: 0, renters: 0 };
+      for (const row of payoutRows) {
+        const key = row.role.toLowerCase() === 'lister' ? 'listers' : 'renters';
+        pendingPayouts[key] = Number(row.pendingAmount);
+        paidPayouts[key] = Number(row.paidAmount);
+      }
+      const serviceFees = feesAgg._sum.serviceFee || 0;
+      const listerPlatformFees = listerFeesAgg._sum.platformFeeAmount || 0;
       return {
-        revenue: revenueAgg._sum.totalAmountPaid ?? 0,
+        grossOrderValue: revenueAgg._sum.totalAmountPaid ?? 0,
         completedOrders: completedCount,
-        payoutsToListers: payoutsAgg._sum.amount || 0,
-        serviceFees: feesAgg._sum.serviceFee || 0,
+        platformEarnings: serviceFees + listerPlatformFees,
+        serviceFees,
+        listerPlatformFees,
         vat: vatAgg._sum.vatAmount || 0,
+        pendingPayouts,
+        paidPayouts,
       };
     };
 
-    const [currentMonth, previousMonth] = await Promise.all([
-      buildMonthFinanceMetrics(monthStart, now),
-      buildMonthFinanceMetrics(prevMonthStart, monthStart),
+    const [currentPeriod, previousPeriod] = await Promise.all([
+      buildPeriodFinanceMetrics(from, to),
+      buildPeriodFinanceMetrics(previousFrom, previousTo),
     ]);
 
     return {
@@ -2614,17 +2704,28 @@ export class AdminService {
         totalReleasedToListers: releasedToListers._sum.amount || 0,
         /** @deprecated Use totalReleasedToListers; kept for older admin clients */
         totalReleasedToCurators: releasedToListers._sum.amount || 0,
-        platformEarnings: platformServiceFees,
+        platformEarnings: platformServiceFees + listerPlatformFees,
         platformServiceFees,
+        listerPlatformFees,
         totalVatCollected,
+        period: {
+          from: from.toISOString(),
+          to: to.toISOString(),
+          ...currentPeriod,
+        },
+        previousPeriod: {
+          from: previousFrom.toISOString(),
+          to: previousTo.toISOString(),
+          ...previousPeriod,
+        },
         monthComparison: {
           currentMonth: {
-            ...currentMonth,
-            monthStart: monthStart.toISOString(),
+            ...currentPeriod,
+            monthStart: from.toISOString(),
           },
           previousMonth: {
-            ...previousMonth,
-            monthStart: prevMonthStart.toISOString(),
+            ...previousPeriod,
+            monthStart: previousFrom.toISOString(),
           },
         },
         orderAnalyticsCutoff: cutoff.toISOString(),
@@ -4427,6 +4528,13 @@ export class AdminService {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format(result.refundAmount);
+    const itemSummary = [
+      ...new Set(
+        order.orderItems
+          .map((item) => item.product.name.trim())
+          .filter(Boolean),
+      ),
+    ].join(', ');
 
     let renterNotified = false;
     let listerNotified = false;
@@ -4454,6 +4562,7 @@ export class AdminService {
             orderLink: `${clientUrl}/renters/orders/${order.orderId}`,
             refundAmountFormatted: refundFormatted,
             isRenter: true,
+            itemSummary,
           },
         });
         renterNotified = true;
@@ -4485,6 +4594,7 @@ export class AdminService {
             reason,
             orderLink: `${clientUrl}/listers/orders/${order.id}`,
             isRenter: false,
+            itemSummary,
           },
         });
         listerNotified = true;

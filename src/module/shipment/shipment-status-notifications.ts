@@ -5,6 +5,7 @@ import {
 } from 'src/module/order/resale-delivery.util';
 import { getRentalInspectionPeriodLabel } from 'src/module/order/rental-delivery.util';
 import { buildShippingEmailTrackingFields } from './shipment-tracking-url.util';
+import { productNamesFromManualShipment } from './manual-fulfillment-email.util';
 
 type ShipmentNotifyCtx = {
   id: string;
@@ -13,6 +14,9 @@ type ShipmentNotifyCtx = {
   pricingTier?: string | null;
   providerTrackingUrl?: string | null;
   providerShipmentId?: string | null;
+  orderItemsOutbound?: Array<{ product: { name: string } }>;
+  orderItemsReturn?: Array<{ product: { name: string } }>;
+  orderItemsResale?: Array<{ product: { name: string } }>;
   order?: {
     orderId: string;
     user?: { id: string; name: string; email: string } | null;
@@ -35,6 +39,7 @@ export async function sendShipmentLegStatusNotification(
   const isResale = shipment.type === 'RESALE';
   const isReturn = shipment.type === 'RETURN';
   const trackingFields = buildShippingEmailTrackingFields(shipment);
+  const itemSummary = productNamesFromManualShipment(shipment).join(', ');
 
   if (newStatus === 'IN_TRANSIT') {
     const title = isResale
@@ -73,6 +78,7 @@ export async function sendShipmentLegStatusNotification(
             ? 'In Transit'
             : 'Return Pickup In Progress',
         ...trackingFields,
+        itemSummary,
         estimatedDelivery: undefined,
       },
     });
@@ -101,6 +107,7 @@ export async function sendShipmentLegStatusNotification(
         emailSubject: 'Your return was delivered',
         emailHeading: 'Return delivered',
         ...trackingFields,
+        itemSummary,
         extraNote:
           'Your rental is not fully closed until the lister confirms they received the item in the expected condition.',
       },
@@ -114,9 +121,7 @@ export async function sendShipmentLegStatusNotification(
       ? getRentalInspectionPeriodLabel()
       : undefined;
   const orderPageUrl =
-    isResale || isOutbound
-      ? buildRenterOrderPageUrl(order.orderId)
-      : undefined;
+    isResale || isOutbound ? buildRenterOrderPageUrl(order.orderId) : undefined;
   const rentalDeliveredMessage = isOutbound
     ? `Your rental was delivered. Confirm receipt in the app if everything looks good, or report a problem within ${inspectionLabel}. After that window you will not be able to open a delivery dispute for this shipment.`
     : 'Your item has been delivered. Enjoy your rental!';
@@ -129,7 +134,8 @@ export async function sendShipmentLegStatusNotification(
     title: isResale
       ? 'Your purchase has been delivered!'
       : 'Your rental has been delivered!',
-    message: isResale || isOutbound
+    message:
+      isResale || isOutbound
       ? `${resaleDeliveredMessage} Open your order: ${orderPageUrl}`
       : resaleDeliveredMessage,
     type: 'SHIPMENT_DELIVERED',
@@ -137,8 +143,12 @@ export async function sendShipmentLegStatusNotification(
       shipmentId: shipment.id,
       orderId: order.orderId,
       orderPageUrl,
-      resaleInspectionHours: isResale ? getResaleInspectionPeriodLabel() : undefined,
-      rentalInspectionHours: isOutbound ? getRentalInspectionPeriodLabel() : undefined,
+      resaleInspectionHours: isResale
+        ? getResaleInspectionPeriodLabel()
+        : undefined,
+      rentalInspectionHours: isOutbound
+        ? getRentalInspectionPeriodLabel()
+        : undefined,
     },
     sendEmail: true,
     emailData: {
@@ -147,14 +157,19 @@ export async function sendShipmentLegStatusNotification(
       orderId: order.orderId,
       status: 'Delivered',
       ...trackingFields,
+      itemSummary,
       estimatedDelivery: undefined,
       ...(isResale || isOutbound
         ? {
             emailSubject: isResale
               ? 'Your purchase was delivered: confirm receipt'
               : 'Your rental was delivered: confirm receipt',
-            emailHeading: isResale ? 'Confirm your purchase' : 'Confirm your rental',
-            extraNote: isResale ? resaleDeliveredMessage : rentalDeliveredMessage,
+            emailHeading: isResale
+              ? 'Confirm your purchase'
+              : 'Confirm your rental',
+            extraNote: isResale
+              ? resaleDeliveredMessage
+              : rentalDeliveredMessage,
             orderPageUrl,
             ctaLabel: 'View order and confirm delivery',
           }

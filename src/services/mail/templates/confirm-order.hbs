@@ -77,8 +77,6 @@
     <h2>Hello {{curatorName}},</h2>
     <p>You have a new confirmed order from {{renterName}}.</p>
 
-    <p><strong>Order ID:</strong> {{#if approvalLink}}<a href="{{approvalLink}}">{{orderId}}</a>{{else}}{{orderId}}{{/if}}</p>
-
     <p>
       {{#if (gt listerRentalSubtotal 0)}}<strong>Rental subtotal:</strong> ₦{{listerRentalSubtotal}}<br />{{/if}}
       {{#if (gt listerCleaningFeesTotal 0)}}<strong>Cleaning fees:</strong> ₦{{listerCleaningFeesTotal}}<br />{{/if}}
@@ -92,6 +90,7 @@
       {{> order-line-items}}
     </div>
     {{/if}}
+    <p style="font-size:12px;color:#777;">Order reference: {{orderId}}</p>
 
     <div class="email-footer">
       {{#if approvalLink}}
@@ -107,7 +106,6 @@
     <h2>Hello {{curatorName}},</h2>
     <p>You have a new {{#if (eq requestType 'purchase')}}purchase{{else}}order{{/if}} awaiting your approval.</p>
 
-    <p><strong>Order ID:</strong> {{orderId}}</p>
     <p><strong>Renter Name:</strong> {{renterName}}</p>
     <p><strong>Total Amount:</strong> ₦{{totalAmount}}</p>
 
@@ -127,6 +125,7 @@
         {{/each}}
       </ul>
     </div>
+    <p style="font-size:12px;color:#777;">Order reference: {{orderId}}</p>
 
     <p>Please review the product and click the button below to approve the {{#if (eq requestType 'purchase')}}purchase{{else}}order{{/if}}:</p>
     <a href="{{approvalLink}}" class="button" style="display:inline-block;padding:10px 20px;background-color:#1d72b8;color:#ffffff !important;text-decoration:none !important;border-radius:5px;">{{#if (eq requestType 'purchase')}}Accept Purchase{{else}}Accept Order{{/if}}</a>
@@ -137,8 +136,6 @@
     <!-- Customer order confirmation email -->
     <h2>Hello {{customerName}},</h2>
     <p>Your order has been confirmed successfully!</p>
-
-    <p><strong>Order ID:</strong> {{#if orderLink}}<a href="{{orderLink}}">{{orderId}}</a>{{else}}{{orderId}}{{/if}}</p>
     <p><strong>Total Amount:</strong> ₦{{totalAmount}}</p>
 
     {{#if hasOrderLines}}
@@ -147,6 +144,7 @@
       {{> order-line-items}}
     </div>
     {{/if}}
+    <p style="font-size:12px;color:#777;">Order reference: {{orderId}}</p>
 
     <div class="email-footer">
       {{#if orderLink}}

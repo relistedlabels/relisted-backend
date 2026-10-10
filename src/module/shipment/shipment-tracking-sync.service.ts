@@ -31,6 +31,9 @@ export type ShipmentTrackingPollRow = {
   type: string;
   pricingTier: string | null;
   providerTrackingUrl?: string | null;
+  orderItemsOutbound?: Array<{ product: { name: string } }>;
+  orderItemsReturn?: Array<{ product: { name: string } }>;
+  orderItemsResale?: Array<{ product: { name: string } }>;
   order: {
     id: string;
     orderId: string;
@@ -136,8 +139,7 @@ export class ShipmentTrackingSyncService {
     try {
       await syncOrderStatusFromShipments(this.prisma, shipment.order.id);
     } catch (syncErr: unknown) {
-      const msg =
-        syncErr instanceof Error ? syncErr.message : String(syncErr);
+      const msg = syncErr instanceof Error ? syncErr.message : String(syncErr);
       this.logger.warn(
         `${logPrefix} Order status sync failed for order ${shipment.order.id}: ${msg}`,
       );
@@ -145,8 +147,7 @@ export class ShipmentTrackingSyncService {
 
     const shipmentForNotify: ShipmentTrackingPollRow = {
       ...shipment,
-      trackingId:
-        input.trackingId?.trim() || shipment.trackingId,
+      trackingId: input.trackingId?.trim() || shipment.trackingId,
       providerTrackingUrl:
         input.providerTrackingUrl?.trim() || shipment.providerTrackingUrl,
     };
@@ -172,6 +173,9 @@ export class ShipmentTrackingSyncService {
         type: true,
         pricingTier: true,
         providerTrackingUrl: true,
+        orderItemsOutbound: { select: { product: { select: { name: true } } } },
+        orderItemsReturn: { select: { product: { select: { name: true } } } },
+        orderItemsResale: { select: { product: { select: { name: true } } } },
         order: {
           select: {
             id: true,

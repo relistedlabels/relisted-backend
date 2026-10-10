@@ -23,11 +23,12 @@
     </div>
     <div class="content">
       <p>Hello {{curatorName}},</p>
-      <p><strong>{{renterName}}</strong> started a return for order <strong>{{orderId}}</strong>. Our courier will collect from them.</p>
-
       {{#if itemSummary}}
-      <p><strong>Items:</strong> {{itemSummary}}</p>
+      <p><strong>{{renterName}}</strong> started a return for <strong>{{itemSummary}}</strong>. Our courier will collect from them.</p>
+      {{else}}
+      <p><strong>{{renterName}}</strong> started a return. Our courier will collect the item from them.</p>
       {{/if}}
+      <p style="font-size:12px;color:#777;">Order reference: {{orderId}}</p>
 
       {{#if returnWindowSummary}}
       <div class="box">

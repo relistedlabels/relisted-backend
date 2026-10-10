@@ -64,9 +64,11 @@
         <div class="content">
             <p>Hello {{userName}},</p>
             {{#if emailHeading}}
-            <p>{{emailHeading}} (order {{orderId}}).</p>
+            <p>{{emailHeading}}{{#if itemSummary}} for <strong>{{itemSummary}}</strong>{{/if}}.</p>
+            <p style="font-size:12px;color:#777;">Order reference: {{orderId}}</p>
             {{else}}
-            <p>Order <strong>{{orderId}}</strong> is now <strong>{{status}}</strong>.</p>
+            <p><strong>{{#if itemSummary}}{{itemSummary}}{{else}}{{#if productName}}{{productName}}{{else}}Your item{{/if}}{{/if}}</strong> is now <strong>{{status}}</strong>.</p>
+            <p style="font-size:12px;color:#777;">Order reference: {{orderId}}</p>
             {{/if}}
 
             {{#if pickupWindowSummary}}

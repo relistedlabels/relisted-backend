@@ -5,9 +5,9 @@ import {
 
 type ManualShipmentProductRow = {
   type: string;
-  orderItemsOutbound: Array<{ product: { name: string } }>;
-  orderItemsReturn: Array<{ product: { name: string } }>;
-  orderItemsResale: Array<{ product: { name: string } }>;
+  orderItemsOutbound?: Array<{ product: { name: string } }>;
+  orderItemsReturn?: Array<{ product: { name: string } }>;
+  orderItemsResale?: Array<{ product: { name: string } }>;
 };
 
 type ManualShipmentWindowRow = {
@@ -21,10 +21,10 @@ export function productNamesFromManualShipment(
 ): string[] {
   const items =
     shipment.type === 'OUTBOUND'
-      ? shipment.orderItemsOutbound
+      ? (shipment.orderItemsOutbound ?? [])
       : shipment.type === 'RETURN'
-        ? shipment.orderItemsReturn
-        : shipment.orderItemsResale;
+        ? (shipment.orderItemsReturn ?? [])
+        : (shipment.orderItemsResale ?? []);
   const names = items
     .map((row) => row.product?.name?.trim())
     .filter((name): name is string => Boolean(name));

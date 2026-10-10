@@ -27,8 +27,11 @@ export class AdminWalletsController {
 
   @Get('stats')
   @ApiOperation({ summary: 'Get wallets and escrow statistics' })
-  async getWalletStats() {
-    return this.adminService.getWalletStats();
+  async getWalletStats(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.adminService.getWalletStats(from, to);
   }
 
   @Get()

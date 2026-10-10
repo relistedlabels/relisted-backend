@@ -5,7 +5,7 @@ const MS_HOUR = 60 * 60 * 1000;
 const MS_MINUTE = 60 * 1000;
 
 export type ReturnRequestReminderType =
-  | '24_hours_before'
+  | 'night_before'
   | 'morning_of'
   | 'hourly'
   | '30_minutes'
@@ -36,6 +36,7 @@ export type ReturnRequestReminderLegState = {
 };
 
 export type ReturnRequestReminderConfig = {
+  preWindowNightHour: number;
   preWindowMorningHour: number;
   pastDueMorningHour: number;
   pastDueAfternoonHour: number;
@@ -145,14 +146,16 @@ export function computeReturnRequestReminderActions(
 
   if (msToStart > 0) {
     const isWindowToday = toLagosDateKey(windowStart) === nowDate;
+    const isWindowTomorrow =
+      toLagosDateKey(windowStart) ===
+      toLagosDateKey(new Date(now.getTime() + 24 * MS_HOUR));
 
     if (
-      !sentAt(state, '24_hours_before') &&
-      msToStart > 23 * MS_HOUR &&
-      msToStart <= 25 * MS_HOUR &&
-      !isWindowToday
+      !sentAt(state, 'night_before') &&
+      isWindowTomorrow &&
+      nowHour >= config.preWindowNightHour
     ) {
-      actions.push({ type: '24_hours_before' });
+      actions.push({ type: 'night_before' });
     }
 
     if (
@@ -197,6 +200,7 @@ export function computeReturnRequestReminderActions(
 export function buildReturnRequestReminderConfigFromEnv(): ReturnRequestReminderConfig {
   const n = (key: string, fallback: number) => Number(process.env[key] ?? fallback);
   return {
+    preWindowNightHour: n('RETURN_REQUEST_REMINDER_NIGHT_HOUR', 20),
     preWindowMorningHour: n('RETURN_REQUEST_REMINDER_MORNING_HOUR', 8),
     pastDueMorningHour: n('RETURN_REQUEST_PAST_DUE_MORNING_HOUR', 8),
     pastDueAfternoonHour: n('RETURN_REQUEST_PAST_DUE_AFTERNOON_HOUR', 14),
@@ -212,9 +216,9 @@ export function returnRequestReminderNotificationCopy(
 ): { title: string; message: string } {
   const item = `${orderId} (${productName})`;
   const copies: Record<ReturnRequestReminderType, { title: string; message: string }> = {
-    '24_hours_before': {
-      title: 'Complete your return request',
-      message: `Pickup for order ${item} is within 24 hours. Complete your return request in the app or pickup will not happen.`,
+    night_before: {
+      title: 'Complete your return request tonight',
+      message: `Pickup for order ${item} is scheduled for tomorrow. Submit your return request tonight so pickup can go ahead.`,
     },
     morning_of: {
       title: 'Complete your return request today',
@@ -273,10 +277,10 @@ export function returnRequestReminderEmailCopy(
     ReturnRequestReminderType,
     { subject: string; heading: string; body: string; footer: string }
   > = {
-    '24_hours_before': {
-      subject: 'Action required: complete your return request',
-      heading: 'Complete your return request',
-      body: `Your pickup for <strong>${productName}</strong> is within 24 hours.${w} ${noPickup}`,
+    night_before: {
+      subject: 'Tonight: complete your return request for pickup',
+      heading: 'Complete your return request tonight',
+      body: `Pickup for <strong>${productName}</strong> is scheduled for tomorrow.${w} ${noPickup}`,
       footer: '',
     },
     morning_of: {
