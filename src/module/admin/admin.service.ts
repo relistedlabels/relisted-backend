@@ -2056,6 +2056,9 @@ export class AdminService {
             user: true,
             escrows: true,
             returnRequests: true,
+            orderItems: {
+              select: { product: { select: { name: true } } },
+            },
           },
         },
       },
@@ -2064,6 +2067,18 @@ export class AdminService {
     if (!dispute) throw new NotFoundException('Dispute not found');
     const order: any = (dispute as any).order;
     if (!order) throw new NotFoundException('Order not found');
+    const itemSummary =
+      [
+        ...new Set(
+          (order.orderItems ?? [])
+            .map((item: { product?: { name?: string | null } | null }) =>
+              item.product?.name?.trim(),
+            )
+            .filter((name: string | undefined): name is string =>
+              Boolean(name),
+            ),
+        ),
+      ].join(', ') || 'your item';
     const escrow = this.pickOrderEscrow(order);
     if (!escrow) throw new BadRequestException('Escrow not found');
     const escrowStatus = escrow.status as string;
@@ -2336,6 +2351,7 @@ export class AdminService {
           email: order.user.email,
           userName: order.user.name,
           orderId: order.orderId,
+          itemSummary,
           disputeId: dispute.disputeId,
           status: 'resolved',
           disputeRecipient: 'renter',
@@ -2370,6 +2386,7 @@ export class AdminService {
           email: lister.email,
           userName: lister.name,
           orderId: order.orderId,
+          itemSummary,
           disputeId: dispute.disputeId,
           status: 'resolved',
           disputeRecipient: 'lister',
@@ -2553,8 +2570,7 @@ export class AdminService {
     const totalEscrowLocked = Number(escrowLockedRows[0]?.total ?? 0);
     const totalCollateralLocked = walletSums._sum.collateralBalance || 0;
     const platformServiceFees = serviceFeeSum._sum.serviceFee || 0;
-    const listerPlatformFees =
-      listerPlatformFeeSum._sum.platformFeeAmount || 0;
+    const listerPlatformFees = listerPlatformFeeSum._sum.platformFeeAmount || 0;
     const totalVatCollected = vatSum._sum.vatAmount || 0;
 
     const now = new Date();
@@ -2585,8 +2601,14 @@ export class AdminService {
         ...orderFeeWhere,
         createdAt: { gte: periodFrom, lt: periodTo },
       };
-      const [revenueAgg, completedCount, feesAgg, vatAgg, listerFeesAgg, payoutRows] =
-        await Promise.all([
+      const [
+        revenueAgg,
+        completedCount,
+        feesAgg,
+        vatAgg,
+        listerFeesAgg,
+        payoutRows,
+      ] = await Promise.all([
           this.prisma.order.aggregate({
             where: {
               ...periodOrderWhere,
@@ -4506,6 +4528,13 @@ export class AdminService {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format(result.refundAmount);
+    const itemSummary = [
+      ...new Set(
+        order.orderItems
+          .map((item) => item.product.name.trim())
+          .filter(Boolean),
+      ),
+    ].join(', ');
 
     let renterNotified = false;
     let listerNotified = false;
@@ -4533,6 +4562,7 @@ export class AdminService {
             orderLink: `${clientUrl}/renters/orders/${order.orderId}`,
             refundAmountFormatted: refundFormatted,
             isRenter: true,
+            itemSummary,
           },
         });
         renterNotified = true;
@@ -4564,6 +4594,7 @@ export class AdminService {
             reason,
             orderLink: `${clientUrl}/listers/orders/${order.id}`,
             isRenter: false,
+            itemSummary,
           },
         });
         listerNotified = true;

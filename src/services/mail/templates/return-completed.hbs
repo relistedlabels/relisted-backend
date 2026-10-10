@@ -63,7 +63,8 @@
         </div>
         <div class="content">
             <p>Hello {{renterName}},</p>
-            <p>Your return for order <strong>{{orderId}}</strong> has been completed and confirmed by the lister.</p>
+            <p>Your return{{#if itemSummary}} for <strong>{{itemSummary}}</strong>{{/if}} has been completed and confirmed by the lister.</p>
+            <p style="font-size:12px;color:#777;">Order reference: {{orderId}}</p>
             
             <p><strong>Lister's Assessment:</strong> {{listerCondition}}</p>
 

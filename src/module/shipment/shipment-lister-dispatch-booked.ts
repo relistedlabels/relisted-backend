@@ -29,7 +29,19 @@ export async function notifyListerOfDispatchBooking(
 
   const full = await prisma.order.findUnique({
     where: { id: orderInternalId },
-    select: { id: true, orderId: true },
+    select: {
+      id: true,
+      orderId: true,
+      orderItems: {
+        where: {
+          OR: [
+            { outboundShipmentId: shipment.id },
+            { resaleShipmentId: shipment.id },
+          ],
+        },
+        select: { product: { select: { name: true } } },
+      },
+    },
   });
   if (!full) return;
 
@@ -59,11 +71,16 @@ export async function notifyListerOfDispatchBooking(
 
   const clientUrl = process.env.CLIENT_URL || 'https://relisted.com';
   const orderPageUrl = `${clientUrl}/listers/orders/${full.id}`;
+  const itemSummary = [
+    ...new Set(
+      full.orderItems.map((item) => item.product.name.trim()).filter(Boolean),
+    ),
+  ].join(', ');
 
   await notification.createNotification({
     userId: shipment.listerId,
     title: '📦 Dispatch booked. Get your item ready.',
-    message: `The courier is booked for order ${full.orderId}.${windowSummary ? ` Pickup window: ${windowSummary}.` : ''} Have your item packed and ready for pickup. You’ll get another update when the rider collects it.`,
+    message: `The courier is booked for ${itemSummary || 'your item'}.${windowSummary ? ` Pickup window: ${windowSummary}.` : ''} Have your item packed and ready for pickup. You’ll get another update when the rider collects it.`,
     type: 'LISTER_DISPATCH_BOOKED',
     metadata: {
       orderId: full.id,
@@ -78,6 +95,7 @@ export async function notifyListerOfDispatchBooking(
       status: 'Booked for dispatch (pickup not started yet)',
       emailSubject: 'Dispatch booked. Get your item ready.',
       emailHeading: 'Dispatch booked with courier',
+      itemSummary,
       ...(windowSummary ? { pickupWindowSummary: windowSummary } : {}),
       extraNote:
         'The courier is booked for this window. The rider may not have picked up yet. Have your item packed and ready.',

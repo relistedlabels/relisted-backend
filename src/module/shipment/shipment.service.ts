@@ -30,6 +30,7 @@ import { buildShippingEmailTrackingFields } from './shipment-tracking-url.util';
 import { PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY } from 'src/utils/product-attachment-upload-order';
 import { formatAdminReturnRequest } from '../order/admin-return-request.format';
 import { returnRequestExistsForShipment } from '../order/return-request-leg.util';
+import { productNamesFromManualShipment } from './manual-fulfillment-email.util';
 
 const IMMEDIATE_DISPATCH_THRESHOLD_MINUTES = Number(
   process.env.IMMEDIATE_DISPATCH_THRESHOLD_MINUTES ?? 60,
@@ -73,7 +74,12 @@ export class ShipmentService {
   private async buildListShipmentsWhere(
     dto: Pick<
       ListShipmentsDto,
-      'status' | 'type' | 'dateFrom' | 'dateTo' | 'orderId' | 'manualFulfillment'
+      | 'status'
+      | 'type'
+      | 'dateFrom'
+      | 'dateTo'
+      | 'orderId'
+      | 'manualFulfillment'
     >,
   ): Promise<{ where: Record<string, unknown>; orderMissing: boolean }> {
     const { status, type, dateFrom, dateTo, orderId, manualFulfillment } = dto;
@@ -133,6 +139,11 @@ export class ShipmentService {
       this.prisma.shipment.findMany({
         where,
         include: {
+          orderItemsOutbound: {
+            select: { product: { select: { name: true } } },
+          },
+          orderItemsReturn: { select: { product: { select: { name: true } } } },
+          orderItemsResale: { select: { product: { select: { name: true } } } },
           order: {
             select: {
               orderId: true,
@@ -164,13 +175,22 @@ export class ShipmentService {
   }
 
   async getShipmentCosts(dto: ListShipmentsDto) {
-    const providerF = String(dto.provider ?? 'all').trim().toLowerCase();
-    const courierF = String(dto.courier ?? 'all').trim().toLowerCase();
+    const providerF = String(dto.provider ?? 'all')
+      .trim()
+      .toLowerCase();
+    const courierF = String(dto.courier ?? 'all')
+      .trim()
+      .toLowerCase();
     const empty = {
       totalKobo: 0,
       count: 0,
       trend: [] as { month: string; kobo: number; count: number }[],
-      groups: [] as { key: string; label: string; kobo: number; count: number }[],
+      groups: [] as {
+        key: string;
+        label: string;
+        kobo: number;
+        count: number;
+      }[],
       providers: [] as string[],
       couriers: [] as string[],
     };
@@ -198,7 +218,8 @@ export class ShipmentService {
     const providerOf = (r: (typeof rows)[0]) => {
       if (r.manualFulfillment) return 'manual';
       const t = String(r.pricingTier ?? '').toLowerCase();
-      if (t === 'shipbubble' || t.startsWith('shipbubble:')) return 'shipbubble';
+      if (t === 'shipbubble' || t.startsWith('shipbubble:'))
+        return 'shipbubble';
       if (t === 'chowdeck_relay') return 'chowdeck_relay';
       return 'topship';
     };
@@ -234,8 +255,14 @@ export class ShipmentService {
         (courierF === 'all' || courierOf(r) === courierF),
     );
 
-    const trendMap = new Map<string, { month: string; kobo: number; count: number }>();
-    const groupMap = new Map<string, { key: string; label: string; kobo: number; count: number }>();
+    const trendMap = new Map<
+      string,
+      { month: string; kobo: number; count: number }
+    >();
+    const groupMap = new Map<
+      string,
+      { key: string; label: string; kobo: number; count: number }
+    >();
     let totalKobo = 0;
     for (const r of filtered) {
       const kobo = costKobo(r);
@@ -246,8 +273,15 @@ export class ShipmentService {
       t.count += 1;
       trendMap.set(month, t);
       const gKey =
-        providerF !== 'all' || courierF !== 'all' ? courierOf(r) : providerOf(r);
-      const g = groupMap.get(gKey) ?? { key: gKey, label: label(gKey), kobo: 0, count: 0 };
+        providerF !== 'all' || courierF !== 'all'
+          ? courierOf(r)
+          : providerOf(r);
+      const g = groupMap.get(gKey) ?? {
+        key: gKey,
+        label: label(gKey),
+        kobo: 0,
+        count: 0,
+      };
       g.kobo += kobo;
       g.count += 1;
       groupMap.set(gKey, g);
@@ -258,7 +292,9 @@ export class ShipmentService {
       data: {
         totalKobo,
         count: filtered.length,
-        trend: [...trendMap.values()].sort((a, b) => a.month.localeCompare(b.month)),
+        trend: [...trendMap.values()].sort((a, b) =>
+          a.month.localeCompare(b.month),
+        ),
         groups: [...groupMap.values()].sort((a, b) => b.kobo - a.kobo),
         providers,
         couriers,
@@ -365,11 +401,7 @@ export class ShipmentService {
 
   // ─── Rate preview (admin) ──────────────────────────────────────────────────
 
-  async getRatePreview(
-    id: string,
-    forImmediate = false,
-    provider?: string,
-  ) {
+  async getRatePreview(id: string, forImmediate = false, provider?: string) {
     const shipment = await this.prisma.shipment.findUnique({ where: { id } });
     if (!shipment) throw new NotFoundException('Shipment not found');
 
@@ -428,8 +460,7 @@ export class ShipmentService {
     );
 
     const updateWindow = dto.updateWindow !== false;
-    const forImmediate =
-      updateWindow && this.isScheduledInFuture(shipment);
+    const forImmediate = updateWindow && this.isScheduledInFuture(shipment);
     const updateData: Record<string, unknown> = {};
 
     if (shipment.status === 'DISPATCH_FAILED') {
@@ -469,8 +500,9 @@ export class ShipmentService {
       }
       const charges = this.shipmentQuoteService.tierToShipmentCharges(matched);
       const tierChanged =
-        String(shipment.pricingTier ?? '').trim().toLowerCase() !==
-        charges.pricingTier.trim().toLowerCase();
+        String(shipment.pricingTier ?? '')
+          .trim()
+          .toLowerCase() !== charges.pricingTier.trim().toLowerCase();
       updateData.pricingTier = charges.pricingTier;
       updateData.shipmentCharge = charges.shipmentCharge;
       updateData.pickupCharge = charges.pickupCharge;
@@ -508,8 +540,7 @@ export class ShipmentService {
 
     let enqueueNow =
       forImmediate ||
-      (updateWindow &&
-        this.shouldDispatchImmediately(effectiveWindowStart));
+      (updateWindow && this.shouldDispatchImmediately(effectiveWindowStart));
 
     if (shipment.type === 'RETURN' && !returnRequestReady) {
       enqueueNow = false;
@@ -647,7 +678,10 @@ export class ShipmentService {
 
   // ─── Switch courier-tier leg to Relisted dispatch (before marking sent) ───
 
-  async switchToManualFulfillment(id: string, dto: SwitchToManualShipmentDto = {}) {
+  async switchToManualFulfillment(
+    id: string,
+    dto: SwitchToManualShipmentDto = {},
+  ) {
     const shipment = await this.loadShipmentForManualOps(id);
 
     if (shipment.manualFulfillment) {
@@ -662,7 +696,9 @@ export class ShipmentService {
       );
     }
 
-    if (!['PENDING', 'DISPATCHING', 'DISPATCH_FAILED'].includes(shipment.status)) {
+    if (
+      !['PENDING', 'DISPATCHING', 'DISPATCH_FAILED'].includes(shipment.status)
+    ) {
       throw new BadRequestException(
         'This shipment cannot be switched to Relisted dispatch right now.',
       );
@@ -693,7 +729,10 @@ export class ShipmentService {
 
   // ─── Reconcile courier-tier leg handled outside automated booking ──────────
 
-  async reconcileManualFulfillment(id: string, dto: ReconcileManualShipmentDto) {
+  async reconcileManualFulfillment(
+    id: string,
+    dto: ReconcileManualShipmentDto,
+  ) {
     const shipment = await this.loadShipmentForManualOps(id);
 
     if (shipment.manualFulfillment) {
@@ -702,7 +741,9 @@ export class ShipmentService {
       );
     }
 
-    if (!['PENDING', 'DISPATCHING', 'DISPATCH_FAILED'].includes(shipment.status)) {
+    if (
+      !['PENDING', 'DISPATCHING', 'DISPATCH_FAILED'].includes(shipment.status)
+    ) {
       throw new BadRequestException(
         'This shipment cannot be updated this way in its current state.',
       );
@@ -711,7 +752,9 @@ export class ShipmentService {
     const trackingId =
       dto.trackingId !== undefined ? dto.trackingId.trim() || null : undefined;
     const trackingUrl =
-      dto.trackingUrl !== undefined ? dto.trackingUrl.trim() || null : undefined;
+      dto.trackingUrl !== undefined
+        ? dto.trackingUrl.trim() || null
+        : undefined;
     const note =
       dto.adminReconcileNote !== undefined
         ? dto.adminReconcileNote.trim() || null
@@ -726,7 +769,9 @@ export class ShipmentService {
         reconciledAsManualAt: new Date(),
         providerShipmentId: null,
         ...(trackingId !== undefined ? { trackingId } : {}),
-        ...(trackingUrl !== undefined ? { providerTrackingUrl: trackingUrl } : {}),
+        ...(trackingUrl !== undefined
+          ? { providerTrackingUrl: trackingUrl }
+          : {}),
         ...(dto.actualFulfillmentCostKobo !== undefined
           ? { actualFulfillmentCostKobo: dto.actualFulfillmentCostKobo }
           : {}),
@@ -751,6 +796,15 @@ export class ShipmentService {
           include: {
             user: { select: { id: true, name: true, email: true } },
           },
+        },
+        orderItemsOutbound: {
+          select: { product: { select: { name: true } } },
+        },
+        orderItemsReturn: {
+          select: { product: { select: { name: true } } },
+        },
+        orderItemsResale: {
+          select: { product: { select: { name: true } } },
         },
       },
     });
@@ -916,7 +970,10 @@ export class ShipmentService {
           reconciledAsManual: options?.reconciled ?? false,
         },
         sendEmail: true,
-        emailData: notify.emailData,
+        emailData: {
+          ...notify.emailData,
+          itemSummary: productNamesFromManualShipment(shipment).join(', '),
+        },
       });
     }
   }
@@ -927,6 +984,9 @@ export class ShipmentService {
     const shipment = await this.prisma.shipment.findUnique({
       where: { id },
       include: {
+        orderItemsOutbound: { select: { product: { select: { name: true } } } },
+        orderItemsReturn: { select: { product: { select: { name: true } } } },
+        orderItemsResale: { select: { product: { select: { name: true } } } },
         order: {
           include: {
             user: { select: { id: true, name: true, email: true } },
@@ -937,12 +997,14 @@ export class ShipmentService {
     if (!shipment) throw new NotFoundException('Shipment not found');
 
     if (['COMPLETED', 'CANCELLED'].includes(shipment.status)) {
-      throw new BadRequestException(
-        'This shipment is already finished.',
-      );
+      throw new BadRequestException('This shipment is already finished.');
     }
 
-    if (!['PENDING', 'DISPATCH_FAILED', 'DISPATCHED', 'IN_TRANSIT'].includes(shipment.status)) {
+    if (
+      !['PENDING', 'DISPATCH_FAILED', 'DISPATCHED', 'IN_TRANSIT'].includes(
+        shipment.status,
+      )
+    ) {
       throw new BadRequestException(
         'This shipment cannot be marked completed in its current state.',
       );
@@ -975,6 +1037,9 @@ export class ShipmentService {
         pricingTier: shipment.pricingTier,
         providerTrackingUrl: shipment.providerTrackingUrl,
         providerShipmentId: shipment.providerShipmentId,
+        orderItemsOutbound: shipment.orderItemsOutbound,
+        orderItemsReturn: shipment.orderItemsReturn,
+        orderItemsResale: shipment.orderItemsResale,
         order: shipment.order
           ? {
               orderId: shipment.order.orderId,

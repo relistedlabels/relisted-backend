@@ -365,6 +365,9 @@ export class ShippingDto {
   @IsString()
   @IsOptional()
   ctaLabel?: string;
+  @IsString()
+  @IsOptional()
+  itemSummary?: string;
 }
 
 /** Lister: return picked up and moving toward lister */
@@ -388,6 +391,9 @@ export class ListerReturnInTransitDto {
   @IsString()
   @IsOptional()
   trackingProviderLabel?: string;
+  @IsString()
+  @IsOptional()
+  itemSummary?: string;
 }
 
 /** Lister: carrier shows delivered — prompt confirm receipt flow */
@@ -429,6 +435,9 @@ export class ListerReturnWindowPassedDto {
   orderPageUrl: string;
   @IsString()
   platformName: string;
+  @IsString()
+  @IsOptional()
+  itemSummary?: string;
 }
 
 export class ReturnInitiatedDto {
@@ -484,6 +493,9 @@ export class ReturnCompletedDto {
   walletUrl?: string;
   @IsString()
   platformName: string;
+  @IsString()
+  @IsOptional()
+  itemSummary?: string;
 }
 
 export class DisputeCreatedDto {
@@ -529,6 +541,10 @@ export class DisputeStatusDto {
 
   @IsString()
   orderId: string;
+
+  @IsString()
+  @IsOptional()
+  itemSummary?: string;
 
   @IsString()
   status: string;
@@ -789,4 +805,8 @@ export class OrderCancelledDto {
   @IsOptional()
   @IsBoolean()
   isRenter?: boolean;
+
+  @IsString()
+  @IsOptional()
+  itemSummary?: string;
 }

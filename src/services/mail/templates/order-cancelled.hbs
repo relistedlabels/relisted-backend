@@ -51,11 +51,12 @@
     <h2>Hello {{recipientName}},</h2>
 
     {{#if isRenter}}
-    <p>Your order <strong>{{orderId}}</strong> has been cancelled.</p>
+    <p>Your order{{#if itemSummary}} for <strong>{{itemSummary}}</strong>{{/if}} has been cancelled.</p>
     <p>A full refund of <strong>NGN {{refundAmountFormatted}}</strong> has been returned to your wallet.</p>
     {{else}}
-    <p>Order <strong>{{orderId}}</strong> from {{renterName}} has been cancelled.</p>
+    <p>The order{{#if itemSummary}} for <strong>{{itemSummary}}</strong>{{/if}} from {{renterName}} has been cancelled.</p>
     {{/if}}
+    <p style="font-size:12px;color:#777;">Order reference: {{orderId}}</p>
 
     {{#if reason}}
     <div class="info-box">

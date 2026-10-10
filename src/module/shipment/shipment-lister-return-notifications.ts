@@ -1,6 +1,9 @@
 import type { PrismaService } from 'src/services/prisma/prisma.service';
 import type { NotificationService } from 'src/services/notification/notification.service';
-import { returnLegItemPreviews } from 'src/module/order/return-request-leg.util';
+import {
+  productNamesForReturnLeg,
+  returnLegItemPreviews,
+} from 'src/module/order/return-request-leg.util';
 import { PRODUCT_ATTACHMENT_UPLOADS_ORDER_BY } from 'src/utils/product-attachment-upload-order';
 import { getListerReturnInspectionPeriodLabel } from 'src/module/order/rental-delivery.util';
 import { buildShippingEmailTrackingFields } from './shipment-tracking-url.util';
@@ -86,12 +89,17 @@ export async function notifyListersForReturnLeg(
 
   const curatorName =
     lister.profile?.businessInfo?.businessName || lister.name || 'there';
+  const itemSummary = productNamesForReturnLeg(
+    full.orderItems,
+    shipment.id,
+    listerId,
+  );
 
   if (phase === 'IN_TRANSIT') {
     await notification.createNotification({
       userId: listerId,
       title: 'Return on its way to you',
-      message: `The renter's return for order ${full.orderId} is in transit to your address.`,
+      message: `The renter's return for ${itemSummary} is in transit to your address.`,
       type: 'LISTER_RETURN_IN_TRANSIT',
       metadata: {
         orderId: full.id,
@@ -105,6 +113,7 @@ export async function notifyListersForReturnLeg(
         orderNumber: full.orderId,
         orderPageUrl,
         platformName: 'Relisted',
+        itemSummary,
         ...trackingFields,
       },
     });
@@ -120,7 +129,7 @@ export async function notifyListersForReturnLeg(
   await notification.createNotification({
     userId: listerId,
     title: 'Confirm return receipt to finish this rental',
-    message: `The return for order ${full.orderId} was delivered. Confirm receipt in the app to complete the order. If you don't confirm within ${autoConfirmPeriodLabel}, we'll automatically complete it and release funds.`,
+    message: `The return for ${itemSummary} was delivered. Confirm receipt in the app to complete the order. If you don't confirm within ${autoConfirmPeriodLabel}, we'll automatically complete it and release funds.`,
     type: 'LISTER_RETURN_DELIVERED_CONFIRM',
     metadata: {
       orderId: full.id,
@@ -134,6 +143,7 @@ export async function notifyListersForReturnLeg(
       orderNumber: full.orderId,
       orderPageUrl,
       platformName: 'Relisted',
+      itemSummary,
       trackingNumber: trackingFields.trackingNumber,
       autoConfirmPeriodLabel,
       returnItems,
