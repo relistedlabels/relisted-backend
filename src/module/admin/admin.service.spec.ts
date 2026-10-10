@@ -26,6 +26,7 @@ const mockPrisma: any = {
   escrow: {
     findUnique: jest.fn(),
     update: jest.fn(),
+    aggregate: jest.fn(),
   },
   order: {
     update: jest.fn(),
@@ -146,12 +147,21 @@ describe('AdminService', () => {
       mockPrisma.wallet.aggregate = jest.fn().mockResolvedValue({
         _sum: { mainBalance: 100000, collateralBalance: 200 },
       });
-      mockPrisma.$queryRaw = jest.fn().mockResolvedValue([{ total: 500n }]);
+      mockPrisma.$queryRaw = jest
+        .fn()
+        .mockImplementation((query: { sql: string }) =>
+          Promise.resolve(
+            query.sql.includes('AS total') ? [{ total: 500n }] : [],
+          ),
+        );
       mockPrisma.walletTransaction.aggregate = jest.fn().mockResolvedValue({
         _sum: { amount: 0 },
       });
       mockPrisma.order.aggregate = jest.fn().mockResolvedValue({ _sum: {} });
       mockPrisma.order.count = jest.fn().mockResolvedValue(0);
+      mockPrisma.escrow.aggregate = jest
+        .fn()
+        .mockResolvedValue({ _sum: { platformFeeAmount: 0 } });
 
       const result = await service.getWalletStats();
       const escrowQuery = mockPrisma.$queryRaw.mock.calls[0][0];
@@ -164,6 +174,53 @@ describe('AdminService', () => {
           totalEscrowBalance: 500,
           totalCollateralLocked: 200,
         }),
+      );
+    });
+
+    it('combines platform fees and separates withdrawal payouts by user role', async () => {
+      mockPrisma.wallet.aggregate.mockResolvedValue({
+        _sum: { mainBalance: 0, collateralBalance: 0 },
+      });
+      mockPrisma.$queryRaw = jest
+        .fn()
+        .mockImplementation((query: { sql: string }) =>
+          Promise.resolve(
+            query.sql.includes('AS total')
+              ? [{ total: 0n }]
+              : [
+                  { role: 'LISTER', pendingAmount: 500n, paidAmount: 1000n },
+                  { role: 'RENTER', pendingAmount: 200n, paidAmount: 300n },
+                ],
+          ),
+        );
+      mockPrisma.walletTransaction.aggregate.mockResolvedValue({
+        _sum: { amount: 0 },
+      });
+      mockPrisma.order.aggregate.mockResolvedValue({
+        _sum: { totalAmountPaid: 1000, serviceFee: 200, vatAmount: 20 },
+      });
+      mockPrisma.order.count.mockResolvedValue(2);
+      mockPrisma.escrow.aggregate.mockResolvedValue({
+        _sum: { platformFeeAmount: 50 },
+      });
+
+      const result = await service.getWalletStats(
+        '2026-10-01T00:00:00.000Z',
+        '2026-11-01T00:00:00.000Z',
+      );
+
+      expect(result.data.period).toEqual(
+        expect.objectContaining({
+          grossOrderValue: 1000,
+          platformEarnings: 250,
+          serviceFees: 200,
+          listerPlatformFees: 50,
+          pendingPayouts: { listers: 500, renters: 200 },
+          paidPayouts: { listers: 1000, renters: 300 },
+        }),
+      );
+      expect(mockPrisma.$queryRaw.mock.calls[1][0].sql).toContain(
+        "LOWER(wr.status) IN ('pending', 'approved')",
       );
     });
   });
