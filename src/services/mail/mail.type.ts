@@ -671,7 +671,7 @@ export class ReturnRequestReminderDto {
   @IsString()
   @IsOptional()
   reminderType?:
-    | '24_hours_before'
+    | 'night_before'
     | 'morning_of'
     | 'hourly'
     | '30_minutes'
