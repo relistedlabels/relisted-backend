@@ -177,7 +177,7 @@ describe('AdminService', () => {
       );
     });
 
-    it('combines platform fees and separates withdrawal payouts by user role', async () => {
+    it('classifies order-linked pending and paid payouts by order role', async () => {
       mockPrisma.wallet.aggregate.mockResolvedValue({
         _sum: { mainBalance: 0, collateralBalance: 0 },
       });
@@ -189,7 +189,7 @@ describe('AdminService', () => {
               ? [{ total: 0n }]
               : [
                   { role: 'LISTER', pendingAmount: 500n, paidAmount: 1000n },
-                  { role: 'RENTER', pendingAmount: 200n, paidAmount: 300n },
+                  { role: 'RENTER', pendingAmount: 200n, paidAmount: 85000n },
                 ],
           ),
         );
@@ -225,7 +225,7 @@ describe('AdminService', () => {
           serviceFees: 200,
           listerPlatformFees: 50,
           pendingPayouts: { listers: 500, renters: 200 },
-          paidPayouts: { listers: 1000, renters: 300 },
+          paidPayouts: { listers: 1000, renters: 85000 },
         }),
       );
       expect(result.data.previousPeriod).toEqual(
@@ -233,11 +233,18 @@ describe('AdminService', () => {
           grossOrderValue: 1000,
           renterCollateralAmount: 50,
           netOrderValue: 950,
+          pendingPayouts: { listers: 500, renters: 200 },
+          paidPayouts: { listers: 1000, renters: 85000 },
         }),
       );
-      expect(mockPrisma.$queryRaw.mock.calls[1][0].sql).toContain(
-        "LOWER(wr.status) IN ('pending', 'approved')",
-      );
+      const payoutQuery = mockPrisma.$queryRaw.mock.calls[1][0].sql;
+      expect(payoutQuery).toContain('INNER JOIN "Order" o');
+      expect(payoutQuery).toContain('o."userId" = u.id');
+      expect(payoutQuery).toContain('"OrderLister"');
+      expect(payoutQuery).toContain('"Escrow"');
+      expect(payoutQuery).not.toContain('u.role');
+      expect(payoutQuery).not.toContain('"WithdrawalRequest"');
+      expect(mockPrisma.$queryRaw.mock.calls).toHaveLength(3);
     });
   });
 
