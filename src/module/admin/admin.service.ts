@@ -2631,7 +2631,7 @@ export class AdminService {
           }),
           this.prisma.escrow.aggregate({
             where: { order: periodOrderWhere },
-            _sum: { platformFeeAmount: true },
+            _sum: { platformFeeAmount: true, collateralAmount: true },
           }),
           this.prisma.$queryRaw<
             Array<{
@@ -2677,8 +2677,12 @@ export class AdminService {
       }
       const serviceFees = feesAgg._sum.serviceFee || 0;
       const listerPlatformFees = listerFeesAgg._sum.platformFeeAmount || 0;
+      const grossOrderValue = revenueAgg._sum.totalAmountPaid ?? 0;
+      const renterCollateralAmount = listerFeesAgg._sum.collateralAmount ?? 0;
       return {
-        grossOrderValue: revenueAgg._sum.totalAmountPaid ?? 0,
+        grossOrderValue,
+        renterCollateralAmount,
+        netOrderValue: grossOrderValue - renterCollateralAmount,
         completedOrders: completedCount,
         platformEarnings: serviceFees + listerPlatformFees,
         serviceFees,

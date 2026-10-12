@@ -200,9 +200,16 @@ describe('AdminService', () => {
         _sum: { totalAmountPaid: 1000, serviceFee: 200, vatAmount: 20 },
       });
       mockPrisma.order.count.mockResolvedValue(2);
-      mockPrisma.escrow.aggregate.mockResolvedValue({
-        _sum: { platformFeeAmount: 50 },
-      });
+      mockPrisma.escrow.aggregate
+        .mockResolvedValueOnce({
+          _sum: { platformFeeAmount: 50 },
+        })
+        .mockResolvedValueOnce({
+          _sum: { platformFeeAmount: 50, collateralAmount: 100 },
+        })
+        .mockResolvedValueOnce({
+          _sum: { platformFeeAmount: 50, collateralAmount: 50 },
+        });
 
       const result = await service.getWalletStats(
         '2026-10-01T00:00:00.000Z',
@@ -212,11 +219,20 @@ describe('AdminService', () => {
       expect(result.data.period).toEqual(
         expect.objectContaining({
           grossOrderValue: 1000,
+          renterCollateralAmount: 100,
+          netOrderValue: 900,
           platformEarnings: 250,
           serviceFees: 200,
           listerPlatformFees: 50,
           pendingPayouts: { listers: 500, renters: 200 },
           paidPayouts: { listers: 1000, renters: 300 },
+        }),
+      );
+      expect(result.data.previousPeriod).toEqual(
+        expect.objectContaining({
+          grossOrderValue: 1000,
+          renterCollateralAmount: 50,
+          netOrderValue: 950,
         }),
       );
       expect(mockPrisma.$queryRaw.mock.calls[1][0].sql).toContain(
