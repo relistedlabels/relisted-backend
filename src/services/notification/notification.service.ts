@@ -81,6 +81,11 @@ export class NotificationService {
       case 'lister_purchase':
         await this.whatsappService.sendListerPurchaseRequest(outbound.params);
         break;
+      case 'renter_availability_response':
+        await this.whatsappService.sendRenterAvailabilityResponse(
+          outbound.params,
+        );
+        break;
       case 'renter_return_reminder':
         await this.whatsappService.sendRenterReturnReminder(outbound.params);
         break;

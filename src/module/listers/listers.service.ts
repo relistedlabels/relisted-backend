@@ -1595,7 +1595,12 @@ export class ListersService {
     try {
       const request = await this.prisma.availabilityRequest.findUnique({
         where: { id: orderId },
-        include: { product: true, requester: true },
+        include: {
+          product: true,
+          requester: {
+            include: { profile: true, notificationSettings: true },
+          },
+        },
       });
 
       if (!request) {
@@ -1677,6 +1682,20 @@ export class ListersService {
             ? null
             : formatDispatchWindowSummaryFromRequest(request as any, 'RETURN'),
         },
+        ...(request.requester.profile?.phoneNumber?.trim() &&
+        request.requester.notificationSettings?.whatsappOptIn
+          ? {
+              whatsapp: {
+                kind: 'renter_availability_response' as const,
+                params: {
+                  toPhone: request.requester.profile.phoneNumber,
+                  renterName: request.requester.name,
+                  productName: request.product.name,
+                  checkoutUrl: magicLoginLink,
+                },
+              },
+            }
+          : {}),
       });
 
       return {
