@@ -709,6 +709,7 @@ describe('ListersService.approveOrder', () => {
             renterName: 'Renter',
             productName: 'Silk dress',
             checkoutUrl: 'https://app.test/auth/magic-link?token=test',
+            checkoutToken: 'test',
           },
         },
       }),

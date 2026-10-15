@@ -41,6 +41,7 @@ export type RenterAvailabilityResponseWhatsAppParams = {
   renterName: string;
   productName: string;
   checkoutUrl: string;
+  checkoutToken: string;
 };
 
 export type WhatsAppOutbound =
@@ -227,13 +228,10 @@ export class WhatsAppService {
       variables: {
         '1': params.renterName,
         '2': params.productName,
-        '3': params.checkoutUrl,
+        '3': params.checkoutToken,
       },
       fallbackBody: [
-        `Hi ${params.renterName}, good news! ${params.productName} is available for your dates on Relisted.`,
-        '',
-        'Complete your request here:',
-        params.checkoutUrl,
+        `Hi ${params.renterName}, good news! ${params.productName} is available for your dates on Relisted. Open ${params.checkoutUrl} to complete your request and continue to checkout.`,
       ].join('\n'),
       logLabel: `renter availability response (${params.productName})`,
     });

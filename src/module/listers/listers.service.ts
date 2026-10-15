@@ -103,6 +103,14 @@ const formatLocalDate = (value: Date | string) =>
     timeZone: 'Africa/Lagos',
   });
 
+function magicLoginTokenFromUrl(url: string): string | null {
+  try {
+    return new URL(url).searchParams.get('token');
+  } catch {
+    return null;
+  }
+}
+
 // Order status mapping for listers API
 const ORDER_STATUS_TO_LABEL: Record<OrderStatus, string> = {
   [OrderStatus.PROCESSING]: 'Processing',
@@ -1651,6 +1659,7 @@ export class ListersService {
             24 * 60,
           )
         : `${process.env.CLIENT_URL}${checkoutRedirect}`;
+      const magicLoginToken = magicLoginTokenFromUrl(magicLoginLink);
 
       await this.notificationService.createNotification({
         userId: request.requesterId,
@@ -1682,7 +1691,8 @@ export class ListersService {
             ? null
             : formatDispatchWindowSummaryFromRequest(request as any, 'RETURN'),
         },
-        ...(request.requester.profile?.phoneNumber?.trim() &&
+        ...(magicLoginToken &&
+        request.requester.profile?.phoneNumber?.trim() &&
         request.requester.notificationSettings?.whatsappOptIn
           ? {
               whatsapp: {
@@ -1692,6 +1702,7 @@ export class ListersService {
                   renterName: request.requester.name,
                   productName: request.product.name,
                   checkoutUrl: magicLoginLink,
+                  checkoutToken: magicLoginToken,
                 },
               },
             }
