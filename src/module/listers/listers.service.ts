@@ -103,6 +103,14 @@ const formatLocalDate = (value: Date | string) =>
     timeZone: 'Africa/Lagos',
   });
 
+function magicLoginTokenFromUrl(url: string): string | null {
+  try {
+    return new URL(url).searchParams.get('token');
+  } catch {
+    return null;
+  }
+}
+
 // Order status mapping for listers API
 const ORDER_STATUS_TO_LABEL: Record<OrderStatus, string> = {
   [OrderStatus.PROCESSING]: 'Processing',
@@ -1595,7 +1603,12 @@ export class ListersService {
     try {
       const request = await this.prisma.availabilityRequest.findUnique({
         where: { id: orderId },
-        include: { product: true, requester: true },
+        include: {
+          product: true,
+          requester: {
+            include: { profile: true, notificationSettings: true },
+          },
+        },
       });
 
       if (!request) {
@@ -1646,6 +1659,7 @@ export class ListersService {
             24 * 60,
           )
         : `${process.env.CLIENT_URL}${checkoutRedirect}`;
+      const magicLoginToken = magicLoginTokenFromUrl(magicLoginLink);
 
       await this.notificationService.createNotification({
         userId: request.requesterId,
@@ -1677,6 +1691,22 @@ export class ListersService {
             ? null
             : formatDispatchWindowSummaryFromRequest(request as any, 'RETURN'),
         },
+        ...(magicLoginToken &&
+        request.requester.profile?.phoneNumber?.trim() &&
+        request.requester.notificationSettings?.whatsappOptIn
+          ? {
+              whatsapp: {
+                kind: 'renter_availability_response' as const,
+                params: {
+                  toPhone: request.requester.profile.phoneNumber,
+                  renterName: request.requester.name,
+                  productName: request.product.name,
+                  checkoutUrl: magicLoginLink,
+                  checkoutToken: magicLoginToken,
+                },
+              },
+            }
+          : {}),
       });
 
       return {

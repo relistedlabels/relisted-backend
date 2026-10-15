@@ -36,9 +36,21 @@ export type RenterReturnReminderWhatsAppParams = {
   startReturnUrl?: string;
 };
 
+export type RenterAvailabilityResponseWhatsAppParams = {
+  toPhone: string;
+  renterName: string;
+  productName: string;
+  checkoutUrl: string;
+  checkoutToken: string;
+};
+
 export type WhatsAppOutbound =
   | { kind: 'lister_availability'; params: ListerAvailabilityWhatsAppParams }
   | { kind: 'lister_purchase'; params: ListerPurchaseWhatsAppParams }
+  | {
+      kind: 'renter_availability_response';
+      params: RenterAvailabilityResponseWhatsAppParams;
+    }
   | {
       kind: 'renter_return_reminder';
       params: RenterReturnReminderWhatsAppParams;
@@ -204,6 +216,24 @@ export class WhatsAppService {
           : `Return ID: ${params.orderId}`,
       ].join('\n'),
       logLabel: `renter return reminder (${params.productName})`,
+    });
+  }
+
+  async sendRenterAvailabilityResponse(
+    params: RenterAvailabilityResponseWhatsAppParams,
+  ): Promise<boolean> {
+    return this.deliver({
+      toPhone: params.toPhone,
+      contentSidEnvKey: 'TWILIO_CONTENT_SID_RENTER_AVAILABILITY_APPROVED',
+      variables: {
+        '1': params.renterName,
+        '2': params.productName,
+        '3': params.checkoutToken,
+      },
+      fallbackBody: [
+        `Hi ${params.renterName}, good news! ${params.productName} is available for your dates on Relisted. Open ${params.checkoutUrl} to complete your request and continue to checkout.`,
+      ].join('\n'),
+      logLabel: `renter availability response (${params.productName})`,
     });
   }
 

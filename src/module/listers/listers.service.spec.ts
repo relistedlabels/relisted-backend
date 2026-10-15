@@ -667,7 +667,14 @@ describe('ListersService.approveOrder', () => {
   });
 
   it('accepts pending request and notifies renter', async () => {
-    mockPrisma.availabilityRequest.findUnique.mockResolvedValue(pendingRequest);
+    mockPrisma.availabilityRequest.findUnique.mockResolvedValue({
+      ...pendingRequest,
+      requester: {
+        ...pendingRequest.requester,
+        profile: { phoneNumber: '+2348012345678' },
+        notificationSettings: { whatsappOptIn: true },
+      },
+    });
     mockPrisma.availabilityRequest.update.mockResolvedValue({
       ...pendingRequest,
       status: 'ACCEPTED',
@@ -695,6 +702,16 @@ describe('ListersService.approveOrder', () => {
           outboundWindowSummary: expect.any(String),
           returnWindowSummary: expect.any(String),
         }),
+        whatsapp: {
+          kind: 'renter_availability_response',
+          params: {
+            toPhone: '+2348012345678',
+            renterName: 'Renter',
+            productName: 'Silk dress',
+            checkoutUrl: 'https://app.test/auth/magic-link?token=test',
+            checkoutToken: 'test',
+          },
+        },
       }),
     );
     expect(result).toMatchObject({

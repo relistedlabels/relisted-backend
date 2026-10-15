@@ -44,7 +44,14 @@ export class NotificationService {
 
     // 2. Handle WhatsApp if requested
     if (dto.whatsapp) {
-      await this.dispatchWhatsApp(dto.whatsapp);
+      const settings = await this.prisma.notificationSettings.findUnique({
+        where: { userId },
+        select: { whatsappOptIn: true },
+      });
+
+      if (settings?.whatsappOptIn !== false) {
+        await this.dispatchWhatsApp(dto.whatsapp);
+      }
     }
 
     // 3. Handle Email if requested
@@ -80,6 +87,11 @@ export class NotificationService {
         break;
       case 'lister_purchase':
         await this.whatsappService.sendListerPurchaseRequest(outbound.params);
+        break;
+      case 'renter_availability_response':
+        await this.whatsappService.sendRenterAvailabilityResponse(
+          outbound.params,
+        );
         break;
       case 'renter_return_reminder':
         await this.whatsappService.sendRenterReturnReminder(outbound.params);

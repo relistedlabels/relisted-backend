@@ -3196,13 +3196,13 @@ export class RentersService {
   }
 
   async getNotificationPreferences(userId: string) {
-    const notifSettings = await this.prisma.notificationSettings.findUnique({
+    let notifSettings = await this.prisma.notificationSettings.findUnique({
       where: { userId },
     });
 
     if (!notifSettings) {
       // Create default settings if not exist
-      await this.prisma.notificationSettings.create({
+      notifSettings = await this.prisma.notificationSettings.create({
         data: { userId },
       });
     }

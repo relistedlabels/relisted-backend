@@ -2641,31 +2641,45 @@ export class AdminService {
             }>
           >(Prisma.sql`
             SELECT
-              u.role::text AS role,
-              COALESCE(SUM(wr.amount) FILTER (
-                WHERE LOWER(wr.status) IN ('pending', 'approved')
+              CASE
+                WHEN o."userId" = u.id THEN 'RENTER'
+                ELSE 'LISTER'
+              END AS role,
+              COALESCE(SUM(wt.amount) FILTER (
+                WHERE wt.status = 'PENDING'
               ), 0)::bigint AS "pendingAmount",
-              COALESCE(SUM(wr.amount) FILTER (
-                WHERE LOWER(wr.status) = 'paid'
-                  AND COALESCE(wr."paidDate", wr."updatedAt") >= ${periodFrom}
-                  AND COALESCE(wr."paidDate", wr."updatedAt") < ${periodTo}
+              COALESCE(SUM(wt.amount) FILTER (
+                WHERE wt.status = 'SUCCESS'
               ), 0)::bigint AS "paidAmount"
-            FROM "WithdrawalRequest" wr
-            INNER JOIN "User" u ON u.id = wr."userId"
-            WHERE u.role IN ('LISTER', 'RENTER')
+            FROM "WalletTransaction" wt
+            INNER JOIN "Wallet" w ON w.id = wt."walletId"
+            INNER JOIN "User" u ON u.id = w."userId"
+            INNER JOIN "Order" o ON o.id = wt."orderId"
+            WHERE wt.amount > 0
+              AND wt."createdAt" >= ${periodFrom}
+              AND wt."createdAt" < ${periodTo}
+              AND (
+                o."userId" = u.id
+                OR EXISTS (
+                  SELECT 1
+                  FROM "OrderLister" ol
+                  WHERE ol."orderId" = o.id
+                    AND ol."listerId" = u.id
+                )
+                OR EXISTS (
+                  SELECT 1
+                  FROM "Escrow" e
+                  WHERE e."orderId" = o.id
+                    AND e."listerId" = u.id
+                )
+              )
               AND u.id <> ${stagingCuratorId}
               AND u.email NOT ILIKE '%mailtrap%'
               AND u.email NOT ILIKE '%@example.com'
               AND u.email NOT ILIKE 'test@%'
               AND u.email NOT ILIKE '%@test.%'
-              AND (
-                LOWER(wr.status) IN ('pending', 'approved')
-                OR
-                (LOWER(wr.status) = 'paid'
-                  AND COALESCE(wr."paidDate", wr."updatedAt") >= ${periodFrom}
-                  AND COALESCE(wr."paidDate", wr."updatedAt") < ${periodTo})
-              )
-            GROUP BY u.role
+              AND wt.status IN ('PENDING', 'SUCCESS')
+            GROUP BY role
           `),
         ]);
       const pendingPayouts = { listers: 0, renters: 0 };

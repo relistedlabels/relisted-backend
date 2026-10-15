@@ -38,14 +38,15 @@ describe('resale shipment bucketing helpers', () => {
   });
 
   it('resolveNextReturnPickupWindow rolls forward when checkout window passed', () => {
+    const reference = new Date('2099-01-01T08:00:00.000Z');
     const pastStart = new Date('2020-01-01T08:00:00+01:00');
     const pastEnd = new Date('2020-01-01T09:00:00+01:00');
-    const { window, rescheduled } = resolveNextReturnPickupWindow(new Date(), {
+    const { window, rescheduled } = resolveNextReturnPickupWindow(reference, {
       start: pastStart,
       end: pastEnd,
     });
     expect(rescheduled).toBe(true);
-    expect(window.end.getTime()).toBeGreaterThan(Date.now());
+    expect(window.end.getTime()).toBeGreaterThan(reference.getTime());
     expect(differenceInMinutes(window.end, window.start)).toBe(
       DEFAULT_DISPATCH_WINDOW_MINUTES,
     );
