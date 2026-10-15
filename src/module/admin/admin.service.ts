@@ -2679,7 +2679,10 @@ export class AdminService {
               AND u.email NOT ILIKE 'test@%'
               AND u.email NOT ILIKE '%@test.%'
               AND wt.status IN ('PENDING', 'SUCCESS')
-            GROUP BY role
+            GROUP BY CASE
+              WHEN o."userId" = u.id THEN 'RENTER'
+              ELSE 'LISTER'
+            END
           `),
         ]);
       const pendingPayouts = { listers: 0, renters: 0 };
