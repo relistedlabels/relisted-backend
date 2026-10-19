@@ -97,7 +97,7 @@ describe('availability-request-expiry.util', () => {
   });
 
   it('blocks approve when outbound window has passed', () => {
-    const now = new Date();
+    const now = new Date('2026-09-10T12:00:00Z');
     const request = {
       status: 'PENDING',
       rentalDays: 1,
