@@ -164,7 +164,9 @@ describe('AdminService', () => {
         .mockResolvedValue({ _sum: { platformFeeAmount: 0 } });
 
       const result = await service.getWalletStats();
-      const escrowQuery = mockPrisma.$queryRaw.mock.calls[0][0];
+      const escrowQuery = mockPrisma.$queryRaw.mock.calls.find(
+        ([query]: [{ sql: string }]) => query.sql.includes('AS total'),
+      )?.[0];
 
       expect(escrowQuery.sql).toContain('e."rentalAmount"');
       expect(escrowQuery.sql).not.toContain('e."collateralAmount"');
@@ -177,7 +179,7 @@ describe('AdminService', () => {
       );
     });
 
-    it('classifies order-linked pending and paid payouts by order role', async () => {
+    it('counts outstanding withdrawal requests by user role', async () => {
       mockPrisma.wallet.aggregate.mockResolvedValue({
         _sum: { mainBalance: 0, collateralBalance: 0 },
       });
@@ -185,7 +187,12 @@ describe('AdminService', () => {
         .fn()
         .mockImplementation((query: { sql: string }) =>
           Promise.resolve(
-            query.sql.includes('AS total')
+            query.sql.includes('WithdrawalRequest')
+              ? [
+                  { role: 'LISTER', amount: 500n },
+                  { role: 'RENTER', amount: 200n },
+                ]
+              : query.sql.includes('AS total')
               ? [{ total: 0n }]
               : [
                   { role: 'LISTER', pendingAmount: 500n, paidAmount: 1000n },
@@ -228,6 +235,10 @@ describe('AdminService', () => {
           paidPayouts: { listers: 1000, renters: 85000 },
         }),
       );
+      expect(result.data.pendingPayouts).toEqual({
+        listers: 500,
+        renters: 200,
+      });
       expect(result.data.previousPeriod).toEqual(
         expect.objectContaining({
           grossOrderValue: 1000,
@@ -237,14 +248,32 @@ describe('AdminService', () => {
           paidPayouts: { listers: 1000, renters: 85000 },
         }),
       );
-      const payoutQuery = mockPrisma.$queryRaw.mock.calls[1][0].sql;
+      const payoutQuery = mockPrisma.$queryRaw.mock.calls.find(
+        ([query]: [{ sql: string }]) => query.sql.includes('"WalletTransaction"'),
+      )?.[0].sql;
       expect(payoutQuery).toContain('INNER JOIN "Order" o');
+      expect(payoutQuery).toContain('INNER JOIN "User" renter');
+      expect(payoutQuery).toContain('o."createdAt" >= ');
+      expect(payoutQuery).toContain("o.status NOT IN ('CANCELLED', 'REJECTED')");
       expect(payoutQuery).toContain('o."userId" = u.id');
       expect(payoutQuery).toContain('"OrderLister"');
       expect(payoutQuery).toContain('"Escrow"');
+      expect(payoutQuery).toContain(
+        `GROUP BY CASE
+              WHEN o."userId" = u.id THEN 'RENTER'
+              ELSE 'LISTER'
+            END`,
+      );
+      expect(payoutQuery).not.toMatch(/GROUP BY role\b/);
+      expect(payoutQuery).not.toContain('wt."createdAt"');
       expect(payoutQuery).not.toContain('u.role');
-      expect(payoutQuery).not.toContain('"WithdrawalRequest"');
-      expect(mockPrisma.$queryRaw.mock.calls).toHaveLength(3);
+      const withdrawalQuery = mockPrisma.$queryRaw.mock.calls.find(
+        ([query]: [{ sql: string }]) =>
+          query.sql.includes('"WithdrawalRequest"'),
+      )?.[0].sql;
+      expect(withdrawalQuery).toContain("LOWER(wr.status) IN ('pending', 'approved')");
+      expect(withdrawalQuery).not.toContain('createdAt');
+      expect(mockPrisma.$queryRaw.mock.calls).toHaveLength(4);
     });
   });
 
