@@ -2504,6 +2504,9 @@ export class AdminService {
 
     const [
       walletSums,
+      listerWalletSums,
+      renterWalletSums,
+      pendingWithdrawalRows,
       escrowLockedRows,
       releasedToListers,
       serviceFeeSum,
@@ -2514,6 +2517,29 @@ export class AdminService {
         where: { user: walletUserWhere },
         _sum: { mainBalance: true, collateralBalance: true },
       }),
+      this.prisma.wallet.aggregate({
+        where: { user: { ...walletUserWhere, role: Role.LISTER } },
+        _sum: { mainBalance: true },
+      }),
+      this.prisma.wallet.aggregate({
+        where: { user: { ...walletUserWhere, role: Role.RENTER } },
+        _sum: { mainBalance: true },
+      }),
+      this.prisma.$queryRaw<
+        Array<{ role: string; amount: bigint }>
+      >(Prisma.sql`
+        SELECT u.role, COALESCE(SUM(wr.amount), 0)::bigint AS amount
+        FROM "WithdrawalRequest" wr
+        INNER JOIN "User" u ON u.id = wr."userId"
+        WHERE LOWER(wr.status) IN ('pending', 'approved')
+          AND u.role IN ('RENTER', 'LISTER')
+          AND u.id <> ${stagingCuratorId}
+          AND u.email NOT ILIKE '%mailtrap%'
+          AND u.email NOT ILIKE '%@example.com'
+          AND u.email NOT ILIKE 'test@%'
+          AND u.email NOT ILIKE '%@test.%'
+        GROUP BY u.role
+      `),
       this.prisma.$queryRaw<Array<{ total: bigint }>>(
         Prisma.sql`
           SELECT COALESCE(SUM(
@@ -2655,9 +2681,18 @@ export class AdminService {
             INNER JOIN "Wallet" w ON w.id = wt."walletId"
             INNER JOIN "User" u ON u.id = w."userId"
             INNER JOIN "Order" o ON o.id = wt."orderId"
+            INNER JOIN "User" renter ON renter.id = o."userId"
             WHERE wt.amount > 0
-              AND wt."createdAt" >= ${periodFrom}
-              AND wt."createdAt" < ${periodTo}
+              AND o."createdAt" >= ${periodFrom}
+              AND o."createdAt" < ${periodTo}
+              AND o."createdAt" >= ${cutoff}
+              AND o.status NOT IN ('CANCELLED', 'REJECTED')
+              AND renter.role IN ('RENTER', 'LISTER')
+              AND renter.id <> ${stagingCuratorId}
+              AND renter.email NOT ILIKE '%mailtrap%'
+              AND renter.email NOT ILIKE '%@example.com'
+              AND renter.email NOT ILIKE 'test@%'
+              AND renter.email NOT ILIKE '%@test.%'
               AND (
                 o."userId" = u.id
                 OR EXISTS (
@@ -2719,6 +2754,19 @@ export class AdminService {
       success: true,
       data: {
         totalWalletBalance: walletSums._sum.mainBalance || 0,
+        walletBalanceByRole: {
+          listers: listerWalletSums._sum.mainBalance || 0,
+          renters: renterWalletSums._sum.mainBalance || 0,
+        },
+        pendingPayouts: pendingWithdrawalRows.reduce(
+          (totals, row) => {
+            const role = row.role.toLowerCase();
+            if (role === 'lister') totals.listers = Number(row.amount);
+            if (role === 'renter') totals.renters = Number(row.amount);
+            return totals;
+          },
+          { listers: 0, renters: 0 },
+        ),
         totalEscrowBalance: totalEscrowLocked,
         /** Renter collateral is held in wallet balances and excluded from escrow total. */
         totalCollateralLocked,
@@ -2755,9 +2803,29 @@ export class AdminService {
     };
   }
 
-  async getAllWallets(page: number, limit: number, search?: string) {
+  async getAllWallets(
+    page: number,
+    limit: number,
+    search?: string,
+    sortBy?: string,
+    sortOrder?: string,
+  ) {
     const skip = (page - 1) * limit;
     const where: Prisma.WalletWhereInput = {};
+    const direction: Prisma.SortOrder =
+      sortOrder?.toLowerCase() === 'asc' ? 'asc' : 'desc';
+    const orderBy: Prisma.WalletOrderByWithRelationInput =
+      sortBy === 'availableBalance'
+        ? { availableBalance: direction }
+        : sortBy === 'mainBalance'
+          ? { mainBalance: direction }
+          : sortBy === 'collateralBalance'
+            ? { collateralBalance: direction }
+            : sortBy === 'createdAt'
+              ? { createdAt: direction }
+              : sortBy === 'userName'
+                ? { user: { name: direction } }
+                : { updatedAt: 'desc' };
 
     const trimmedSearch = search?.trim();
     if (trimmedSearch) {
@@ -2775,7 +2843,7 @@ export class AdminService {
         where,
         skip,
         take: limit,
-        orderBy: { updatedAt: 'desc' },
+        orderBy,
         include: {
           user: {
             select: {

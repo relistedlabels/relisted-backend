@@ -40,11 +40,15 @@ export class AdminWalletsController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('search') search?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortOrder') sortOrder?: string,
   ) {
     return this.adminService.getAllWallets(
       page ? parseInt(page, 10) : 1,
       limit ? parseInt(limit, 10) : 20,
       search,
+      sortBy,
+      sortOrder,
     );
   }
 
