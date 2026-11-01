@@ -854,6 +854,228 @@ export class MailService {
     });
   }
 
+  async sendAdminShipmentBookedAlert(dto: {
+    to: string;
+    humanOrderId: string;
+    legLabel: string;
+    renterName?: string;
+    renterEmail?: string;
+    productNames?: string[];
+    trackingUrl?: string;
+    trackingId?: string;
+    adminShipmentUrl?: string;
+  }) {
+    const {
+      to,
+      humanOrderId,
+      legLabel,
+      renterName,
+      renterEmail,
+      productNames,
+      trackingUrl,
+      trackingId,
+      adminShipmentUrl,
+    } = dto;
+    const safe = (s: string) => s.replace(/</g, '');
+    const itemLabel =
+      !productNames || productNames.length === 0
+        ? 'Item not linked yet'
+        : productNames.length === 1
+          ? safe(productNames[0])
+          : safe(productNames.join(', '));
+
+    console.log(
+      `[EMAIL] Sending admin shipment booked alert to ${to} for order ${humanOrderId} (${legLabel})`,
+    );
+
+    const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f6f7fb;padding:24px;">
+  <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
+    <div style="padding:18px 20px;background:#059669;color:#ffffff;">
+      <div style="font-size:14px;opacity:0.9;">Relisted Admin</div>
+      <div style="font-size:18px;font-weight:700;margin-top:6px;">Shipment booked with carrier</div>
+    </div>
+    <div style="padding:20px;">
+      <p style="margin:0 0 16px;color:#374151;">A shipment leg was booked successfully with the carrier.</p>
+      <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
+        <div style="color:#111827;word-break:break-word;overflow-wrap:anywhere;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Order</div>
+            <div style="font-weight:600;">${safe(humanOrderId)}</div>
+          </div>
+          <div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Leg</div>
+            <div style="font-weight:600;">${safe(legLabel)}</div>
+          </div>
+          <div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Item</div>
+            <div style="font-weight:600;">${itemLabel}</div>
+          </div>
+          ${
+            renterName || renterEmail
+              ? `<div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Renter</div>
+            ${renterName ? `<div style="font-weight:600;">${safe(renterName)}</div>` : ''}
+            ${renterEmail ? `<div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(renterEmail)}</div>` : ''}
+          </div>`
+              : ''
+          }
+          ${
+            trackingId
+              ? `<div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Tracking number</div>
+            <div style="font-weight:600;">${safe(trackingId)}</div>
+          </div>`
+              : ''
+          }
+        </div>
+      </div>
+      ${
+        adminShipmentUrl || trackingUrl
+          ? this.buildEmailButtonRow(
+              [
+                ...(adminShipmentUrl
+                  ? [{ href: adminShipmentUrl, label: 'View in Admin' }]
+                  : []),
+                ...(trackingUrl
+                  ? [
+                      {
+                        href: trackingUrl,
+                        label: 'Carrier tracking',
+                        background: '#2563eb',
+                      },
+                    ]
+                  : []),
+              ],
+              '18px 0 0',
+            )
+          : ''
+      }
+    </div>
+  </div>
+</div>`;
+
+    if (this.devBypass) {
+      await this.handleDevBypassHtml(
+        `Shipment booked: order ${humanOrderId}`,
+        html,
+        to,
+      );
+      return;
+    }
+
+    await this.deliverMail({
+      to,
+      subject: `Shipment booked: order ${humanOrderId}`,
+      html,
+    });
+  }
+
+  async sendAdminShipmentDeliveredAlert(dto: {
+    to: string;
+    humanOrderId: string;
+    legLabel: string;
+    renterName?: string;
+    renterEmail?: string;
+    productNames?: string[];
+    trackingUrl?: string;
+    adminShipmentUrl?: string;
+  }) {
+    const {
+      to,
+      humanOrderId,
+      legLabel,
+      renterName,
+      renterEmail,
+      productNames,
+      trackingUrl,
+      adminShipmentUrl,
+    } = dto;
+    const safe = (s: string) => s.replace(/</g, '');
+    const itemLabel =
+      !productNames || productNames.length === 0
+        ? 'Item not linked yet'
+        : productNames.length === 1
+          ? safe(productNames[0])
+          : safe(productNames.join(', '));
+
+    console.log(
+      `[EMAIL] Sending admin shipment delivered alert to ${to} for order ${humanOrderId} (${legLabel})`,
+    );
+
+    const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f6f7fb;padding:24px;">
+  <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e6e8ef;border-radius:12px;overflow:hidden;">
+    <div style="padding:18px 20px;background:#059669;color:#ffffff;">
+      <div style="font-size:14px;opacity:0.9;">Relisted Admin</div>
+      <div style="font-size:18px;font-weight:700;margin-top:6px;">Shipment delivered</div>
+    </div>
+    <div style="padding:20px;">
+      <p style="margin:0 0 16px;color:#374151;">Carrier tracking shows this shipment leg was delivered.</p>
+      <div style="border:1px solid #eef0f5;border-radius:10px;padding:14px 16px;background:#fbfbfe;">
+        <div style="color:#111827;word-break:break-word;overflow-wrap:anywhere;">
+          <div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Order</div>
+            <div style="font-weight:600;">${safe(humanOrderId)}</div>
+          </div>
+          <div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Leg</div>
+            <div style="font-weight:600;">${safe(legLabel)}</div>
+          </div>
+          <div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Item</div>
+            <div style="font-weight:600;">${itemLabel}</div>
+          </div>
+          ${
+            renterName || renterEmail
+              ? `<div style="margin:0 0 12px 0;max-width:100%;">
+            <div style="font-size:12px;color:#6b7280;">Renter</div>
+            ${renterName ? `<div style="font-weight:600;">${safe(renterName)}</div>` : ''}
+            ${renterEmail ? `<div style="font-size:13px;color:#6b7280;margin-top:4px;">${safe(renterEmail)}</div>` : ''}
+          </div>`
+              : ''
+          }
+        </div>
+      </div>
+      ${
+        adminShipmentUrl || trackingUrl
+          ? this.buildEmailButtonRow(
+              [
+                ...(adminShipmentUrl
+                  ? [{ href: adminShipmentUrl, label: 'View in Admin' }]
+                  : []),
+                ...(trackingUrl
+                  ? [
+                      {
+                        href: trackingUrl,
+                        label: 'Carrier tracking',
+                        background: '#2563eb',
+                      },
+                    ]
+                  : []),
+              ],
+              '18px 0 0',
+            )
+          : ''
+      }
+    </div>
+  </div>
+</div>`;
+
+    if (this.devBypass) {
+      await this.handleDevBypassHtml(
+        `Shipment delivered: order ${humanOrderId}`,
+        html,
+        to,
+      );
+      return;
+    }
+
+    await this.deliverMail({
+      to,
+      subject: `Shipment delivered: order ${humanOrderId}`,
+      html,
+    });
+  }
+
   async sendAdminManualFulfillmentShipmentAlert(dto: {
     to: string;
     humanOrderId: string;

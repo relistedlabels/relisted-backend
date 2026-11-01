@@ -15,6 +15,7 @@ import { buildShippingEmailTrackingFields } from 'src/module/shipment/shipment-t
 import { shipmentLegLabel } from 'src/module/shipment/shipment-leg-label.util';
 import { returnRequestExistsForShipment } from 'src/module/order/return-request-leg.util';
 import { notifyListerOfDispatchBooking } from 'src/module/shipment/shipment-lister-dispatch-booked';
+import { notifyAdminsShipmentBooked } from 'src/module/shipment/notify-admins-shipment-milestone.util';
 
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAYS_MS = [
@@ -182,6 +183,14 @@ export class ShipmentDispatchProcessor {
       );
 
       await this.sendDispatchNotification(shipment as any, result);
+
+      try {
+        await this.notifyAdminsOfSuccessfulBooking(shipment as any, result);
+      } catch (adminErr: any) {
+        this.logger.warn(
+          `[Worker] Admin booked alert failed for shipment ${shipmentId}: ${adminErr?.message ?? adminErr}`,
+        );
+      }
 
       try {
         await syncOrderStatusFromShipments(this.prisma, shipment.orderId);
@@ -377,6 +386,45 @@ export class ShipmentDispatchProcessor {
         );
       }
     }
+  }
+
+  private async notifyAdminsOfSuccessfulBooking(shipment: any, result: any) {
+    const humanOrderId = shipment.order?.orderId ?? 'Unknown order';
+    const legLabel = shipmentLegLabel(shipment.type);
+    const renterName = shipment.order?.user?.name?.trim() || undefined;
+    const renterEmail = shipment.order?.user?.email?.trim() || undefined;
+    const productNames: string[] = [
+      ...new Set<string>(
+        (shipment.order?.orderItems ?? [])
+          .map((row: any) => row?.product?.name?.trim())
+          .filter((name: any) => Boolean(name)),
+      ),
+    ];
+    const trackingFields = buildShippingEmailTrackingFields(
+      {
+        pricingTier: shipment.pricingTier,
+        providerTrackingUrl: result.providerTrackingUrl,
+        trackingId: result.trackingId,
+        providerShipmentId: result.providerShipmentId,
+      },
+      { trackingNumber: result.trackingId ?? undefined },
+    );
+
+    await notifyAdminsShipmentBooked(
+      this.prisma,
+      this.notification,
+      this.mail,
+      {
+        shipmentId: shipment.id,
+        humanOrderId,
+        legLabel,
+        renterName,
+        renterEmail,
+        productNames,
+        trackingUrl: trackingFields.trackingUrl ?? result.providerTrackingUrl,
+        trackingId: result.trackingId ?? undefined,
+      },
+    );
   }
 
   private async notifyAdminOfFailure(shipment: any, errorMessage: string) {

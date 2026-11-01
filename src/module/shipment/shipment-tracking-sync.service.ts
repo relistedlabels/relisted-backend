@@ -11,6 +11,7 @@ import { shipmentLegLabel } from 'src/module/shipment/shipment-leg-label.util';
 import { productNamesFromManualShipment } from 'src/module/shipment/manual-fulfillment-email.util';
 import { notifyListersForReturnLeg } from './shipment-lister-return-notifications';
 import { sendShipmentLegStatusNotification } from './shipment-status-notifications';
+import { notifyAdminsShipmentDelivered } from './notify-admins-shipment-milestone.util';
 import {
   buildShippingEmailTrackingFields,
   getShippingProviderDisplayName,
@@ -268,6 +269,47 @@ export class ShipmentTrackingSyncService {
         'COMPLETED',
       );
     }
+
+    if (newStatus === 'COMPLETED') {
+      try {
+        await this.notifyAdminsOfDelivery(shipment);
+      } catch (adminErr: unknown) {
+        const msg =
+          adminErr instanceof Error ? adminErr.message : String(adminErr);
+        this.logger.warn(
+          `Admin delivered alert failed for shipment ${shipment.id}: ${msg}`,
+        );
+      }
+    }
+  }
+
+  private async notifyAdminsOfDelivery(
+    shipment: ShipmentTrackingPollRow,
+  ): Promise<void> {
+    const order = shipment.order;
+    const humanOrderId = order?.orderId ?? 'Unknown order';
+    const legLabel = shipmentLegLabel(shipment.type);
+    const productNames = productNamesFromManualShipment(shipment);
+    const renterName = order?.user?.name?.trim() || undefined;
+    const renterEmail = order?.user?.email?.trim() || undefined;
+    const trackingUrl =
+      shipment.providerTrackingUrl ??
+      buildShippingEmailTrackingFields(shipment).trackingUrl;
+
+    await notifyAdminsShipmentDelivered(
+      this.prisma,
+      this.notification,
+      this.mail,
+      {
+        shipmentId: shipment.id,
+        humanOrderId,
+        legLabel,
+        renterName,
+        renterEmail,
+        productNames,
+        trackingUrl: trackingUrl ?? undefined,
+      },
+    );
   }
 
   private async notifyAdminOfProviderCancellation(
