@@ -7,10 +7,12 @@ import { ShipbubbleModule } from 'src/services/shipbubble/shipbubble.module';
 import { TshipModule } from 'src/services/tship/tship.module';
 import { TopshipModule } from 'src/services/topship/topship.module';
 import { NotificationModule } from 'src/services/notification/notification.module';
+import { SiteFeaturesModule } from '../site-features/site-features.module';
 
 @Global()
 @Module({
   imports: [
+    SiteFeaturesModule,
     TopshipModule,
     ChowdeckRelayModule,
     ShipbubbleModule,

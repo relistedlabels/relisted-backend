@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="x-apple-disable-message-reformatting" />
+  <title>{{headline}} - Relisted</title>
+  <!--[if mso]><style type="text/css">body, table, td { font-family: Arial, sans-serif !important; }</style><![endif]-->
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background-color: #f5f5f5;
+      color: #111;
+      padding: 24px;
+      line-height: 1.55;
+    }
+    .preheader {
+      display: none !important;
+      visibility: hidden;
+      opacity: 0;
+      color: transparent;
+      height: 0;
+      width: 0;
+      max-height: 0;
+      max-width: 0;
+      overflow: hidden;
+      mso-hide: all;
+    }
+    .wrapper {
+      max-width: 520px;
+      margin: 0 auto;
+      background: #ffffff;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .header {
+      background: #0a0a0a;
+      color: #fff;
+      padding: 28px 24px 24px;
+      text-align: left;
+    }
+    .eyebrow {
+      margin: 0 0 12px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.55);
+    }
+    .headline {
+      margin: 0;
+      font-family: Georgia, 'Times New Roman', Times, serif;
+      font-size: 1.625rem;
+      font-weight: 400;
+      line-height: 1.15;
+      color: #fff;
+    }
+    .content {
+      padding: 28px 24px 32px;
+    }
+    .content p {
+      margin: 0 0 16px;
+      color: #333;
+      font-size: 15px;
+    }
+    .signoff {
+      margin: 24px 0 0;
+      padding-top: 20px;
+      border-top: 1px solid #eee;
+    }
+    .signoff-title {
+      margin: 0 0 8px;
+      font-family: Georgia, 'Times New Roman', Times, serif;
+      font-size: 1.0625rem;
+      color: #111;
+    }
+    .signoff-team {
+      margin: 0;
+      font-size: 13px;
+      color: #777;
+      line-height: 1.5;
+    }
+    .btn-wrap {
+      text-align: center;
+      margin-top: 8px;
+    }
+    .btn {
+      display: inline-block;
+      width: 100%;
+      max-width: 280px;
+      margin: 8px 0 0;
+      padding: 14px 24px;
+      background: #0a0a0a;
+      color: #fff !important;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 1rem;
+      text-align: center;
+      border-radius: 999px;
+    }
+    .footer {
+      padding: 20px 24px;
+      font-size: 0.75rem;
+      color: #888;
+      text-align: center;
+      border-top: 1px solid #eee;
+    }
+  </style>
+</head>
+<body>
+  <div class="preheader">{{preheader}}</div>
+  <div class="wrapper">
+    <div class="header">
+      <p class="eyebrow">{{eyebrow}}</p>
+      <h1 class="headline">{{headline}}</h1>
+    </div>
+    <div class="content">
+      <p>{{paragraphOne}}</p>
+      <p>{{paragraphTwo}}</p>
+      <div class="signoff">
+        <p class="signoff-title">{{signOff}}</p>
+        <p class="signoff-team">{{teamLineOne}}<br />{{teamLineTwo}}</p>
+      </div>
+      <div class="btn-wrap">
+        <a href="{{shopUrl}}" class="btn">{{ctaLabel}}</a>
+      </div>
+    </div>
+    <div class="footer">
+      © {{currentYear}} Relisted. All rights reserved.<br />
+      Buy. Sell. Relist with confidence.
+    </div>
+  </div>
+</body>
+</html>

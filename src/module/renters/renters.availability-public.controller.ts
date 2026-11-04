@@ -12,12 +12,14 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RentersService } from './renters.service';
 import { GuestAvailabilityRequestDto } from './dto/guest-availability-request.dto';
 import { JwtAuthGuard } from '../auth/guard/authGuard';
+import { OperationsPauseGuard } from '../site-features/operations-pause.guard';
 
 @ApiTags('Public Availability')
 @Controller('api/public/availability-requests')
 export class RentersAvailabilityPublicController {
   constructor(private readonly rentersService: RentersService) {}
 
+  @UseGuards(OperationsPauseGuard)
   @Post()
   @ApiOperation({ summary: 'Guest availability check (name, email, WhatsApp)' })
   createGuestRequest(@Body() dto: GuestAvailabilityRequestDto) {

@@ -6,7 +6,9 @@ import {
   Patch,
   Param,
   Delete,
+  UseGuards,
 } from '@nestjs/common';
+import { OperationsPauseGuard } from '../site-features/operations-pause.guard';
 import { CartService } from './cart-items.service';
 import { CreateCartItemDto } from './dto/create-cart-item.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
@@ -33,6 +35,7 @@ export class CartItemsController {
    * Add an item to the cart
    */
   @Auth()
+  @UseGuards(OperationsPauseGuard)
   @Post('item')
   @ApiOperation({ summary: 'Add an item to the cart' })
   @ApiBody({ type: CreateCartItemDto })
@@ -160,6 +163,7 @@ export class CartItemsController {
    * Request/re-request availability for a cart item
    */
   @Auth()
+  @UseGuards(OperationsPauseGuard)
   @Post(':id/request')
   @ApiOperation({ summary: 'Request availability for a cart item' })
   @ApiParam({ name: 'id', description: 'Cart item ID', example: 'uuid' })
