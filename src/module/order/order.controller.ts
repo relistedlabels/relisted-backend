@@ -7,7 +7,9 @@ import {
   Param,
   Delete,
   Query,
+  UseGuards,
 } from '@nestjs/common';
+import { OperationsPauseGuard } from '../site-features/operations-pause.guard';
 import { OrderService } from './order.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
@@ -47,12 +49,14 @@ export class OrderController {
   }
 
   @Auth()
+  @UseGuards(OperationsPauseGuard)
   @Post()
   create(@AuthUser() user: userEntity, @Body() dto: CreateOrderDto) {
     return this.orderService.checkout(user, dto);
   }
 
   @Auth()
+  @UseGuards(OperationsPauseGuard)
   @Post('resale/confirm')
   confirmResaleOrder(
     @AuthUser() user: userEntity,
@@ -63,6 +67,7 @@ export class OrderController {
   }
 
   @Auth()
+  @UseGuards(OperationsPauseGuard)
   @Post('rental/confirm')
   confirmRentalOrder(
     @AuthUser() user: userEntity,

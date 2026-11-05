@@ -22,7 +22,9 @@ import { HandlebarsAdapter } from '@nestjs-modules/mailer/adapters/handlebars.ad
           : undefined,
       },
       defaults: {
-        from: process.env.MAIL_DEFAULT || 'Relisted <noreply@relisted.com>',
+        from:
+          process.env.MAIL_DEFAULT ||
+          'Relisted <no-reply@relistedlabels.com>',
       },
       template: {
         dir: join(process.cwd(), './src/services/mail/templates'),

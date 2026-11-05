@@ -20,9 +20,11 @@ import { CartItemsModule } from '../cart-items/cart-items.module';
 import { AuthOtpTokenModule } from '../../services/auth-otp-token/auth-otp-token.module';
 import { AuthModule } from '../auth/auth.module';
 import { RentersAvailabilityPublicController } from './renters.availability-public.controller';
+import { SiteFeaturesModule } from '../site-features/site-features.module';
 
 @Module({
   imports: [
+    SiteFeaturesModule,
     PrismaModule,
     UploadModule,
     BullModule.registerQueue({ name: 'shipment-dispatch' }),

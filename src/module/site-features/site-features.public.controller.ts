@@ -10,11 +10,13 @@ export class SiteFeaturesPublicController {
   @Get()
   @ApiOperation({ summary: 'Public site feature flags (no auth)' })
   async getPublicSiteFeatures() {
-    const headerClosetsShopNavEnabled =
-      await this.siteFeatures.getHeaderClosetsShopNavEnabled();
+    const [headerClosetsShopNavEnabled, operationsPause] = await Promise.all([
+      this.siteFeatures.getHeaderClosetsShopNavEnabled(),
+      this.siteFeatures.getOperationsPause(),
+    ]);
     return {
       success: true as const,
-      data: { headerClosetsShopNavEnabled },
+      data: { headerClosetsShopNavEnabled, operationsPause },
     };
   }
 }
