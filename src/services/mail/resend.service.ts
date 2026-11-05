@@ -17,7 +17,8 @@ export class ResendService {
     const apiKey = process.env.RESEND_API_KEY?.trim();
     this.client = apiKey ? new Resend(apiKey) : null;
     this.from =
-      process.env.MAIL_DEFAULT?.trim() || 'Relisted <onboarding@resend.dev>';
+      process.env.MAIL_DEFAULT?.trim() ||
+      'Relisted <no-reply@relistedlabels.com>';
 
     if (this.client) {
       this.logger.log('Resend email transport enabled');

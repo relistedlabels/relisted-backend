@@ -42,7 +42,7 @@ export function buildOperationsPauseAnnouncementEmailContext(options?: {
     process.env.APP_URL?.trim() ||
     'https://www.relisted.com/shop';
 
-  const preheader = `Rentals and purchases pause from ${closedFromLabel} until ${resumeLabel}. Browse and list anytime.`;
+  const preheader = `Rentals and purchases pause from ${closedFromLabel} until ${resumeLabel}. Browse, save favorites, and list anytime.`;
 
   return {
     shopUrl,
@@ -52,8 +52,8 @@ export function buildOperationsPauseAnnouncementEmailContext(options?: {
     eyebrow: 'An important update from Relisted Labels',
     headline: 'Closed for the holidays',
     paragraphOne:
-      'After a full year with our community, we are taking a holiday break.',
-    paragraphTwo: `Rentals and purchases pause from ${closedFromLabel} through ${resumeLabel}. You can still explore the shop and list from your wardrobe.`,
+      'Thank you for being part of our community this year. After a full year together, we are taking a holiday break.',
+    paragraphTwo: `Rentals and purchases pause from ${closedFromLabel} through ${resumeLabel}. You can still explore the shop, save favorites, and list from your wardrobe.`,
     signOff: 'Happy holidays. See you in the new year.',
     teamLineOne: 'With love,',
     teamLineTwo: 'the Relisted Labels team',

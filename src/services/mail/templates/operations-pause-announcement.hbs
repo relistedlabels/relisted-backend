@@ -1,21 +1,28 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
   <meta name="x-apple-disable-message-reformatting" />
+  <meta name="color-scheme" content="light only" />
+  <meta name="supported-color-schemes" content="light only" />
   <title>{{headline}} - Relisted</title>
-  <!--[if mso]><style type="text/css">body, table, td { font-family: Arial, sans-serif !important; }</style><![endif]-->
-  <style>
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-      background-color: #f5f5f5;
-      color: #111;
-      padding: 24px;
-      line-height: 1.55;
-    }
+  <!--[if mso]>
+  <noscript>
+    <xml>
+      <o:OfficeDocumentSettings>
+        <o:PixelsPerInch>96</o:PixelsPerInch>
+      </o:OfficeDocumentSettings>
+    </xml>
+  </noscript>
+  <![endif]-->
+  <style type="text/css">
+    body, table, td, p, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+    table, td { mso-table-lspace: 0; mso-table-rspace: 0; border-collapse: collapse; }
+    img { border: 0; outline: none; text-decoration: none; }
+    body { margin: 0 !important; padding: 0 !important; width: 100% !important; }
+    a { text-decoration: none; }
     .preheader {
       display: none !important;
       visibility: hidden;
@@ -27,111 +34,81 @@
       max-width: 0;
       overflow: hidden;
       mso-hide: all;
+      line-height: 1px;
+      font-size: 1px;
     }
-    .wrapper {
-      max-width: 520px;
-      margin: 0 auto;
-      background: #ffffff;
-      border-radius: 12px;
-      overflow: hidden;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-    }
-    .header {
-      background: #0a0a0a;
-      color: #fff;
-      padding: 28px 24px 24px;
-      text-align: left;
-    }
-    .eyebrow {
-      margin: 0 0 12px;
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.2em;
-      text-transform: uppercase;
-      color: rgba(255,255,255,0.55);
-    }
-    .headline {
-      margin: 0;
-      font-family: Georgia, 'Times New Roman', Times, serif;
-      font-size: 1.625rem;
-      font-weight: 400;
-      line-height: 1.15;
-      color: #fff;
-    }
-    .content {
-      padding: 28px 24px 32px;
-    }
-    .content p {
-      margin: 0 0 16px;
-      color: #333;
-      font-size: 15px;
-    }
-    .signoff {
-      margin: 24px 0 0;
-      padding-top: 20px;
-      border-top: 1px solid #eee;
-    }
-    .signoff-title {
-      margin: 0 0 8px;
-      font-family: Georgia, 'Times New Roman', Times, serif;
-      font-size: 1.0625rem;
-      color: #111;
-    }
-    .signoff-team {
-      margin: 0;
-      font-size: 13px;
-      color: #777;
-      line-height: 1.5;
-    }
-    .btn-wrap {
-      text-align: center;
-      margin-top: 8px;
-    }
-    .btn {
-      display: inline-block;
-      width: 100%;
-      max-width: 280px;
-      margin: 8px 0 0;
-      padding: 14px 24px;
-      background: #0a0a0a;
-      color: #fff !important;
-      text-decoration: none;
-      font-weight: 600;
-      font-size: 1rem;
-      text-align: center;
-      border-radius: 999px;
-    }
-    .footer {
-      padding: 20px 24px;
-      font-size: 0.75rem;
-      color: #888;
-      text-align: center;
-      border-top: 1px solid #eee;
+    @media (prefers-color-scheme: dark) {
+      .header-bg { background-color: #0a0a0a !important; }
+      .header-eyebrow { color: #a3a3a3 !important; }
+      .header-title { color: #ffffff !important; }
+      .card-bg { background-color: #fffffe !important; }
+      .body-text { color: #333333 !important; }
+      .signoff-title { color: #111111 !important; }
+      .signoff-team { color: #777777 !important; }
+      .footer-text { color: #888888 !important; }
+      .btn-cell { background-color: #0a0a0a !important; }
+      .btn-link { color: #ffffff !important; }
     }
   </style>
 </head>
-<body>
+<body style="margin:0;padding:0;background-color:#f5f5f5;">
   <div class="preheader">{{preheader}}</div>
-  <div class="wrapper">
-    <div class="header">
-      <p class="eyebrow">{{eyebrow}}</p>
-      <h1 class="headline">{{headline}}</h1>
-    </div>
-    <div class="content">
-      <p>{{paragraphOne}}</p>
-      <p>{{paragraphTwo}}</p>
-      <div class="signoff">
-        <p class="signoff-title">{{signOff}}</p>
-        <p class="signoff-team">{{teamLineOne}}<br />{{teamLineTwo}}</p>
-      </div>
-      <div class="btn-wrap">
-        <a href="{{shopUrl}}" class="btn">{{ctaLabel}}</a>
-      </div>
-    </div>
-    <div class="footer">
-      © {{currentYear}} Relisted. All rights reserved.<br />
-      Buy. Sell. Relist with confidence.
-    </div>
-  </div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#f5f5f5;">
+    <tr>
+      <td align="center" style="padding:24px 16px;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:520px;width:100%;">
+          <!-- Header -->
+          <tr>
+            <td class="header-bg" bgcolor="#0a0a0a" style="background-color:#0a0a0a;padding:28px 24px 24px;border-radius:12px 12px 0 0;">
+              <p class="header-eyebrow" style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:10px;font-weight:600;letter-spacing:0.2em;text-transform:uppercase;color:#a3a3a3;line-height:1.4;">{{eyebrow}}</p>
+              <p class="header-title" style="margin:0;font-family:Georgia,'Times New Roman',Times,serif;font-size:26px;font-weight:400;line-height:1.2;color:#ffffff;">{{headline}}</p>
+            </td>
+          </tr>
+          <!-- Body -->
+          <tr>
+            <td class="card-bg" bgcolor="#fffffe" style="background-color:#fffffe;padding:28px 24px 8px;">
+              <p class="body-text" style="margin:0 0 16px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#333333;">{{paragraphOne}}</p>
+              <p class="body-text" style="margin:0 0 16px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#333333;">{{paragraphTwo}}</p>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-top:8px;">
+                <tr>
+                  <td style="padding-top:16px;border-top:1px solid #eeeeee;">
+                    <p class="signoff-title" style="margin:0 0 8px;font-family:Georgia,'Times New Roman',Times,serif;font-size:17px;line-height:1.35;color:#111111;">{{signOff}}</p>
+                    <p class="signoff-team" style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.5;color:#777777;">{{teamLineOne}}<br />{{teamLineTwo}}</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <!-- CTA -->
+          <tr>
+            <td class="card-bg" bgcolor="#fffffe" style="background-color:#fffffe;padding:24px 24px 32px;" align="center">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center">
+                <tr>
+                  <td class="btn-cell" bgcolor="#0a0a0a" align="center" style="background-color:#0a0a0a;border-radius:999px;">
+                    <a class="btn-link" href="{{shopUrl}}" target="_blank" style="display:inline-block;padding:14px 32px;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:600;line-height:1.2;color:#ffffff;text-decoration:none;border-radius:999px;">{{ctaLabel}}</a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <!-- Footer -->
+          <tr>
+            <td class="card-bg" bgcolor="#fffffe" style="background-color:#fffffe;padding:0 24px 24px;border-radius:0 0 12px 12px;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                <tr>
+                  <td style="padding-top:20px;border-top:1px solid #eeeeee;" align="center">
+                    <p class="footer-text" style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;color:#888888;text-align:center;">
+                      © {{currentYear}} Relisted. All rights reserved.<br />
+                      Buy. Sell. Relist with confidence.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
 </body>
 </html>
